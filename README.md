@@ -1,2 +1,15 @@
-# ktc4-team-11
-카카오테크 캠퍼스 4기 2단계 팀 프로젝트 — 부산대 1팀
+# IRYA
+
+AI 기반 화상면접 지원 서비스
+
+## Repository Structure
+
+- frontend: Web Frontend
+- backend: API / Session / WebSocket / WebRTC
+- ai: STT / AI Pipeline
+- docs: API / Architecture / Convention
+- scripts: 공통 Script
+
+## Development
+
+각 파트의 세부 실행 방법은 해당 디렉터리의 README를 참고합니다.
