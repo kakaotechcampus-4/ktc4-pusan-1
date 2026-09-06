@@ -70,3 +70,10 @@ target/
 *.sqlite3
 *.db
 .terraform/
+
+# ── AI 모델 / 데이터셋 ──────────────────────────────
+*.pt
+*.pth
+*.onnx
+models/*
+!ai/models/.gitkeep
