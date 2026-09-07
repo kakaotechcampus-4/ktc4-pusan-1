@@ -10,6 +10,7 @@
 import { useRef, useState } from 'react';
 import { InterviewRoomView } from '../components/interview/InterviewRoomView';
 import { useInterviewRoom } from '../hooks/useInterviewRoom';
+import { usePermissionCheck } from '../hooks/usePermissionCheck';
 import type { EndSessionResponse } from '../types/interview';
 
 export interface InterviewRoomProps {
@@ -22,8 +23,21 @@ export interface InterviewRoomProps {
 export default function InterviewRoom({ interviewId, candidateName, onEnded }: InterviewRoomProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { error, leave } = useInterviewRoom({ interviewId, videoRef, audioRef });
+  // 권한 확인이 먼저다. 트랙이 준비되기 전에는 방에 접속하지 않는다.
+  const { status, videoTrack, audioTrack, release } = usePermissionCheck();
+  const { error, leave } = useInterviewRoom({
+    interviewId,
+    videoRef,
+    audioRef,
+    ready: status === 'granted',
+    videoTrack,
+    audioTrack,
+    onTracksPublished: release,
+  });
   const [ending, setEnding] = useState(false);
+
+  // 권한 실패 전용 화면은 #5 범위다. 지금은 코드만 노출한다.
+  const failure = status === 'granted' || status === 'requesting' ? null : `PERMISSION_${status}`;
 
   const handleEnd = async () => {
     setEnding(true);
@@ -39,9 +53,11 @@ export default function InterviewRoom({ interviewId, candidateName, onEnded }: I
       candidateName={candidateName}
       videoRef={videoRef}
       audioRef={audioRef}
-      error={error}
+      error={error ?? failure}
       ending={ending}
       onEnd={() => void handleEnd()}
+      localVideoTrack={videoTrack}
+      localAudioTrack={audioTrack}
     />
   );
 }
