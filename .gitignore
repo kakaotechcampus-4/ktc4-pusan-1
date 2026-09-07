@@ -77,3 +77,6 @@ target/
 *.onnx
 models/*
 !ai/models/.gitkeep
+
+# ── 에이전트 도구 로컬 상태 ────────────────────────
+.omc/
