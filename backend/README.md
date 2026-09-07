@@ -1,8 +1,42 @@
-# Backend
+# IRYA Backend
 
-REST API / Session / WebSocket / WebRTC directory.
+## Requirements
 
-세부 기술 스택 및 실행 방법은 개발 환경 확정 후 추가합니다.
+- Python 3.12
+- uv
 
-준영님 화이팅 해봅시다 !!
-많이 배우겠습니다 !
+## Install
+
+```bash
+uv sync
+```
+
+## Environment
+
+```bash
+cp .env.example .env
+```
+
+## Run
+
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+## Test
+
+```bash
+uv run pytest
+```
+
+## Lint
+
+```bash
+uv run ruff check .
+```
+
+## Format
+
+```bash
+uv run ruff format .
+```
