@@ -32,8 +32,11 @@ export function SuggestionPanel() {
         <span className="text-sm text-white/50">{suggestionsOpen ? '접기 ⌄' : '펼치기 ⌃'}</span>
       </button>
 
+      {/* 목록만 스크롤한다 — 헤더(접기)는 항상 눌릴 수 있어야 한다.
+          질문은 3개까지만 쌓이므로 보통은 스크롤이 생기지 않는다.
+          짧은 화면이나 질문이 길어 여러 줄로 감길 때를 위한 안전망이다. */}
       {suggestionsOpen && (
-        <div className="flex flex-col gap-2.5 px-5 pb-5">
+        <div className="flex max-h-[calc(100vh-11rem)] flex-col gap-2.5 overflow-y-auto px-5 pb-5">
           {suggestions.length === 0 && (
             <p className="text-[15px] text-white/45">지원자 답변이 끝나면 질문이 올라옵니다.</p>
           )}

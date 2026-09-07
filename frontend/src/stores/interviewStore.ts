@@ -86,12 +86,15 @@ export const useInterviewStore = create<InterviewState>((set) => ({
 
         // 추천 질문은 지원자 발화 종료 후에만 도착한다.
         // 면접관 발화에는 서버가 생성하지 않는다.
+        //
+        // 3개까지만 남긴다. 4개면 패널이 세로로 786px 까지 자라 768px 화면을
+        // 넘어가고, 마지막 질문의 버튼이 잘려 눌리지 않는다.
         case 'suggestion.created':
           return {
             suggestions: [
               ...s.suggestions,
               { id: e.id, text: e.text, reason: e.reason, atSec: e.at, asked: false },
-            ].slice(-4),
+            ].slice(-3),
           };
 
         case 'stream.degraded':
