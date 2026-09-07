@@ -8,10 +8,11 @@
  * 덕분에 서버 없이도 이 화면만 따로 띄워 확인할 수 있다.
  */
 
-import { ConnectionState } from 'livekit-client';
+import { ConnectionState, type LocalAudioTrack, type LocalVideoTrack } from 'livekit-client';
 import { useEffect, useState, type RefObject } from 'react';
 import { fmt } from '../../lib/format';
 import { useInterviewStore } from '../../stores/interviewStore';
+import { LocalPreview } from './LocalPreview';
 import { SpeakerBadge } from './SpeakerBadge';
 import { SuggestionPanel } from './SuggestionPanel';
 import { TranscriptPanel } from './TranscriptPanel';
@@ -25,6 +26,9 @@ export interface InterviewRoomViewProps {
   /** 종료 요청 진행 중 */
   ending: boolean;
   onEnd: () => void;
+  /** 면접관 자기 화면(PiP). 둘 다 없으면 PiP 를 그리지 않는다 */
+  localVideoTrack?: LocalVideoTrack | null;
+  localAudioTrack?: LocalAudioTrack | null;
 }
 
 export function InterviewRoomView({
@@ -34,6 +38,8 @@ export function InterviewRoomView({
   error,
   ending,
   onEnd,
+  localVideoTrack,
+  localAudioTrack,
 }: InterviewRoomViewProps) {
   const connection = useInterviewStore((s) => s.connection);
   const candidateJoined = useInterviewStore((s) => s.candidateJoined);
@@ -67,6 +73,26 @@ export function InterviewRoomView({
                 : '연결 중'}
           </p>
           {error && <p className="font-mono text-sm text-white/45">{error}</p>}
+        </div>
+      )}
+
+      {/* 면접관 자기 화면 — 대기 오버레이보다 뒤에 두어 그 위에 그려진다.
+          지원자를 기다리는 동안 자기 카메라·마이크를 점검하는 것이 목적이다.
+
+          z-index 를 주지 않는다. 추천 질문 패널이 오른쪽에서 아래로 자라기 때문에
+          질문이 3개 이상이면 이 영역과 겹치는데, 그때는 패널이 위로 와야 한다 —
+          PiP 가 질문 카드의 버튼을 가리면 클릭이 막힌다.
+          아래 상단 컨테이너가 뒤에 오므로 패널이 자연히 위에 그려진다.
+          클릭을 가로채지 않도록 pointer-events 도 끈다. */}
+      {(localVideoTrack || localAudioTrack) && (
+        // 위치는 래퍼가 잡는다. LocalPreview 는 자기 루트에 relative 를 두므로
+        // 여기서 absolute 를 같이 넘기면 두 position 유틸리티가 충돌한다.
+        <div className="pointer-events-none absolute right-7 bottom-7 w-60 max-w-[28vw]">
+          <LocalPreview
+            videoTrack={localVideoTrack ?? null}
+            audioTrack={localAudioTrack ?? null}
+            className="aspect-video w-full rounded-xl shadow-[0_6px_24px_rgba(0,0,0,.45)] ring-1 ring-white/15"
+          />
         </div>
       )}
 
