@@ -16,6 +16,8 @@
 | [면접 종료](07-sessions-end.md) | `POST` | `/api/v1/sessions/{sessionId}/end` | 면접관 | 면접 |
 | [Health Check](08-health.md) | `GET` | `/health` | — | 시스템 |
 
+> 확정이 급하지 않은 항목은 [나중에 정해도 되는 것](DEFERRED.md) 에 따로 모아뒀습니다.
+
 ## Session 상태
 
 문서에서 확인된 값입니다.
