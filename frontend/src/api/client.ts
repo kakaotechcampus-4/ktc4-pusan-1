@@ -1,4 +1,10 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'https://api.irya.kr/v1';
+/**
+ * API base URL.
+ *
+ * 명세의 경로는 두 갈래다 — 업무 API 는 `/api/v1/...`, 헬스 체크는 `/health`.
+ * 그래서 base 에는 prefix 를 넣지 않고 오리진만 둔다. prefix 는 각 호출 경로에 쓴다.
+ */
+const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 
 export class ApiError extends Error {
   // 파라미터 프로퍼티는 erasableSyntaxOnly 에서 막히므로 필드를 명시한다.
