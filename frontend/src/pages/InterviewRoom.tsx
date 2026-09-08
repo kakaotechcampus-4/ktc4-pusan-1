@@ -16,7 +16,7 @@ import type { EndSessionResponse, Role } from '../types/interview';
 export interface InterviewRoomProps {
   sessionId: string;
   role: Role;
-  candidateName: string;
+  remoteName: string;
   /** 통화 종료 후 면접 기록(S3)으로 이동 */
   onEnded: (result: EndSessionResponse | null) => void;
 }
@@ -24,7 +24,7 @@ export interface InterviewRoomProps {
 export default function InterviewRoom({
   sessionId,
   role,
-  candidateName,
+  remoteName,
   onEnded,
 }: InterviewRoomProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -57,7 +57,8 @@ export default function InterviewRoom({
 
   return (
     <InterviewRoomView
-      candidateName={candidateName}
+      role={role}
+      remoteName={remoteName}
       videoRef={videoRef}
       audioRef={audioRef}
       error={error ?? failure}
