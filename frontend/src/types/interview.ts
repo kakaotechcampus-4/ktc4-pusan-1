@@ -1,98 +1,101 @@
 /**
- * 면접 도메인 타입.
+ * 면접 도메인 타입 — BE 명세(docs/api) 기준.
  *
- * 엔드포인트·경로·파라미터는 BE 명세(2026-09-08)를 따른다.
- * 다만 명세에 **요청·응답 본문 스키마가 없어서**, 아래 인터페이스의 필드는
- * 명세의 "설명" 칸에서 유추한 것이다. ⚠️ 표시한 곳이 확정되면 함께 고친다.
+ * 응답 필드는 각 문서의 Response 표를 그대로 옮긴 것이다.
+ * 명세에 없어서 FE 가 정한 부분은 ⚠️ 로 표시했다.
  */
 
 export type Speaker = 'interviewer' | 'candidate';
 
-/** 입장 권한. Speaker 와 값이 같지만 의미가 다르다 — 이쪽은 권한이다. */
-export type Role = 'interviewer' | 'candidate';
+/**
+ * 입장 권한.
+ *
+ * 현재는 클라이언트가 join 요청에 실어 보낸다 (인증 도입 전 임시 구조).
+ * 서버가 판단하도록 바뀌면 joinSession 호출부 한 곳만 고치면 된다.
+ */
+export type Role = 'INTERVIEWER' | 'CANDIDATE';
 
-/** Session 진행 상태. `GET /api/v1/sessions/{id}` 가 돌려준다. */
-export type SessionStatus =
-  /** 생성됐으나 아직 시작 전 */
-  | 'created'
-  /** 면접 진행 중 */
-  | 'in-progress'
-  /** 종료됨 */
-  | 'ended';
+/** Session 진행 상태 */
+export type SessionStatus = 'WAITING' | 'INTERVIEWING' | 'ENDED';
 
 /* ---------------------------------------------------------------- *
- * 면접 (면접관)
+ * 면접
  * ---------------------------------------------------------------- */
 
-/** GET /api/v1/interviews/{interviewId} */
+/** POST /api/v1/interviews · GET /api/v1/interviews/{interviewId} */
 export interface Interview {
   interviewId: string;
-  /** ⚠️ 필드 구성 미확정 — 명세에 "면접의 기본 정보" 로만 적혀 있다 */
-  candidateName: string;
+  interviewerId: string;
   createdAt: string;
 }
 
-/**
- * POST /api/v1/interviews/{interviewId}/sessions
- * Session 을 만들고 지원자 초대 링크를 발급한다.
- */
+/** POST /api/v1/interviews/{interviewId}/sessions */
 export interface CreateSessionResponse {
   sessionId: string;
-  /** ⚠️ 서버가 완성된 URL 을 주는지, FE 가 sessionId 로 조립하는지 미확정 */
+  interviewId: string;
+  status: SessionStatus;
+  /** 지원자에게 전달할 면접 링크 */
   inviteUrl: string;
+  createdAt: string;
+}
+
+/** POST /api/v1/sessions/{sessionId}/start */
+export interface StartSessionResponse {
+  sessionId: string;
+  status: SessionStatus;
+  startedAt: string;
 }
 
 /** GET /api/v1/sessions/{sessionId} — 새로고침·재접속 시 상태 복구용 */
 export interface SessionState {
   sessionId: string;
+  interviewId: string;
   status: SessionStatus;
-  /** ⚠️ 미확정. 재입장 시 역할을 알아야 화면을 고를 수 있다 */
-  role: Role;
+  startedAt: string | null;
+  endedAt: string | null;
 }
 
 /** POST /api/v1/sessions/{sessionId}/end */
 export interface EndSessionResponse {
-  durationSec: number;
-  reviewStatus: 'processing' | 'ready';
+  sessionId: string;
+  status: SessionStatus;
+  endedAt: string;
 }
 
 /* ---------------------------------------------------------------- *
  * 진입
  * ---------------------------------------------------------------- */
 
-/**
- * POST /api/v1/sessions/{sessionId}/join
- * "Session 입장 권한을 확인하고 LiveKit 접속 정보를 발급"
- *
- * ⚠️ 응답 본문이 명세에 없다. 아래는 프로토타입이 이미 파싱하던 형태다.
- * ⚠️ `role` 은 BE 가 #9 코멘트에서 "실어 보내는 게 맞다" 고 했으나 표에는 없다.
- * ⚠️ `stream`(전사 WebSocket) 은 명세 어디에도 없다 — AI #7 경로가 통째로 빠져 있다.
- */
+/** POST /api/v1/sessions/{sessionId}/join */
 export interface JoinSessionResponse {
   sessionId: string;
-  role: Role;
-  media: { roomUrl: string; token: string };
-  stream: { url: string } | null;
+  /** LiveKit 서버 접속 URL */
+  livekitUrl: string;
+  /** LiveKit Room 입장용 Access Token */
+  token: string;
+  /** 매핑된 LiveKit Room 이름 */
+  roomName: string;
 }
 
 /**
  * join 실패 사유.
- * ⚠️ 실제 코드 문자열은 여전히 미확정이다. 매핑은 api/interview.ts 한 곳에 모아둔다.
+ *
+ * ⚠️ 명세에 에러 본문 스키마가 없어서 HTTP status 로만 구분한다.
+ * 그래서 409 하나에 "이미 종료" 와 "정원 초과" 가 겹친다 — 문구를 합쳐 뒀다.
+ * 서버가 `error.code` 를 주기 시작하면 api/interview.ts 의 표에 줄만 추가하면 된다.
  */
 export type JoinFailure =
   /** 존재하지 않는 세션 */
   | 'not-found'
-  /** 입장 권한 없음 */
-  | 'forbidden'
-  /** 이미 종료된 세션 */
-  | 'ended'
-  /** 정원 초과 */
-  | 'full'
+  /** 현재 상태에서 입장 불가 — 종료됨 또는 정원 초과 */
+  | 'unavailable'
   /** 그 외 (네트워크 포함) */
   | 'failed';
 
 /* ---------------------------------------------------------------- *
  * 통화 중 (전사·추천 질문)
+ *
+ * ⚠️ 이 WebSocket 경로는 명세에 없다 (AI #7). 아래 타입은 목 데이터가 쓴다.
  * ---------------------------------------------------------------- */
 
 export interface Utterance {
@@ -111,7 +114,6 @@ export interface Suggestion {
   asked: boolean;
 }
 
-/** stream WebSocket 수신 이벤트 */
 export type StreamEvent =
   | { type: 'speech.start'; speaker: Speaker; at: number }
   | { type: 'speech.end'; speaker: Speaker; at: number }
