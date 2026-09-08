@@ -34,3 +34,6 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[project.scripts]
+irya-ai = "irya_ai.cli:main"
