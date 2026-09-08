@@ -1,0 +1,42 @@
+{
+  "sessionId": "ses_sample_01",
+  "source": "transcript_backend_junior_01.json",
+  "note": "utt_014 는 마무리 인사라 QAPair 에 포함되지 않는다.",
+  "pairs": [
+    {
+      "question": "안녕하세요. 편하게 앉으시고, 먼저 간단히 자기소개 부탁드릴게요.",
+      "answerStartsWith": "안녕하세요, 정민호입니다.",
+      "hasAnswer": true
+    },
+    {
+      "question": "지원서에 상품 조회 API에 Redis 캐시를 도입했다고 쓰셨는데, 캐시는 어디에 어떻게 적용하셨나요?",
+      "answerStartsWith": "조회가 많은 상품 상세 API 앞에 Redis를 뒀습니다.",
+      "hasAnswer": true
+    },
+    {
+      "question": "응답 시간이 얼마나 좋아졌나요? 측정은 어떻게 하셨어요?",
+      "answerStartsWith": "체감상 훨씬 빨라졌습니다.",
+      "hasAnswer": true
+    },
+    {
+      "question": "알겠습니다. 그럼 팀 프로젝트 얘기를 해볼게요. 4인 팀에서 백엔드 리드를 맡으셨다고 했는데, 역할 분담은 어떻게 하셨나요?",
+      "answerStartsWith": "백엔드는 저와 다른 한 명이 같이 했습니다.",
+      "hasAnswer": true
+    },
+    {
+      "question": "합의 과정에서 의견이 갈린 적이 있었나요? 있었다면 어떻게 정리했는지 궁금합니다.",
+      "answerStartsWith": "네, 프론트 쪽에서 목록 API 하나에",
+      "hasAnswer": true
+    },
+    {
+      "question": "부하 테스트로 초당 3,000건을 확인했다고 하셨는데, 어떤 도구로 어떤 조건에서 하셨나요?",
+      "answerStartsWith": "k6로 했습니다.",
+      "hasAnswer": true
+    },
+    {
+      "question": "솔직하게 말씀해주셔서 좋네요. 마지막으로, 저희 팀은 온콜 대응을 돌아가면서 하는데 새벽에 장애 알림을 받는 상황은 괜찮으세요?",
+      "answerStartsWith": "네, 괜찮습니다.",
+      "hasAnswer": true
+    }
+  ]
+}
