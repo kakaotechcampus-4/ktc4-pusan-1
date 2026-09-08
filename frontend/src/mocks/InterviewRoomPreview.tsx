@@ -11,11 +11,17 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { InterviewRoomView } from '../components/interview/InterviewRoomView';
+import type { Role } from '../types/interview';
 import { usePermissionCheck } from '../hooks/usePermissionCheck';
 import { startMockSession } from './interviewMock';
 
 export function InterviewRoomPreview() {
+  // ?role=candidate 로 지원자 화면을 확인한다. 기본은 면접관이다.
+  const [searchParams] = useSearchParams();
+  const role: Role = searchParams.get('role') === 'candidate' ? 'CANDIDATE' : 'INTERVIEWER';
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -27,7 +33,8 @@ export function InterviewRoomPreview() {
 
   return (
     <InterviewRoomView
-      candidateName="김지원"
+      role={role}
+      remoteName={role === 'INTERVIEWER' ? '김지원' : '이면접'}
       videoRef={videoRef}
       audioRef={audioRef}
       error={status === 'granted' || status === 'requesting' ? null : `PERMISSION_${status}`}

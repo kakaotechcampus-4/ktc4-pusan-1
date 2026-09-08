@@ -42,8 +42,9 @@ function InterviewFlow() {
     );
   }
 
-  // TODO(#5): 실제 면접 화면. 지원자 화면 설계가 정해지면 역할별로 분기한다.
-  return <InterviewRoomPreview />;
+  // TODO(#5): 실제 면접 화면. 지금은 목 데이터로 지원자 화면을 보여준다 —
+  // 전사 WebSocket 경로가 명세에 없어 실데이터로는 그릴 것이 없다.
+  return <Navigate to="/mock/interview?role=candidate" replace />;
 }
 
 function Landing() {
