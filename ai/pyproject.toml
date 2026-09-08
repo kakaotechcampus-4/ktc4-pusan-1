@@ -1,0 +1,36 @@
+[project]
+name = "irya-ai"
+version = "0.1.0"
+description = "STT and AI pipeline for IRYA"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "livekit-agents~=1.8.0",
+    "pydantic-settings~=2.15.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/irya_ai"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
