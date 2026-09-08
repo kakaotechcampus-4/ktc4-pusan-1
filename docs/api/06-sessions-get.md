@@ -1,57 +1,51 @@
-# Session 상태 조회
-
-| | |
-| --- | --- |
-| Method | `GET` |
-| URL | `/api/v1/sessions/{sessionId}` |
-| 사용자 | 면접관 · 지원자 |
-| 그룹 | 면접 |
-| 설명 | 현재 화상면접 Session의 진행 상태를 조회 |
-| 기타 | 새로고침·재접속 시 상태 복구 용도 |
-
-
 ### Request
 
 **Path parameter**
 
 | key | 설명 | value 타입 | Nullable | 예시 |
 | --- | --- | --- | --- | --- |
-| sessionId | Session ID | string | false | ses_123 |
-
-
-**Request Body**
-
-```json
-없음 (GET)
-```
+| sessionId | 조회할 Session ID | string | false | ses_123 |
 
 ### Response
 
 | key | 설명 | value 타입 | Nullable | 예시 |
 | --- | --- | --- | --- | --- |
-|  |  |  |  |  |
+| sessionId | Session ID | string | false | ses_123 |
+| interviewId | 연결된 면접 ID | string | false | int_123 |
+| status | 현재 Session 상태 | string | false | INTERVIEWING |
+| startedAt | 면접 시작 시각 | datetime | true | 2026-09-08T22:30:00Z |
+| endedAt | 면접 종료 시각 | datetime | true | null |
 
 **Example**
 
 ```json
-{}
+{
+  "sessionId": "ses_123",
+  "interviewId": "int_123",
+  "status": "INTERVIEWING",
+  "startedAt": "2026-09-08T22:30:00Z",
+  "endedAt": null
+}
 ```
 
 ### Status
 
 | status | response content |
 | --- | --- |
-| 200 |  |
-| 403 |  |
-| 404 |  |
-
+| 200 | Session 조회 성공 |
+| 404 | Session을 찾을 수 없음 |
 
 ---
 
 ## FE 참고
 
-### 확인 필요
+### 확인 필요 — 새로고침 복구가 아직 안 됩니다
 
-- `status` 값의 목록이 무엇인가요? FE 는 잠정으로 `created` / `in-progress` / `ended` 를 가정했습니다.
-- **이 응답에도 `role` 이 오나요?** 새로고침 후 어떤 화면으로 복구할지 정하려면 필요합니다.
-- 상대 참가자가 들어와 있는지도 알 수 있나요? (대기 화면 복구용)
+이 API 의 용도가 "새로고침·재접속 시 상태 복구" 인데, 현재 응답만으로는 복구가 안 됩니다.
+
+1. **`role` 이 없습니다.** 새로고침 후 면접관 화면과 지원자 화면 중 무엇을 그려야 할지 알 수 없습니다.
+   (`04-sessions-join` 에서 role 을 요청으로 보내는 구조라, FE 가 직접 기억해두지 않으면 잃어버립니다.)
+2. **상대 참가자가 들어와 있는지 알 수 없습니다.** 면접 화면은 상대 입장 전 대기 화면을 띄우는데,
+   복구 시점에 그 판단을 할 수 없습니다.
+
+`status` 가 `INTERVIEWING` 이어도 상대가 나가 있을 수 있어서, 상태만으로는 대체되지 않습니다.
