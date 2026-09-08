@@ -1,24 +1,15 @@
-import { askSuggestion } from '../../api/interview';
 import { useInterviewStore } from '../../stores/interviewStore';
 
 export function SuggestionPanel() {
-  const sessionId = useInterviewStore((s) => s.sessionId);
   const suggestions = useInterviewStore((s) => s.suggestions);
   const suggestionsOpen = useInterviewStore((s) => s.suggestionsOpen);
   const toggleSuggestions = useInterviewStore((s) => s.toggleSuggestions);
   const markAsked = useInterviewStore((s) => s.markAsked);
-  const unmarkAsked = useInterviewStore((s) => s.unmarkAsked);
 
-  // 낙관적 반영 후 실패 시 되돌린다.
-  const ask = async (id: string) => {
-    if (!sessionId) return;
-    markAsked(id);
-    try {
-      await askSuggestion(sessionId, id);
-    } catch {
-      unmarkAsked(id);
-    }
-  };
+  // 서버에 알리는 엔드포인트가 BE 명세(2026-09-08)에 없다.
+  // 지금은 화면에서만 표시하고, 엔드포인트가 생기면 낙관적 갱신 + 실패 시 롤백을 붙인다.
+  // unmarkAsked 는 그때 쓰인다.
+  const ask = (id: string) => markAsked(id);
 
   return (
     <div className="pointer-events-auto w-[400px] max-w-[32vw] overflow-hidden rounded-xl bg-black/55 backdrop-blur-md">
@@ -51,7 +42,7 @@ export function SuggestionPanel() {
               <p className="text-[17px] leading-snug text-white">{q.text}</p>
               <p className="mt-1.5 text-[13px] text-white/50">{q.reason}</p>
               <button
-                onClick={() => void ask(q.id)}
+                onClick={() => ask(q.id)}
                 disabled={q.asked}
                 className={`mt-3 rounded-md px-3.5 py-2 text-sm font-medium ${
                   q.asked

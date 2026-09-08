@@ -21,13 +21,14 @@ import {
 } from 'livekit-client';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
-import { endSession, startInterview } from '../api/interview';
+import { endSession, joinSession } from '../api/interview';
 import { useInterviewStore } from '../stores/interviewStore';
 import type { StreamEvent } from '../types/interview';
 import { AUDIO_CAPTURE, VIDEO_CAPTURE } from './usePermissionCheck';
 
 interface UseInterviewRoomOptions {
-  interviewId: string;
+  /** 초대 링크에서 받은 세션 식별자. join 이 이걸로 토큰을 발급한다 */
+  sessionId: string;
   /** 지원자 비디오를 붙일 요소 */
   videoRef: RefObject<HTMLVideoElement | null>;
   /** 지원자 오디오를 붙일 요소 */
@@ -46,7 +47,7 @@ interface UseInterviewRoomOptions {
 }
 
 export function useInterviewRoom({
-  interviewId,
+  sessionId,
   videoRef,
   audioRef,
   ready,
@@ -117,7 +118,9 @@ export function useInterviewRoom({
 
     void (async () => {
       try {
-        const { sessionId, media, stream: streamCfg } = await startInterview(interviewId);
+        // join 이 입장 권한 확인과 LiveKit 접속 정보 발급을 함께 한다.
+        // start 는 상태 전이 전용이라 여기서 부르지 않는다.
+        const { media, stream: streamCfg } = await joinSession(sessionId);
         if (cancelled) return;
         setSession(sessionId);
 
@@ -166,7 +169,9 @@ export function useInterviewRoom({
           });
         });
 
-        /* --- 전사·추천 질문 연결 (통화와 분리) --- */
+        /* --- 전사·추천 질문 연결 (통화와 분리) ---
+           streamCfg 가 null 이면 전사 없이 통화만 진행한다. */
+        if (!streamCfg) return;
         stream = new WebSocket(streamCfg.url);
         stream.onmessage = (ev) => applyStreamEvent(JSON.parse(ev.data) as StreamEvent);
         stream.onerror = () =>
@@ -191,7 +196,7 @@ export function useInterviewRoom({
       void room.disconnect();
       reset();
     };
-  }, [interviewId, videoRef, audioRef, ready]);
+  }, [sessionId, videoRef, audioRef, ready]);
 
   const leave = async () => {
     const { sessionId } = useInterviewStore.getState();
