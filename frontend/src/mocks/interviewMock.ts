@@ -107,12 +107,12 @@ const SCRIPT: ScheduledEvent[] = [
  * 목 세션을 시작한다. 정리 함수를 돌려주므로 이펙트에서 그대로 반환하면 된다.
  */
 export function startMockSession(): () => void {
-  const { setSession, setConnection, setCandidateJoined, applyStreamEvent, reset } =
+  const { setSession, setConnection, setRemoteJoined, applyStreamEvent, reset } =
     useInterviewStore.getState();
 
   setSession('mock-session');
   setConnection(ConnectionState.Connected);
-  setCandidateJoined(true);
+  setRemoteJoined(true);
 
   const timers: ReturnType<typeof setTimeout>[] = [];
   let elapsed = 0;

@@ -14,8 +14,8 @@ interface InterviewState {
   sessionId: string | null;
   connection: ConnectionState;
 
-  /** 지원자 참가 여부 — 미참가 시 대기 화면 */
-  candidateJoined: boolean;
+  /** 상대 참가 여부 — 미참가 시 대기 화면. 면접관에겐 지원자, 지원자에겐 면접관이다 */
+  remoteJoined: boolean;
   /** 현재 말하는 화자. null이면 무음 */
   speakingNow: Speaker | null;
 
@@ -30,7 +30,7 @@ interface InterviewState {
 
   setSession: (id: string) => void;
   setConnection: (s: ConnectionState) => void;
-  setCandidateJoined: (v: boolean) => void;
+  setRemoteJoined: (v: boolean) => void;
   setSpeaking: (s: Speaker | null) => void;
   applyStreamEvent: (e: StreamEvent) => void;
   markAsked: (id: string) => void;
@@ -43,7 +43,7 @@ interface InterviewState {
 export const useInterviewStore = create<InterviewState>((set) => ({
   sessionId: null,
   connection: ConnectionState.Disconnected,
-  candidateJoined: false,
+  remoteJoined: false,
   speakingNow: null,
   utterances: [],
   suggestions: [],
@@ -53,7 +53,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
 
   setSession: (sessionId) => set({ sessionId }),
   setConnection: (connection) => set({ connection }),
-  setCandidateJoined: (candidateJoined) => set({ candidateJoined }),
+  setRemoteJoined: (remoteJoined) => set({ remoteJoined }),
   setSpeaking: (speakingNow) => set({ speakingNow }),
 
   applyStreamEvent: (e) =>
@@ -122,7 +122,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
     set({
       sessionId: null,
       connection: ConnectionState.Disconnected,
-      candidateJoined: false,
+      remoteJoined: false,
       speakingNow: null,
       utterances: [],
       suggestions: [],
