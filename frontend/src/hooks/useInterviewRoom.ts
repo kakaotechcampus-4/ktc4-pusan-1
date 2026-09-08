@@ -23,7 +23,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
 import { endSession, joinSession } from '../api/interview';
 import { useInterviewStore } from '../stores/interviewStore';
-import type { Role } from '../types/interview';
+import type { Role, Speaker } from '../types/interview';
 import { AUDIO_CAPTURE, VIDEO_CAPTURE } from './usePermissionCheck';
 
 interface UseInterviewRoomOptions {
@@ -74,8 +74,12 @@ export function useInterviewRoom({
 
     // 액션은 참조가 고정되어 있다. 구독하면 전사 델타마다 화면 전체가 리렌더되므로
     // 훅에서는 getState() 로 꺼내 쓰고 스토어를 구독하지 않는다.
-    const { setSession, setConnection, setCandidateJoined, setSpeaking, reset } =
+    const { setSession, setConnection, setRemoteJoined, setSpeaking, reset } =
       useInterviewStore.getState();
+
+    // 1:1 이므로 참가자는 둘뿐이다. 내 역할이 정해지면 상대 역할도 정해진다.
+    const localSpeaker: Speaker = role === 'INTERVIEWER' ? 'interviewer' : 'candidate';
+    const remoteSpeaker: Speaker = role === 'INTERVIEWER' ? 'candidate' : 'interviewer';
 
     let cancelled = false;
 
@@ -102,21 +106,24 @@ export function useInterviewRoom({
       .on(RoomEvent.ConnectionStateChanged, setConnection)
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => attach(track))
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => track.detach())
-      .on(RoomEvent.ParticipantConnected, () => setCandidateJoined(true))
+      .on(RoomEvent.ParticipantConnected, () => setRemoteJoined(true))
       .on(RoomEvent.ParticipantDisconnected, () => {
-        setCandidateJoined(false);
+        setRemoteJoined(false);
         setSpeaking(null);
       })
       // 발화 중 화자 표시. 서버 speech.start와 별개로 즉시 반응한다.
+      //
+      // 원격 참가자가 누구인지는 내 역할에 따라 뒤집힌다 —
+      // 면접관에게 원격은 지원자이고, 지원자에게 원격은 면접관이다.
       .on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
         if (speakers.length === 0) {
           setSpeaking(null);
           return;
         }
         const isRemote = speakers.some((p) => p instanceof RemoteParticipant);
-        setSpeaking(isRemote ? 'candidate' : 'interviewer');
+        setSpeaking(isRemote ? remoteSpeaker : localSpeaker);
       })
-      .on(RoomEvent.Disconnected, () => setCandidateJoined(false));
+      .on(RoomEvent.Disconnected, () => setRemoteJoined(false));
 
     void (async () => {
       try {
@@ -165,7 +172,7 @@ export function useInterviewRoom({
 
         /* 이미 들어와 있는 지원자 트랙 구독 */
         room.remoteParticipants.forEach((p) => {
-          setCandidateJoined(true);
+          setRemoteJoined(true);
           p.trackPublications.forEach((pub: RemoteTrackPublication) => {
             if (pub.track) attach(pub.track);
           });
