@@ -23,12 +23,14 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
 import { endSession, joinSession } from '../api/interview';
 import { useInterviewStore } from '../stores/interviewStore';
-import type { StreamEvent } from '../types/interview';
+import type { Role } from '../types/interview';
 import { AUDIO_CAPTURE, VIDEO_CAPTURE } from './usePermissionCheck';
 
 interface UseInterviewRoomOptions {
   /** 초대 링크에서 받은 세션 식별자. join 이 이걸로 토큰을 발급한다 */
   sessionId: string;
+  /** 입장 권한. 현재는 클라이언트가 선언한다 (인증 도입 전 임시 구조) */
+  role: Role;
   /** 지원자 비디오를 붙일 요소 */
   videoRef: RefObject<HTMLVideoElement | null>;
   /** 지원자 오디오를 붙일 요소 */
@@ -48,6 +50,7 @@ interface UseInterviewRoomOptions {
 
 export function useInterviewRoom({
   sessionId,
+  role,
   videoRef,
   audioRef,
   ready,
@@ -71,11 +74,10 @@ export function useInterviewRoom({
 
     // 액션은 참조가 고정되어 있다. 구독하면 전사 델타마다 화면 전체가 리렌더되므로
     // 훅에서는 getState() 로 꺼내 쓰고 스토어를 구독하지 않는다.
-    const { setSession, setConnection, setCandidateJoined, setSpeaking, applyStreamEvent, reset } =
+    const { setSession, setConnection, setCandidateJoined, setSpeaking, reset } =
       useInterviewStore.getState();
 
     let cancelled = false;
-    let stream: WebSocket | null = null;
 
     const room = new Room({
       adaptiveStream: true,
@@ -120,12 +122,12 @@ export function useInterviewRoom({
       try {
         // join 이 입장 권한 확인과 LiveKit 접속 정보 발급을 함께 한다.
         // start 는 상태 전이 전용이라 여기서 부르지 않는다.
-        const { media, stream: streamCfg } = await joinSession(sessionId);
+        const { livekitUrl, token } = await joinSession(sessionId, role);
         if (cancelled) return;
         setSession(sessionId);
 
         /* --- 방 접속 --- */
-        await room.connect(media.roomUrl, media.token);
+        await room.connect(livekitUrl, token);
         if (cancelled) return;
 
         /* 면접관 트랙 발행 — 프리뷰에서 이미 얻은 트랙을 재사용한다.
@@ -169,19 +171,9 @@ export function useInterviewRoom({
           });
         });
 
-        /* --- 전사·추천 질문 연결 (통화와 분리) ---
-           streamCfg 가 null 이면 전사 없이 통화만 진행한다. */
-        if (!streamCfg) return;
-        stream = new WebSocket(streamCfg.url);
-        stream.onmessage = (ev) => applyStreamEvent(JSON.parse(ev.data) as StreamEvent);
-        stream.onerror = () =>
-          applyStreamEvent({ type: 'stream.degraded', reason: 'STT_UNAVAILABLE' });
-        stream.onclose = (ev) => {
-          // 정상 종료(1000)가 아니면 전사만 중단 표시. 통화는 그대로 둔다.
-          if (ev.code !== 1000) {
-            applyStreamEvent({ type: 'stream.degraded', reason: 'STT_UNAVAILABLE' });
-          }
-        };
+        /* --- 전사·추천 질문 연결 ---
+           BE 명세(docs/api)에 WebSocket 경로가 없어 아직 연결하지 않는다 (AI #7).
+           경로가 생기면 여기서 붙인다 — 통화와 분리해 두어 전사가 죽어도 통화는 유지된다. */
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof ApiError ? e.code : 'CONNECT_FAILED');
@@ -191,12 +183,11 @@ export function useInterviewRoom({
 
     return () => {
       cancelled = true;
-      stream?.close(1000);
       room.removeAllListeners();
       void room.disconnect();
       reset();
     };
-  }, [sessionId, videoRef, audioRef, ready]);
+  }, [sessionId, role, videoRef, audioRef, ready]);
 
   const leave = async () => {
     const { sessionId } = useInterviewStore.getState();

@@ -11,22 +11,29 @@ import { useRef, useState } from 'react';
 import { InterviewRoomView } from '../components/interview/InterviewRoomView';
 import { useInterviewRoom } from '../hooks/useInterviewRoom';
 import { usePermissionCheck } from '../hooks/usePermissionCheck';
-import type { EndSessionResponse } from '../types/interview';
+import type { EndSessionResponse, Role } from '../types/interview';
 
 export interface InterviewRoomProps {
   sessionId: string;
+  role: Role;
   candidateName: string;
   /** 통화 종료 후 면접 기록(S3)으로 이동 */
   onEnded: (result: EndSessionResponse | null) => void;
 }
 
-export default function InterviewRoom({ sessionId, candidateName, onEnded }: InterviewRoomProps) {
+export default function InterviewRoom({
+  sessionId,
+  role,
+  candidateName,
+  onEnded,
+}: InterviewRoomProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   // 권한 확인이 먼저다. 트랙이 준비되기 전에는 방에 접속하지 않는다.
   const { status, videoTrack, audioTrack, release } = usePermissionCheck();
   const { error, leave } = useInterviewRoom({
     sessionId,
+    role,
     videoRef,
     audioRef,
     ready: status === 'granted',
