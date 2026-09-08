@@ -1,7 +1,7 @@
 /**
  * 진입 — 초대 링크 착지 화면 (S0)
  *
- *   /sessions/:sessionId/join
+ *   /interview/:sessionId      ← 명세의 inviteUrl 경로와 같다
  *
  * 지원자는 초대 링크에서 sessionId 를 전달받는다 (BE 명세 2026-09-08).
  * 사용자가 코드를 직접 입력하는 화면은 없어졌다 — 링크 자체가 자격증명이다.
@@ -13,22 +13,29 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { joinSession, toJoinFailure } from '../api/interview';
-import type { JoinFailure, JoinSessionResponse } from '../types/interview';
+import type { JoinFailure, JoinSessionResponse, Role } from '../types/interview';
 
 const FAILURE_MESSAGE: Record<JoinFailure, string> = {
   'not-found': '유효하지 않은 링크입니다. 면접관에게 링크를 다시 요청해주세요.',
-  forbidden: '이 면접에 입장할 권한이 없습니다.',
-  ended: '이미 종료된 면접입니다.',
-  full: '이미 두 명이 입장해 있어 들어갈 수 없습니다.',
+  // 명세가 409 하나로 "이미 종료" 와 "정원 초과" 를 함께 쓴다. 서버가 error.code 를
+  // 주기 시작하면 두 문구로 나눈다.
+  unavailable: '지금은 입장할 수 없습니다. 이미 종료되었거나 정원이 찼습니다.',
   failed: '입장하지 못했습니다. 잠시 후 다시 시도해주세요.',
 };
 
 export interface JoinPageProps {
+  /**
+   * 입장 권한. 초대 링크로 들어온 사람은 지원자다.
+   *
+   * ⚠️ 명세상 role 을 클라이언트가 선언한다 (인증 도입 전 임시 구조).
+   * 면접관 진입 경로가 정해지면 그쪽에서 INTERVIEWER 를 넘긴다.
+   */
+  role: Role;
   /** 입장 성공 — 다음은 기기 점검 화면이다 */
   onJoined: (session: JoinSessionResponse) => void;
 }
 
-export default function JoinPage({ onJoined }: JoinPageProps) {
+export default function JoinPage({ role, onJoined }: JoinPageProps) {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [failure, setFailure] = useState<JoinFailure | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -39,7 +46,7 @@ export default function JoinPage({ onJoined }: JoinPageProps) {
     setSubmitting(true);
     setFailure(null);
     try {
-      onJoined(await joinSession(sessionId));
+      onJoined(await joinSession(sessionId, role));
     } catch (err) {
       setFailure(toJoinFailure(err));
     } finally {

@@ -1,34 +1,51 @@
 /**
  * 라우팅.
  *
- *   /sessions/:sessionId/join   초대 링크 착지 — 입장 권한 확인
- *   /mock/interview             서버 없이 보는 면접 화면 — 임시, #5 착수 시 제거
- *   /                           안내 화면 (직접 들어온 경우)
+ *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
+ *   /mock/interview         서버 없이 보는 면접 화면 — 임시, 전사 연동 시 제거
+ *   /                       안내 화면
  *
- * 면접 화면(/sessions/:id/room)은 아직 라우트에 없다.
- * join 응답 본문이 명세에 없어 입장 성공 후 넘길 값이 정해지지 않았다.
+ * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
  */
 
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { InterviewRoomPreview } from './mocks/InterviewRoomPreview';
+import DeviceCheckPage from './pages/DeviceCheckPage';
 import JoinPage from './pages/JoinPage';
+import type { JoinSessionResponse } from './types/interview';
 
-function JoinRoute() {
-  const navigate = useNavigate();
+/**
+ * 진입 흐름 — join → 기기 점검 → 방 접속.
+ *
+ * 라우트를 나누지 않고 한 컴포넌트에서 단계를 넘긴다.
+ * 기기 점검에서 얻은 트랙을 다음 단계로 그대로 넘겨야 하는데,
+ * 라우트 경계를 넘기면 트랙 소유권 추적이 흐트러지기 때문이다.
+ */
+function InterviewFlow() {
+  const [session, setSession] = useState<JoinSessionResponse | null>(null);
+  const [checked, setChecked] = useState(false);
 
-  return (
-    <JoinPage
-      onJoined={(session) => {
-        // 다음은 기기 점검 화면이다. 아직 없으므로 목 미리보기로 보낸다.
-        // 실제 연결은 #5 에서 붙인다.
-        console.info('join 성공', session.role, session.sessionId);
-        void navigate('/mock/interview');
-      }}
-    />
-  );
+  if (!session) {
+    // 초대 링크로 들어온 사람은 지원자다.
+    return <JoinPage role="CANDIDATE" onJoined={setSession} />;
+  }
+
+  if (!checked) {
+    return (
+      <DeviceCheckPage
+        onReady={() => {
+          // TODO(#5): 확보한 트랙을 면접 화면으로 넘긴다.
+          setChecked(true);
+        }}
+      />
+    );
+  }
+
+  // TODO(#5): 실제 면접 화면. 지원자 화면 설계가 정해지면 역할별로 분기한다.
+  return <InterviewRoomPreview />;
 }
 
-/** 링크 없이 루트로 들어온 경우. 면접관 진입(S1)은 아직 없다. */
 function Landing() {
   return (
     <div className="flex min-h-full items-center justify-center bg-[#0B0E14] p-8">
@@ -46,7 +63,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
-      <Route path="/sessions/:sessionId/join" element={<JoinRoute />} />
+      <Route path="/interview/:sessionId" element={<InterviewFlow />} />
       <Route path="/mock/interview" element={<InterviewRoomPreview />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
