@@ -54,8 +54,8 @@ cp .env.example .env
 입장 토큰은 서버가 서명해서 내려줍니다.
 
 ```
-POST /interviews/{id}/start
-  → { sessionId, media: { roomUrl, token }, stream: { url } }
+POST /api/v1/sessions/{sessionId}/join
+  → LiveKit 접속 정보 (roomUrl, token)
 ```
 
 FE 는 받은 `media.token` 을 `room.connect()` 에 넘기기만 합니다. LiveKit 키는 `backend/.env` 와 `ai/.env` 에 있습니다.
