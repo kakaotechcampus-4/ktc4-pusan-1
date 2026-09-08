@@ -11,7 +11,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
+    # Starlette 1.6 의 TestClient 는 httpx2 를 쓴다. httpx(1.x) 면 deprecation 경고가 뜬다.
+    "httpx2>=2.12.0",
+    "pyright>=1.1.411",
     "pytest>=9.1.1",
     "ruff>=0.16.6",
 ]
@@ -19,3 +21,21 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+# ai/pyproject.toml 과 같은 설정을 쓴다 — 파트마다 린트 결과가 갈리면 안 된다.
+[tool.ruff]
+line-length = 88
+# app/ 이 backend 루트에 있으므로 소스 루트는 "." 다.
+# ai/ 는 src/ 레이아웃이라 src = ["src", "tests"] 인 것이고, 규칙 자체는 같다.
+src = ["."]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyright]
+include = ["app", "tests", "scripts"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
