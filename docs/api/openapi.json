@@ -1,0 +1,769 @@
+{
+  "components": {
+    "schemas": {
+      "CreateInterviewRequest": {
+        "properties": {
+          "interviewerId": {
+            "examples": [
+              "user_123"
+            ],
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Interviewerid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "interviewerId"
+        ],
+        "title": "CreateInterviewRequest",
+        "type": "object"
+      },
+      "CreateSessionResponse": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "interviewId": {
+            "title": "Interviewid",
+            "type": "string"
+          },
+          "inviteUrl": {
+            "description": "지원자에게 전달할 면접 링크",
+            "title": "Inviteurl",
+            "type": "string"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "required": [
+          "sessionId",
+          "interviewId",
+          "status",
+          "inviteUrl",
+          "createdAt"
+        ],
+        "title": "CreateSessionResponse",
+        "type": "object"
+      },
+      "EndSessionResponse": {
+        "properties": {
+          "endedAt": {
+            "format": "date-time",
+            "title": "Endedat",
+            "type": "string"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "required": [
+          "sessionId",
+          "status",
+          "endedAt"
+        ],
+        "title": "EndSessionResponse",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "default": false,
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "OpenAPI 문서용. 실제 직렬화는 error_body() 가 한다.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "InterviewResponse": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "interviewId": {
+            "title": "Interviewid",
+            "type": "string"
+          },
+          "interviewerId": {
+            "title": "Interviewerid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "interviewId",
+          "interviewerId",
+          "createdAt"
+        ],
+        "title": "InterviewResponse",
+        "type": "object"
+      },
+      "JoinRequest": {
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "default": "CANDIDATE",
+            "description": "현재 로그인·인증 제외 기준이라 요청값으로 받는다. 인증 도입 후에는 서버가 참가자 역할을 판단한다."
+          }
+        },
+        "title": "JoinRequest",
+        "type": "object"
+      },
+      "JoinResponse": {
+        "properties": {
+          "livekitUrl": {
+            "description": "LiveKit 서버 접속 URL",
+            "title": "Livekiturl",
+            "type": "string"
+          },
+          "roomName": {
+            "description": "매핑된 LiveKit Room 이름",
+            "title": "Roomname",
+            "type": "string"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "token": {
+            "description": "LiveKit Room 입장용 Access Token",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "livekitUrl",
+          "token",
+          "roomName"
+        ],
+        "title": "JoinResponse",
+        "type": "object"
+      },
+      "Role": {
+        "description": "입장 권한. 명세의 Request Body 예시가 `\"role\": \"CANDIDATE\"` 다.",
+        "enum": [
+          "INTERVIEWER",
+          "CANDIDATE"
+        ],
+        "title": "Role",
+        "type": "string"
+      },
+      "SessionStateResponse": {
+        "description": "GET /sessions/{sessionId} — 새로고침·재접속 시 상태 복구용.",
+        "properties": {
+          "endedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          },
+          "interviewId": {
+            "title": "Interviewid",
+            "type": "string"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "required": [
+          "sessionId",
+          "interviewId",
+          "status",
+          "startedAt",
+          "endedAt"
+        ],
+        "title": "SessionStateResponse",
+        "type": "object"
+      },
+      "SessionStatus": {
+        "description": "Session 상태. 명세 예시가 WAITING / INTERVIEWING / ENDED 다.\n\nWAITING --start--> INTERVIEWING --end--> ENDED\n\nWAITING 에서 바로 end 할 수 있다(면접 시작 전 취소).",
+        "enum": [
+          "WAITING",
+          "INTERVIEWING",
+          "ENDED"
+        ],
+        "title": "SessionStatus",
+        "type": "string"
+      },
+      "StartSessionResponse": {
+        "properties": {
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "title": "Startedat",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "required": [
+          "sessionId",
+          "status",
+          "startedAt"
+        ],
+        "title": "StartSessionResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "IRYA API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/interviews": {
+      "post": {
+        "description": "면접관이 새로운 면접 정보를 생성한다.\n\nSession 과 LiveKit Room 은 여기서 만들지 않는다 —\n`POST /interviews/{interviewId}/sessions` 가 담당한다.",
+        "operationId": "create_interview_api_v1_interviews_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInterviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "요청값 검증 실패"
+          }
+        },
+        "summary": "면접 생성",
+        "tags": [
+          "면접"
+        ]
+      }
+    },
+    "/api/v1/interviews/{interviewId}": {
+      "get": {
+        "description": "생성된 면접의 기본 정보를 조회한다.",
+        "operationId": "get_interview_api_v1_interviews__interviewId__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접을 찾을 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "면접 조회",
+        "tags": [
+          "면접"
+        ]
+      }
+    },
+    "/api/v1/interviews/{interviewId}/sessions": {
+      "post": {
+        "description": "생성된 면접에 실제 화상면접 Session 을 만들고 지원자 초대 링크를 발급한다.\n\nLiveKit Room 을 미리 만든다. 입장 시 자동 생성되기는 하지만\n`max_participants` 같은 설정을 적용하려면 사전 생성이 필요하다.",
+        "operationId": "create_session_api_v1_interviews__interviewId__sessions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접을 찾을 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "면접 Session 생성",
+        "tags": [
+          "면접"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}": {
+      "get": {
+        "description": "현재 화상면접 Session 의 진행 상태를 조회한다.\n\n새로고침·재접속 시 상태 복구 용도다.",
+        "operationId": "get_session_api_v1_sessions__sessionId__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session을 찾을 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session 상태 조회",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/end": {
+      "post": {
+        "description": "Session 을 종료 상태로 변경하고 종료 시각을 기록한다.\n\n참가자 disconnect 와 면접 종료는 별개다 — 참가자가 나가도 Session 은 살아 있고\n이 API 를 불러야 종료된다. 반대로 여기서는 LiveKit Room 을 닫아\n남아 있는 참가자를 끊는다.",
+        "operationId": "end_session_api_v1_sessions__sessionId__end_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session을 찾을 수 없음"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "현재 상태에서 종료할 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "면접 종료",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/join": {
+      "post": {
+        "description": "Session 입장 권한을 확인하고 LiveKit 접속 정보를 발급한다.\n\n지원자는 초대 링크에서 sessionId 를 전달받는다.\n\n토큰만 발급할 뿐 실제 입장은 클라이언트가 `livekitUrl` + `token` 으로\nLiveKit 에 직접 붙으면서 이뤄진다. 여러 번 불러도 되며 그때마다 새 토큰이 나온다.",
+        "operationId": "join_session_api_v1_sessions__sessionId__join_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session을 찾을 수 없음"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "이미 종료된 Session 등 현재 상태에서 입장할 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "면접 입장",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/start": {
+      "post": {
+        "description": "Session 을 면접 진행 상태로 변경하고 시작 시각을 기록한다.",
+        "operationId": "start_session_api_v1_sessions__sessionId__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session을 찾을 수 없음"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "현재 상태에서 시작할 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "면접 시작",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "LB·컨테이너 오케스트레이터가 부르는 생존 확인용.\n\n버전과 무관하므로 `/api/v1` prefix 밖에 둔다.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "서버 상태 확인",
+        "tags": [
+          "Health"
+        ]
+      }
+    }
+  }
+}
