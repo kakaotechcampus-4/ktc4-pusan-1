@@ -66,17 +66,34 @@ def test_basic_pairing_and_annotation() -> None:
 
     result = segment_qa(utts)
 
-    assert [p.qa_id for p in result.qa_pairs] == ["qa_001", "qa_002"]
+    assert [p.qa_id for p in result.qa_pairs] == ["qa_utt_000", "qa_utt_002"]
     first = result.qa_pairs[0]
     assert first.question_utterance_ids == ["utt_000"]
     assert first.answer_utterance_ids == ["utt_001"]
     assert first.start_ms == 0 and first.end_ms == 1900
     assert first.answer_word_count == 2
     roles = {u.utterance_id: (u.qa_id, u.qa_role) for u in result.utterances}
-    assert roles["utt_000"] == ("qa_001", QUESTION_ROLE)
-    assert roles["utt_001"] == ("qa_001", ANSWER_ROLE)
-    assert roles["utt_003"] == ("qa_002", ANSWER_ROLE)
+    assert roles["utt_000"] == ("qa_utt_000", QUESTION_ROLE)
+    assert roles["utt_001"] == ("qa_utt_000", ANSWER_ROLE)
+    assert roles["utt_003"] == ("qa_utt_002", ANSWER_ROLE)
     assert not result.dropped
+
+
+def test_qa_id_stays_stable_when_an_earlier_pair_is_inserted() -> None:
+    existing = [
+        _utt(10, INT, "캐시는 어디에 적용하셨나요?"),
+        _utt(11, CAN, "상품 API 앞에 뒀습니다."),
+    ]
+    inserted = [
+        _utt(0, INT, "자기소개 부탁드릴게요."),
+        _utt(1, CAN, "안녕하세요."),
+        *existing,
+    ]
+
+    before = segment_qa(existing).qa_pairs[0]
+    after = segment_qa(inserted).qa_pairs[1]
+
+    assert before.qa_id == after.qa_id == "qa_utt_010"
 
 
 def test_consecutive_candidate_utterances_form_one_answer() -> None:

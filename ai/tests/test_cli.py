@@ -4,10 +4,12 @@ from pathlib import Path
 import pytest
 
 from irya_ai.cli import main
+from irya_ai.config import Settings
 
 SAMPLES = Path(__file__).resolve().parents[1] / "data" / "samples"
 SCRIPT = SAMPLES / "transcript_backend_junior_01.json"
 CONTEXT = SAMPLES / "context_backend_junior.json"
+SNAPSHOT = Path(__file__).parent / "fixtures" / "sample_interview.json"
 
 
 def test_validate_accepts_samples(capsys: pytest.CaptureFixture[str]) -> None:
@@ -67,3 +69,41 @@ def test_simulate_json_emits_camel_case_lines(
     assert first["utteranceId"] == "utt_000"
     assert first["passType"] == "FINAL"
     assert "start_ms" not in first
+
+
+def test_analyze_offline_snapshot_prints_json(capsys) -> None:
+    code = main(["analyze", str(SNAPSHOT), "--backend", "extractive"])
+    result = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert result["status"] == "completed"
+    assert len(result["qaPairs"]) == 2
+    assert result["transcriptStage"] == "LIVE"
+
+
+def test_analyze_invalid_input_does_not_echo_sensitive_data(
+    tmp_path: Path, capsys
+) -> None:
+    source = tmp_path / "invalid.json"
+    source.write_text('{"sessionId":"private-data", "utterances":"bad"}')
+
+    code = main(["analyze", str(source), "--backend", "extractive"])
+    output = capsys.readouterr().out
+
+    assert code == 2
+    assert "INVALID_TRANSCRIPT" in output
+    assert "private-data" not in output
+
+
+def test_analyze_missing_key_does_not_fall_back_to_fake_success(
+    monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(
+        "irya_ai.cli.Settings",
+        lambda: Settings(_env_file=None, openai_api_key=""),
+    )
+
+    code = main(["analyze", str(SNAPSHOT), "--backend", "openai"])
+
+    assert code == 2
+    assert "OPENAI_API_KEY_MISSING" in capsys.readouterr().out

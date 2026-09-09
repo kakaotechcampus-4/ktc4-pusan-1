@@ -133,7 +133,7 @@ def segment_qa(utterances: list[Utterance]) -> SegmentationResult:
             i += 1
             continue
 
-        qa_id = f"qa_{len(qa_pairs) + 1:03d}"
+        qa_id = f"qa_{turn.utterances[0].utterance_id}"
         answer_utts = answer.utterances if answer else ()
         answer_text = answer.text if answer else ""
         qa_pairs.append(

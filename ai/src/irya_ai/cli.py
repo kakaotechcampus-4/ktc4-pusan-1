@@ -5,6 +5,7 @@ uv run irya-ai simulate data/samples/transcript_backend_junior_01.json
 uv run irya-ai simulate <script> --interim --realtime --speed 20
 uv run irya-ai segment <script> [--split-sentences]
 uv run irya-ai ground <findings.json> <script>
+uv run irya-ai analyze <snapshot.json> [--backend extractive]
 """
 
 import argparse
@@ -13,14 +14,19 @@ import json
 import sys
 from pathlib import Path
 
+from openai import AsyncOpenAI
 from pydantic import TypeAdapter, ValidationError
 
+from irya_ai.analysis import ContextAnalysisAgent
+from irya_ai.config import Settings
+from irya_ai.openai_summary import OpenAISummarizer
 from irya_ai.pipeline import ground_findings, segment_qa
 from irya_ai.schemas.analysis import Finding
 from irya_ai.schemas.context import InterviewContext
-from irya_ai.schemas.transcript import Utterance
+from irya_ai.schemas.transcript import TranscriptSnapshot, Utterance
 from irya_ai.simulator import TranscriptSimulator, load_script
 from irya_ai.simulator.script import TranscriptScript
+from irya_ai.summarize import ExtractiveSummarizer
 
 _FINDINGS = TypeAdapter(list[Finding])
 
@@ -144,6 +150,52 @@ def cmd_ground(args: argparse.Namespace) -> int:
     return 1 if report.rejected and args.strict else 0
 
 
+async def _analyze_snapshot(args: argparse.Namespace) -> int:
+    try:
+        transcript = TranscriptSnapshot.model_validate_json(
+            Path(args.input).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, ValidationError):
+        print(json.dumps({"error": {"code": "INVALID_TRANSCRIPT", "retryable": False}}))
+        return 2
+
+    if args.backend == "extractive":
+        result = await ContextAnalysisAgent(ExtractiveSummarizer()).analyze(transcript)
+    else:
+        try:
+            settings = Settings()
+        except ValidationError:
+            print(
+                json.dumps({"error": {"code": "INVALID_SETTINGS", "retryable": False}})
+            )
+            return 2
+        if not settings.openai_api_key.get_secret_value().strip():
+            print(
+                json.dumps(
+                    {"error": {"code": "OPENAI_API_KEY_MISSING", "retryable": False}}
+                )
+            )
+            return 2
+        async with AsyncOpenAI(
+            api_key=settings.openai_api_key.get_secret_value(),
+            base_url="https://api.openai.com/v1",
+            timeout=settings.analysis_timeout_seconds,
+            max_retries=0,
+        ) as client:
+            summarizer = OpenAISummarizer(
+                client, model=args.model or settings.openai_model
+            )
+            result = await ContextAnalysisAgent(
+                summarizer, timeout_seconds=settings.analysis_timeout_seconds
+            ).analyze(transcript)
+    print(result.model_dump_json(by_alias=True, indent=2))
+    return 1 if result.status in {"failed", "partial"} else 0
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    return asyncio.run(_analyze_snapshot(args))
+
+
 def _add_simulator_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--split-sentences",
@@ -202,6 +254,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--strict", action="store_true", help="exit 1 if any finding is rejected"
     )
     ground.set_defaults(func=cmd_ground)
+
+    analyze = sub.add_parser("analyze", help="summarize a transcript snapshot")
+    analyze.add_argument("input", help="backend TranscriptSnapshot JSON file")
+    analyze.add_argument(
+        "--backend", choices=["openai", "extractive"], default="openai"
+    )
+    analyze.add_argument("--model", choices=["gpt-4o-mini", "gpt-4o"])
+    analyze.set_defaults(func=cmd_analyze)
     return parser
 
 

@@ -363,11 +363,13 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "livekit-agents" },
+    { name = "openai" },
     { name = "pydantic-settings" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -376,11 +378,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "livekit-agents", specifier = "~=1.8.0" },
+    { name = "openai", specifier = "~=2.54.0" },
     { name = "pydantic-settings", specifier = "~=2.15.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "httpx", specifier = "~=0.28.1" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "ruff", specifier = ">=0.16.6" },
