@@ -3,8 +3,11 @@
  *
  * LiveKit 은 붙이지 않고 스토어에만 목 이벤트를 흘린다.
  * 다만 세션 상태 API(start·end)는 **실제로 호출한다** — 목 서버가 받는다.
- * 다만 자기 화면(PiP)은 **실제 카메라 트랙**이다 — 기기 점검에서 얻은 것을 그대로 받는다.
- * 원격 영상 영역은 비어 있는 것이 정상이다.
+ * 자기 화면(PiP)은 **실제 카메라 트랙**이다 — 기기 점검에서 얻은 것을 그대로 받는다.
+ *
+ * 상대 영상 자리에도 같은 트랙을 붙인다. LiveKit 서버가 없어 원격 참가자가 존재하지
+ * 않는데, 그대로 두면 화면이 검게 남아 고장난 것처럼 보인다.
+ * 대신 화면에 무엇이 대체된 것인지 문구로 밝힌다 — 시연에서 오해가 없어야 한다.
  *
  * ⚠️ BE·AI 연동 시 mocks/ 디렉터리와 App.tsx 의 분기를 함께 지운다.
  */
@@ -46,6 +49,18 @@ export function InterviewRoomPreview({
 
   useEffect(() => startMockSession(), []);
 
+  /* 상대 영상 자리를 내 카메라로 채운다.
+     하나의 트랙은 여러 요소에 attach 할 수 있어 PiP 와 동시에 쓸 수 있다.
+     detach 는 이 요소만 떼어 PiP 에는 영향을 주지 않는다. */
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!localVideoTrack || !el) return;
+    localVideoTrack.attach(el);
+    return () => {
+      localVideoTrack.detach(el);
+    };
+  }, [localVideoTrack]);
+
   // 면접 진행 상태로 전이시킨다. 명세상 면접관만 호출한다.
   // 여러 번 호출돼도 서버가 한 번만 전이시켜야 한다 (issue #9 완료 조건).
   useEffect(() => {
@@ -80,6 +95,11 @@ export function InterviewRoomPreview({
       onEnd={() => void handleEnd()}
       localVideoTrack={localVideoTrack}
       localAudioTrack={localAudioTrack}
+      notice={
+        localVideoTrack
+          ? '프로토타입 — 상대 영상 자리에 내 카메라를 대신 표시합니다'
+          : '프로토타입 — 전사와 추천 질문은 목 데이터입니다'
+      }
     />
   );
 }

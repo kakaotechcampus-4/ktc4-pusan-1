@@ -38,9 +38,14 @@ export interface InterviewRoomViewProps {
   ending: boolean;
   /** 면접관이면 면접 종료, 지원자면 나가기 */
   onEnd: () => void;
-  /** 면접관 자기 화면(PiP). 둘 다 없으면 PiP 를 그리지 않는다 */
+  /** 자기 화면(PiP). 둘 다 없으면 PiP 를 그리지 않는다 */
   localVideoTrack?: LocalVideoTrack | null;
   localAudioTrack?: LocalAudioTrack | null;
+  /**
+   * 화면 하단에 띄울 안내. 프로토타입에서 무엇이 실제가 아닌지 밝히는 데 쓴다.
+   * 시연 중 질문을 받기 전에 화면이 먼저 답하도록 한다.
+   */
+  notice?: string;
 }
 
 export function InterviewRoomView({
@@ -53,6 +58,7 @@ export function InterviewRoomView({
   onEnd,
   localVideoTrack,
   localAudioTrack,
+  notice,
 }: InterviewRoomViewProps) {
   const connection = useInterviewStore((s) => s.connection);
   const remoteJoined = useInterviewStore((s) => s.remoteJoined);
@@ -145,6 +151,15 @@ export function InterviewRoomView({
           {isInterviewer && <SuggestionPanel />}
         </div>
       </div>
+
+      {/* 프로토타입 안내 — 전사 패널과 겹치지 않게 가운데 아래에 둔다 */}
+      {notice && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-7 flex justify-center">
+          <span className="rounded-full bg-black/60 px-4 py-2 text-[13px] text-white/70 backdrop-blur-md">
+            {notice}
+          </span>
+        </div>
+      )}
 
       {/* 하단 — 전사. 면접관 전용이다 */}
       {isInterviewer && (
