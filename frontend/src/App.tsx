@@ -1,15 +1,16 @@
 /**
  * 라우팅.
  *
- *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
- *   /mock/interview         서버 없이 보는 면접 화면 — 임시, 전사 연동 시 제거
  *   /                       안내 화면
+ *   /host                   면접 준비 — 면접 생성 · 초대 링크 발급
+ *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
+ *   /mock/interview         면접 화면만 바로 보기 — 임시, 전사 연동 시 제거
  *
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
  */
 
 import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 import { InterviewRoomPreview } from './mocks/InterviewRoomPreview';
 import DeviceCheckPage from './pages/DeviceCheckPage';
@@ -17,22 +18,55 @@ import InterviewSetupPage from './pages/InterviewSetupPage';
 import JoinPage from './pages/JoinPage';
 import type { JoinSessionResponse, Role } from './types/interview';
 
-/**
- * 진입 흐름 — join → 기기 점검 → 방 접속.
- *
- * 라우트를 나누지 않고 한 컴포넌트에서 단계를 넘긴다.
- * 기기 점검에서 얻은 트랙을 다음 단계로 그대로 넘겨야 하는데,
- * 라우트 경계를 넘기면 트랙 소유권 추적이 흐트러지기 때문이다.
- */
 interface LocalTracks {
   videoTrack: LocalVideoTrack | null;
   audioTrack: LocalAudioTrack | null;
 }
 
+/**
+ * 기기 점검을 통과할 때까지 자식을 그리지 않는다.
+ *
+ * 트랙 소유권 처리를 여기 한 곳에 모은다. usePermissionCheck 는 release() 를 부른 쪽에
+ * 소유권을 넘기고 그 뒤로는 스스로 stop 하지 않는다. 프로토타입에는 publishTrack 이 없어
+ * Room 이 대신 정리해 주지도 않으므로, 이 컴포넌트가 정리까지 책임진다.
+ */
+function DeviceGate({ children }: { children: (tracks: LocalTracks) => ReactNode }) {
+  const [tracks, setTracks] = useState<LocalTracks | null>(null);
+
+  useEffect(() => {
+    if (!tracks) return;
+    return () => {
+      tracks.videoTrack?.stop();
+      tracks.audioTrack?.stop();
+    };
+  }, [tracks]);
+
+  if (!tracks) {
+    return (
+      <DeviceCheckPage
+        onReady={({ videoTrack, audioTrack, release }) => {
+          // release() 를 부르지 않으면 DeviceCheckPage 가 언마운트되면서
+          // usePermissionCheck 의 정리가 트랙을 stop 한다 — 다음 화면에 죽은 트랙이 넘어간다.
+          release();
+          setTracks({ videoTrack, audioTrack });
+        }}
+      />
+    );
+  }
+
+  return <>{children(tracks)}</>;
+}
+
+/**
+ * 진입 흐름 — join → 기기 점검 → 면접 화면.
+ *
+ * 라우트를 나누지 않고 한 컴포넌트에서 단계를 넘긴다.
+ * 기기 점검에서 얻은 트랙을 다음 단계로 그대로 넘겨야 하는데,
+ * 라우트 경계를 넘기면 트랙 소유권 추적이 흐트러지기 때문이다.
+ */
 function InterviewFlow() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [session, setSession] = useState<JoinSessionResponse | null>(null);
-  const [tracks, setTracks] = useState<LocalTracks | null>(null);
 
   // 명세상 role 은 클라이언트가 선언한다 (인증 도입 전 임시 구조).
   // 초대 링크로 들어오면 지원자, `?role=interviewer` 면 면접관이다.
@@ -44,19 +78,19 @@ function InterviewFlow() {
     return <JoinPage role={role} onJoined={setSession} />;
   }
 
-  if (!tracks) {
-    return <DeviceCheckPage onReady={setTracks} />;
-  }
-
   // ⚠️ 프로토타입 — 전사·추천 질문은 목 데이터다 (WebSocket 경로가 명세에 없음).
-  //    자기 화면(PiP)만 기기 점검에서 얻은 실제 트랙을 그대로 쓴다.
+  //    자기 화면(PiP)과 상대 영상 자리는 기기 점검에서 얻은 실제 트랙을 쓴다.
   return (
-    <InterviewRoomPreview
-      role={role}
-      sessionId={sessionId}
-      localVideoTrack={tracks.videoTrack}
-      localAudioTrack={tracks.audioTrack}
-    />
+    <DeviceGate>
+      {(tracks) => (
+        <InterviewRoomPreview
+          role={role}
+          sessionId={sessionId}
+          localVideoTrack={tracks.videoTrack}
+          localAudioTrack={tracks.audioTrack}
+        />
+      )}
+    </DeviceGate>
   );
 }
 
@@ -116,7 +150,19 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/host" element={<InterviewSetupPage />} />
       <Route path="/interview/:sessionId" element={<InterviewFlow />} />
-      <Route path="/mock/interview" element={<InterviewRoomPreview />} />
+      <Route
+        path="/mock/interview"
+        element={
+          <DeviceGate>
+            {(tracks) => (
+              <InterviewRoomPreview
+                localVideoTrack={tracks.videoTrack}
+                localAudioTrack={tracks.audioTrack}
+              />
+            )}
+          </DeviceGate>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
