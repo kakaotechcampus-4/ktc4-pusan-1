@@ -55,6 +55,32 @@ export interface SessionState {
   endedAt: string | null;
 }
 
+/**
+ * 면접 요약 (이슈 #6).
+ *
+ * ⚠️ 이 엔드포인트는 아직 명세에 없다. 요약은 면접이 끝난 뒤에 보므로 실시간 통로가
+ * 필요 없고 HTTP 조회 하나면 된다. 아래는 FE 가 제안하는 형태다.
+ *
+ *   GET /api/v1/sessions/{sessionId}/summary
+ *
+ * LLM 요약은 시간이 걸리므로 생성 중 상태가 필요하다.
+ * 출력 형식은 #6 에서 정의될 예정이라 여기서는 최소한만 둔다.
+ */
+export type SummaryStatus = 'PROCESSING' | 'READY' | 'FAILED';
+
+export interface InterviewSummary {
+  sessionId: string;
+  status: SummaryStatus;
+  /** status 가 READY 일 때만 채워진다 */
+  content: {
+    /** 면접 전체를 한 문단으로 */
+    overview: string;
+    /** 지원자 답변에서 뽑은 핵심 */
+    keyPoints: string[];
+  } | null;
+  durationSec: number;
+}
+
 /** POST /api/v1/sessions/{sessionId}/end */
 export interface EndSessionResponse {
   sessionId: string;
@@ -106,14 +132,6 @@ export interface Utterance {
   final: boolean;
 }
 
-export interface Suggestion {
-  id: string;
-  text: string;
-  reason: string;
-  atSec: number;
-  asked: boolean;
-}
-
 export type StreamEvent =
   | { type: 'speech.start'; speaker: Speaker; at: number }
   | { type: 'speech.end'; speaker: Speaker; at: number }
@@ -124,12 +142,5 @@ export type StreamEvent =
       text: string;
       at: number;
       final: boolean;
-    }
-  | {
-      type: 'suggestion.created';
-      id: string;
-      text: string;
-      reason: string;
-      at: number;
     }
   | { type: 'stream.degraded'; reason: string };

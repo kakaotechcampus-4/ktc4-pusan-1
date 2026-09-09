@@ -5,11 +5,10 @@
  *
  * 역할에 따라 얹는 것이 다르다.
  *
- *   면접관  전사 · 추천 질문 · 면접 종료
+ *   면접관  전사 · 면접 종료
  *   지원자  없음 · 나가기
  *
- * 지원자에게 추천 질문을 보이면 안 된다 — 면접관이 무엇을 물어볼지 미리 알게 된다.
- * 전사도 감춘다. 본인 발화가 실시간으로 받아적히는 것을 보면 답변이 위축된다.
+ * 지원자에게는 전사를 감춘다. 본인 발화가 실시간으로 받아적히는 것을 보면 답변이 위축된다.
  *
  * 연결(LiveKit·API)은 여기서 다루지 않는다 — pages/InterviewRoom 이 담당한다.
  * 덕분에 서버 없이도 이 화면만 따로 띄워 확인할 수 있다.
@@ -22,7 +21,6 @@ import type { Role } from '../../types/interview';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { LocalPreview } from './LocalPreview';
 import { SpeakerBadge } from './SpeakerBadge';
-import { SuggestionPanel } from './SuggestionPanel';
 import { TranscriptPanel } from './TranscriptPanel';
 
 export interface InterviewRoomViewProps {
@@ -101,11 +99,7 @@ export function InterviewRoomView({
       {/* 자기 화면 — 대기 오버레이보다 뒤에 두어 그 위에 그려진다.
           상대를 기다리는 동안 자기 카메라·마이크를 점검하는 것이 목적이다.
 
-          z-index 를 주지 않는다. 추천 질문 패널이 오른쪽에서 아래로 자라기 때문에
-          질문이 3개 이상이면 이 영역과 겹치는데, 그때는 패널이 위로 와야 한다 —
-          PiP 가 질문 카드의 버튼을 가리면 클릭이 막힌다.
-          아래 상단 컨테이너가 뒤에 오므로 패널이 자연히 위에 그려진다.
-          클릭을 가로채지 않도록 pointer-events 도 끈다. */}
+          클릭을 가로채지 않도록 pointer-events 를 끈다. */}
       {(localVideoTrack || localAudioTrack) && (
         // 위치는 래퍼가 잡는다. LocalPreview 는 자기 루트에 relative 를 두므로
         // 여기서 absolute 를 같이 넘기면 두 position 유틸리티가 충돌한다.
@@ -148,7 +142,6 @@ export function InterviewRoomView({
           >
             {isInterviewer ? '✕' : '나가기'}
           </button>
-          {isInterviewer && <SuggestionPanel />}
         </div>
       </div>
 

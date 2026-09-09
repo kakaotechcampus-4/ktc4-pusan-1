@@ -66,28 +66,6 @@ const SCRIPT: ScheduledEvent[] = [
   },
   { after: 500, event: { type: 'speech.end', speaker: 'candidate', at: 21 } },
 
-  // 추천 질문은 지원자 발화가 끝난 뒤에만 도착한다.
-  {
-    after: 700,
-    event: {
-      type: 'suggestion.created',
-      id: 's1',
-      text: '초당 2만 건은 어떤 병목을 해결해서 나온 수치인가요?',
-      reason: '성능 수치를 언급했으나 근거가 없습니다',
-      at: 22,
-    },
-  },
-  {
-    after: 1400,
-    event: {
-      type: 'suggestion.created',
-      id: 's2',
-      text: '그 파이프라인에서 직접 설계한 부분은 어디까지인가요?',
-      reason: '팀 성과와 개인 기여가 구분되지 않았습니다',
-      at: 24,
-    },
-  },
-
   { after: 1200, event: { type: 'speech.start', speaker: 'interviewer', at: 26 } },
   {
     after: 400,
