@@ -1,0 +1,88 @@
+{
+  "sessionId": "ses_sample_01",
+  "company": {
+    "companyId": "cmp_nuri",
+    "name": "누리뱅크",
+    "culture": "작은 팀이 서비스 전체를 맡는다. 장애 대응은 팀 전원이 돌아가며 담당하고, 문제를 숨기지 않고 빨리 공유하는 것을 중요하게 본다."
+  },
+  "jobDescription": {
+    "jdId": "jd_backend_junior",
+    "companyId": "cmp_nuri",
+    "title": "백엔드 신입",
+    "description": "플랫폼팀에서 상품 조회·주문 API를 개발하고 운영합니다. Python 또는 Java 기반 서버 개발 경험, 관계형 DB와 캐시 사용 경험, 장애 상황에서 원인을 찾아 개선한 경험이 있으면 좋습니다. 온콜 대응에 참여합니다."
+  },
+  "competencies": [
+    {
+      "competencyId": "cpt_traffic",
+      "jdId": "jd_backend_junior",
+      "name": "대용량 트래픽",
+      "required": true,
+      "description": "트래픽 증가 상황에서 병목을 찾고 캐시·쿼리·구조 개선으로 해결한 경험"
+    },
+    {
+      "competencyId": "cpt_collab",
+      "jdId": "jd_backend_junior",
+      "name": "협업",
+      "required": true,
+      "description": "다른 직군 또는 팀원과 역할을 나누고 갈등을 조정한 경험"
+    },
+    {
+      "competencyId": "cpt_problem",
+      "jdId": "jd_backend_junior",
+      "name": "문제 정의",
+      "required": true,
+      "description": "막연한 문제를 측정 가능한 문제로 좁혀 원인을 찾은 경험"
+    },
+    {
+      "competencyId": "cpt_learning",
+      "jdId": "jd_backend_junior",
+      "name": "학습 태도",
+      "required": false,
+      "description": "모르는 기술을 스스로 익혀 적용한 경험"
+    }
+  ],
+  "rubric": {
+    "rubricId": "rub_backend_junior",
+    "jdId": "jd_backend_junior",
+    "levels": {
+      "1": "경험 없음 또는 설명 불가",
+      "3": "경험은 있으나 본인의 기여와 결과를 구분해 말하지 못함",
+      "5": "본인의 기여, 근거 수치, 한계까지 구체적으로 설명함"
+    }
+  },
+  "candidate": {
+    "candidateId": "cnd_2213",
+    "name": "정민호"
+  },
+  "resume": {
+    "resumeId": "rsm_2213_v1",
+    "candidateId": "cnd_2213",
+    "storageKey": "resumes/cnd_2213/v1.pdf"
+  },
+  "resumeClaims": [
+    {
+      "claimId": "clm_001",
+      "resumeId": "rsm_2213_v1",
+      "quote": "상품 조회 API에 Redis 캐시를 도입하여 응답 시간을 60% 단축",
+      "section": "프로젝트"
+    },
+    {
+      "claimId": "clm_002",
+      "resumeId": "rsm_2213_v1",
+      "quote": "4인 팀 프로젝트에서 백엔드 파트 리드로 API 설계와 일정 관리를 담당",
+      "section": "프로젝트"
+    },
+    {
+      "claimId": "clm_003",
+      "resumeId": "rsm_2213_v1",
+      "quote": "Kubernetes 기반 배포 파이프라인 구축",
+      "section": "기술"
+    },
+    {
+      "claimId": "clm_004",
+      "resumeId": "rsm_2213_v1",
+      "quote": "부하 테스트로 초당 3,000건 요청 처리 확인",
+      "section": "프로젝트"
+    }
+  ]
+}
