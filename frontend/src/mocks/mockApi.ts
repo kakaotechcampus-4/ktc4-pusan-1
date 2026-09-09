@@ -10,7 +10,13 @@
  * ⚠️ BE 연동 시 이 파일과 api/client.ts 의 분기를 함께 지운다.
  */
 
-import type { JoinSessionResponse, SessionState } from '../types/interview';
+import type {
+  CreateSessionResponse,
+  Interview,
+  JoinSessionResponse,
+  SessionState,
+  StartSessionResponse,
+} from '../types/interview';
 
 /** 목이 켜져 있는가. 개발 모드에서만, 명시적으로 끄지 않은 경우에 동작한다. */
 export const USE_MOCK_API = import.meta.env.DEV && import.meta.env.VITE_USE_MOCK_API !== 'false';
@@ -22,8 +28,58 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * 경로 → 응답. 실제 라우팅과 같은 모양으로 맞춰 둔다.
  * 매칭되지 않으면 null 을 돌려주고 호출부가 실제 fetch 로 넘어간다.
  */
+let seq = 0;
+const nextId = (prefix: string) => `${prefix}_${(++seq).toString().padStart(3, '0')}`;
+
+/** 생성한 면접을 기억해 둔다. 조회가 같은 값을 돌려주게 하기 위해서다. */
+const interviews = new Map<string, Interview>();
+
 export async function handleMock(path: string, init?: RequestInit): Promise<unknown | null> {
   const method = init?.method ?? 'GET';
+
+  if (path === '/api/v1/interviews' && method === 'POST') {
+    await delay(400);
+    const body = JSON.parse(String(init?.body ?? '{}')) as { interviewerId?: string };
+    const interview: Interview = {
+      interviewId: nextId('int'),
+      interviewerId: body.interviewerId ?? 'user_mock',
+      createdAt: new Date().toISOString(),
+    };
+    interviews.set(interview.interviewId, interview);
+    return interview;
+  }
+
+  const getInterview = /^\/api\/v1\/interviews\/([^/]+)$/.exec(path);
+  if (getInterview && method === 'GET') {
+    await delay(200);
+    return interviews.get(getInterview[1]) ?? null;
+  }
+
+  const createSession = /^\/api\/v1\/interviews\/([^/]+)\/sessions$/.exec(path);
+  if (createSession && method === 'POST') {
+    await delay(500);
+    const sessionId = nextId('ses');
+    return {
+      sessionId,
+      interviewId: createSession[1],
+      status: 'WAITING',
+      // 명세 예시는 https://irya.com/... 이지만, 목에서는 현재 오리진으로 만든다.
+      // 그래야 복사한 링크를 다른 탭에서 실제로 열어볼 수 있다.
+      // 실제 서버는 환경별 프론트 도메인을 주입해야 한다.
+      inviteUrl: `${window.location.origin}/interview/${sessionId}`,
+      createdAt: new Date().toISOString(),
+    } satisfies CreateSessionResponse;
+  }
+
+  const start = /^\/api\/v1\/sessions\/([^/]+)\/start$/.exec(path);
+  if (start && method === 'POST') {
+    await delay(300);
+    return {
+      sessionId: start[1],
+      status: 'INTERVIEWING',
+      startedAt: new Date().toISOString(),
+    } satisfies StartSessionResponse;
+  }
 
   const join = /^\/api\/v1\/sessions\/([^/]+)\/join$/.exec(path);
   if (join && method === 'POST') {
