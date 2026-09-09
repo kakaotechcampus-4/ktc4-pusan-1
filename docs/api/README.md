@@ -15,6 +15,7 @@
 | [Session 상태 조회](06-sessions-get.md) | `GET` | `/api/v1/sessions/{sessionId}` | 면접관 · 지원자 | 면접 |
 | [면접 종료](07-sessions-end.md) | `POST` | `/api/v1/sessions/{sessionId}/end` | 면접관 | 면접 |
 | [Health Check](08-health.md) | `GET` | `/health` | — | 시스템 |
+| [면접 요약](09-sessions-summary.md) ⚠️ 제안 | `GET` | `/api/v1/sessions/{sessionId}/summary` | 면접관 | 면접 |
 
 > 확정이 급하지 않은 항목은 [나중에 정해도 되는 것](DEFERRED.md) 에 따로 모아뒀습니다.
 
@@ -57,6 +58,8 @@ FE 는 아래 형태를 기대하고 화면을 분기합니다.
 - **전사·추천 질문 WebSocket** — AI(#7)가 STT 결과와 추천 질문을 실시간으로 밀어주는 경로.
   8개 엔드포인트 어디에도 없습니다. FE 의 `TranscriptPanel` · `SuggestionPanel` 두 화면이
   붙을 곳이 없어 목 데이터로만 동작합니다. BE 담당인지 AI 담당인지도 정해지지 않았습니다.
+- **면접 요약 조회** — 이슈 #6 의 결과를 받을 통로. FE 가 [09-sessions-summary.md](09-sessions-summary.md) 로 제안했습니다.
+  요약은 면접 종료 후에 보므로 WebSocket 이 아니라 HTTP 조회면 됩니다.
 - **추천 질문 "물어봤음" 기록** — 면접관이 추천 질문을 실제로 물어봤음을 서버에 알리는 엔드포인트.
   지금은 화면에서만 표시되고 새로고침하면 사라집니다.
 - **인증** — 현재 `interviewerId`(면접 생성)와 `role`(입장)을 클라이언트가 그대로 보냅니다.
