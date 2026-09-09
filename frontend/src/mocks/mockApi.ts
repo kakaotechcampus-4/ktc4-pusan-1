@@ -13,6 +13,7 @@
 import type {
   CreateSessionResponse,
   Interview,
+  InterviewSummary,
   JoinSessionResponse,
   SessionState,
   StartSessionResponse,
@@ -33,6 +34,9 @@ const nextId = (prefix: string) => `${prefix}_${(++seq).toString().padStart(3, '
 
 /** 생성한 면접을 기억해 둔다. 조회가 같은 값을 돌려주게 하기 위해서다. */
 const interviews = new Map<string, Interview>();
+
+/** 요약 조회 횟수. 생성 중 상태를 몇 번 보여줄지 세는 데 쓴다. */
+const summaryPolls = new Map<string, number>();
 
 export async function handleMock(path: string, init?: RequestInit): Promise<unknown | null> {
   const method = init?.method ?? 'GET';
@@ -110,6 +114,42 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
       startedAt: new Date().toISOString(),
       endedAt: null,
     } satisfies SessionState;
+  }
+
+  /* 요약 — 처음 두 번은 생성 중으로 응답한다.
+     LLM 요약에 시간이 걸리는 실제 상황을 흉내내, 대기 화면이 실제로 보이게 한다. */
+  const summary = /^\/api\/v1\/sessions\/([^/]+)\/summary$/.exec(path);
+  if (summary && method === 'GET') {
+    await delay(400);
+    const sessionId = summary[1];
+    const polls = (summaryPolls.get(sessionId) ?? 0) + 1;
+    summaryPolls.set(sessionId, polls);
+
+    if (polls <= 2) {
+      return {
+        sessionId,
+        status: 'PROCESSING',
+        content: null,
+        durationSec: 0,
+      } satisfies InterviewSummary;
+    }
+
+    return {
+      sessionId,
+      status: 'READY',
+      content: {
+        overview:
+          '지원자는 3년차 백엔드 개발자로, 실시간 스트리밍 파이프라인 경험을 중심으로 답변했습니다. ' +
+          '초당 2만 건 처리라는 구체적인 수치를 제시했으나 병목 해결 과정과 개인 기여 범위는 ' +
+          '추가 확인이 필요한 상태로 남았습니다.',
+        keyPoints: [
+          '실시간 스트리밍 파이프라인 담당 경험 — 초당 2만 건 처리',
+          '성능 수치의 근거(병목 해결 과정)는 언급되지 않음',
+          '팀 성과와 개인 기여가 구분되지 않음',
+        ],
+      },
+      durationSec: 31,
+    } satisfies InterviewSummary;
   }
 
   const end = /^\/api\/v1\/sessions\/([^/]+)\/end$/.exec(path);

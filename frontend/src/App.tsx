@@ -4,6 +4,7 @@
  *   /                       안내 화면
  *   /host                   면접 준비 — 면접 생성 · 초대 링크 발급
  *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
+ *   /interview/:sessionId/summary  면접 종료 후 요약
  *   /mock/interview         면접 화면만 바로 보기 — 임시, 전사 연동 시 제거
  *
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
@@ -11,10 +12,19 @@
 
 import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import { InterviewRoomPreview } from './mocks/InterviewRoomPreview';
 import DeviceCheckPage from './pages/DeviceCheckPage';
 import InterviewSetupPage from './pages/InterviewSetupPage';
+import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
 import type { JoinSessionResponse, Role } from './types/interview';
 
@@ -66,6 +76,7 @@ function DeviceGate({ children }: { children: (tracks: LocalTracks) => ReactNode
  */
 function InterviewFlow() {
   const { sessionId } = useParams<{ sessionId: string }>();
+  const navigate = useNavigate();
   const [session, setSession] = useState<JoinSessionResponse | null>(null);
 
   // 명세상 role 은 클라이언트가 선언한다 (인증 도입 전 임시 구조).
@@ -88,6 +99,10 @@ function InterviewFlow() {
           sessionId={sessionId}
           localVideoTrack={tracks.videoTrack}
           localAudioTrack={tracks.audioTrack}
+          onLeave={() => {
+            // 면접관은 요약을 본다. 지원자는 요약 열람 권한이 없으므로 처음으로 돌아간다.
+            void navigate(role === 'INTERVIEWER' ? `/interview/${sessionId}/summary` : '/');
+          }}
         />
       )}
     </DeviceGate>
@@ -150,6 +165,7 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/host" element={<InterviewSetupPage />} />
       <Route path="/interview/:sessionId" element={<InterviewFlow />} />
+      <Route path="/interview/:sessionId/summary" element={<InterviewSummaryPage />} />
       <Route
         path="/mock/interview"
         element={

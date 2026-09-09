@@ -12,6 +12,16 @@
   }
 }
 
+/* 요약 생성 중 진행 표시. 완료 시점을 알 수 없어 좌우로 오간다. */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
 html,
 body,
 #root {
