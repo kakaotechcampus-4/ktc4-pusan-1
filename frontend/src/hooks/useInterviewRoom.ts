@@ -179,7 +179,7 @@ export function useInterviewRoom({
         });
 
         /* --- 전사·추천 질문 연결 ---
-           BE 명세(docs/api)에 WebSocket 경로가 없어 아직 연결하지 않는다 (AI #7).
+           BE API 명세에 WebSocket 경로가 없어 아직 연결하지 않는다 (AI #7).
            경로가 생기면 여기서 붙인다 — 통화와 분리해 두어 전사가 죽어도 통화는 유지된다. */
       } catch (e) {
         if (!cancelled) {
