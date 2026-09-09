@@ -30,6 +30,13 @@ class PassType(StrEnum):
     FINAL = "FINAL"
 
 
+class TranscriptStage(StrEnum):
+    """Whether a snapshot is a live draft or recording-aligned transcript."""
+
+    LIVE = "LIVE"
+    REALIGNED = "REALIGNED"
+
+
 class Track(CamelModel):
     """One participant's audio track within a session."""
 
@@ -91,3 +98,48 @@ class Utterance(CamelModel):
     @property
     def is_final(self) -> bool:
         return self.pass_type is PassType.FINAL
+
+
+class TranscriptSnapshot(CamelModel):
+    """All revisions known for one interview at a point in time.
+
+    A snapshot contains full utterance revisions rather than text deltas.  The
+    last FINAL revision for each ID wins; an INTERIM arriving afterwards never
+    replaces the confirmed text.
+    """
+
+    session_id: str = Field(min_length=1, examples=["ses_123"])
+    stage: TranscriptStage = TranscriptStage.LIVE
+    utterances: list[Utterance] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_revisions(self) -> "TranscriptSnapshot":
+        identities: dict[str, tuple[str, SpeakerRole, int, int]] = {}
+        for utterance in self.utterances:
+            if utterance.session_id != self.session_id:
+                raise ValueError("utterance session_id must match snapshot session_id")
+            identity = (
+                utterance.track_id,
+                utterance.speaker,
+                utterance.seq,
+                utterance.start_ms,
+            )
+            previous = identities.setdefault(utterance.utterance_id, identity)
+            if previous != identity:
+                raise ValueError(
+                    "utterance revisions must keep track, speaker, seq and start_ms"
+                )
+        return self
+
+    def final_utterances(self) -> list[Utterance]:
+        """Return the latest FINAL revision per ID in deterministic order."""
+
+        finals = {u.utterance_id: u for u in self.utterances if u.is_final}
+        return sorted(finals.values(), key=lambda u: (u.seq, u.utterance_id))
+
+    def full_text(self) -> str:
+        """Speaker-labelled text for sample-quality screening."""
+
+        return "\n".join(
+            f"{u.speaker.value}: {u.content}" for u in self.final_utterances()
+        )

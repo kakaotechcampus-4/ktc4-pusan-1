@@ -6,7 +6,8 @@ LiveKit 오디오 트랙을 실시간 STT와 후속 AI 파이프라인으로 연
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
-- LiveKit 서버 접속 정보
+- 실제 STT 연결 시 LiveKit 서버 접속 정보
+- GPT 분석 실행 시 OpenAI API Key (오프라인 데모에는 불필요)
 
 Python은 `ai/.python-version`의 3.12를 사용합니다. 로컬에 설치되어 있지 않으면 `uv`가 필요한 버전을 설치할 수 있습니다.
 
@@ -28,6 +29,37 @@ cp .env.example .env
 | `LIVEKIT_URL` | LiveKit WebSocket URL | `ws://localhost:7880` |
 | `LIVEKIT_API_KEY` | LiveKit API Key | 없음 |
 | `LIVEKIT_API_SECRET` | LiveKit API Secret | 없음 |
+| `OPENAI_API_KEY` | 서버 측 GPT API Key | 없음 |
+| `OPENAI_MODEL` | `gpt-4o-mini` 또는 `gpt-4o` | `gpt-4o-mini` |
+| `ANALYSIS_TIMEOUT_SECONDS` | 분석 제한 시간(초), 0 초과 120 이하 | `30` |
+
+분석만 실행할 때는 LiveKit 접속 정보를 채울 필요가 없습니다.
+
+## 면접 컨텍스트 분석 MVP
+
+백엔드에서 **Transcript JSON 한 건을 전달받았다**고 가정하고 Q&A 구조화 →
+GPT 요약 → 원문 인용 검증을 실행합니다. 현재 입력 형식은 BE/AI 리뷰 전 제안입니다.
+실제 STT·미디어·HTTP 엔드포인트와 연결된 상태는 아닙니다.
+
+```bash
+# 네트워크·API 키 없이 구조와 근거 연결 확인 (원문 추출, GPT 요약 아님)
+uv run irya-ai analyze tests/fixtures/sample_interview.json --backend extractive
+
+# .env의 OPENAI_API_KEY 설정 후 GPT 요약
+uv run irya-ai analyze tests/fixtures/sample_interview.json
+
+# 모델 변경
+uv run irya-ai analyze tests/fixtures/sample_interview.json --model gpt-4o
+```
+
+출력은 JSON입니다. 예제 입력은 가상 대화이며, 오프라인 실행 시 Q&A 2개와
+지원자 발화 2개의 원문·시각이 나옵니다. `completed`는 해당 분석 실행이 끝났다는
+뜻입니다. `transcriptStage: LIVE`는 여전히 잠정 전사이며, 내용의 사실성이나
+제품 전체 연동 성공을 뜻하지 않습니다.
+
+입력·출력 계약, BE 호출 예시, 오류 처리, 검증 범위는
+[컨텍스트 분석 계약](docs/context-analysis.md)을 참고하세요. 멘토 리뷰용 검증 시나리오와
+실제 GPT 확인 절차는 [테스트 케이스](docs/test-cases.md)에 정리했습니다.
 
 ## Verify
 
@@ -44,9 +76,14 @@ src/irya_ai/
 ├── config.py          환경변수 설정
 ├── cli.py             로컬 개발용 CLI (irya-ai)
 ├── schemas/           파이프라인 입출력 계약 (Pydantic)
-│   ├── transcript.py  Track · Utterance · Word — STT가 내고 분석이 받는 것
+│   ├── transcript.py  Track · Utterance · Word · TranscriptSnapshot
 │   ├── context.py     Company · JobDescription · Competency · Rubric · Candidate · Resume · ResumeClaim
-│   └── analysis.py    QAPair · Finding · SuggestedQuestion · ReviewReport — 분석이 내는 것
+│   ├── analysis.py    QAPair · Finding · SuggestedQuestion · ReviewReport
+│   └── summary.py     SummaryPoint · SummaryResult · AnalysisResult
+├── pipeline/          Q&A 구조화 · 근거 접지
+├── analysis.py        Snapshot 한 건의 분석과 상태 처리
+├── summarize.py       요약 인터페이스 · 오프라인 추출형 요약
+├── openai_summary.py  OpenAI 구조화 요약
 └── simulator/         대본 JSON을 STT 이벤트 스트림으로 재생
 data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데이터)
 ```
@@ -159,3 +196,7 @@ sim.finals()  # FINAL만 seq 순으로
 | `transcript_backend_junior_02.json` | 면접관 끼어들기(구간 겹침), `uncertain` 발화, 지원서 주장 중 언급이 전혀 없는 항목 |
 
 모두 가공 데이터입니다. 실제 지원서나 면접 녹취는 이 폴더에 넣지 않습니다.
+
+실제 GPT 품질 확인은 API Key가 필요한 수동 테스트이므로 자동 테스트 결과와
+구분해서 기록합니다. STT 공급자, 모델, GPU 및 self-host 여부는 검증 후 별도로
+선택합니다.
