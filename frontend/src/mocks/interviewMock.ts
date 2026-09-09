@@ -112,10 +112,15 @@ export function startMockSession(): () => void {
 
   setSession('mock-session');
   setConnection(ConnectionState.Connected);
-  setRemoteJoined(true);
 
   const timers: ReturnType<typeof setTimeout>[] = [];
-  let elapsed = 0;
+
+  // 상대가 곧바로 들어와 있으면 대기 화면을 볼 수 없다.
+  // 잠깐 대기 상태를 보여준 뒤 입장시켜, 실제 흐름과 같은 순서로 확인되게 한다.
+  timers.push(setTimeout(() => setRemoteJoined(true), 1800));
+
+  // 대본은 상대가 들어온 뒤부터 흐른다.
+  let elapsed = 1800;
   for (const { after, event } of SCRIPT) {
     elapsed += after;
     timers.push(setTimeout(() => applyStreamEvent(event), elapsed));
