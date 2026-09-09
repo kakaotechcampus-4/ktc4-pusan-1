@@ -10,9 +10,10 @@
 
 import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
 import { useState } from 'react';
-import { Link, Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 import { InterviewRoomPreview } from './mocks/InterviewRoomPreview';
 import DeviceCheckPage from './pages/DeviceCheckPage';
+import InterviewSetupPage from './pages/InterviewSetupPage';
 import JoinPage from './pages/JoinPage';
 import type { JoinSessionResponse, Role } from './types/interview';
 
@@ -29,6 +30,7 @@ interface LocalTracks {
 }
 
 function InterviewFlow() {
+  const { sessionId } = useParams<{ sessionId: string }>();
   const [session, setSession] = useState<JoinSessionResponse | null>(null);
   const [tracks, setTracks] = useState<LocalTracks | null>(null);
 
@@ -51,6 +53,7 @@ function InterviewFlow() {
   return (
     <InterviewRoomPreview
       role={role}
+      sessionId={sessionId}
       localVideoTrack={tracks.videoTrack}
       localAudioTrack={tracks.audioTrack}
     />
@@ -76,16 +79,16 @@ function Landing() {
 
         <div className="mt-7 flex flex-col gap-2.5">
           <Link
-            to={`/interview/${demoSession}?role=interviewer`}
+            to="/host"
             className="rounded-lg bg-[#2B44D6] px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-[#243AB8]"
           >
-            면접관으로 입장
+            면접 만들기 (면접관)
           </Link>
           <Link
             to={`/interview/${demoSession}`}
             className="rounded-lg bg-white/[0.08] px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-white/[0.13]"
           >
-            지원자로 입장
+            지원자로 바로 입장 (링크 없이)
           </Link>
         </div>
 
@@ -111,6 +114,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/host" element={<InterviewSetupPage />} />
       <Route path="/interview/:sessionId" element={<InterviewFlow />} />
       <Route path="/mock/interview" element={<InterviewRoomPreview />} />
       <Route path="*" element={<Navigate to="/" replace />} />
