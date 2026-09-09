@@ -8,12 +8,13 @@
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
  */
 
+import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
 import { useState } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useSearchParams } from 'react-router-dom';
 import { InterviewRoomPreview } from './mocks/InterviewRoomPreview';
 import DeviceCheckPage from './pages/DeviceCheckPage';
 import JoinPage from './pages/JoinPage';
-import type { JoinSessionResponse } from './types/interview';
+import type { JoinSessionResponse, Role } from './types/interview';
 
 /**
  * 진입 흐름 — join → 기기 점검 → 방 접속.
@@ -22,39 +23,85 @@ import type { JoinSessionResponse } from './types/interview';
  * 기기 점검에서 얻은 트랙을 다음 단계로 그대로 넘겨야 하는데,
  * 라우트 경계를 넘기면 트랙 소유권 추적이 흐트러지기 때문이다.
  */
-function InterviewFlow() {
-  const [session, setSession] = useState<JoinSessionResponse | null>(null);
-  const [checked, setChecked] = useState(false);
-
-  if (!session) {
-    // 초대 링크로 들어온 사람은 지원자다.
-    return <JoinPage role="CANDIDATE" onJoined={setSession} />;
-  }
-
-  if (!checked) {
-    return (
-      <DeviceCheckPage
-        onReady={() => {
-          // TODO(#5): 확보한 트랙을 면접 화면으로 넘긴다.
-          setChecked(true);
-        }}
-      />
-    );
-  }
-
-  // TODO(#5): 실제 면접 화면. 지금은 목 데이터로 지원자 화면을 보여준다 —
-  // 전사 WebSocket 경로가 명세에 없어 실데이터로는 그릴 것이 없다.
-  return <Navigate to="/mock/interview?role=candidate" replace />;
+interface LocalTracks {
+  videoTrack: LocalVideoTrack | null;
+  audioTrack: LocalAudioTrack | null;
 }
 
+function InterviewFlow() {
+  const [session, setSession] = useState<JoinSessionResponse | null>(null);
+  const [tracks, setTracks] = useState<LocalTracks | null>(null);
+
+  // 명세상 role 은 클라이언트가 선언한다 (인증 도입 전 임시 구조).
+  // 초대 링크로 들어오면 지원자, `?role=interviewer` 면 면접관이다.
+  // ⚠️ 서버가 역할을 판단하도록 바뀌면 이 파라미터는 사라진다.
+  const [searchParams] = useSearchParams();
+  const role: Role = searchParams.get('role') === 'interviewer' ? 'INTERVIEWER' : 'CANDIDATE';
+
+  if (!session) {
+    return <JoinPage role={role} onJoined={setSession} />;
+  }
+
+  if (!tracks) {
+    return <DeviceCheckPage onReady={setTracks} />;
+  }
+
+  // ⚠️ 프로토타입 — 전사·추천 질문은 목 데이터다 (WebSocket 경로가 명세에 없음).
+  //    자기 화면(PiP)만 기기 점검에서 얻은 실제 트랙을 그대로 쓴다.
+  return (
+    <InterviewRoomPreview
+      role={role}
+      localVideoTrack={tracks.videoTrack}
+      localAudioTrack={tracks.audioTrack}
+    />
+  );
+}
+
+/**
+ * 안내 화면.
+ *
+ * 실제 서비스에서는 초대 링크로만 들어오므로 이 화면이 필요 없다.
+ * 프로토타입 시연을 위해 두 역할의 진입점을 열어 둔다.
+ */
 function Landing() {
+  const demoSession = 'ses_demo';
+
   return (
     <div className="flex min-h-full items-center justify-center bg-[#0B0E14] p-8">
-      <div className="w-full max-w-md text-center">
+      <div className="w-full max-w-md">
         <h1 className="text-2xl font-semibold text-white">IRYA</h1>
-        <p className="mt-3 text-[15px] leading-relaxed text-white/60">
-          면접관에게 받은 초대 링크로 입장해주세요.
+        <p className="mt-2 text-[15px] leading-relaxed text-white/60">
+          실제 서비스에서는 면접관이 발급한 초대 링크로 입장합니다.
         </p>
+
+        <div className="mt-7 flex flex-col gap-2.5">
+          <Link
+            to={`/interview/${demoSession}?role=interviewer`}
+            className="rounded-lg bg-[#2B44D6] px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-[#243AB8]"
+          >
+            면접관으로 입장
+          </Link>
+          <Link
+            to={`/interview/${demoSession}`}
+            className="rounded-lg bg-white/[0.08] px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-white/[0.13]"
+          >
+            지원자로 입장
+          </Link>
+        </div>
+
+        <p className="mt-7 text-[13px] leading-relaxed text-white/40">
+          프로토타입입니다. 카메라·마이크와 기기 점검은 실제로 동작하고, 상대방 영상과 전사·추천
+          질문은 목 데이터입니다.
+        </p>
+
+        <div className="mt-5 flex flex-col gap-1.5 text-[13px] text-white/30">
+          <Link to="/interview/not-found?role=interviewer" className="hover:text-white/60">
+            → 유효하지 않은 링크 화면 보기
+          </Link>
+          <Link to="/interview/ended?role=interviewer" className="hover:text-white/60">
+            → 입장 불가 화면 보기
+          </Link>
+        </div>
       </div>
     </div>
   );
