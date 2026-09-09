@@ -149,3 +149,58 @@ async def test_stream_rejects_non_positive_speed(script: TranscriptScript) -> No
     with pytest.raises(ValueError):
         async for _ in TranscriptSimulator(script).stream(speed=0):
             pass
+
+
+def test_split_sentences_yields_one_utterance_per_sentence() -> None:
+    script = TranscriptScript.model_validate(
+        {
+            "sessionId": "ses_split",
+            "title": "split",
+            "turns": [
+                {
+                    "speaker": "CANDIDATE",
+                    "startMs": 0,
+                    "endMs": 9000,
+                    "content": "첫 문장입니다. 두 번째 문장인가요? 셋째!",
+                }
+            ],
+        }
+    )
+
+    finals = TranscriptSimulator(script, split_sentences=True).finals()
+
+    assert [u.content for u in finals] == [
+        "첫 문장입니다.",
+        "두 번째 문장인가요?",
+        "셋째!",
+    ]
+    assert [u.seq for u in finals] == [0, 1, 2]
+    assert finals[0].start_ms == 0 and finals[-1].end_ms == 9000
+    for prev, curr in zip(finals, finals[1:], strict=False):
+        assert prev.end_ms == curr.start_ms
+    assert " ".join(u.content for u in finals) == script.turns[0].content
+
+
+def test_latency_shifts_arrival_but_not_speech_times(script: TranscriptScript) -> None:
+    plain = TranscriptSimulator(script, interim_chunks=1).timed_events()
+    delayed = TranscriptSimulator(
+        script, interim_chunks=1, latency_ms=800
+    ).timed_events()
+
+    assert [e.emit_ms for e in delayed] == [e.emit_ms + 800 for e in plain]
+    assert [e.utterance for e in delayed] == [e.utterance for e in plain]
+    with pytest.raises(ValueError):
+        TranscriptSimulator(script, latency_ms=-1)
+
+
+def test_synthesized_words_cover_the_utterance(script: TranscriptScript) -> None:
+    finals = TranscriptSimulator(script, synthesize_words=True).finals()
+    answer = finals[1]
+
+    assert [w.content for w in answer.words] == answer.content.split()
+    assert answer.words[0].start_ms == answer.start_ms
+    assert answer.words[-1].end_ms == answer.end_ms
+    for prev, curr in zip(answer.words, answer.words[1:], strict=False):
+        assert prev.end_ms == curr.start_ms
+    assert all(w.end_ms >= w.start_ms for w in answer.words)
+    assert TranscriptSimulator(script).finals()[1].words == []
