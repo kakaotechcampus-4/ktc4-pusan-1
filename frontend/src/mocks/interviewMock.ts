@@ -1,0 +1,111 @@
+/**
+ * 개발용 목 데이터.
+ *
+ * BE #9(방 생성·토큰) 와 AI #7(전사) 이 없어도 면접 화면을 눈으로 확인하기 위한 임시 코드다.
+ * 실제 연결이 붙는 #5 · #8 에서 이 파일과 App.tsx 의 분기를 통째로 지운다.
+ *
+ * LiveKit 은 연결하지 않는다. 원격 영상 영역은 비어 있고,
+ * 전사 · 추천 질문 · 화자 표시 · 경과 시간만 스토어를 통해 실제로 움직인다.
+ */
+
+import { ConnectionState } from 'livekit-client';
+import { useInterviewStore } from '../stores/interviewStore';
+import type { StreamEvent } from '../types/interview';
+
+/** at(초) 시점에 흘려보낼 이벤트 */
+type ScheduledEvent = { after: number; event: StreamEvent };
+
+const SCRIPT: ScheduledEvent[] = [
+  { after: 600, event: { type: 'speech.start', speaker: 'interviewer', at: 3 } },
+  {
+    after: 300,
+    event: {
+      type: 'transcript.delta',
+      utteranceId: 'u1',
+      speaker: 'interviewer',
+      text: '자기소개 부탁드립니다.',
+      at: 3,
+      final: true,
+    },
+  },
+  { after: 900, event: { type: 'speech.end', speaker: 'interviewer', at: 6 } },
+
+  { after: 500, event: { type: 'speech.start', speaker: 'candidate', at: 7 } },
+  {
+    after: 400,
+    event: {
+      type: 'transcript.delta',
+      utteranceId: 'u2',
+      speaker: 'candidate',
+      text: '네, 저는 3년차 백엔드 개발자입니다. ',
+      at: 7,
+      final: false,
+    },
+  },
+  {
+    after: 1100,
+    event: {
+      type: 'transcript.delta',
+      utteranceId: 'u2',
+      speaker: 'candidate',
+      text: '최근에는 실시간 스트리밍 파이프라인을 맡아 ',
+      at: 7,
+      final: false,
+    },
+  },
+  {
+    after: 1100,
+    event: {
+      type: 'transcript.delta',
+      utteranceId: 'u2',
+      speaker: 'candidate',
+      text: '초당 2만 건 처리까지 끌어올렸습니다.',
+      at: 7,
+      final: true,
+    },
+  },
+  { after: 500, event: { type: 'speech.end', speaker: 'candidate', at: 21 } },
+
+  { after: 1200, event: { type: 'speech.start', speaker: 'interviewer', at: 26 } },
+  {
+    after: 400,
+    event: {
+      type: 'transcript.delta',
+      utteranceId: 'u3',
+      speaker: 'interviewer',
+      text: '초당 2만 건은 어떤 병목을 해결해서 나온 수치인가요?',
+      at: 26,
+      final: true,
+    },
+  },
+  { after: 1000, event: { type: 'speech.end', speaker: 'interviewer', at: 31 } },
+];
+
+/**
+ * 목 세션을 시작한다. 정리 함수를 돌려주므로 이펙트에서 그대로 반환하면 된다.
+ */
+export function startMockSession(): () => void {
+  const { setSession, setConnection, setRemoteJoined, applyStreamEvent, reset } =
+    useInterviewStore.getState();
+
+  setSession('mock-session');
+  setConnection(ConnectionState.Connected);
+
+  const timers: ReturnType<typeof setTimeout>[] = [];
+
+  // 상대가 곧바로 들어와 있으면 대기 화면을 볼 수 없다.
+  // 잠깐 대기 상태를 보여준 뒤 입장시켜, 실제 흐름과 같은 순서로 확인되게 한다.
+  timers.push(setTimeout(() => setRemoteJoined(true), 1800));
+
+  // 대본은 상대가 들어온 뒤부터 흐른다.
+  let elapsed = 1800;
+  for (const { after, event } of SCRIPT) {
+    elapsed += after;
+    timers.push(setTimeout(() => applyStreamEvent(event), elapsed));
+  }
+
+  return () => {
+    timers.forEach(clearTimeout);
+    reset();
+  };
+}
