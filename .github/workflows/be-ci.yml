@@ -1,0 +1,63 @@
+name: BE CI
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "backend/**"
+      - ".github/workflows/be-ci.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "backend/**"
+      - ".github/workflows/be-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: be-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, type check and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          working-directory: backend
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run pyright
+
+      - name: Test
+        run: uv run pytest
+
+      # API 가 바뀌었는데 스키마 파일을 안 올리면 여기서 걸린다.
+      # FE·AI 가 이 파일을 계약으로 보므로 코드와 어긋나면 안 된다.
+      - name: Check OpenAPI schema is committed
+        run: |
+          uv run python -m scripts.dump_openapi
+          git diff --exit-code ../docs/api/openapi.json
