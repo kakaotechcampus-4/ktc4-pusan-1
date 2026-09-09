@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "livekit-agents~=1.8.0",
+    "openai~=2.54.0",
     "pydantic-settings~=2.15.0",
 ]
 
@@ -15,6 +16,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "httpx~=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.6",
