@@ -33,7 +33,7 @@ http://localhost:5173 이 열립니다.
 | `npm run format`       | Prettier 적용              |
 | `npm run format:check` | Prettier 검사 (CI 와 동일) |
 
-PR 을 올리기 전에 `lint`, `format:check`, `typecheck`, `build` 네 개가 통과해야 합니다. CI 가 같은 순서로 돕니다.
+PR 을 올리기 전에 `lint`, `format:check`, `typecheck`, `build` 네 개를 직접 확인합니다.
 
 다른 기기에서 접속해야 할 때는 `npm run dev -- --host` 로 LAN 에 노출합니다.
 
@@ -201,6 +201,9 @@ BE·AI 없이 화면을 확인하기 위한 코드입니다. API 는 붙이지 �
 
 ## 알려진 이슈
 
-**번들 크기** — 현재 약 770 kB (gzip 215 kB) 로 Vite 경고가 뜹니다. `livekit-client` 가 통째로 들어가서입니다. 면접 화면을 `dynamic import()` 로 분리해야 합니다. 그러지 않으면 진입 화면 하나 보려고 전체를 내려받게 됩니다.
+**번들 크기** — 진입 화면은 243 kB (gzip 78 kB) 입니다. `livekit-client` 가 520 kB 로 큰데,
+카메라·마이크를 쓰는 화면(`DeviceCheckPage` · `InterviewRoomPreview`)만 `lazy()` 로 분리해서
+진입·요약 화면에서는 받지 않습니다. 빌드 시 뜨는 500 kB 경고는 분리된 그 청크에 대한 것이라
+의도된 상태입니다.
 
 **dev 서버 바인딩** — Vite 기본값은 IPv6(`[::1]`)에만 바인딩해서 `127.0.0.1` 로 접근하는 클라이언트가 붙지 못합니다. `vite.config.ts` 에서 `host: '127.0.0.1'` 로 고정해뒀습니다.

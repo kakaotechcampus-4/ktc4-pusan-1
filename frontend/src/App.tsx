@@ -11,7 +11,7 @@
  */
 
 import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
-import { useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import {
   Link,
   Navigate,
@@ -21,12 +21,23 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
-import { InterviewRoomPreview } from './mocks/InterviewRoomPreview';
-import DeviceCheckPage from './pages/DeviceCheckPage';
 import InterviewSetupPage from './pages/InterviewSetupPage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
 import type { JoinSessionResponse, Role } from './types/interview';
+
+/* 카메라·마이크를 쓰는 화면만 따로 내려받는다.
+   livekit-client 가 번들의 대부분을 차지하는데, 진입·요약 화면에는 필요 없다.
+   이렇게 나누면 링크를 연 사람이 첫 화면을 보기까지 받는 양이 줄어든다. */
+const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
+const InterviewRoomPreview = lazy(() =>
+  import('./mocks/InterviewRoomPreview').then((m) => ({ default: m.InterviewRoomPreview })),
+);
+
+/** 청크를 받는 동안 잠깐 보인다. 배경색만 맞춰 깜빡임을 줄인다. */
+function ChunkFallback() {
+  return <div className="h-screen w-screen bg-[#0B0E14]" />;
+}
 
 interface LocalTracks {
   videoTrack: LocalVideoTrack | null;
@@ -53,14 +64,16 @@ function DeviceGate({ children }: { children: (tracks: LocalTracks) => ReactNode
 
   if (!tracks) {
     return (
-      <DeviceCheckPage
-        onReady={({ videoTrack, audioTrack, release }) => {
-          // release() 를 부르지 않으면 DeviceCheckPage 가 언마운트되면서
-          // usePermissionCheck 의 정리가 트랙을 stop 한다 — 다음 화면에 죽은 트랙이 넘어간다.
-          release();
-          setTracks({ videoTrack, audioTrack });
-        }}
-      />
+      <Suspense fallback={<ChunkFallback />}>
+        <DeviceCheckPage
+          onReady={({ videoTrack, audioTrack, release }) => {
+            // release() 를 부르지 않으면 DeviceCheckPage 가 언마운트되면서
+            // usePermissionCheck 의 정리가 트랙을 stop 한다 — 다음 화면에 죽은 트랙이 넘어간다.
+            release();
+            setTracks({ videoTrack, audioTrack });
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -94,16 +107,18 @@ function InterviewFlow() {
   return (
     <DeviceGate>
       {(tracks) => (
-        <InterviewRoomPreview
-          role={role}
-          sessionId={sessionId}
-          localVideoTrack={tracks.videoTrack}
-          localAudioTrack={tracks.audioTrack}
-          onLeave={() => {
-            // 면접관은 요약을 본다. 지원자는 요약 열람 권한이 없으므로 처음으로 돌아간다.
-            void navigate(role === 'INTERVIEWER' ? `/interview/${sessionId}/summary` : '/');
-          }}
-        />
+        <Suspense fallback={<ChunkFallback />}>
+          <InterviewRoomPreview
+            role={role}
+            sessionId={sessionId}
+            localVideoTrack={tracks.videoTrack}
+            localAudioTrack={tracks.audioTrack}
+            onLeave={() => {
+              // 면접관은 요약을 본다. 지원자는 요약 열람 권한이 없으므로 처음으로 돌아간다.
+              void navigate(role === 'INTERVIEWER' ? `/interview/${sessionId}/summary` : '/');
+            }}
+          />
+        </Suspense>
       )}
     </DeviceGate>
   );
@@ -171,10 +186,12 @@ export default function App() {
         element={
           <DeviceGate>
             {(tracks) => (
-              <InterviewRoomPreview
-                localVideoTrack={tracks.videoTrack}
-                localAudioTrack={tracks.audioTrack}
-              />
+              <Suspense fallback={<ChunkFallback />}>
+                <InterviewRoomPreview
+                  localVideoTrack={tracks.videoTrack}
+                  localAudioTrack={tracks.audioTrack}
+                />
+              </Suspense>
             )}
           </DeviceGate>
         }
