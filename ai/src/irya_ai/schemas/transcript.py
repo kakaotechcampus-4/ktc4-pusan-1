@@ -1,8 +1,11 @@
 """Transcript models: what the STT layer produces and the analysis layer consumes.
 
 Mirrors the ``TRACK`` / ``UTTERANCE`` / ``WORD`` entities in the TechSpec data
-model. Timestamps are milliseconds from the start of the session recording so
-they can be used directly for video seek.
+model. Timestamps are relative milliseconds from the session's timeline
+origin. All this module enforces is that they are nonnegative and that
+``end_ms`` is not before ``start_ms``; which instant counts as the origin is
+not agreed yet and nothing here aligns them with a recording, so they must not
+be treated as video seek offsets.
 """
 
 from enum import StrEnum
