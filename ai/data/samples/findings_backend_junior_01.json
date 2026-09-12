@@ -1,0 +1,56 @@
+[
+  {
+    "findingId": "fnd_001",
+    "sessionId": "ses_sample_01",
+    "type": "CLAIM_VERIFIED",
+    "claimId": "clm_001",
+    "competencyId": "cpt_traffic",
+    "evidenceUtteranceId": "utt_003",
+    "evidenceQuote": "조회가 많은 상품 상세 API 앞에 Redis를 뒀습니다.",
+    "summary": "지원서의 Redis 캐시 도입 주장과 일치하는 설명을 했다."
+  },
+  {
+    "findingId": "fnd_002",
+    "sessionId": "ses_sample_01",
+    "type": "CLAIM_UNVERIFIED",
+    "claimId": "clm_001",
+    "evidenceUtteranceId": "utt_005",
+    "evidenceQuote": "정확한 수치는 지금 기억이 잘 안 나는데",
+    "summary": "응답 시간 60% 단축이라는 수치의 근거를 제시하지 못했다."
+  },
+  {
+    "findingId": "fnd_003",
+    "sessionId": "ses_sample_01",
+    "type": "CLAIM_CONTRADICTED",
+    "claimId": "clm_002",
+    "competencyId": "cpt_collab",
+    "evidenceUtteranceId": "utt_007",
+    "evidenceQuote": "사실 리드라기보다는 API 설계 초안을 제가 먼저 잡고, 일정 관리는 PM 역할을 맡은 팀원이 주로 했습니다.",
+    "summary": "지원서에는 백엔드 리드로 일정 관리를 담당했다고 썼으나, 일정 관리는 다른 팀원이 했다고 답했다."
+  },
+  {
+    "findingId": "fnd_004",
+    "sessionId": "ses_sample_01",
+    "type": "COMPETENCY_EVIDENCE",
+    "competencyId": "cpt_traffic",
+    "evidenceUtteranceId": "utt_003",
+    "evidenceQuote": "캐시 적중률은 85% 정도였습니다.",
+    "summary": "캐시 적중률 수치를 제시했다. (환각 예시: 이런 말을 한 적이 없다)"
+  },
+  {
+    "findingId": "fnd_005",
+    "sessionId": "ses_sample_01",
+    "type": "COMPETENCY_EVIDENCE",
+    "competencyId": "cpt_problem",
+    "evidenceUtteranceId": "utt_003",
+    "evidenceQuote": "k6로 했습니다.",
+    "summary": "부하 테스트 도구를 밝혔다. (출처 오류 예시: 인용은 utt_011 에 있다)"
+  },
+  {
+    "findingId": "fnd_006",
+    "sessionId": "ses_sample_01",
+    "type": "GAP",
+    "competencyId": "cpt_learning",
+    "summary": "학습 태도 역량에 대한 질문이 없었다."
+  }
+]

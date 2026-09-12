@@ -1,0 +1,34 @@
+{
+  "sessionId": "ses_sample_02",
+  "source": "transcript_backend_junior_02.json",
+  "note": "지원자 연속 발화(utt_001+utt_002, utt_008+utt_009)는 하나의 답변으로 합쳐진다. utt_012 는 마무리 인사라 제외.",
+  "pairs": [
+    {
+      "question": "지원서에 있는 커머스 프로젝트에서 가장 어려웠던 기술적 문제가 뭐였나요?",
+      "answerStartsWith": "주문 API가 특정 시간대에만 느려지는 문제였습니다.",
+      "answerEndsWith": "복합 인덱스를 추가하고 나서",
+      "hasAnswer": true
+    },
+    {
+      "question": "잠깐만요, 인덱스를 안 탄다는 건 어떻게 확인하셨어요?",
+      "answerStartsWith": "EXPLAIN으로 실행 계획을 봤습니다.",
+      "hasAnswer": true
+    },
+    {
+      "question": "그 개선으로 응답 시간은 얼마나 줄었나요?",
+      "answerStartsWith": "저녁 피크 기준으로",
+      "hasAnswer": true
+    },
+    {
+      "question": "좋네요. 그 프로젝트에서 다른 팀원과 갈등이 있었던 적이 있나요?",
+      "answerStartsWith": "음, 갈등이라기보다는",
+      "answerEndsWith": "감정이 상하는 일은 없었습니다.",
+      "hasAnswer": true
+    },
+    {
+      "question": "요즘 새로 공부하고 있는 기술이 있다면 어떤 건가요?",
+      "answerStartsWith": "메시지 큐를 공부하고 있습니다.",
+      "hasAnswer": true
+    }
+  ]
+}

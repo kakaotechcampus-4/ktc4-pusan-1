@@ -1,0 +1,9 @@
+# 줄바꿈은 LF 로 통일한다.
+#
+# prettier 기본값이 endOfLine: "lf" 인데 저장소에 CRLF 가 들어가 있으면
+# 리눅스 CI 의 format:check 가 거의 모든 파일에서 실패한다.
+# 각자의 core.autocrlf 설정과 무관하게 강제하려면 커밋되는 이 파일이어야 한다.
+#
+# text=auto 는 바이너리를 자동으로 판별해 건드리지 않는다.
+# 범위는 frontend/ 뿐이다 — backend·ai 확장은 COMMON 협의가 필요하다.
+* text=auto eol=lf

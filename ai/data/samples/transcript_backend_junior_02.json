@@ -1,0 +1,86 @@
+{
+  "sessionId": "ses_sample_02",
+  "title": "백엔드 신입 모의 면접 2 - 끼어들기와 불확실 발화",
+  "description": "STT 엣지 케이스용. 면접관이 답변 중 끼어드는 구간(utt_003/utt_004 겹침), STT가 확신하지 못한 발화(uncertain), 지원서 주장 clm_003(Kubernetes)에 대해 언급이 전혀 없는 경우가 포함되어 있다.",
+  "turns": [
+    {
+      "speaker": "INTERVIEWER",
+      "startMs": 0,
+      "endMs": 6100,
+      "content": "지원서에 있는 커머스 프로젝트에서 가장 어려웠던 기술적 문제가 뭐였나요?"
+    },
+    {
+      "speaker": "CANDIDATE",
+      "startMs": 6700,
+      "endMs": 22300,
+      "content": "주문 API가 특정 시간대에만 느려지는 문제였습니다. 처음에는 서버 스펙 문제라고 생각해서 인스턴스를 올려봤는데 별 차이가 없었습니다."
+    },
+    {
+      "speaker": "CANDIDATE",
+      "startMs": 22900,
+      "endMs": 41800,
+      "content": "그래서 슬로우 쿼리 로그를 켜고 봤더니 주문 목록 조회에서 인덱스를 안 타는 쿼리가 있었고, 주문이 몰리는 저녁 시간에 그 쿼리가 풀스캔을 하면서 다른 요청까지 막고 있었습니다. 복합 인덱스를 추가하고 나서"
+    },
+    {
+      "speaker": "INTERVIEWER",
+      "startMs": 40200,
+      "endMs": 45000,
+      "content": "잠깐만요, 인덱스를 안 탄다는 건 어떻게 확인하셨어요?"
+    },
+    {
+      "speaker": "CANDIDATE",
+      "startMs": 45600,
+      "endMs": 58900,
+      "content": "EXPLAIN으로 실행 계획을 봤습니다. type이 ALL로 나와서 풀스캔인 걸 알았고, 인덱스 추가 후에는 ref로 바뀌는 걸 확인했습니다."
+    },
+    {
+      "speaker": "INTERVIEWER",
+      "startMs": 59500,
+      "endMs": 63200,
+      "content": "그 개선으로 응답 시간은 얼마나 줄었나요?"
+    },
+    {
+      "speaker": "CANDIDATE",
+      "startMs": 63800,
+      "endMs": 74100,
+      "content": "저녁 피크 기준으로 평균 2초 정도 걸리던 게 200밀리초 안쪽으로 내려왔습니다. 그라파나로 보고 있어서 그래프가 확 꺾이는 게 보였습니다."
+    },
+    {
+      "speaker": "INTERVIEWER",
+      "startMs": 74700,
+      "endMs": 80300,
+      "content": "좋네요. 그 프로젝트에서 다른 팀원과 갈등이 있었던 적이 있나요?"
+    },
+    {
+      "speaker": "CANDIDATE",
+      "startMs": 80900,
+      "endMs": 94600,
+      "content": "음, 갈등이라기보다는 어 그 코드 리뷰를 어 좀 세게 하는 팀원이 있어서 처음엔 좀 힘들었는데",
+      "uncertain": true
+    },
+    {
+      "speaker": "CANDIDATE",
+      "startMs": 95200,
+      "endMs": 112000,
+      "content": "나중에는 리뷰 기준을 팀 문서로 같이 정리했습니다. 어떤 건 꼭 고쳐야 하고 어떤 건 제안인지 라벨을 붙이기로 해서, 그 뒤로는 리뷰 때문에 감정이 상하는 일은 없었습니다."
+    },
+    {
+      "speaker": "INTERVIEWER",
+      "startMs": 112600,
+      "endMs": 118400,
+      "content": "요즘 새로 공부하고 있는 기술이 있다면 어떤 건가요?"
+    },
+    {
+      "speaker": "CANDIDATE",
+      "startMs": 119000,
+      "endMs": 133700,
+      "content": "메시지 큐를 공부하고 있습니다. 주문 처리를 동기로 하다 보니 결제 쪽이 느려지면 전체가 느려져서, Kafka로 분리하는 걸 개인 프로젝트로 해보는 중입니다. 아직 로컬에서 돌려보는 단계입니다."
+    },
+    {
+      "speaker": "INTERVIEWER",
+      "startMs": 134300,
+      "endMs": 138000,
+      "content": "네, 알겠습니다. 오늘 면접은 여기까지입니다. 수고하셨습니다."
+    }
+  ]
+}
