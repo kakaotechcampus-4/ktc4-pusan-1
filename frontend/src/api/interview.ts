@@ -81,12 +81,20 @@ export const joinSession = (sessionId: string, role: Role) =>
 /**
  * 서버 에러를 화면이 구분할 수 있는 사유로 바꾼다.
  *
- * ⚠️ 명세에 에러 본문 스키마가 없어 지금은 HTTP status 로만 구분한다.
- *    409 는 "이미 종료" 와 "정원 초과" 가 겹치므로 하나로 묶었다.
- *    서버가 `error.code` 를 주기 시작하면 FAILURE_BY_CODE 에 줄만 추가하면 된다.
+ * 코드가 먼저고 status 는 폴백이다 — 409 하나에 "이미 종료" 와 "정원 초과" 가
+ * 겹치므로 코드 없이는 둘을 나눌 수 없다.
+ *
+ * 값은 OpenAPI `ErrorCode` enum 과 같아야 한다 (docs/api/openapi.json).
  */
-const FAILURE_BY_CODE: Record<string, JoinFailure> = {};
+const FAILURE_BY_CODE: Record<string, JoinFailure> = {
+  SESSION_NOT_FOUND: 'not-found',
+  INTERVIEW_NOT_FOUND: 'not-found',
+  NOT_FOUND: 'not-found',
+  SESSION_ENDED: 'ended',
+  ROOM_FULL: 'room-full',
+};
 
+/** 코드를 못 읽었을 때만 쓴다 (구버전 서버·프록시 오류 등) */
 const FAILURE_BY_STATUS: Record<number, JoinFailure> = {
   404: 'not-found',
   409: 'unavailable',

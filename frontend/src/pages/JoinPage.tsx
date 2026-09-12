@@ -17,8 +17,9 @@ import type { JoinFailure, JoinSessionResponse, Role } from '../types/interview'
 
 const FAILURE_MESSAGE: Record<JoinFailure, string> = {
   'not-found': '유효하지 않은 링크입니다. 면접관에게 링크를 다시 요청해주세요.',
-  // 명세가 409 하나로 "이미 종료" 와 "정원 초과" 를 함께 쓴다. 서버가 error.code 를
-  // 주기 시작하면 두 문구로 나눈다.
+  ended: '이미 종료된 면접입니다. 면접관에게 문의해주세요.',
+  'room-full': '이미 다른 참가자가 입장해 있습니다. 면접관에게 문의해주세요.',
+  // 409 인데 코드를 못 읽은 경우. 두 사유를 구분할 수 없으므로 합쳐서 안내한다.
   unavailable: '지금은 입장할 수 없습니다. 이미 종료되었거나 정원이 찼습니다.',
   failed: '입장하지 못했습니다. 잠시 후 다시 시도해주세요.',
 };
