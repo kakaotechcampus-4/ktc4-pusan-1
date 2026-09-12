@@ -44,8 +44,12 @@ interface UseInterviewRoomOptions {
   /** 프리뷰에서 확보한 트랙 — 다시 요청하지 않고 그대로 발행한다 */
   videoTrack: LocalVideoTrack | null;
   audioTrack: LocalAudioTrack | null;
-  /** 발행 성공 시 호출 — 트랙 소유권이 Room 으로 넘어갔음을 알린다 */
-  onTracksPublished: () => void;
+  /**
+   * 발행 성공 시 호출 — 트랙 소유권이 Room 으로 넘어갔음을 알린다.
+   *
+   * 소유권을 호출자가 계속 들고 있으면(App.tsx 의 DeviceGate) 넘기지 않아도 된다.
+   */
+  onTracksPublished?: () => void;
 }
 
 export function useInterviewRoom({
@@ -164,7 +168,7 @@ export function useInterviewRoom({
           }
 
           // 여기서만 소유권이 넘어간다. 이후 트랙 stop 은 room.disconnect() 가 한다.
-          onTracksPublished();
+          onTracksPublished?.();
         } catch (e) {
           // 발행 실패가 통화를 막지는 않는다 — 지원자 영상과 전사는 계속 본다.
           // setError 를 세우면 화면 전체가 실패 오버레이로 덮인다.
@@ -197,9 +201,17 @@ export function useInterviewRoom({
     };
   }, [sessionId, role, videoRef, audioRef, ready]);
 
+  /**
+   * 통화에서 나간다.
+   *
+   * 면접 종료는 면접관만 할 수 있다. 지원자가 나가는 것은 이탈일 뿐이고,
+   * 네트워크가 끊겨서 나갔을 수도 있으므로 세션까지 끝내면 안 된다 —
+   * 면접관이 아직 방에 남아 있는데 세션이 ENDED 가 되어 재입장이 막힌다.
+   */
   const leave = async () => {
     const { sessionId } = useInterviewStore.getState();
     await roomRef.current?.disconnect();
+    if (role !== 'INTERVIEWER') return null;
     if (sessionId) return endSession(sessionId);
     return null;
   };

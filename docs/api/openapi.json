@@ -76,11 +76,25 @@
         "title": "EndSessionResponse",
         "type": "object"
       },
+      "ErrorCode": {
+        "description": "클라이언트가 분기에 쓰는 값. 추가만 하고 기존 값은 바꾸지 않는다.",
+        "enum": [
+          "VALIDATION_ERROR",
+          "NOT_FOUND",
+          "INTERNAL_ERROR",
+          "INTERVIEW_NOT_FOUND",
+          "SESSION_NOT_FOUND",
+          "SESSION_ENDED",
+          "INVALID_SESSION_STATE",
+          "ROOM_FULL"
+        ],
+        "title": "ErrorCode",
+        "type": "string"
+      },
       "ErrorDetail": {
         "properties": {
           "code": {
-            "title": "Code",
-            "type": "string"
+            "$ref": "#/components/schemas/ErrorCode"
           },
           "message": {
             "title": "Message",
