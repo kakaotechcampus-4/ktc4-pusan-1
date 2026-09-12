@@ -1,0 +1,21 @@
+irya.cloud {
+	# handle 블록은 작성 순서가 아니라 매처 기준으로 정렬되고, 매처 없는 블록이
+	# fallback 이 됩니다. 그래서 위치가 아니라 "같은 단계의 handle 로 나누는 것"이
+	# 요점입니다. 정적 파일 지시어는 fallback 블록 안에 두어야 지시어 정렬 때문에
+	# 프록시보다 먼저 경로가 바뀌는 일이 없습니다.
+	#
+	# handle_path 는 쓰지 않습니다 — 접두사를 떼어내면 LiveKit 에 원래 경로가
+	# 전달되지 않습니다.
+
+	# LiveKit 시그널링. SDK 가 쓰는 경로는 /rtc/v1 과 /rtc/v1/validate 라
+	# /rtc 만 매칭하면 놓칩니다.
+	handle /rtc* {
+		reverse_proxy livekit:7880
+	}
+
+	handle {
+		root * /site
+		try_files {path} /index.html
+		file_server
+	}
+}
