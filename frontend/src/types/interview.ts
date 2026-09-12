@@ -5,7 +5,13 @@
  * 명세에 없어서 FE 가 정한 부분은 ⚠️ 로 표시했다.
  */
 
-export type Speaker = 'interviewer' | 'candidate';
+/**
+ * 전사 화자.
+ *
+ * `Role`(입장 권한)과 값은 같지만 축이 다르다 — 권한은 "무엇을 할 수 있는가",
+ * 화자는 "누가 말했는가"다. AI·BE 가 대문자를 쓰므로 표기를 맞춰 두었다.
+ */
+export type Speaker = 'INTERVIEWER' | 'CANDIDATE';
 
 /**
  * 입장 권한.

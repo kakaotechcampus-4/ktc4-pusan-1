@@ -78,8 +78,9 @@ export function useInterviewRoom({
       useInterviewStore.getState();
 
     // 1:1 이므로 참가자는 둘뿐이다. 내 역할이 정해지면 상대 역할도 정해진다.
-    const localSpeaker: Speaker = role === 'INTERVIEWER' ? 'interviewer' : 'candidate';
-    const remoteSpeaker: Speaker = role === 'INTERVIEWER' ? 'candidate' : 'interviewer';
+    // Role 과 Speaker 는 표기가 같아 내 화자는 역할 그대로다. 상대만 뒤집는다.
+    const localSpeaker: Speaker = role;
+    const remoteSpeaker: Speaker = role === 'INTERVIEWER' ? 'CANDIDATE' : 'INTERVIEWER';
 
     let cancelled = false;
 
