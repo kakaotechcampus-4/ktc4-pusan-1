@@ -32,8 +32,13 @@ cp .env.example .env
 | `OPENAI_API_KEY` | 서버 측 GPT API Key | 없음 |
 | `OPENAI_MODEL` | `gpt-4o-mini` 또는 `gpt-4o` | `gpt-4o-mini` |
 | `ANALYSIS_TIMEOUT_SECONDS` | 분석 제한 시간(초), 0 초과 120 이하 | `30` |
+| `ELICE_API_KEY` | 서버 측 Elice STT API Key | 없음 |
+| `ELICE_STT_BASE_URL` | Elice STT 배포 주소. 비공개 값이라 커밋하지 않습니다 | 없음 |
+| `ELICE_STT_MODEL` | STT 모델 이름 | `whisper-large-v3` |
+| `ELICE_STT_LANGUAGE` | 전사 언어. ISO 코드가 아니라 단어입니다 | `korean` |
+| `ELICE_STT_TIMEOUT_SECONDS` | STT 요청 제한 시간(초), 0 초과 300 이하 | `60` |
 
-분석만 실행할 때는 LiveKit 접속 정보를 채울 필요가 없습니다.
+분석만 실행할 때는 LiveKit·Elice 접속 정보를 채울 필요가 없습니다.
 
 ## 면접 컨텍스트 분석 MVP
 
