@@ -12,6 +12,7 @@ their reason so a gap in a transcript can be explained afterwards.
 """
 
 import asyncio
+import dataclasses
 import io
 import logging
 import wave
@@ -23,11 +24,30 @@ from irya_ai.stt.elice import EliceSttClient, SttError, Transcription, is_halluc
 from irya_ai.stt.segmentation import (
     PCM_WIDTH,
     AudioSegment,
+    CutReason,
     SegmentationConfig,
     StreamSegmenter,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass(frozen=True)
+class RejectedSegment:
+    """Why a span of audio produced no utterance.
+
+    Deliberately holds no PCM. An interview is long, rejections accumulate for
+    the whole of it, and the span and the reason are all that is needed to
+    explain a gap in a transcript afterwards - keeping the audio would mean
+    holding interview recordings in memory for a session at a time, and the
+    project has no agreed retention policy to hold them under.
+    """
+
+    index: int
+    start_ms: int
+    end_ms: int
+    cut_reason: CutReason
+    reason: str
 
 
 def wav_bytes(pcm: bytes, sample_rate: int) -> bytes:
@@ -76,7 +96,7 @@ class TranscriptionStream:
         self._pending: deque[tuple[AudioSegment, asyncio.Task[Transcription]]] = deque()
         self._closed = False
         self._seq = 0
-        self.rejected: list[tuple[AudioSegment, str]] = []
+        self.rejected: list[RejectedSegment] = []
 
     def push(self, pcm: bytes) -> int:
         """Feed audio in. Returns how many segments were sent for transcription."""
@@ -163,5 +183,13 @@ class TranscriptionStream:
             segment.reason.value,
             reason,
         )
-        self.rejected.append((segment, reason))
+        self.rejected.append(
+            RejectedSegment(
+                index=segment.index,
+                start_ms=segment.start_ms,
+                end_ms=segment.end_ms,
+                cut_reason=segment.reason,
+                reason=reason,
+            )
+        )
         return None

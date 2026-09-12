@@ -1,6 +1,7 @@
 """The live path end to end: PCM in, utterances out, with the guards in place."""
 
 import asyncio
+import dataclasses
 import io
 import re
 import wave
@@ -11,6 +12,7 @@ import pytest
 from audio import RATE, silence, tone
 from irya_ai.schemas.transcript import PassType, SpeakerRole
 from irya_ai.stt.elice import EliceSttClient
+from irya_ai.stt.segmentation import CutReason
 from irya_ai.stt.stream import TranscriptionStream, silent_probe, wav_bytes
 
 # One pause-delimited turn: enough speech to be worth a request, then a pause
@@ -139,11 +141,34 @@ async def test_each_guard_drops_its_own_kind_of_bad_result() -> None:
     utterances = await stream.drain()
 
     assert [u.content for u in utterances] == ["실제 발화입니다"]
-    assert [reason for _, reason in stream.rejected] == [
+    assert [r.reason for r in stream.rejected] == [
         "EMPTY",
         "TIMESTAMP_OVERRUN",
         "REQUEST_FAILED",
     ]
+
+
+async def test_a_rejection_records_the_span_but_not_the_audio() -> None:
+    """Rejections accumulate for a whole interview, so they must stay small.
+
+    The span and the reason explain a gap in a transcript; the audio would only
+    mean holding interview recordings in memory with no retention policy to
+    hold them under.
+    """
+
+    stream = stream_for(lambda request: ok(""))
+    stream.push(TURN)
+    stream.close()
+
+    assert await stream.drain() == []
+    (rejected,) = stream.rejected
+    assert rejected.reason == "EMPTY"
+    assert rejected.cut_reason is CutReason.PAUSE
+    assert rejected.end_ms > rejected.start_ms
+    assert not any(
+        isinstance(value, bytes | bytearray)
+        for value in dataclasses.asdict(rejected).values()
+    )
 
 
 async def test_a_rejected_segment_does_not_consume_a_sequence_number() -> None:

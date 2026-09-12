@@ -26,7 +26,12 @@ from irya_ai.stt.segmentation import (
     StreamSegmenter,
     frame_rms,
 )
-from irya_ai.stt.stream import TranscriptionStream, silent_probe, wav_bytes
+from irya_ai.stt.stream import (
+    RejectedSegment,
+    TranscriptionStream,
+    silent_probe,
+    wav_bytes,
+)
 
 __all__ = [
     "DEFAULT_LANGUAGE",
@@ -35,6 +40,7 @@ __all__ = [
     "CutReason",
     "EliceSttClient",
     "NoiseFloor",
+    "RejectedSegment",
     "SegmentationConfig",
     "SttError",
     "StreamSegmenter",
