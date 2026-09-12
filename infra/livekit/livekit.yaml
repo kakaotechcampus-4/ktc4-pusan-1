@@ -1,0 +1,40 @@
+# LiveKit Server — EC2 단일 인스턴스 self-hosting 설정.
+#
+# 이 파일에는 비밀이 들어가지 않는다. API Key/Secret 은 컨테이너 런타임에
+# LIVEKIT_KEYS 환경변수로 주입한다 (형식: "키: 시크릿", 콜론 뒤 공백 필수).
+# livekit-server 는 keys 가 파일에도 env 에도 없으면 기동을 거부한다.
+#
+# 실행: livekit-server --config /etc/livekit.yaml
+# 문서: https://docs.livekit.io/home/self-hosting/deployment/
+
+# signaling(WebSocket) 과 RoomService(HTTP API) 가 함께 쓰는 포트.
+# 외부에 직접 열지 않는다 — Caddy 가 443 에서 TLS 를 끊고 이 포트로 넘긴다.
+port: 7880
+
+rtc:
+  # WebRTC 미디어. Caddy 를 거치지 않고 인스턴스에 직접 붙는다.
+  # SRTP/DTLS 로 이미 암호화돼 있어 TLS 종료가 필요 없다.
+  #
+  # 단일 UDP 포트로 먹싱한다. 포트 하나만 열면 되므로 Security Group 과
+  # docker 포트 매핑이 단순해진다. udp_port 를 쓰려면 port_range_start/end 는
+  # 설정하지 않아야 한다 (둘이 같이 있으면 range 가 이긴다).
+  # 동시 방이 많아지면 vCPU 수만큼 범위로 넓힌다 (예: 7882-7885).
+  udp_port: 7882
+
+  # UDP 가 막힌 망을 위한 ICE/TCP 폴백. TURN/TLS 의 대체재는 아니다 (README §2).
+  # 로드밸런서나 TLS 뒤에 두면 안 되고 노드에 직접 노출돼야 한다.
+  tcp_port: 7881
+
+  # EC2 같은 cloud/NAT 환경에서는 NIC 에 사설 IP 만 붙고 EIP 로 NAT 된다.
+  # STUN 으로 공인 IP 를 자동 탐지해 ICE 후보로 advertise 하기 위해 켠다.
+  # 로컬에서 이 파일로 띄울 때는 LIVEKIT_RTC_USE_EXTERNAL_IP=false 로 끈다 (README §8).
+  use_external_ip: true
+
+logging:
+  level: info
+  # 컨테이너 로그 수집을 전제로 JSON 으로 뽑는다.
+  json: true
+
+# keys 는 여기에 적지 않는다. 아래는 주입 형식 예시일 뿐이다.
+# keys:
+#   <api-key>: <api-secret>
