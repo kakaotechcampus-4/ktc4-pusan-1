@@ -8,7 +8,7 @@ AI 기반 화상면접 지원 서비스
 - backend: API / Session / WebSocket / WebRTC
 - ai: STT / AI Pipeline
 - docs: API / Architecture / Convention
-- infra: 인프라 구성 (LiveKit Server 등)
+- infra: 배포·인프라 구성 (Compose · Caddy · LiveKit)
 - scripts: 공통 Script
 
 ## Development

@@ -1,0 +1,50 @@
+# 서버 배포 구성.
+#
+#   cd ~/ktc4-pusan-1/infra
+#   docker compose up -d
+#
+# 같은 디렉터리의 `.env` 를 compose 가 자동으로 읽습니다.
+# `.env` 는 커밋되지 않습니다 (.gitignore).
+
+name: irya
+
+services:
+  caddy:
+    image: caddy:2.10
+    container_name: irya-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /home/ubuntu/fe:/site:ro
+      # 인증서 저장소. 빼면 재기동마다 새로 발급받아 Let's Encrypt 한도를 소진합니다.
+      - caddy_data:/data
+      - caddy_config:/config
+
+  livekit:
+    image: livekit/livekit-server:v1.13.6
+    container_name: irya-livekit
+    restart: unless-stopped
+    # 이미지에 기본 CMD 가 없어 설정 경로를 직접 넘깁니다.
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
+    environment:
+      # LiveKit 은 "키: 시크릿" 한 덩어리로 받고 BE 는 둘로 나눠 받습니다.
+      # 값은 .env 에 한 번만 적고 형식은 여기서 조립합니다. 콜론 뒤 공백이 필수입니다.
+      # 값이 비어 있으면 기동 자체가 실패하도록 :? 를 씁니다.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}"
+    ports:
+      # 호스트와 컨테이너의 포트 번호를 같게 맞춥니다. LiveKit 이 advertise 하는
+      # ICE 후보는 컨테이너 내부 포트라, 번호가 다르면 클라이언트가 엉뚱한 곳으로 붙습니다.
+      - "7881:7881"      # ICE/TCP 폴백
+      - "7882:7882/udp"  # 미디어
+      # 7880(시그널링)은 퍼블리싱하지 않습니다. Caddy 가 같은 compose 네트워크에서
+      # 서비스 이름으로 부르므로 외부에 열 필요가 없습니다.
+
+volumes:
+  caddy_data:
+  caddy_config:
