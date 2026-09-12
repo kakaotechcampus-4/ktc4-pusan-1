@@ -46,8 +46,9 @@ export default function InterviewRoom({
     role,
     videoRef,
     audioRef,
-    // DeviceGate 를 통과한 뒤에만 그려지므로 트랙은 이미 준비돼 있다.
-    ready: true,
+    // DeviceGate 를 통과한 뒤에만 그려지므로 사실상 항상 참이다. 그래도 트랙에서
+    // 끌어낸다 — 트랙 없이 접속하면 아무것도 발행하지 못한 채 정원 한 자리를 차지한다.
+    ready: videoTrack !== null || audioTrack !== null,
     videoTrack,
     audioTrack,
   });
