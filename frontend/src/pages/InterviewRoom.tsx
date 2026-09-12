@@ -7,16 +7,26 @@
  * 제외: S1 기업 컨텍스트, S3 면접 기록, S4 지원자 목록
  */
 
+import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
 import { useRef, useState } from 'react';
 import { InterviewRoomView } from '../components/interview/InterviewRoomView';
 import { useInterviewRoom } from '../hooks/useInterviewRoom';
-import { usePermissionCheck } from '../hooks/usePermissionCheck';
 import type { EndSessionResponse, Role } from '../types/interview';
 
 export interface InterviewRoomProps {
   sessionId: string;
   role: Role;
   remoteName: string;
+  /**
+   * 기기 점검에서 확보한 트랙.
+   *
+   * 이 컴포넌트는 카메라·마이크를 직접 요청하지 않는다. 획득과 정리는 App.tsx 의
+   * DeviceGate 한 곳에서만 한다 — 두 곳에서 가져오면 트랙이 둘로 갈라지고,
+   * 한쪽을 stop 해도 다른 쪽이 살아 있어 카메라 표시등이 꺼지지 않는다.
+   * LocalPreview 에도 같은 이유로 훅을 부르지 말라는 주석이 달려 있다.
+   */
+  videoTrack: LocalVideoTrack | null;
+  audioTrack: LocalAudioTrack | null;
   /** 통화 종료 후 면접 기록(S3)으로 이동 */
   onEnded: (result: EndSessionResponse | null) => void;
 }
@@ -25,26 +35,23 @@ export default function InterviewRoom({
   sessionId,
   role,
   remoteName,
+  videoTrack,
+  audioTrack,
   onEnded,
 }: InterviewRoomProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  // 권한 확인이 먼저다. 트랙이 준비되기 전에는 방에 접속하지 않는다.
-  const { status, videoTrack, audioTrack, release } = usePermissionCheck();
   const { error, leave } = useInterviewRoom({
     sessionId,
     role,
     videoRef,
     audioRef,
-    ready: status === 'granted',
+    // DeviceGate 를 통과한 뒤에만 그려지므로 트랙은 이미 준비돼 있다.
+    ready: true,
     videoTrack,
     audioTrack,
-    onTracksPublished: release,
   });
   const [ending, setEnding] = useState(false);
-
-  // 권한 실패 전용 화면은 #5 범위다. 지금은 코드만 노출한다.
-  const failure = status === 'granted' || status === 'requesting' ? null : `PERMISSION_${status}`;
 
   const handleEnd = async () => {
     setEnding(true);
@@ -61,7 +68,7 @@ export default function InterviewRoom({
       remoteName={remoteName}
       videoRef={videoRef}
       audioRef={audioRef}
-      error={error ?? failure}
+      error={error}
       ending={ending}
       onEnd={() => void handleEnd()}
       localVideoTrack={videoTrack}
