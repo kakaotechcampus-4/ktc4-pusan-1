@@ -33,7 +33,7 @@ http://localhost:5173 이 열립니다.
 | `npm run format`       | Prettier 적용              |
 | `npm run format:check` | Prettier 검사 (CI 와 동일) |
 
-PR 을 올리기 전에 `lint`, `format:check`, `typecheck`, `build` 네 개를 직접 확인합니다.
+PR 을 올리면 CI 가 `lint` · `format:check` · `typecheck` · `build` 를 같은 순서로 검사합니다.
 
 다른 기기에서 접속해야 할 때는 `npm run dev -- --host` 로 LAN 에 노출합니다.
 
