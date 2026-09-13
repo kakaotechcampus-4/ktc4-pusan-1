@@ -10,38 +10,35 @@
  * 그때는 다시 누르면 새 면접이 생긴다 — 프로토타입에서는 이 정도로 둔다.
  */
 
+import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createInterview, createSession } from '../api/interview';
 import { saveCandidateName } from '../lib/candidateName';
-import type { CreateSessionResponse } from '../types/interview';
 
 /** ⚠️ 인증이 없어 면접관 ID 를 클라이언트가 정한다. 로그인 도입 시 사라진다. */
 const MOCK_INTERVIEWER_ID = 'user_demo';
 
 export default function InterviewSetupPage() {
-  const [session, setSession] = useState<CreateSessionResponse | null>(null);
   const [candidateName, setCandidateName] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const handleCreate = async () => {
-    setCreating(true);
-    setError(null);
-    try {
+  // 두 요청이 이어지지만 사용자에게는 한 번의 동작이므로 하나의 뮤테이션으로 묶는다.
+  const create = useMutation({
+    mutationFn: async () => {
       const interview = await createInterview(MOCK_INTERVIEWER_ID);
       const created = await createSession(interview.interviewId);
       // ⚠️ 서버에 이름 필드가 없어 브라우저에 둔다. BE 스키마가 생기면
       // createInterview 요청에 실어 보내고 이 줄을 지운다.
       saveCandidateName(created.sessionId, candidateName);
-      setSession(created);
-    } catch {
-      setError('면접을 만들지 못했습니다. 잠시 후 다시 시도해주세요.');
-    } finally {
-      setCreating(false);
-    }
-  };
+      return created;
+    },
+  });
+
+  const session = create.data;
+  // 생성 실패가 복사 실패보다 중요하다. 둘 다 있으면 생성 쪽을 보여준다.
+  const error = create.isError ? '면접을 만들지 못했습니다. 잠시 후 다시 시도해주세요.' : copyError;
 
   const handleCopy = async () => {
     if (!session) return;
@@ -52,7 +49,7 @@ export default function InterviewSetupPage() {
     } catch {
       // 클립보드 권한이 없거나 보안 컨텍스트가 아니면 실패한다.
       // 링크는 화면에 그대로 보이므로 직접 선택해 복사할 수 있다.
-      setError('자동 복사에 실패했습니다. 링크를 직접 선택해 복사해주세요.');
+      setCopyError('자동 복사에 실패했습니다. 링크를 직접 선택해 복사해주세요.');
     }
   };
 
@@ -87,11 +84,11 @@ export default function InterviewSetupPage() {
             </p>
             <button
               type="button"
-              onClick={() => void handleCreate()}
-              disabled={creating}
+              onClick={() => create.mutate()}
+              disabled={create.isPending}
               className="mt-7 w-full rounded-lg bg-[#2B44D6] py-3.5 text-[15px] font-medium text-white transition hover:bg-[#243AB8] disabled:bg-white/10 disabled:text-white/35"
             >
-              {creating ? '만드는 중…' : '면접 만들기'}
+              {create.isPending ? '만드는 중…' : '면접 만들기'}
             </button>
           </>
         )}

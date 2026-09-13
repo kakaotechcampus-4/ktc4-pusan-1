@@ -10,7 +10,7 @@
  * 잘못된 링크가 권한 프롬프트보다 먼저 걸려야 하기 때문이다.
  */
 
-import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { joinSession, toJoinFailure } from '../api/interview';
 import type { JoinFailure, JoinSessionResponse, Role } from '../types/interview';
@@ -38,22 +38,12 @@ export interface JoinPageProps {
 
 export default function JoinPage({ role, onJoined }: JoinPageProps) {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const [failure, setFailure] = useState<JoinFailure | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const join = useMutation({
+    mutationFn: () => joinSession(sessionId!, role),
+    onSuccess: onJoined,
+  });
 
-  const handleJoin = async () => {
-    if (!sessionId || submitting) return;
-
-    setSubmitting(true);
-    setFailure(null);
-    try {
-      onJoined(await joinSession(sessionId, role));
-    } catch (err) {
-      setFailure(toJoinFailure(err));
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const failure: JoinFailure | null = join.isError ? toJoinFailure(join.error) : null;
 
   // 링크에 sessionId 가 없으면 입장 자체가 불가능하다.
   if (!sessionId) {
@@ -83,11 +73,11 @@ export default function JoinPage({ role, onJoined }: JoinPageProps) {
 
         <button
           type="button"
-          onClick={() => void handleJoin()}
-          disabled={submitting}
+          onClick={() => join.mutate()}
+          disabled={join.isPending}
           className="mt-2 w-full rounded-lg bg-[#2B44D6] py-3.5 text-[15px] font-medium text-white transition hover:bg-[#243AB8] disabled:bg-white/10 disabled:text-white/35"
         >
-          {submitting ? '입장하는 중…' : '입장'}
+          {join.isPending ? '입장하는 중…' : '입장'}
         </button>
 
         <p className="mt-6 text-center font-mono text-[12px] break-all text-white/25">
