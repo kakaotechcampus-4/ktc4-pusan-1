@@ -3,10 +3,11 @@
 작성 기준: 2026-09-08. **BE/AI 연동 계약 제안이며 팀 합의 전이다.**
 백엔드가 전사 한 건을 전달한 상황에서 독립적으로 실행하는 분석 모듈이다.
 
-- 작업 근거: [9/8 회의록](https://app.notion.com/p/9-8-3db6470e1c8583179410810820457966)의 stub/mock 데이터 기반 면접 context 분석 Agent MVP.
+- 작업 근거: [9/8 회의록](https://app.notion.com/p/bb36470e1c8582b39c6281220ae51705)의 stub/mock 데이터 기반 면접 context 분석 Agent MVP(9/9 재확인한 페이지 링크).
 - 관련 작업: [요약 #6](https://github.com/kakaotechcampus-4/ktc4-pusan-1/issues/6), [STT #7](https://github.com/kakaotechcampus-4/ktc4-pusan-1/issues/7).
+- 2026-09-13 보완: #7은 CLOSED이며 STT 패키지 후속은 [#35](https://github.com/kakaotechcampus-4/ktc4-pusan-1/issues/35) / [#36](https://github.com/kakaotechcampus-4/ktc4-pusan-1/pull/36)이다. [STT 계약](stt-pipeline.md)을 따르며 실제 LiveKit·BE·FE 연결과 LLM Luna는 미구현이다.
 - 이번 구현 선택: GPT API 사용, 기본 `gpt-4o-mini`, 설정 또는 실행 인자로 `gpt-4o` 선택.
-- 제품 원칙: [테크스펙](https://app.notion.com/p/a566470e1c8582e8a143813844a5d374). AI는 발언을 정리하고 근거를 연결한다. 평가·점수·순위·합격 판단을 생성하지 않는다.
+- 제품 원칙: [테크스펙](https://app.notion.com/p/dd56470e1c858259971a014ef2c3d46c). AI는 발언을 정리하고 근거를 연결한다. 평가·점수·순위·합격 판단을 생성하지 않는다.
 
 ## 처리 범위
 
@@ -36,9 +37,9 @@ JSON 필드는 camelCase를 기본으로 쓰고 Python에서는 같은 이름의
 | `utterances` | 발화 배열, 빈 배열 허용 |
 | `utteranceId` | 발화 식별자; 동일 발화의 수정본은 동일 ID |
 | `trackId`, `speaker` | 트랙 ID와 `INTERVIEWER` 또는 `CANDIDATE` 역할 |
-| `seq` | 세션 안에서 발화를 정렬하는 순번 |
+| `seq` | 세션 안에서 발화를 정렬하는 비음수 정수 키. 희소한 값을 허용하며 개수로 해석하지 않음 |
 | `content` | **전체 발화 문자열**; 토큰 델타 아님 |
-| `startMs`, `endMs` | 세션 시작 기준 상대 밀리초; 0 이상, 끝 ≥ 시작 |
+| `startMs`, `endMs` | 공통 세션 기준 상대 밀리초; 0 이상, 끝 ≥ 시작. 실제 t=0·녹화 정렬은 별도 합의 필요 |
 | `passType` | `INTERIM` 또는 `FINAL`; 배치 전사 단계와 다른 개념 |
 
 동일 ID가 여러 번 있으면 배열에서 **마지막 `passType: FINAL` 전체 문자열**을 쓴다.
@@ -46,6 +47,13 @@ JSON 필드는 camelCase를 기본으로 쓰고 Python에서는 같은 이름의
 시작 시각은 변경할 수 없다. 본문·종료 시각·pass 상태는 정정할 수 있다.
 BE가 수정 순서를 보장해야 하며,
 순서가 없는 이벤트를 안전하게 병합하는 규칙은 이번 범위에 없다.
+
+여러 STT 트랙은 하나의 `SessionOrdering`과 실제 track offset으로 seq·시각을 만든다.
+트랙마다 독립 카운터를 0부터 시작하면 질문과 답변 순서가 충돌한다. 이 매핑이
+LiveKit 수신·세션 저장소·재접속·실시간 병합을 구현한 것은 아니다.
+STT의 `rejected`/`dropped_spans`가 있어도 현재 분석 결과에 자동으로 전달되지는 않는다.
+후속 통합 계층이 누락 구간과 분석 불완전성을 전달해야 하며, `completed`는 분석 실행
+완료만 뜻한다. 상세 오류·큐·수명은 [STT 계약](stt-pipeline.md)을 따른다.
 
 라이브 STT의 `passType: FINAL`은 발화가 끝났다는 뜻이다. `stage: LIVE`인 이상
 분석에는 `PROVISIONAL_TRANSCRIPT` 경고가 붙는다. 녹화 기반 정렬이 끝난 확정본은
