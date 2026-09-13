@@ -1,6 +1,6 @@
 # 면접 컨텍스트 분석 MVP 테스트 케이스
 
-작성 기준: 2026-09-08. 멘토와 팀원이 구현 범위, 검증 근거, 미검증 항목을
+작성 기준: 2026-09-08, 갱신: 2026-09-11. 멘토와 팀원이 구현 범위, 검증 근거, 미검증 항목을
 한 번에 리뷰할 수 있도록 정리했다. 관련 입력·출력 계약은
 [context-analysis.md](context-analysis.md), 실행 방법은 [AI README](../README.md)에 있다.
 
@@ -55,8 +55,15 @@ OpenAI 연동 테스트는 실제 Python SDK가 만든 요청을 가짜 HTTP 응
 | TC-GR-06 | 한 항목에 유효·무효 인용이 함께 있음 | 일부 인용만 남기지 않고 항목 전체를 제외한다 | `test_one_bad_citation_rejects_whole_claim` |
 | TC-GR-07 | 유효한 인용 | 화자와 시작·종료 시각을 모델 응답이 아닌 Transcript에서 붙인다 | `test_times_and_speaker_come_from_transcript` |
 | TC-GR-08 | 연속 공백만 다른 인용 | 공통 `locate_quote`의 정규화 규칙으로 근거를 찾는다 | `test_grounding_reuses_whitespace_normalized_quote_lookup` |
-| TC-GR-09 | 일부 요약만 근거 검증 통과 | 통과 항목만 반환하고 상태 `partial`, `UNGROUNDED_POINTS_REMOVED` 경고를 기록한다 | `test_partial_grounding_and_model_override` |
-| TC-GR-10 | 미리 정한 상수 요약을 정상 결과처럼 반환 | 근거 있는 points가 없으므로 `NO_GROUNDED_SUMMARY`로 실패한다 | `test_preset_fake_is_not_reported_as_grounded_analysis` |
+| TC-GR-09 | 일부 요약만 근거 검증 통과 | 통과 항목만 반환하고 상태 `partial`, `UNGROUNDED_POINTS_REMOVED` 경고를 기록하며 Q&A 2쌍을 유지한다 | `test_partial_grounding_and_model_override` |
+| TC-GR-10 | 미리 정한 상수 요약을 정상 결과처럼 반환 | 근거 있는 points가 없으므로 `NO_GROUNDED_SUMMARY`로 실패하고 `summaryResult`는 `null`, Q&A 2쌍은 남는다 | `test_preset_fake_is_not_reported_as_grounded_analysis` |
+| TC-GR-11 | 모델이 반환한 모든 항목이 근거 검증 실패 | 일부라도 만들지 않고 `failed`, `NO_GROUNDED_SUMMARY`(재시도 불가), `summaryResult` `null`, Q&A 2쌍 유지 | `test_every_point_rejected_fails_without_summary_and_keeps_qa` |
+| TC-GR-12 | 인용의 영문 대소문자만 원문과 다름 | casefold 하지 않으므로 항목 전체를 제외한다 | `test_invalid_claim_is_removed_from_all_display_fields[bad_point7]`, `test_letter_case_change_in_quote_is_rejected` |
+| TC-GR-13 | 인용에서 단어 사이 공백을 지우거나 추가함 | 표현 변경으로 보고 항목 전체를 제외한다 | `test_invalid_claim_is_removed_from_all_display_fields[bad_point8]`, `[bad_point9]`, `test_word_boundary_space_change_in_quote_is_rejected` |
+| TC-GR-14 | 요약문만 영문 소문자로 바꾸고 인용은 원문 그대로 | 항목을 유지한다. `text`는 재표현 가능하고 `quote`만 원문 표기를 지킨다 | `test_summary_text_may_lowercase_english_when_quote_is_verbatim` |
+| TC-GR-15 | NFD로 분해된 한글 인용 | NFC 정규화 후 원문에서 찾아 항목을 유지한다 | `test_decomposed_quote_is_grounded_after_nfc`, `test_decomposed_quote_is_grounded` |
+| TC-GR-16 | 정규화 함수 단위 확인 | 연속 공백만 축소하고 영문 대소문자·단어 경계는 유지한다 | `test_normalize_collapses_whitespace_only`, `test_normalize_keeps_letter_case_and_word_boundaries`, `test_normalize_recomposes_decomposed_hangul` |
+| TC-GR-17 | Finding 단위 인용 검증 | 존재하지 않는 ID, 다른 발화의 인용, 재표현을 구분해 거부하고 통과분에 단어·발화 시각을 붙인다 | `test_grounding.py` 16건 (위 TC-GR-12·13·15·16 포함) |
 
 ### 실패와 보안
 
@@ -78,7 +85,7 @@ OpenAI 연동 테스트는 실제 Python SDK가 만든 요청을 가짜 HTTP 응
 | ID | 입력·상황 | 기대 결과 | 자동 테스트 |
 | --- | --- | --- | --- |
 | TC-CLI-01 | 가상 샘플을 오프라인 모드로 실행 | 종료 코드 0, `completed`, Q&A 2개를 JSON으로 출력한다 | `test_analyze_offline_snapshot_prints_json` |
-| TC-EV-01 | 핵심 사실 또는 원문에 없는 수치 검사 | 공백·영문 대소문자를 정규화하고 없는 수치를 중복 없이 찾는다 | `test_evaluation.py` 6건 |
+| TC-EV-01 | 핵심 사실 또는 원문에 없는 수치 검사 | 핵심 사실 검사는 공백 제거·영문 대소문자 정규화를 사용한다. 수치 검사는 정규식으로 추출한 표기를 비교하고 없는 수치를 중복 없이 찾는다. 인용 일치 검사는 별도의 엄격한 규칙을 유지한다 | `test_evaluation.py` 6건 |
 | TC-CFG-01 | 기본값과 환경변수 설정 | 기본 `gpt-4o-mini`, 허용된 `gpt-4o` 변경, Secret 로딩을 확인한다 | `test_config.py` 3건 |
 | TC-ENV-01 | 공통 AI 환경 | LiveKit SDK import와 비동기 테스트 환경이 동작한다 | `test_environment.py` 2건 |
 | TC-LEG-01 | 기존 요약 프로토콜과 테스트 대역 | 인터페이스 호환과 final 발화 선택을 확인한다 | `test_summarize.py` 3건 |
@@ -95,15 +102,25 @@ uv run ruff format --check .
 uv lock --check
 ```
 
-2026-09-09 로컬 결과:
+2026-09-11 로컬 결과 (인용 검증 회귀 테스트 추가 후, 2026-09-13 PR 게시 전 동일 항목 재확인):
 
 ```text
-121 passed
+132 passed
 ruff lint passed
 ruff format check passed
 uv lock check passed
-source distribution and wheel build passed
 ```
+
+직전 기록은 2026-09-09의 `121 passed`였다. 늘어난 11건은 모두 인용 일치 강도와
+`partial`/`failed` 상태 보존을 확인하는 테스트다. 패키지 빌드는 이번에 실행하지 않았다.
+
+2026-09-13 회의에서 실제 LLM의 인용 탈락률·사유 측정은 후속 작업으로 분리했다.
+합의 범위와 측정 항목은 [인용 정책](context-analysis.md#2026-09-13-ai-회의-결정-23)을 따른다.
+아래 IT-AI-01 등 실제 모델·통합 테스트를 이 자동 테스트 결과로 대체하지 않는다.
+
+인용 정규화의 강도는 `grounding.normalize`를 casefold 적용, 공백 전체 삭제, NFC 미적용
+세 가지로 바꿔치기한 사본에서 위 테스트가 실제로 실패하는지 별도로 확인했다.
+(확인 스크립트는 저장소 밖에 두었고 런타임 동작은 바꾸지 않았다.)
 
 세부 테스트 이름은 다음 명령으로 확인할 수 있다.
 
@@ -166,7 +183,7 @@ MT-GPT-01과 같은 기준으로 통과 여부를 판정한다. 추가로 실행
 | --- | --- | --- |
 | IT-BE-01 | BE가 확정한 실제 DTO·호출 경로 | 필드명, 시간 기준, `stage`, 수정본 순서가 계약과 맞는지 |
 | IT-STT-01 | 실제 LiveKit 트랙과 STT | 중간본·최종본·재전송을 거쳐 Q&A와 근거가 중복되지 않는지 |
-| IT-AI-01 | 실제 OpenAI 계정과 네트워크 | 모델 접근, 응답 품질, 오류율, 30초 제한, 호출 지연 |
+| IT-AI-01 | 실제 OpenAI 계정과 네트워크 | 모델 접근, 응답 품질, 오류율, 30초 제한, 호출 지연, 인용 표기 규칙 프롬프트가 실제 출력에 주는 영향 |
 | IT-FAIL-01 | 진행 중인 실제 통화 | GPT·STT 장애가 통화·녹화를 중단하지 않는지 |
 | IT-FE-01 | FE 화면 | `completed`·`partial`·`failed`·`empty`, 경고, 원문 시각을 올바르게 표시하는지 |
 | IT-LOAD-01 | 여러 동시 면접 | 처리량, rate limit, 큐 길이와 세션 격리 |

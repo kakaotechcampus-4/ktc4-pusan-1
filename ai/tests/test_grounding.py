@@ -1,4 +1,5 @@
 import json
+import unicodedata
 from pathlib import Path
 
 from pydantic import TypeAdapter
@@ -48,6 +49,19 @@ def test_normalize_collapses_whitespace_only() -> None:
     assert normalize("Redis를 뒀습니다") != normalize("Redis를 뒀습니다.")
 
 
+def test_normalize_keeps_letter_case_and_word_boundaries() -> None:
+    """Collapsing a run of spaces is not the same as folding case or spacing."""
+    assert normalize("상품 API 앞에") != normalize("상품 api 앞에")
+    assert normalize("상품 API 앞에") != normalize("상품 API앞에")
+    assert normalize("상품 API 앞에") != normalize("상품API앞에")
+
+
+def test_normalize_recomposes_decomposed_hangul() -> None:
+    decomposed = unicodedata.normalize("NFD", "뒀습니다.")
+    assert decomposed != "뒀습니다."  # guard: NFD really differs before NFC
+    assert normalize(decomposed) == "뒀습니다."
+
+
 def test_exact_quote_is_grounded_and_gets_timestamp() -> None:
     result = ground_finding(_finding("Redis를 뒀습니다.", "utt_000"), UTTS)
 
@@ -66,6 +80,34 @@ def test_paraphrase_is_rejected() -> None:
     assert not result.ok
     assert result.reason == "quote not found in cited utterance"
     assert result.found_in == ()
+
+
+def test_decomposed_quote_is_grounded() -> None:
+    exact = "Redis를 뒀습니다."
+    decomposed = unicodedata.normalize("NFD", exact)
+    assert decomposed != exact
+
+    assert ground_finding(_finding(decomposed, "utt_000"), UTTS).ok
+
+
+def test_letter_case_change_in_quote_is_rejected() -> None:
+    """``api`` is not ``API``: no case folding, so the finding is dropped."""
+    result = ground_finding(_finding("상품 api 앞에 Redis를", "utt_000"), UTTS)
+
+    assert not result.ok
+    assert result.reason == "quote not found in cited utterance"
+    assert result.found_in == ()
+
+
+def test_word_boundary_space_change_in_quote_is_rejected() -> None:
+    """A deleted or inserted space is a wording change, not whitespace noise."""
+    deleted = ground_finding(_finding("상품 API앞에 Redis를", "utt_000"), UTTS)
+    inserted = ground_finding(_finding("Redis 를 뒀습니다.", "utt_000"), UTTS)
+
+    assert not deleted.ok
+    assert deleted.reason == "quote not found in cited utterance"
+    assert not inserted.ok
+    assert inserted.reason == "quote not found in cited utterance"
 
 
 def test_quote_from_other_utterance_is_rejected_with_pointer() -> None:

@@ -122,8 +122,38 @@ async def test_partial_grounding_and_model_override(
             OpenAISummarizer(client, model="gpt-4o")
         ).analyze(sample_transcript)
     assert result.status == "partial"
+    assert "UNGROUNDED_POINTS_REMOVED" in result.warnings
     assert result.summary_result.rejected_point_count == 1
     assert "허구" not in result.summary_result.summary
+    assert len(result.qa_pairs) == 2
+
+
+async def test_every_point_rejected_fails_without_summary_and_keeps_qa(
+    sample_transcript: TranscriptSnapshot,
+) -> None:
+    """A draft whose every point fails grounding leaves no summary at all."""
+
+    def handler(request):
+        unknown_id = {
+            "text": "허구",
+            "citations": [{"utterance_id": "bad", "quote": "허구"}],
+        }
+        lowercased_quote = {
+            "text": "프레임워크를 전환했다고 설명했다.",
+            "citations": [{"utterance_id": "u-002", "quote": "django에서 FastAPI로"}],
+        }
+        return httpx.Response(200, json=response_body([unknown_id, lowercased_quote]))
+
+    async with client_for(handler) as client:
+        result = await ContextAnalysisAgent(OpenAISummarizer(client)).analyze(
+            sample_transcript
+        )
+    assert result.status == "failed"
+    assert result.error.code == "NO_GROUNDED_SUMMARY"
+    assert result.error.retryable is False
+    assert result.summary_result is None
+    assert len(result.qa_pairs) == 2
+    assert "허구" not in result.model_dump_json()
 
 
 @pytest.mark.parametrize("kind", ["refusal", "invalid_json", "incomplete", "no_points"])
