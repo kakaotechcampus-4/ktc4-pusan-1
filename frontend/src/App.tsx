@@ -2,8 +2,8 @@
  * 라우팅.
  *
  *   /                       안내 화면
- *   /context/:contextId     기업 컨텍스트 — 문서 업로드
- *   /host                   면접 준비 — 면접 생성 · 초대 링크 발급
+ *   /context/:contextId     기업 컨텍스트 — 문서 업로드 (면접관 첫 단계)
+ *   /host                   면접 준비 — 면접 생성 · 초대 링크 발급 (문서 업로드 다음)
  *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
  *   /interview/:sessionId/summary  면접 종료 후 요약
  *   /review/:interviewId    면접 기록 — 녹화 · 타임라인 · AI 평가
@@ -152,8 +152,9 @@ function Landing() {
         </p>
 
         <div className="mt-7 flex flex-col gap-2.5">
+          {/* 면접관은 문서를 먼저 올리고 면접 방을 만든다. AI 가 이 문서를 근거로 쓴다. */}
           <Link
-            to="/host"
+            to="/context/ctx_demo"
             className="rounded-lg bg-[#2B44D6] px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-[#243AB8]"
           >
             면접 만들기 (면접관)
