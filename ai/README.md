@@ -1,12 +1,13 @@
 # IRYA AI
 
-LiveKit 오디오 트랙을 실시간 STT와 후속 AI 파이프라인으로 연결하는 파트입니다.
+PCM 청킹·Elice STT와 전사 기반 Q&A·근거·요약을 제공하는 파트입니다. LiveKit 입력과 BE/FE 전송은 아직 연결되지 않았습니다. 현재 구현·수명·측정 정의는 [STT 파이프라인](docs/stt-pipeline.md), 검증 범위는 [STT 리뷰 기록](docs/stt-review.md)을 참고하세요.
 
 ## Requirements
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
-- 실제 STT 연결 시 LiveKit 서버 접속 정보
+- Elice STT 실행 시 서버 측 Elice API Key와 배포 주소
+- 향후 LiveKit 입력 연결 시 LiveKit 서버 접속 정보
 - GPT 분석 실행 시 OpenAI API Key (오프라인 데모에는 불필요)
 
 Python은 `ai/.python-version`의 3.12를 사용합니다. 로컬에 설치되어 있지 않으면 `uv`가 필요한 버전을 설치할 수 있습니다.
@@ -18,9 +19,10 @@ Python은 `ai/.python-version`의 3.12를 사용합니다. 로컬에 설치되�
 ```bash
 uv sync --locked
 cp .env.example .env
+chmod 600 .env
 ```
 
-`.env`에 로컬 또는 개발용 LiveKit 접속 정보를 입력합니다. 실제 API Key와 Secret은 커밋하지 않습니다.
+이미 `.env`를 저장했다면 복사 명령으로 덮어쓰지 않습니다. `.env`는 편집기로 값을 입력하는 설정 파일이며 실행하는 파일이 아닙니다. 실제 API Key와 Secret은 커밋하지 않습니다.
 
 | 변수 | 설명 | 기본값 |
 | --- | --- | --- |
@@ -39,6 +41,13 @@ cp .env.example .env
 | `ELICE_STT_TIMEOUT_SECONDS` | STT 요청 제한 시간(초), 0 초과 300 이하 | `60` |
 
 분석만 실행할 때는 LiveKit·Elice 접속 정보를 채울 필요가 없습니다.
+Elice STT만 사용할 때는 LiveKit·OpenAI 키가 필요 없습니다. `ELICE_LLM_MODEL` 같은 Elice LLM 설정·클라이언트는 아직 구현되지 않았으므로 해당 값을 저장해도 Luna로 분석하지 않습니다. 위 `OPENAI_MODEL` 경로와 구분합니다.
+
+### 로그와 배포 주소
+
+`httpx`는 요청 한 건마다 대상 URL을 INFO로, `httpcore`는 접속 호스트를 DEBUG로 남깁니다. 기본값인 `LOG_LEVEL=INFO`에서 그대로 두면 비공개인 `ELICE_STT_BASE_URL`이 애플리케이션 로그에 찍힙니다. `EliceSttClient`는 생성 시점에 자기 `base_url`의 호스트를 `irya_ai.stt.http_logging`에 등록해, 그 두 라이브러리의 기록에서 해당 호스트만 `<stt-deployment>`로 가립니다. `build_client()`로 만들든 직접 만든 `httpx.AsyncClient`를 넘기든 동일하며, 호출자가 로깅을 따로 설정할 필요는 없습니다. 메서드·경로·상태 코드와 다른 호스트의 로그는 건드리지 않습니다.
+
+보호 범위는 등록한 호스트가 포함된 `httpx`·`httpcore` 메시지까지입니다. `protect_host()`는 다른 라이브러리나 애플리케이션 자체 로거에 필터를 설치하지 않으므로, 그런 로그는 해당 경로에서 별도로 가려야 합니다. 호스트 등록은 프로세스 동안 유지되며 `clear_protected_hosts()`는 요청 중 호출하지 않습니다. 키 값을 이 장치에 넘기지 않습니다. 기본 요청의 `Authorization` 값과 본문은 라이브러리가 기록하지 않지만, httpcore DEBUG에는 응답 헤더가 나타날 수 있습니다. 이 필터를 임의 헤더·경로·쿼리·사용자 정의 로그의 비밀값 제거 장치로 사용하지 않습니다.
 
 ## 면접 컨텍스트 분석 MVP
 
@@ -86,6 +95,7 @@ src/irya_ai/
 │   ├── analysis.py    QAPair · Finding · SuggestedQuestion · ReviewReport
 │   └── summary.py     SummaryPoint · SummaryResult · AnalysisResult
 ├── pipeline/          Q&A 구조화 · 근거 접지
+├── stt/               PCM 청킹 · Elice HTTP · 세션 정렬 · 비동기 전사 스트림
 ├── analysis.py        Snapshot 한 건의 분석과 상태 처리
 ├── summarize.py       요약 인터페이스 · 오프라인 추출형 요약
 ├── openai_summary.py  OpenAI 구조화 요약
@@ -93,7 +103,7 @@ src/irya_ai/
 data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데이터)
 ```
 
-STT 공급자와 LLM 공급자는 아직 고정하지 않았습니다. 우선 외부 API 방향으로 시도하되, 파이프라인은 `Utterance` 스트림만 입력으로 받으므로 STT 구현은 뒤에서 교체할 수 있습니다.
+현재 STT 구현은 Elice Whisper를 시험하며 LLM은 기존 OpenAI 경로입니다. 이것을 팀의 최종 모델 선정으로 간주하지 않습니다. 분석 모듈은 `TranscriptSnapshot`을 받으며 STT `Utterance`를 수집·전달하는 통합 계층은 후속 작업입니다.
 
 ## 스키마
 
@@ -127,16 +137,16 @@ u.model_dump(
 | `utteranceId` | string | `utt_014` |
 | `sessionId` | string | `ses_123`. API 명세의 Session ID |
 | `trackId` | string | `trk_interviewer` / `trk_candidate` |
-| `speaker` | `INTERVIEWER` \| `CANDIDATE` | API 명세 `join`의 `role`과 같은 값 |
-| `seq` | int | 세션 내 발화 순번. 화자와 무관하게 증가 |
-| `passType` | `INTERIM` \| `FINAL` | 잠정본 / 확정본 |
-| `startMs`, `endMs` | int | 세션 녹화 시작 기준 밀리초. 영상 seek에 그대로 사용 |
+| `speaker` | `INTERVIEWER` \| `CANDIDATE` | 전사 출처. join 권한 `role`과 표기는 같지만 별도 개념 |
+| `seq` | int | 세션 내 정렬 키. STT 매핑은 희소하므로 개수·연속 번호로 쓰지 않음 |
+| `passType` | `INTERIM` \| `FINAL` | 청크의 중간/최종 응답. 인터뷰 전사 확정 단계와 별개 |
+| `startMs`, `endMs` | int | 공통 세션 기준 상대 밀리초. STT는 caller가 트랙 offset을 제공해야 하며 녹화 seek 정합성은 미검증 |
 | `content` | string | 전사 텍스트 |
 | `uncertain` | bool | STT가 확신하지 못한 발화 |
 | `words` | Word[] | 단어별 타임스탬프 (선택) |
 | `qaId`, `qaRole` | string? | Q&A 구조화 후 채워짐. STT는 비워둠 |
 
-`INTERIM`은 같은 `utteranceId`로 여러 번 오고 내용이 점점 길어집니다. `FINAL`이 오면 그 발화는 확정입니다.
+시뮬레이터는 같은 `utteranceId`의 INTERIM/FINAL을 만듭니다. 현재 Elice 경로는 청크별 FINAL만 생성하며 LIVE 스냅샷은 잠정본입니다. FINAL 수정본은 같은 ID의 전체 문자열을 교체합니다. 상세 규칙은 [분석 계약](docs/context-analysis.md)을 따릅니다.
 
 ### Finding (분석 출력)
 
