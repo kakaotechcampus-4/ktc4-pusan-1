@@ -8,16 +8,32 @@ came back as a unit of time. That is the failure mode to design against: not
 missing text, which is visible, but a confident wrong number, which is not.
 
 Overlapping neighbours hides a bad cut by sending the same 300ms twice, but
-then both transcripts contain it, and the API returns segment-level
-timestamps only, so the duplicate cannot be located and removed afterwards.
+then both transcripts contain it, and every response observed from this
+deployment has carried segment-level timestamps only, so the duplicate could
+not be located and removed afterwards. No overlap is therefore the starting
+strategy rather than a proven ceiling - see :mod:`irya_ai.stt.elice` for what
+was and was not established about word-level timings.
 
 This module cuts on silence instead, and when a turn runs past the cap it
-moves the forced cut to the quietest frame near the deadline. Measured on a
-synthetic Korean interview corpus at a 5s cap, moving that cut lowered
-character error rate against a whole-file transcript from 0.089 to 0.054 and
-took the checked facts from 25/28 to 27/28 - a net gain of two rather than a
-strict improvement, since it recovered the sentence above but lost a numeral
-elsewhere. Display lag did not grow: the cut only ever moves earlier.
+moves the forced cut to the quietest frame near the deadline.
+
+What was measured, and how far it goes: on a TTS-read synthetic Korean
+interview corpus (macOS ``say -v Yuna``, n=6 files, no human speech and no
+interview data), at a 5s cap, moving the forced cut lowered character error
+rate from 0.089 to 0.054 and took the checked facts from 25/28 to 27/28 - a
+net gain of two rather than a strict improvement, since it recovered the
+sentence above but lost a numeral elsewhere. That error rate is *disagreement
+with a whole-file Whisper transcript of the same audio*, not error against a
+human-corrected reference: both numbers move if the baseline transcript is
+wrong. Raw runs are under ``stt-bench/``.
+
+What was not measured: display lag. Moving a cut earlier shortens the audio
+in one request, but it does not follow that text reaches a reader sooner -
+the decision still waits for the full lookback window (see
+:attr:`AudioSegment.decision_lag_ms`), and smaller segments mean more
+requests competing for the same concurrency budget. :mod:`irya_ai.stt.stream`
+instruments the stages end to end; no claim about a reader's screen is made
+anywhere here, because nothing in this repository renders one yet.
 
 Everything here is stdlib and deterministic: no model, no network, no file.
 """
@@ -41,10 +57,29 @@ class CutReason(StrEnum):
 class SegmentationConfig:
     """Knobs for :class:`StreamSegmenter`.
 
-    Defaults are tuned for live display lag. On the corpus above a 5s cap gave
-    p95 display lag 6.6s and kept 27 of 28 checked facts; raising it to 8s
-    kept all 28 but pushed p95 to 9.5s. The cap is the lever to move if a
-    deployment would rather have the accuracy than the responsiveness.
+    Defaults trade accuracy against how long a segment is held before it is
+    sent. On the corpus above, a 5s cap kept 27 of 28 checked facts and an 8s
+    cap kept all 28, so the cap is the lever to move if a deployment would
+    rather have the accuracy.
+
+    The accompanying p95 figures - 6.6s at a 5s cap, 9.5s at 8s - are an
+    author-reported proxy, computed as segment duration plus request latency
+    from the harness runs under ``stt-bench/runs/``. They are not measured
+    display lag: they were taken from a standalone benchmark client rather
+    than this code path, and they leave out the cut decision delay, the wait
+    for an admission slot, the wait behind an older segment still in flight,
+    and every step past this process, of which the largest - a browser - does
+    not exist yet.
+
+    They are not a lower bound either, in this deployment or any other. The
+    stages they omit only add time, but the figures come from different runs
+    than any given session will be, and provider latency is not a constant to
+    add stages to: a cold worker, a different concurrency, a different length
+    of audio or a busier deployment all move the request itself. A later run
+    can be faster or slower than these numbers for reasons that have nothing
+    to do with what they left out. Treat them as what one author measured on
+    one set of runs, not as a floor and not as a latency any reader
+    experienced.
 
     ``noise_margin`` and ``absolute_floor`` set the silence threshold. A live
     stream has no peak to normalise against, so the threshold tracks a running
@@ -84,19 +119,51 @@ class SegmentationConfig:
 class AudioSegment:
     """One span of audio ready to be sent to STT.
 
-    ``start_ms`` is measured from the first sample ever pushed, so segments
-    from the same stream share a timeline and can be turned into utterances.
+    ``start_ms`` and ``end_ms`` are measured from the first sample ever pushed
+    *to this segmenter*, so segments from the same stream share a timeline and
+    can be turned into utterances. Two tracks do not share it: each one starts
+    counting at its own first sample, not at a shared recording clock. Putting
+    two tracks on one timeline is :mod:`irya_ai.stt.session`'s job, not this
+    module's.
+
+    ``received_ms`` is where the stream head was when this segment was
+    emitted, on the same timeline. It is never smaller than ``end_ms`` and is
+    usually larger, because a forced cut is moved back to the quietest frame
+    within the lookback window: the segmenter had to hear the whole window
+    before it could decide where the segment ended. ``received_ms - end_ms``
+    is that decision delay, and it is audio that was already captured and
+    waiting while the cut was being chosen. It is carried here because it is
+    the only place it is knowable, and anything measuring display lag that
+    starts from ``end_ms`` undercounts by exactly this much.
     """
 
     index: int
     start_ms: int
     end_ms: int
+    received_ms: int
     reason: CutReason
     pcm: bytes
 
     @property
     def duration_ms(self) -> int:
         return self.end_ms - self.start_ms
+
+    @property
+    def decision_lag_ms(self) -> int:
+        """Audio received past this segment's end before the cut was decided."""
+
+        return self.received_ms - self.end_ms
+
+    @property
+    def first_sample_wait_ms(self) -> int:
+        """How long this segment's first sample waited to be sent, at capture.
+
+        Assumes real-time capture: that the stream was pushed in as it was
+        spoken. Under that assumption this is the audio-side half of display
+        lag, and the request is the other half.
+        """
+
+        return self.received_ms - self.start_ms
 
 
 def frame_rms(samples: array.array) -> float:
@@ -152,8 +219,10 @@ class StreamSegmenter:
     2. A span with no voiced frame is never sent. Whisper answers near-silence
        with a stock sentence - in testing, a subtitle-credits line - and the
        call is wasted either way.
-    3. Whatever slips past those is caught after the response comes back, by
-       :func:`irya_ai.stt.elice.is_hallucinated`.
+    3. Some of what slips past those is caught after the response comes
+       back, by :func:`irya_ai.stt.elice.is_hallucinated` - but only the
+       shape it looks for, a span running past the audio. Nothing here
+       detects a fabricated sentence that keeps to a plausible span.
     """
 
     def __init__(self, config: SegmentationConfig | None = None) -> None:
@@ -279,6 +348,7 @@ class StreamSegmenter:
             index=self._index,
             start_ms=self._start_ms,
             end_ms=self._start_ms + span_ms,
+            received_ms=self._elapsed_ms,
             reason=reason,
             pcm=pcm,
         )
