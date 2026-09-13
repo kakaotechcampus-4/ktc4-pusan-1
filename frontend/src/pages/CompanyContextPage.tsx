@@ -8,7 +8,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { deleteDoc, getContext, uploadDoc } from '../api/context';
 import { DocCard } from '../components/context/DocCard';
 import { DropZone } from '../components/context/DropZone';
@@ -31,6 +31,7 @@ interface PendingDoc extends ContextDoc {
 export default function CompanyContextPage() {
   const { contextId = 'ctx_demo' } = useParams<{ contextId: string }>();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const queryKey = ['context', contextId];
 
   const [pending, setPending] = useState<PendingDoc[]>([]);
@@ -167,6 +168,9 @@ export default function CompanyContextPage() {
             <button
               type="button"
               disabled={!canStart}
+              // ⚠️ 면접 생성 요청에 컨텍스트를 실어 보낼 필드가 명세에 없다.
+              // 지금은 화면만 이어 두고, BE 스키마가 생기면 contextId 를 넘긴다.
+              onClick={() => void navigate('/host')}
               className="mt-4 w-full rounded-lg bg-[#2B44D6] py-3.5 text-[15px] font-medium text-white transition hover:bg-[#243AB8] disabled:bg-white/10 disabled:text-white/35"
             >
               면접 준비로
