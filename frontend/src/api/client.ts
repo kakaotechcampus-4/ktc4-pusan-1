@@ -6,7 +6,7 @@
  */
 import { handleMock, USE_MOCK_API } from '../mocks/mockApi';
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
+export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 
 export class ApiError extends Error {
   // 파라미터 프로퍼티는 erasableSyntaxOnly 에서 막히므로 필드를 명시한다.
