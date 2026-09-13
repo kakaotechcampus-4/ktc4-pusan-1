@@ -11,6 +11,8 @@
  */
 
 import type {
+  CompanyContext,
+  ContextDoc,
   CreateSessionResponse,
   Interview,
   InterviewSummary,
@@ -49,8 +51,77 @@ const interviews = new Map<string, Interview>();
 /** 요약 조회 횟수. 생성 중 상태를 몇 번 보여줄지 세는 데 쓴다. */
 const summaryPolls = new Map<string, number>();
 
+/* ── 기업 컨텍스트 (S1) ───────────────────────────────────
+   업로드한 문서를 담아 둔다. 파싱은 시간이 걸리는 작업이므로
+   `readyAt` 이 지나야 ready 로 바뀐다 — 폴링이 실제로 동작하는지 보려면 필요하다. */
+
+const PARSE_MS = 4000;
+
+interface StoredDoc extends ContextDoc {
+  readyAt: number;
+}
+
+const docs = new Map<string, StoredDoc>();
+
+/** 저장된 문서를 현재 시각 기준 상태로 바꿔 돌려준다. */
+function viewDocs(): ContextDoc[] {
+  const now = Date.now();
+  return [...docs.values()].map(({ readyAt, ...doc }) => ({
+    ...doc,
+    status: now >= readyAt ? 'ready' : 'parsing',
+  }));
+}
+
+/**
+ * 업로드 목. 진행률을 조금씩 올려 실제 업로드처럼 보이게 한다.
+ * XHR 은 request() 를 거치지 않으므로 api/context.ts 가 직접 부른다.
+ */
+export async function handleMockUpload(
+  file: File,
+  onProgress: (ratio: number) => void,
+): Promise<ContextDoc> {
+  for (let i = 1; i <= 10; i++) {
+    await delay(120);
+    onProgress(i / 10);
+  }
+
+  const id = nextId('doc');
+  const kind = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx';
+  const stored: StoredDoc = {
+    id,
+    name: file.name,
+    kind,
+    sizeBytes: file.size,
+    status: 'parsing',
+    readyAt: Date.now() + PARSE_MS,
+  };
+  docs.set(id, stored);
+
+  // 업로드 직후에는 아직 읽는 중이다. readyAt 은 서버 내부 값이라 내보내지 않는다.
+  return viewDocs().find((d) => d.id === id) ?? { ...stored, status: 'parsing' };
+}
+
 export async function handleMock(path: string, init?: RequestInit): Promise<unknown | null> {
   const method = init?.method ?? 'GET';
+
+  const context = /^\/api\/v1\/contexts\/([^/]+)$/.exec(path);
+  if (context && method === 'GET') {
+    await delay(200);
+    return {
+      id: context[1],
+      company: '엘리스',
+      team: '플랫폼',
+      role: '백엔드 엔지니어',
+      docs: viewDocs(),
+    } satisfies CompanyContext;
+  }
+
+  const deleteDocPath = /^\/api\/v1\/contexts\/[^/]+\/docs\/([^/]+)$/.exec(path);
+  if (deleteDocPath && method === 'DELETE') {
+    await delay(400);
+    docs.delete(deleteDocPath[1]);
+    return undefined;
+  }
 
   if (path === '/api/v1/interviews' && method === 'POST') {
     await delay(400);
