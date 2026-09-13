@@ -6,6 +6,7 @@
  *   /host                   면접 준비 — 면접 생성 · 초대 링크 발급
  *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
  *   /interview/:sessionId/summary  면접 종료 후 요약
+ *   /review/:interviewId    면접 기록 — 녹화 · 타임라인 · AI 평가
  *   /mock/interview         면접 화면만 바로 보기 — 임시, 전사 연동 시 제거
  *
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
@@ -33,6 +34,8 @@ import type { JoinSessionResponse, Role } from './types/interview';
    livekit-client 가 번들의 대부분을 차지하는데, 진입·요약 화면에는 필요 없다.
    이렇게 나누면 링크를 연 사람이 첫 화면을 보기까지 받는 양이 줄어든다. */
 const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
+// hls.js 도 크다. 면접 기록을 여는 사람만 받는다.
+const ReviewTimelinePage = lazy(() => import('./pages/ReviewTimelinePage'));
 const InterviewRoomPreview = lazy(() =>
   import('./mocks/InterviewRoomPreview').then((m) => ({ default: m.InterviewRoomPreview })),
 );
@@ -175,6 +178,9 @@ function Landing() {
           <Link to="/interview/ended?role=interviewer" className="hover:text-white/60">
             → 입장 불가 화면 보기
           </Link>
+          <Link to="/review/int_demo" className="hover:text-white/60">
+            → 면접 기록 화면 보기
+          </Link>
         </div>
       </div>
     </div>
@@ -189,6 +195,14 @@ export default function App() {
       <Route path="/host" element={<InterviewSetupPage />} />
       <Route path="/interview/:sessionId" element={<InterviewFlow />} />
       <Route path="/interview/:sessionId/summary" element={<InterviewSummaryPage />} />
+      <Route
+        path="/review/:interviewId"
+        element={
+          <Suspense fallback={<ChunkFallback />}>
+            <ReviewTimelinePage />
+          </Suspense>
+        }
+      />
       <Route
         path="/mock/interview"
         element={

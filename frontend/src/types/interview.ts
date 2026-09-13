@@ -133,6 +133,46 @@ export interface CompanyContext {
 export type UploadRejection = 'unsupported-type' | 'too-large';
 
 /* ---------------------------------------------------------------- *
+ * 면접 기록 (S3)
+ *
+ * ⚠️ 이 엔드포인트는 BE 명세에 없다. 프로토타입의 형태를 따르되, 상태 값은
+ * 요약(SummaryStatus)과 같은 대문자로 맞췄다. 목으로만 동작한다.
+ * ---------------------------------------------------------------- */
+
+/** 질문 하나가 시작된 시점과 그 문답 */
+export interface Moment {
+  id: string;
+  /** 질문 시작 시점(초) */
+  atSec: number;
+  /** 타임라인 아래 짧은 라벨 */
+  label: string;
+  question: string;
+  /** 답변 요약 (한두 줄) */
+  answer: string;
+}
+
+export interface Review {
+  interviewId: string;
+  candidate: { name: string; role: string };
+  durationSec: number;
+  /**
+   * ⚠️ 서명된 master.m3u8 을 받는다고 가정했다. 만료 시간 · 보관 기간 · 열람 권한은 미정이다.
+   */
+  recording: { hlsUrl: string };
+  moments: Moment[];
+  /** 전사 · 지원서 · JD 를 근거로 쓴 서술. 합격 여부는 없다. */
+  aiReview: { paragraphs: string[] };
+}
+
+/**
+ * GET /api/v1/interviews/{interviewId}/review
+ *
+ * 녹화 변환과 AI 평가에 시간이 걸리므로, 준비 전에는 202 와 PROCESSING 을 돌려준다.
+ */
+export type ReviewResponse =
+  { status: 'PROCESSING'; etaSec?: number } | ({ status: 'READY' } & Review);
+
+/* ---------------------------------------------------------------- *
  * 진입
  * ---------------------------------------------------------------- */
 
