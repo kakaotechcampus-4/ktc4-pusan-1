@@ -16,6 +16,7 @@ import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { endSession, startSession } from '../api/interview';
+import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from '../lib/candidateName';
 import { InterviewRoomView } from '../components/interview/InterviewRoomView';
 import type { Role } from '../types/interview';
 import { startMockSession } from './interviewMock';
@@ -25,6 +26,8 @@ export interface InterviewRoomPreviewProps {
   role?: Role;
   /** 있으면 상태 전이 API 를 실제로 호출한다 */
   sessionId?: string;
+  /** 상대 이름. 없으면 역할에 맞는 기본값을 쓴다 */
+  remoteName?: string;
   /** 기기 점검에서 확보한 실제 트랙. 없으면 PiP 를 그리지 않는다 */
   localVideoTrack?: LocalVideoTrack | null;
   localAudioTrack?: LocalAudioTrack | null;
@@ -34,6 +37,7 @@ export interface InterviewRoomPreviewProps {
 export function InterviewRoomPreview({
   role: roleProp,
   sessionId,
+  remoteName,
   localVideoTrack,
   localAudioTrack,
   onLeave,
@@ -87,7 +91,9 @@ export function InterviewRoomPreview({
   return (
     <InterviewRoomView
       role={roleResolved}
-      remoteName={roleResolved === 'INTERVIEWER' ? '김지원' : '이면접'}
+      remoteName={
+        remoteName ?? (roleResolved === 'INTERVIEWER' ? FALLBACK_CANDIDATE : INTERVIEWER_LABEL)
+      }
       videoRef={videoRef}
       audioRef={audioRef}
       error={null}

@@ -24,6 +24,7 @@ import {
 import InterviewSetupPage from './pages/InterviewSetupPage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
+import { INTERVIEWER_LABEL, loadCandidateName } from './lib/candidateName';
 import type { JoinSessionResponse, Role } from './types/interview';
 
 /* 카메라·마이크를 쓰는 화면만 따로 내려받는다.
@@ -98,6 +99,9 @@ function InterviewFlow() {
   const [searchParams] = useSearchParams();
   const role: Role = searchParams.get('role') === 'interviewer' ? 'INTERVIEWER' : 'CANDIDATE';
 
+  // 면접관만 지원자 이름을 본다. 지원자에게는 면접관 실명을 알려주지 않는다.
+  const remoteName = role === 'INTERVIEWER' ? loadCandidateName(sessionId) : INTERVIEWER_LABEL;
+
   if (!session) {
     return <JoinPage role={role} onJoined={setSession} />;
   }
@@ -111,6 +115,7 @@ function InterviewFlow() {
           <InterviewRoomPreview
             role={role}
             sessionId={sessionId}
+            remoteName={remoteName}
             localVideoTrack={tracks.videoTrack}
             localAudioTrack={tracks.audioTrack}
             onLeave={() => {
