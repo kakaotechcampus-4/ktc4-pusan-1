@@ -2,6 +2,7 @@
  * 라우팅.
  *
  *   /                       안내 화면
+ *   /context/:contextId     기업 컨텍스트 — 문서 업로드
  *   /host                   면접 준비 — 면접 생성 · 초대 링크 발급
  *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
  *   /interview/:sessionId/summary  면접 종료 후 요약
@@ -21,6 +22,7 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
+import CompanyContextPage from './pages/CompanyContextPage';
 import InterviewSetupPage from './pages/InterviewSetupPage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
@@ -183,6 +185,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/context/:contextId" element={<CompanyContextPage />} />
       <Route path="/host" element={<InterviewSetupPage />} />
       <Route path="/interview/:sessionId" element={<InterviewFlow />} />
       <Route path="/interview/:sessionId/summary" element={<InterviewSummaryPage />} />
