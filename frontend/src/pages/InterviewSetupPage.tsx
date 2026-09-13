@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createInterview, createSession } from '../api/interview';
+import { saveCandidateName } from '../lib/candidateName';
 import type { CreateSessionResponse } from '../types/interview';
 
 /** ⚠️ 인증이 없어 면접관 ID 를 클라이언트가 정한다. 로그인 도입 시 사라진다. */
@@ -20,6 +21,7 @@ const MOCK_INTERVIEWER_ID = 'user_demo';
 
 export default function InterviewSetupPage() {
   const [session, setSession] = useState<CreateSessionResponse | null>(null);
+  const [candidateName, setCandidateName] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -29,7 +31,11 @@ export default function InterviewSetupPage() {
     setError(null);
     try {
       const interview = await createInterview(MOCK_INTERVIEWER_ID);
-      setSession(await createSession(interview.interviewId));
+      const created = await createSession(interview.interviewId);
+      // ⚠️ 서버에 이름 필드가 없어 브라우저에 둔다. BE 스키마가 생기면
+      // createInterview 요청에 실어 보내고 이 줄을 지운다.
+      saveCandidateName(created.sessionId, candidateName);
+      setSession(created);
     } catch {
       setError('면접을 만들지 못했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
@@ -59,14 +65,35 @@ export default function InterviewSetupPage() {
         </p>
 
         {!session && (
-          <button
-            type="button"
-            onClick={() => void handleCreate()}
-            disabled={creating}
-            className="mt-7 w-full rounded-lg bg-[#2B44D6] py-3.5 text-[15px] font-medium text-white transition hover:bg-[#243AB8] disabled:bg-white/10 disabled:text-white/35"
-          >
-            {creating ? '만드는 중…' : '면접 만들기'}
-          </button>
+          <>
+            <label
+              htmlFor="candidate-name"
+              className="mt-7 block text-[15px] font-medium text-white"
+            >
+              지원자 이름
+              <span className="ml-2 text-[13px] font-normal text-white/40">선택</span>
+            </label>
+            <input
+              id="candidate-name"
+              value={candidateName}
+              onChange={(e) => setCandidateName(e.target.value)}
+              placeholder="비워두면 '지원자' 로 표시됩니다"
+              autoComplete="off"
+              maxLength={20}
+              className="mt-2 w-full rounded-lg bg-white/[0.07] px-4 py-3 text-[15px] text-white placeholder:text-white/25 focus:ring-2 focus:ring-[#2B44D6] focus:outline-none"
+            />
+            <p className="mt-2 text-[13px] leading-relaxed text-white/40">
+              면접 중 화면 상단에 표시됩니다. 지원자에게는 보이지 않습니다.
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={creating}
+              className="mt-7 w-full rounded-lg bg-[#2B44D6] py-3.5 text-[15px] font-medium text-white transition hover:bg-[#243AB8] disabled:bg-white/10 disabled:text-white/35"
+            >
+              {creating ? '만드는 중…' : '면접 만들기'}
+            </button>
+          </>
         )}
 
         {session && (
