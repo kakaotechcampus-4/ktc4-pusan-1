@@ -65,32 +65,30 @@ export function InterviewRoomPreview({
     };
   }, [localVideoTrack]);
 
-  const start = useMutation({ mutationFn: (id: string) => startSession(id) });
+  const { mutate: startSessionMutate } = useMutation({
+    mutationFn: (id: string) => startSession(id),
+    onError: (e: unknown) => console.warn('면접 시작 실패', e),
+  });
 
   // 면접 진행 상태로 전이시킨다. 명세상 면접관만 호출한다.
   // 여러 번 호출돼도 서버가 한 번만 전이시켜야 한다 (issue #9 완료 조건).
-  //
-  // start 를 deps 에 넣지 않는다. 뮤테이션 객체는 렌더마다 새로 만들어져
-  // 넣으면 매 렌더마다 다시 호출된다.
   useEffect(() => {
     if (!sessionId || roleResolved !== 'INTERVIEWER') return;
-    start.mutate(sessionId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, roleResolved]);
+    startSessionMutate(sessionId);
+  }, [sessionId, roleResolved, startSessionMutate]);
 
   // 면접관만 세션을 끝낸다. 지원자는 자기 연결만 끊는다 —
   // 참가자 disconnect 와 면접 종료는 별개다 (명세 07).
   // 종료 요청이 실패해도 화면은 나간다. 통화에서 빠지는 것이 우선이다.
-  const end = useMutation({
+  const { mutate: endSessionMutate, isPending: ending } = useMutation({
     mutationFn: (id: string) => endSession(id),
+    onError: (e: unknown) => console.warn('면접 종료 실패', e),
     onSettled: () => onLeave?.(),
   });
 
-  const ending = end.isPending;
-
   const handleEnd = () => {
     if (sessionId && roleResolved === 'INTERVIEWER') {
-      end.mutate(sessionId);
+      endSessionMutate(sessionId);
       return;
     }
     onLeave?.();
