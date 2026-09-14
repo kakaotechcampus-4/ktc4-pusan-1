@@ -3,6 +3,22 @@
     "schemas": {
       "CreateInterviewRequest": {
         "properties": {
+          "candidateName": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "면접관 화면에 표시할 지원자 이름. 비우면 기본 라벨을 쓴다.",
+            "examples": [
+              "김지원"
+            ],
+            "title": "Candidatename"
+          },
           "interviewerId": {
             "examples": [
               "user_123"
@@ -21,6 +37,17 @@
       },
       "CreateSessionResponse": {
         "properties": {
+          "candidateName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidatename"
+          },
           "createdAt": {
             "format": "date-time",
             "title": "Createdat",
@@ -46,6 +73,7 @@
         "required": [
           "sessionId",
           "interviewId",
+          "candidateName",
           "status",
           "inviteUrl",
           "createdAt"
@@ -154,6 +182,17 @@
       },
       "InterviewResponse": {
         "properties": {
+          "candidateName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidatename"
+          },
           "createdAt": {
             "format": "date-time",
             "title": "Createdat",
@@ -171,6 +210,7 @@
         "required": [
           "interviewId",
           "interviewerId",
+          "candidateName",
           "createdAt"
         ],
         "title": "InterviewResponse",
@@ -189,6 +229,17 @@
       },
       "JoinResponse": {
         "properties": {
+          "candidateName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidatename"
+          },
           "livekitUrl": {
             "description": "LiveKit 서버 접속 URL",
             "title": "Livekiturl",
@@ -211,6 +262,7 @@
         },
         "required": [
           "sessionId",
+          "candidateName",
           "livekitUrl",
           "token",
           "roomName"
@@ -230,6 +282,17 @@
       "SessionStateResponse": {
         "description": "GET /sessions/{sessionId} — 새로고침·재접속 시 상태 복구용.",
         "properties": {
+          "candidateName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidatename"
+          },
           "endedAt": {
             "anyOf": [
               {
@@ -269,6 +332,7 @@
         "required": [
           "sessionId",
           "interviewId",
+          "candidateName",
           "status",
           "startedAt",
           "endedAt"

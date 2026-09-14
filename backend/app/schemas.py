@@ -21,11 +21,19 @@ class CreateInterviewRequest(Schema):
     interviewer_id: str = Field(
         alias="interviewerId", min_length=1, max_length=64, examples=["user_123"]
     )
+    candidate_name: str | None = Field(
+        default=None,
+        alias="candidateName",
+        max_length=20,
+        examples=["김지원"],
+        description="면접관 화면에 표시할 지원자 이름. 비우면 기본 라벨을 쓴다.",
+    )
 
 
 class InterviewResponse(Schema):
     interview_id: str = Field(serialization_alias="interviewId")
     interviewer_id: str = Field(serialization_alias="interviewerId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
     created_at: datetime = Field(serialization_alias="createdAt")
 
 
@@ -35,6 +43,7 @@ class InterviewResponse(Schema):
 class CreateSessionResponse(Schema):
     session_id: str = Field(serialization_alias="sessionId")
     interview_id: str = Field(serialization_alias="interviewId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
     status: SessionStatus
     invite_url: str = Field(
         serialization_alias="inviteUrl", description="지원자에게 전달할 면접 링크"
@@ -47,6 +56,7 @@ class SessionStateResponse(Schema):
 
     session_id: str = Field(serialization_alias="sessionId")
     interview_id: str = Field(serialization_alias="interviewId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
     status: SessionStatus
     started_at: datetime | None = Field(serialization_alias="startedAt")
     ended_at: datetime | None = Field(serialization_alias="endedAt")
@@ -79,6 +89,7 @@ class JoinRequest(Schema):
 
 class JoinResponse(Schema):
     session_id: str = Field(serialization_alias="sessionId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
     livekit_url: str = Field(
         serialization_alias="livekitUrl", description="LiveKit 서버 접속 URL"
     )

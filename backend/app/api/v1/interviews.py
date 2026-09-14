@@ -19,8 +19,16 @@ def _to_response(interview: Interview) -> InterviewResponse:
     return InterviewResponse(
         interview_id=interview.id,
         interviewer_id=interview.interviewer_id,
+        candidate_name=interview.candidate_name,
         created_at=interview.created_at,
     )
+
+
+def _clean_candidate_name(name: str | None) -> str | None:
+    if name is None:
+        return None
+    stripped = name.strip()
+    return stripped or None
 
 
 @router.post(
@@ -38,7 +46,10 @@ def create_interview(
     Session 과 LiveKit Room 은 여기서 만들지 않는다 —
     `POST /interviews/{interviewId}/sessions` 가 담당한다.
     """
-    interview = Interview(interviewer_id=body.interviewer_id)
+    interview = Interview(
+        interviewer_id=body.interviewer_id,
+        candidate_name=_clean_candidate_name(body.candidate_name),
+    )
     store.add_interview(interview)
     return _to_response(interview)
 
@@ -72,7 +83,8 @@ async def create_session(
     LiveKit Room 을 미리 만든다. 입장 시 자동 생성되기는 하지만
     `max_participants` 같은 설정을 적용하려면 사전 생성이 필요하다.
     """
-    if store.get_interview(interview_id) is None:
+    interview = store.get_interview(interview_id)
+    if interview is None:
         raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
 
     session = Session(interview_id=interview_id)
@@ -82,6 +94,7 @@ async def create_session(
     return CreateSessionResponse(
         session_id=session.id,
         interview_id=session.interview_id,
+        candidate_name=interview.candidate_name,
         status=session.status,
         invite_url=f"{settings.frontend_origin}{settings.invite_path}/{session.id}",
         created_at=session.created_at,

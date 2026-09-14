@@ -45,6 +45,7 @@ const nextId = (prefix: string) => `${prefix}_${(++seq).toString().padStart(3, '
 
 /** 생성한 면접을 기억해 둔다. 조회가 같은 값을 돌려주게 하기 위해서다. */
 const interviews = new Map<string, Interview>();
+const sessionInterviewIds = new Map<string, string>();
 
 /** 요약 조회 횟수. 생성 중 상태를 몇 번 보여줄지 세는 데 쓴다. */
 const summaryPolls = new Map<string, number>();
@@ -54,10 +55,14 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
 
   if (path === '/api/v1/interviews' && method === 'POST') {
     await delay(400);
-    const body = JSON.parse(String(init?.body ?? '{}')) as { interviewerId?: string };
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      interviewerId?: string;
+      candidateName?: string;
+    };
     const interview: Interview = {
       interviewId: nextId('int'),
       interviewerId: body.interviewerId ?? 'user_mock',
+      candidateName: body.candidateName?.trim() || null,
       createdAt: new Date().toISOString(),
     };
     interviews.set(interview.interviewId, interview);
@@ -74,9 +79,12 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
   if (createSession && method === 'POST') {
     await delay(500);
     const sessionId = nextId('ses');
+    const interview = interviews.get(createSession[1]);
+    sessionInterviewIds.set(sessionId, createSession[1]);
     return {
       sessionId,
       interviewId: createSession[1],
+      candidateName: interview?.candidateName ?? null,
       status: 'WAITING',
       // 명세 예시는 https://irya.com/... 이지만, 목에서는 현재 오리진으로 만든다.
       // 그래야 복사한 링크를 다른 탭에서 실제로 열어볼 수 있다.
@@ -107,6 +115,8 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
 
     return {
       sessionId,
+      candidateName:
+        interviews.get(sessionInterviewIds.get(sessionId) ?? '')?.candidateName ?? null,
       // 실제 접속은 하지 않는다. useInterviewRoom 이 이 URL 로 connect 를 시도하면
       // 실패하므로, 프로토타입에서는 면접 화면이 목 이벤트로만 동작한다.
       livekitUrl: 'wss://mock.livekit.local',
@@ -121,6 +131,7 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
     return {
       sessionId: state[1],
       interviewId: 'int_mock',
+      candidateName: interviews.get(sessionInterviewIds.get(state[1]) ?? '')?.candidateName ?? null,
       status: 'INTERVIEWING',
       startedAt: new Date().toISOString(),
       endedAt: null,
