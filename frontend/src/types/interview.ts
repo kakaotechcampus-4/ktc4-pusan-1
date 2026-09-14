@@ -95,6 +95,44 @@ export interface EndSessionResponse {
 }
 
 /* ---------------------------------------------------------------- *
+ * 기업 컨텍스트 (S1)
+ *
+ * ⚠️ 이 엔드포인트들은 BE 명세에 없다. 면접에 쓸 JD·회사 문서를 올리는 화면이
+ * 필요해서 FE 가 먼저 형태를 정했다. 목으로만 동작한다.
+ * ---------------------------------------------------------------- */
+
+export type DocKind = 'pdf' | 'docx';
+
+/**
+ * 문서 상태.
+ *
+ * uploading 은 클라이언트에만 있는 상태다 — 서버는 업로드가 끝난 뒤에야 문서를 안다.
+ */
+export type DocStatus = 'uploading' | 'parsing' | 'ready' | 'failed';
+
+export interface ContextDoc {
+  id: string;
+  name: string;
+  kind: DocKind;
+  sizeBytes: number;
+  status: DocStatus;
+  /** 업로드 진행률 0~1. uploading 일 때만 있다 */
+  progress?: number;
+}
+
+/** GET /contexts/{contextId} */
+export interface CompanyContext {
+  id: string;
+  company: string;
+  team: string;
+  role: string;
+  docs: ContextDoc[];
+}
+
+/** 업로드 거부 사유. 서버에 보내기 전에 FE 가 먼저 거른다. */
+export type UploadRejection = 'unsupported-type' | 'too-large';
+
+/* ---------------------------------------------------------------- *
  * 진입
  * ---------------------------------------------------------------- */
 
