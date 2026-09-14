@@ -6,7 +6,7 @@
 
 import type { CompanyContext, ContextDoc } from '../types/interview';
 import { handleMockUpload, USE_MOCK_API } from '../mocks/mockApi';
-import { API_BASE, ApiError, request } from './client';
+import { API_BASE, ApiError, authorizationHeader, request } from './client';
 
 const V1 = '/api/v1';
 
@@ -36,6 +36,7 @@ export function uploadDoc(
     form.append('file', file);
 
     xhr.open('POST', `${API_BASE}${V1}/contexts/${contextId}/docs`);
+    xhr.setRequestHeader('Authorization', authorizationHeader());
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total);
     };
