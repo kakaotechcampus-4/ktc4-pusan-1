@@ -38,17 +38,17 @@ export function ReviewPlayer({ videoRef, active, failed }: ReviewPlayerProps) {
           {/* 영상을 가리지 않도록 폭을 제한하고, 컨트롤 막대 위로 띄운다. 좁은 화면에서는 감춘다. */}
           <div
             key={active.id}
-            className="absolute right-4 bottom-16 hidden max-h-[calc(100%-96px)] w-[36%] animate-[slidein_.2s_ease-out] flex-col gap-4 overflow-auto rounded-xl bg-black/60 px-5 py-4 backdrop-blur-xl md:flex"
+            className="absolute right-4 bottom-16 hidden max-h-[calc(100%-96px)] w-[36%] animate-[slidein_.2s_ease-out] flex-col gap-4 overflow-auto rounded-xl bg-[#05070C]/90 px-5 py-4 shadow-[0_16px_40px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-xl md:flex"
           >
             <div>
-              <span className="text-[11px] font-semibold tracking-[.08em] text-white/55">질문</span>
+              <span className="text-[11px] font-semibold tracking-[.08em] text-white/65">질문</span>
               <p className="mt-1.5 text-[16px] leading-[1.5] font-semibold text-white">
                 {active.question}
               </p>
             </div>
             <div>
-              <span className="text-[11px] font-semibold tracking-[.08em] text-white/55">답변</span>
-              <p className="mt-1.5 text-[14px] leading-[1.65] text-white/90">{active.answer}</p>
+              <span className="text-[11px] font-semibold tracking-[.08em] text-white/65">답변</span>
+              <p className="mt-1.5 text-[14px] leading-[1.65] text-white/95">{active.answer}</p>
             </div>
           </div>
         </>
