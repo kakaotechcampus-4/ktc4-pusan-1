@@ -10,7 +10,6 @@
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
  */
 
-import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import {
   Link,
@@ -40,8 +39,8 @@ function ChunkFallback() {
 }
 
 interface LocalTracks {
-  videoTrack: LocalVideoTrack | null;
-  audioTrack: LocalAudioTrack | null;
+  videoTrack: MediaStreamTrack | null;
+  audioTrack: MediaStreamTrack | null;
 }
 
 /**
@@ -51,7 +50,13 @@ interface LocalTracks {
  * 소유권을 넘기고 그 뒤로는 스스로 stop 하지 않는다. 프로토타입에는 publishTrack 이 없어
  * Room 이 대신 정리해 주지도 않으므로, 이 컴포넌트가 정리까지 책임진다.
  */
-function DeviceGate({ children }: { children: (tracks: LocalTracks) => ReactNode }) {
+function DeviceGate({
+  children,
+  livekitConnection,
+}: {
+  children: (tracks: LocalTracks) => ReactNode;
+  livekitConnection?: Pick<JoinSessionResponse, 'livekitUrl' | 'token'>;
+}) {
   const [tracks, setTracks] = useState<LocalTracks | null>(null);
 
   useEffect(() => {
@@ -66,6 +71,7 @@ function DeviceGate({ children }: { children: (tracks: LocalTracks) => ReactNode
     return (
       <Suspense fallback={<ChunkFallback />}>
         <DeviceCheckPage
+          livekitConnection={livekitConnection}
           onReady={({ videoTrack, audioTrack, release }) => {
             // release() 를 부르지 않으면 DeviceCheckPage 가 언마운트되면서
             // usePermissionCheck 의 정리가 트랙을 stop 한다 — 다음 화면에 죽은 트랙이 넘어간다.
@@ -105,7 +111,7 @@ function InterviewFlow() {
   // ⚠️ 프로토타입 — 전사·추천 질문은 목 데이터다 (WebSocket 경로가 명세에 없음).
   //    자기 화면(PiP)과 상대 영상 자리는 기기 점검에서 얻은 실제 트랙을 쓴다.
   return (
-    <DeviceGate>
+    <DeviceGate livekitConnection={session}>
       {(tracks) => (
         <Suspense fallback={<ChunkFallback />}>
           <InterviewRoomPreview
