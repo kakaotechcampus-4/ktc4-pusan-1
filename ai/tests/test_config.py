@@ -46,3 +46,20 @@ def test_secret_values_are_masked() -> None:
     assert "visible-key" not in representation
     assert "visible-secret" not in representation
     assert "visible-openai-key" not in representation
+
+
+def test_blank_reasoning_effort_means_not_sent() -> None:
+    settings = Settings(_env_file=None, llm_reasoning_effort="")
+
+    assert settings.llm_reasoning_effort is None
+    low = Settings(_env_file=None, llm_reasoning_effort="low")
+    assert low.llm_reasoning_effort == "low"
+
+
+def test_llm_base_url_gets_v1_suffix() -> None:
+    bare = Settings(_env_file=None, llm_base_url="https://gw.example/abc/")
+    ok = Settings(_env_file=None, llm_base_url="https://gw.example/abc/v1")
+
+    assert bare.llm_base_url == "https://gw.example/abc/v1"
+    assert ok.llm_base_url == "https://gw.example/abc/v1"
+    assert Settings(_env_file=None, llm_base_url="").llm_base_url == ""
