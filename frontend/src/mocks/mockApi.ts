@@ -17,6 +17,7 @@ import type {
   Interview,
   InterviewSummary,
   JoinSessionResponse,
+  ReviewResponse,
   SessionState,
   StartSessionResponse,
 } from '../types/interview';
@@ -50,6 +51,9 @@ const interviews = new Map<string, Interview>();
 
 /** 요약 조회 횟수. 생성 중 상태를 몇 번 보여줄지 세는 데 쓴다. */
 const summaryPolls = new Map<string, number>();
+
+/** 면접 기록 조회 횟수. 준비 중 상태를 몇 번 보여줄지 센다. */
+const reviewPolls = new Map<string, number>();
 
 /* ── 기업 컨텍스트 (S1) ───────────────────────────────────
    업로드한 문서를 담아 둔다. 파싱은 시간이 걸리는 작업이므로
@@ -232,6 +236,73 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
       },
       durationSec: 31,
     } satisfies InterviewSummary;
+  }
+
+  /* 면접 기록 (S3) — 요약과 같이 처음 두 번은 준비 중으로 응답한다. */
+  const review = /^\/api\/v1\/interviews\/([^/]+)\/review$/.exec(path);
+  if (review && method === 'GET') {
+    await delay(400);
+    const interviewId = review[1];
+    const polls = (reviewPolls.get(interviewId) ?? 0) + 1;
+    reviewPolls.set(interviewId, polls);
+
+    if (polls <= 2) return { status: 'PROCESSING', etaSec: 90 } satisfies ReviewResponse;
+
+    return {
+      status: 'READY',
+      interviewId,
+      candidate: { name: '김지원', role: '백엔드 엔지니어' },
+      // 녹화 목은 공개 테스트 스트림이라 면접 내용과 무관한 영상이다.
+      // 길이(10:34)만 맞춰 두어 타임라인 위치가 실제 재생 시점과 일치하게 했다.
+      durationSec: 634,
+      recording: { hlsUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8' },
+      moments: [
+        {
+          id: 'm1',
+          atSec: 15,
+          label: '자기소개',
+          question: '간단히 자기소개 부탁드립니다.',
+          answer:
+            '3년차 백엔드 개발자로, 실시간 스트리밍 파이프라인을 주로 맡아 왔다고 소개했습니다.',
+        },
+        {
+          id: 'm2',
+          atSec: 118,
+          label: '처리량',
+          question: '초당 2만 건을 처리했다고 하셨는데, 어떤 구조였나요?',
+          answer:
+            'Kafka 파티션을 늘리고 컨슈머를 수평 확장했다고 답했습니다. 병목 지점은 언급하지 않았습니다.',
+        },
+        {
+          id: 'm3',
+          atSec: 262,
+          label: '장애 대응',
+          question: '가장 기억에 남는 장애와 대응 과정을 말씀해 주세요.',
+          answer:
+            '컨슈머 지연으로 알림이 늦어진 사례를 들었고, 재처리 큐를 두어 복구했다고 설명했습니다.',
+        },
+        {
+          id: 'm4',
+          atSec: 405,
+          label: '개인 기여',
+          question: '그 작업에서 본인이 직접 맡은 부분은 어디까지인가요?',
+          answer: '설계 논의에 참여했다고 했으나, 직접 구현한 범위는 구체적으로 답하지 않았습니다.',
+        },
+        {
+          id: 'm5',
+          atSec: 560,
+          label: '질문',
+          question: '마지막으로 궁금한 점 있으신가요?',
+          answer: '팀의 온콜 방식과 코드 리뷰 문화를 물었습니다.',
+        },
+      ],
+      aiReview: {
+        paragraphs: [
+          '지원자는 실시간 스트리밍 파이프라인 경험을 일관되게 설명했고, 초당 2만 건이라는 구체적인 수치를 제시했습니다. 장애 대응 사례에서는 원인과 복구 방법을 순서대로 말했습니다.',
+          '다만 처리량 수치의 근거가 된 병목 해결 과정은 답변에 나오지 않았고, 팀 성과와 개인 기여가 구분되지 않았습니다. 후속 면접에서 직접 구현한 범위를 확인할 필요가 있습니다.',
+        ],
+      },
+    } satisfies ReviewResponse;
   }
 
   const end = /^\/api\/v1\/sessions\/([^/]+)\/end$/.exec(path);
