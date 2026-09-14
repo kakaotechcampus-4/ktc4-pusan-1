@@ -12,7 +12,6 @@
  * ⚠️ BE·AI 연동 시 mocks/ 디렉터리와 App.tsx 의 분기를 함께 지운다.
  */
 
-import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { endSession, startSession } from '../api/interview';
@@ -26,8 +25,8 @@ export interface InterviewRoomPreviewProps {
   /** 있으면 상태 전이 API 를 실제로 호출한다 */
   sessionId?: string;
   /** 기기 점검에서 확보한 실제 트랙. 없으면 PiP 를 그리지 않는다 */
-  localVideoTrack?: LocalVideoTrack | null;
-  localAudioTrack?: LocalAudioTrack | null;
+  localVideoTrack?: MediaStreamTrack | null;
+  localAudioTrack?: MediaStreamTrack | null;
   onLeave?: () => void;
 }
 
@@ -50,14 +49,13 @@ export function InterviewRoomPreview({
   useEffect(() => startMockSession(), []);
 
   /* 상대 영상 자리를 내 카메라로 채운다.
-     하나의 트랙은 여러 요소에 attach 할 수 있어 PiP 와 동시에 쓸 수 있다.
-     detach 는 이 요소만 떼어 PiP 에는 영향을 주지 않는다. */
+     하나의 트랙은 여러 MediaStream 에 담아 PiP 와 동시에 쓸 수 있다. */
   useEffect(() => {
     const el = videoRef.current;
     if (!localVideoTrack || !el) return;
-    localVideoTrack.attach(el);
+    el.srcObject = new MediaStream([localVideoTrack]);
     return () => {
-      localVideoTrack.detach(el);
+      el.srcObject = null;
     };
   }, [localVideoTrack]);
 
