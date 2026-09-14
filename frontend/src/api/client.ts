@@ -8,6 +8,8 @@ import { handleMock, USE_MOCK_API } from '../mocks/mockApi';
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 
+export const authorizationHeader = () => `Bearer ${localStorage.getItem('accessToken') ?? ''}`;
+
 export class ApiError extends Error {
   // 파라미터 프로퍼티는 erasableSyntaxOnly 에서 막히므로 필드를 명시한다.
   readonly code: string;
@@ -37,7 +39,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${localStorage.getItem('accessToken') ?? ''}`,
+      Authorization: authorizationHeader(),
       ...init?.headers,
     },
   });
