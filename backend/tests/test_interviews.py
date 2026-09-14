@@ -12,8 +12,19 @@ def test_create_interview(client: TestClient):
     body = response.json()
     assert body["interviewId"].startswith("int_")
     assert body["interviewerId"] == "user_123"
+    assert body["candidateName"] is None
     assert body["createdAt"]
-    assert set(body) == {"interviewId", "interviewerId", "createdAt"}
+    assert set(body) == {"interviewId", "interviewerId", "candidateName", "createdAt"}
+
+
+def test_create_interview_accepts_candidate_name(client: TestClient):
+    response = client.post(
+        "/api/v1/interviews",
+        json={"interviewerId": "user_123", "candidateName": "  김지원  "},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["candidateName"] == "김지원"
 
 
 def test_create_interview_rejects_empty_id(client: TestClient):
@@ -54,16 +65,30 @@ def test_create_session(client: TestClient, media: FakeMedia):
     assert set(body) == {
         "sessionId",
         "interviewId",
+        "candidateName",
         "status",
         "inviteUrl",
         "createdAt",
     }
     assert body["sessionId"].startswith("ses_")
     assert body["interviewId"] == interview["interviewId"]
+    assert body["candidateName"] is None
     assert body["status"] == "WAITING"
     assert body["inviteUrl"].endswith(f"/interview/{body['sessionId']}")
     # LiveKit Room 을 미리 만들어야 max_participants 가 적용된다.
     assert media.rooms == [f"interview_{body['sessionId']}"]
+
+
+def test_create_session_returns_candidate_name(client: TestClient):
+    interview = client.post(
+        "/api/v1/interviews",
+        json={"interviewerId": "user_123", "candidateName": "김지원"},
+    ).json()
+
+    response = client.post(f"/api/v1/interviews/{interview['interviewId']}/sessions")
+
+    assert response.status_code == 201
+    assert response.json()["candidateName"] == "김지원"
 
 
 def test_create_session_for_unknown_interview(client: TestClient, media: FakeMedia):

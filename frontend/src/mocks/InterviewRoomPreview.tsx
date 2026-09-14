@@ -21,6 +21,8 @@ import { InterviewRoomView } from '../components/interview/InterviewRoomView';
 import type { Role } from '../types/interview';
 import { startMockSession } from './interviewMock';
 
+const startedSessionIds = new Set<string>();
+
 export interface InterviewRoomPreviewProps {
   /** 지정하면 URL 파라미터보다 우선한다 */
   role?: Role;
@@ -69,7 +71,12 @@ export function InterviewRoomPreview({
   // 여러 번 호출돼도 서버가 한 번만 전이시켜야 한다 (issue #9 완료 조건).
   useEffect(() => {
     if (!sessionId || roleResolved !== 'INTERVIEWER') return;
-    void startSession(sessionId).catch((e: unknown) => console.warn('면접 시작 실패', e));
+    if (startedSessionIds.has(sessionId)) return;
+    startedSessionIds.add(sessionId);
+    void startSession(sessionId).catch((e: unknown) => {
+      startedSessionIds.delete(sessionId);
+      console.warn('면접 시작 실패', e);
+    });
   }, [sessionId, roleResolved]);
 
   const handleEnd = async () => {

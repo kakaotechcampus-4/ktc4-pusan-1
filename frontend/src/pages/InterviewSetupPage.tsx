@@ -13,7 +13,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createInterview, createSession } from '../api/interview';
-import { saveCandidateName } from '../lib/candidateName';
+import { normalizeCandidateName } from '../lib/candidateName';
 import type { CreateSessionResponse } from '../types/interview';
 
 /** ⚠️ 인증이 없어 면접관 ID 를 클라이언트가 정한다. 로그인 도입 시 사라진다. */
@@ -30,11 +30,11 @@ export default function InterviewSetupPage() {
     setCreating(true);
     setError(null);
     try {
-      const interview = await createInterview(MOCK_INTERVIEWER_ID);
+      const interview = await createInterview(
+        MOCK_INTERVIEWER_ID,
+        normalizeCandidateName(candidateName),
+      );
       const created = await createSession(interview.interviewId);
-      // ⚠️ 서버에 이름 필드가 없어 브라우저에 둔다. BE 스키마가 생기면
-      // createInterview 요청에 실어 보내고 이 줄을 지운다.
-      saveCandidateName(created.sessionId, candidateName);
       setSession(created);
     } catch {
       setError('면접을 만들지 못했습니다. 잠시 후 다시 시도해주세요.');
@@ -83,7 +83,7 @@ export default function InterviewSetupPage() {
               className="mt-2 w-full rounded-lg bg-white/[0.07] px-4 py-3 text-[15px] text-white placeholder:text-white/25 focus:ring-2 focus:ring-[#2B44D6] focus:outline-none"
             />
             <p className="mt-2 text-[13px] leading-relaxed text-white/40">
-              면접 중 화면 상단에 표시됩니다. 지원자에게는 보이지 않습니다.
+              면접관 화면 상단에 표시됩니다. 지원자에게는 보이지 않습니다.
             </p>
             <button
               type="button"
