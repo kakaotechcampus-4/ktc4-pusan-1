@@ -1,0 +1,22 @@
+# 빌드 컨텍스트에서 제외. Dockerfile 이 pyproject.toml · uv.lock · app/ 만
+# 복사하지만, 컨텍스트 전송 자체를 줄이고 .env 가 실수로 딸려 들어갈 길을 막는다.
+
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+
+# 런타임에 쓰지 않는다. 테스트·린트·타입체크는 CI 에서 소스로 돈다.
+tests/
+scripts/
+README.md

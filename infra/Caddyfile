@@ -13,6 +13,27 @@ irya.cloud {
 		reverse_proxy livekit:7880
 	}
 
+	# LiveKit RoomService(Twirp/HTTP). BE 가 서버 SDK 로 방을 만들고 닫을 때
+	# 쓰는 관리 API 라 시그널링과 같은 7880 으로 갑니다. 경로는 항상
+	# /twirp/livekit.RoomService/<Method> 형태입니다.
+	handle /twirp/* {
+		reverse_proxy livekit:7880
+	}
+
+	# Backend API. FastAPI 가 /api/v1 을 스스로 붙이므로 접두사를 떼지 않고
+	# 원본 경로를 그대로 넘깁니다.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# BE 생존 확인. FastAPI 의 /health 는 /api 밖에 있어 따로 잡아 주지 않으면
+	# 아래 fallback 이 SPA 의 index.html 을 돌려줍니다. compose healthcheck 는
+	# 컨테이너 안에서만 도는 검사라, "Caddy 를 거쳐 BE 까지 살아 있는가" 를
+	# 밖에서 확인하려면 인증 없는 경로가 하나 필요합니다.
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
 	handle {
 		root * /site
 		try_files {path} /index.html
