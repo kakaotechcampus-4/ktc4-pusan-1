@@ -46,8 +46,13 @@ def media() -> FakeMedia:
 
 
 @pytest.fixture
-def client(media: FakeMedia) -> Iterator[TestClient]:
-    store = InMemoryStore()
+def store() -> InMemoryStore:
+    """테스트가 저장된 상태를 직접 들여다볼 수 있게 밖으로 뺀다."""
+    return InMemoryStore()
+
+
+@pytest.fixture
+def client(media: FakeMedia, store: InMemoryStore) -> Iterator[TestClient]:
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_media] = lambda: media
     with TestClient(app) as test_client:

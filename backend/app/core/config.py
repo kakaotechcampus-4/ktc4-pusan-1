@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     livekit_api_key: str = ""
     livekit_api_secret: str = ""
 
+    # 비우면 인메모리 저장소를 쓴다. 로컬 개발과 테스트가 DB 없이 돌아야 한다.
+    # 예: postgresql://irya:<password>@db:5432/irya
+    database_url: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

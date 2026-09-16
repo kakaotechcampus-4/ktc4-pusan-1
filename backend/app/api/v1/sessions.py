@@ -109,6 +109,7 @@ def start_session(session_id: SessionIdPath, store: StoreDep) -> StartSessionRes
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 시작할 수 없습니다."
         )
+    store.save_session(session)
     assert session.started_at is not None
     return StartSessionResponse(
         session_id=session.id, status=session.status, started_at=session.started_at
@@ -137,6 +138,10 @@ async def end_session(
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 종료할 수 없습니다."
         )
+    # LiveKit Room 을 닫기 전에 저장한다. close_room 이 실패해도 종료 상태는
+    # 남아야 한다 — 방이 남는 건 정원 제한에 걸리는 정도지만, 상태가 안 남으면
+    # 이미 끝난 면접에 다시 입장할 수 있게 된다.
+    store.save_session(session)
     await media.close_room(session.room_name)
     assert session.ended_at is not None
     return EndSessionResponse(
