@@ -161,6 +161,17 @@ def test_timeline_max_moments_caps_and_warns(capsys) -> None:
     assert "QUESTIONS_TRUNCATED" in result["warnings"]
 
 
+@pytest.mark.parametrize("limit", ["-1", "0", "9", "20"])
+def test_timeline_rejects_invalid_marker_limit(limit: str, capsys) -> None:
+    with pytest.raises(SystemExit) as info:
+        main(["timeline", str(CHUNKS), "--max-moments", limit])
+
+    assert info.value.code == 2
+    captured = capsys.readouterr()
+    assert "invalid choice" in captured.err
+    assert captured.out == ""
+
+
 def test_timeline_invalid_input_does_not_echo_content(tmp_path: Path, capsys) -> None:
     source = tmp_path / "bad.json"
     source.write_text('[{"utteranceId": "secret-text", "speaker": "NOBODY"}]')

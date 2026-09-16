@@ -134,6 +134,16 @@ def test_select_caps_by_answer_length_but_stays_chronological() -> None:
         select_qa_pairs(pairs, max_moments=0)
 
 
+@pytest.mark.parametrize("limit", [-1, 0, 9, 20])
+def test_marker_limit_is_validated_before_generation(limit: int) -> None:
+    pairs = [_pair(f"p{i}", i * 10, i + 1) for i in range(20)]
+
+    with pytest.raises(ValueError, match="between 1 and 8"):
+        select_qa_pairs(pairs, max_moments=limit)
+    with pytest.raises(ValueError, match="between 1 and 8"):
+        ReviewTimelineAgent(ExtractiveTimelineGenerator(), max_moments=limit)
+
+
 def test_sample_has_between_five_and_eight_selected(selected: list[QAPair]) -> None:
     assert 5 <= len(selected) <= 8
 

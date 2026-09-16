@@ -91,8 +91,8 @@ def select_qa_pairs(
     The result stays in chronological order so markers read left to right.
     """
 
-    if max_moments < 1:
-        raise ValueError("max_moments must be positive")
+    if not 1 <= max_moments <= DEFAULT_MAX_MOMENTS:
+        raise ValueError(f"max_moments must be between 1 and {DEFAULT_MAX_MOMENTS}")
     answered = [p for p in qa_pairs if p.answer_utterance_ids]
     if len(answered) <= max_moments:
         return answered
@@ -279,6 +279,8 @@ class ReviewTimelineAgent:
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if not 1 <= max_moments <= DEFAULT_MAX_MOMENTS:
+            raise ValueError(f"max_moments must be between 1 and {DEFAULT_MAX_MOMENTS}")
         self.generator = generator
         self.model = model
         self.timeout_seconds = timeout_seconds

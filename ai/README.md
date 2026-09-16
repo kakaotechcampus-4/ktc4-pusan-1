@@ -80,9 +80,11 @@ uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --frontend
 ```
 
 입력은 `Utterance` JSON 배열, JSON Lines(`simulate --json` 출력), 또는 `TranscriptSnapshot`
-파일입니다. 출력 `moments[]`는 FE `types/interview.ts`의 `Moment`와 필드가 같고 시각만 ms입니다.
+파일입니다. 기본 출력 `moments[]`는 `momentId`·`atMs`·근거를 포함하는 AI 계약이며,
+`--frontend` 출력은 FE `Moment`의 `id`·`atSec`·`label`·`question`·`answer` 형태로 변환합니다.
 인용이 지원자 발화 원문에 없는 항목은 통째로 빠지며 `rejectedMomentCount`와 `rejections`에 남습니다.
-Moment는 5~8개로 제한합니다. 질문이 더 많으면 답변이 긴 순으로 고릅니다.
+Moment는 기본 최대 8개이며 `--max-moments`는 1~8 범위만 허용합니다. 질문이 더 많으면
+답변이 긴 순으로 고릅니다. 근거를 확인한 항목이 5개 미만이면 경고를 남기고 실제 개수만 반환합니다.
 
 프로젝트 LLM은 OpenAI 호환 게이트웨이(Elice ML API)이며 **지원 목록 밖 파라미터를 400으로
 거절**합니다. 실호출 절차와 결과는 [타임라인 검증 기록](docs/timeline-eval.md)에 적습니다.

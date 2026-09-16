@@ -304,3 +304,34 @@ async def test_connection_error_is_retryable(
             )
 
     assert info.value.code == "LLM_UNAVAILABLE" and info.value.retryable
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        None,
+        [],
+        {},
+        {"choices": None},
+        {"choices": [None]},
+        {"choices": [{"index": 0, "finish_reason": "stop", "message": None}]},
+        {**completion_body([]), "usage": {"prompt_tokens": "private-response"}},
+    ],
+)
+async def test_malformed_success_response_returns_safe_failure(
+    snapshot: TranscriptSnapshot, body: object
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=json.dumps(body))
+
+    async with client_for(handler) as client:
+        result = await ReviewTimelineAgent(OpenAITimelineGenerator(client)).run(
+            snapshot
+        )
+
+    assert result.status == "failed"
+    assert result.error.code == "LLM_INVALID_OUTPUT"
+    assert result.error.retryable is False
+    assert result.moments == []
+    assert result.qa_pairs
+    assert "private-response" not in result.model_dump_json()

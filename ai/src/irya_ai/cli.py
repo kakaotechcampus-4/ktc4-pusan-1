@@ -363,7 +363,11 @@ def build_parser() -> argparse.ArgumentParser:
     timeline.add_argument("--backend", choices=["llm", "extractive"], default="llm")
     timeline.add_argument("--model", help="override LLM_MODEL from .env")
     timeline.add_argument(
-        "--max-moments", type=int, default=DEFAULT_MAX_MOMENTS, help="marker cap"
+        "--max-moments",
+        type=int,
+        choices=range(1, DEFAULT_MAX_MOMENTS + 1),
+        default=DEFAULT_MAX_MOMENTS,
+        help="marker cap (1-8)",
     )
     timeline.add_argument(
         "--frontend",

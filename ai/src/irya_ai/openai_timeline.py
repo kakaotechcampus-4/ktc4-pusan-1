@@ -123,6 +123,28 @@ class OpenAITimelineGenerator:
 
         try:
             completion = await self.client.chat.completions.parse(**request)
+            self.last_model = completion.model or self.model
+            if completion.usage is not None:
+                details = getattr(completion.usage, "prompt_tokens_details", None)
+                cached = getattr(details, "cached_tokens", None) or getattr(
+                    completion.usage, "cached_prompt_tokens", 0
+                )
+                self.last_usage = LlmUsage(
+                    prompt_tokens=completion.usage.prompt_tokens or 0,
+                    completion_tokens=completion.usage.completion_tokens or 0,
+                    cached_prompt_tokens=cached or 0,
+                )
+
+            if not completion.choices:
+                raise TimelineError("LLM_NO_STRUCTURED_OUTPUT")
+            choice = completion.choices[0]
+            if choice.message.refusal:
+                raise TimelineError("LLM_REFUSED")
+            if choice.finish_reason == "length":
+                raise TimelineError("LLM_INCOMPLETE_OUTPUT")
+            if choice.message.parsed is None:
+                raise TimelineError("LLM_NO_STRUCTURED_OUTPUT")
+            return choice.message.parsed
         except APITimeoutError:
             raise TimelineError("LLM_TIMEOUT", retryable=True) from None
         except RateLimitError:
@@ -144,30 +166,9 @@ class OpenAITimelineGenerator:
             raise TimelineError("LLM_INCOMPLETE_OUTPUT") from None
         except ContentFilterFinishReasonError:
             raise TimelineError("LLM_REFUSED") from None
-        except (ValidationError, ValueError):
+        except (ValidationError, ValueError, TypeError, AttributeError):
+            # The SDK parses compatible gateways without strict validation.
+            # Malformed HTTP 200 envelopes can fail before a draft is returned.
             raise TimelineError("LLM_INVALID_OUTPUT") from None
         except OpenAIError:
             raise TimelineError("LLM_INVALID_OUTPUT") from None
-
-        self.last_model = completion.model or self.model
-        if completion.usage is not None:
-            details = getattr(completion.usage, "prompt_tokens_details", None)
-            cached = getattr(details, "cached_tokens", None) or getattr(
-                completion.usage, "cached_prompt_tokens", 0
-            )
-            self.last_usage = LlmUsage(
-                prompt_tokens=completion.usage.prompt_tokens or 0,
-                completion_tokens=completion.usage.completion_tokens or 0,
-                cached_prompt_tokens=cached or 0,
-            )
-
-        if not completion.choices:
-            raise TimelineError("LLM_NO_STRUCTURED_OUTPUT")
-        choice = completion.choices[0]
-        if choice.message.refusal:
-            raise TimelineError("LLM_REFUSED")
-        if choice.finish_reason == "length":
-            raise TimelineError("LLM_INCOMPLETE_OUTPUT")
-        if choice.message.parsed is None:
-            raise TimelineError("LLM_NO_STRUCTURED_OUTPUT")
-        return choice.message.parsed
