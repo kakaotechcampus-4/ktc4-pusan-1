@@ -41,7 +41,9 @@ chmod 600 .env
 | `ELICE_STT_TIMEOUT_SECONDS` | STT 요청 제한 시간(초), 0 초과 300 이하 | `60` |
 
 분석만 실행할 때는 LiveKit·Elice 접속 정보를 채울 필요가 없습니다.
-Elice STT만 사용할 때는 LiveKit·OpenAI 키가 필요 없습니다. `ELICE_LLM_MODEL` 같은 Elice LLM 설정·클라이언트는 아직 구현되지 않았으므로 해당 값을 저장해도 Luna로 분석하지 않습니다. 위 `OPENAI_MODEL` 경로와 구분합니다.
+Elice STT만 사용할 때는 LiveKit·OpenAI 키가 필요 없습니다. 리뷰 타임라인은 별도의
+`LLM_BASE_URL`·`LLM_API_KEY`·`LLM_MODEL` 설정으로 Elice LLM을 호출합니다.
+기존 `analyze` 명령의 `OPENAI_MODEL` 경로와 구분하며 `ELICE_LLM_MODEL`은 사용하지 않습니다.
 
 ### 로그와 배포 주소
 
@@ -75,6 +77,34 @@ uv run irya-ai analyze tests/fixtures/sample_interview.json --model gpt-4o
 [컨텍스트 분석 계약](docs/context-analysis.md)을 참고하세요. 멘토 리뷰용 검증 시나리오와
 실제 GPT 확인 절차는 [테스트 케이스](docs/test-cases.md)에 정리했습니다.
 
+## 리뷰 타임라인 (면접 기록 화면)
+
+STT가 청크마다 쌓아 둔 `Utterance` JSON을 면접 종료 후 한꺼번에 읽어, 면접 기록 화면(S3)의
+타임라인 마커와 질문별 답변 한 줄 요약을 만듭니다. Q&A 묶기(`segment_qa`)와 인용 검증
+(`locate_quote`)은 기존 코드를 그대로 쓰고, 모델은 `label`·`answer`·인용만 씁니다.
+시각·질문 원문·ID는 코드가 `QAPair`에서 채우므로 모델이 마커를 옮기거나 질문을 바꿀 수 없습니다.
+
+```bash
+# 모델 없이 파이프라인 확인 (답변 첫 문장을 그대로 인용)
+uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --backend extractive
+
+# .env의 LLM_BASE_URL / LLM_API_KEY 설정 후 프로젝트 LLM(gpt-5.6-luna) 호출
+uv run irya-ai timeline data/samples/chunks_backend_junior_01.json
+
+# FE `Moment` 형태(atSec)로만 출력
+uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --frontend
+```
+
+입력은 `Utterance` JSON 배열, JSON Lines(`simulate --json` 출력), 또는 `TranscriptSnapshot`
+파일입니다. 기본 출력 `moments[]`는 `momentId`·`atMs`·근거를 포함하는 AI 계약이며,
+`--frontend` 출력은 FE `Moment`의 `id`·`atSec`·`label`·`question`·`answer` 형태로 변환합니다.
+인용이 지원자 발화 원문에 없는 항목은 통째로 빠지며 `rejectedMomentCount`와 `rejections`에 남습니다.
+Moment는 기본 최대 8개이며 `--max-moments`는 1~8 범위만 허용합니다. 질문이 더 많으면
+답변이 긴 순으로 고릅니다. 근거를 확인한 항목이 5개 미만이면 경고를 남기고 실제 개수만 반환합니다.
+
+프로젝트 LLM은 OpenAI 호환 게이트웨이(Elice ML API)이며 **지원 목록 밖 파라미터를 400으로
+거절**합니다. 실호출 절차와 결과는 [타임라인 검증 기록](docs/timeline-eval.md)에 적습니다.
+
 ## Verify
 
 ```bash
@@ -93,17 +123,22 @@ src/irya_ai/
 │   ├── transcript.py  Track · Utterance · Word · TranscriptSnapshot
 │   ├── context.py     Company · JobDescription · Competency · Rubric · Candidate · Resume · ResumeClaim
 │   ├── analysis.py    QAPair · Finding · SuggestedQuestion · ReviewReport
-│   └── summary.py     SummaryPoint · SummaryResult · AnalysisResult
+│   ├── summary.py     SummaryPoint · SummaryResult · AnalysisResult
+│   └── timeline.py    Moment · TimelineResult (리뷰 타임라인)
 ├── pipeline/          Q&A 구조화 · 근거 접지
 ├── stt/               PCM 청킹 · Elice HTTP · 세션 정렬 · 비동기 전사 스트림
 ├── analysis.py        Snapshot 한 건의 분석과 상태 처리
 ├── summarize.py       요약 인터페이스 · 오프라인 추출형 요약
 ├── openai_summary.py  OpenAI 구조화 요약
+├── timeline.py        청크 병합 → Q&A → 검증된 Moment (리뷰 타임라인)
+├── openai_timeline.py 프로젝트 LLM(Luna/Terra) 타임라인 초안
 └── simulator/         대본 JSON을 STT 이벤트 스트림으로 재생
 data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데이터)
 ```
 
-현재 STT 구현은 Elice Whisper를 시험하며 LLM은 기존 OpenAI 경로입니다. 이것을 팀의 최종 모델 선정으로 간주하지 않습니다. 분석 모듈은 `TranscriptSnapshot`을 받으며 STT `Utterance`를 수집·전달하는 통합 계층은 후속 작업입니다.
+현재 STT 구현은 Elice Whisper를 시험합니다. 기존 요약은 OpenAI 경로를, 리뷰 타임라인은
+별도의 Elice LLM 경로를 사용합니다. 이것을 팀의 최종 모델 선정으로 간주하지 않습니다.
+분석 모듈은 `TranscriptSnapshot`을 받으며 STT `Utterance`를 수집·전달하는 통합 계층은 후속 작업입니다.
 
 2026-09-13 AI 회의에서 **전사 문장의 LLM 교정·재작성 후처리를 제외**하기로 했습니다.
 Q&A 구조화·근거 검증·면접 요약은 별도 분석 범위로 유지하고 자막 표시 전에 기다리지 않습니다.
@@ -144,7 +179,7 @@ u.model_dump(
 | `speaker` | `INTERVIEWER` \| `CANDIDATE` | 전사 출처. join 권한 `role`과 표기는 같지만 별도 개념 |
 | `seq` | int | 세션 내 정렬 키. STT 매핑은 희소하므로 개수·연속 번호로 쓰지 않음 |
 | `passType` | `INTERIM` \| `FINAL` | 청크의 중간/최종 응답. 인터뷰 전사 확정 단계와 별개 |
-| `startMs`, `endMs` | int | 공통 세션 기준 상대 밀리초. STT는 caller가 트랙 offset을 제공해야 하며 녹화 seek 정합성은 미검증 |
+| `startMs`, `endMs` | int | 공통 세션 기준 상대 밀리초. 실제 t=0은 미확정이며 STT caller가 트랙 offset을 제공해야 함. 녹화 정렬이 없어 영상 seek 값으로 보장하지 않음 |
 | `content` | string | 전사 텍스트 |
 | `uncertain` | bool | STT가 확신하지 못한 발화 |
 | `words` | Word[] | 단어별 타임스탬프 (선택) |

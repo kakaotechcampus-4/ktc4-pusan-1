@@ -1,3 +1,5 @@
+import unicodedata
+
 import pytest
 
 from irya_ai.schemas import TranscriptSnapshot
@@ -25,6 +27,18 @@ GOOD_POINT = point(
         point("배포가 주 3회다", "u-004", "응답 시간을 40% 줄였고"),
         PointDraft(text="무근거 요약", citations=[]),
         point(" ", "u-004", "응답 시간을 40% 줄였고"),
+        # quote 의 영문 대소문자를 바꾼 경우 (원문: "Django에서 FastAPI로")
+        point("프레임워크를 전환했다고 설명했다.", "u-002", "django에서 FastAPI로"),
+        # 단어 사이 공백을 지운 경우
+        point(
+            "프레임워크를 전환했다고 설명했다.", "u-002", "Django에서 FastAPI로전환하는"
+        ),
+        # 단어 사이에 공백을 넣은 경우
+        point(
+            "프레임워크를 전환했다고 설명했다.",
+            "u-002",
+            "Django에서 FastAPI 로 전환하는",
+        ),
     ],
 )
 def test_invalid_claim_is_removed_from_all_display_fields(
@@ -70,3 +84,35 @@ def test_grounding_reuses_whitespace_normalized_quote_lookup(
         sample_transcript, SummaryDraft(points=[spaced]), model="test"
     )
     assert result.points[0].text == spaced.text
+
+
+def test_summary_text_may_lowercase_english_when_quote_is_verbatim(
+    sample_transcript: TranscriptSnapshot,
+) -> None:
+    """``text`` may be rewritten; only ``quote`` must match the source exactly."""
+    lowered = point(
+        "django에서 fastapi로 전환한 경험을 설명했다.",
+        "u-002",
+        "Django에서 FastAPI로 전환하는 작업을 맡았습니다.",
+    )
+    result = ground_summary(
+        sample_transcript, SummaryDraft(points=[lowered]), model="test"
+    )
+    assert result.key_points == [lowered.text]
+    assert result.rejected_point_count == 0
+
+
+def test_decomposed_quote_is_grounded_after_nfc(
+    sample_transcript: TranscriptSnapshot,
+) -> None:
+    exact = "응답 시간을 40% 줄였고"
+    decomposed = unicodedata.normalize("NFD", exact)
+    assert decomposed != exact  # guard: NFD really differs before NFC
+
+    result = ground_summary(
+        sample_transcript,
+        SummaryDraft(points=[point(GOOD_POINT.text, "u-004", decomposed)]),
+        model="test",
+    )
+    assert result.key_points == [GOOD_POINT.text]
+    assert result.rejected_point_count == 0

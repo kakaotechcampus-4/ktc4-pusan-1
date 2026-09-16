@@ -2,8 +2,10 @@
 
 Mirrors the ``TRACK`` / ``UTTERANCE`` / ``WORD`` entities in the TechSpec data
 model. Timestamps are relative milliseconds on a shared session timeline.
-The producer owns the origin and track offsets; the schema only validates
-ranges and does not establish alignment with a recording for video seek.
+The producer owns the origin and track offsets; which instant counts as the
+origin is not agreed yet. The schema only validates nonnegative ranges with
+``end_ms >= start_ms`` and does not establish alignment with a recording,
+so these timestamps must not be treated as video seek offsets.
 """
 
 from enum import StrEnum

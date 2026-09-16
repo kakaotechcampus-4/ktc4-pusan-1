@@ -37,6 +37,7 @@ def _new_id(prefix: str) -> str:
 @dataclass
 class Interview:
     interviewer_id: str
+    candidate_name: str | None = None
     id: str = field(default_factory=lambda: _new_id("int"))
     created_at: datetime = field(default_factory=_now)
 
