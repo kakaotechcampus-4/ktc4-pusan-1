@@ -19,6 +19,11 @@ export const queryClient = new QueryClient({
 
       // 폴링으로 상태가 바뀌는 데이터가 많아 오래 신선하다고 보지 않는다.
       staleTime: 0,
+
+      // 탭이 백그라운드여도 폴링을 이어간다.
+      // 기본값(false)이면 다른 탭을 보는 동안 인터벌이 멈춘다. 문서 파싱과 요약 생성은
+      // 서버에서 계속 진행되므로, 돌아왔을 때 이미 끝나 있는 편이 자연스럽다.
+      refetchIntervalInBackground: true,
     },
     mutations: {
       // 쓰기는 재시도하지 않는다. 면접 생성이 두 번 일어나면 안 된다.
