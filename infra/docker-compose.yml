@@ -24,6 +24,40 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  backend:
+    build: ../backend
+    container_name: irya-backend
+    restart: unless-stopped
+    # 8000 은 퍼블리싱하지 않습니다. Caddy 가 같은 compose 네트워크에서
+    # 서비스 이름으로 부르므로 외부에 열 필요가 없습니다.
+    environment:
+      APP_ENV: production
+      # FE 와 같은 오리진에서 서비스되므로 브라우저 요청은 사실상 same-origin 입니다.
+      # 그래도 기본값(localhost:5173)이 그대로 남지 않도록 실제 도메인을 적어 둡니다.
+      CORS_ORIGINS: https://irya.cloud
+      # 초대 링크를 만들 FE 주소입니다.
+      FRONTEND_ORIGIN: https://irya.cloud
+      # BE 는 이 값을 두 군데에 씁니다 — FE 응답(JoinResponse.livekitUrl)과
+      # RoomService 호출(media.py 가 wss:// → https:// 로 바꿔 부릅니다).
+      # 그래서 Caddy 에 /twirp 프록시가 필요합니다.
+      LIVEKIT_URL: ${LIVEKIT_URL:-wss://irya.cloud}
+      # LiveKit 컨테이너의 LIVEKIT_KEYS 와 같은 쌍이어야 합니다. 다르면 입장이 401 납니다.
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+    healthcheck:
+      # python:3.12-slim 에는 curl·wget 이 없습니다. 이미지에 이미 있는 stdlib 로 확인합니다.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   livekit:
     image: livekit/livekit-server:v1.13.6
     container_name: irya-livekit
