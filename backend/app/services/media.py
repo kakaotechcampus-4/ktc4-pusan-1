@@ -125,7 +125,7 @@ class LiveKitGateway:
 
 
 media: MediaGateway = LiveKitGateway(
-    url=settings.livekit_url,
+    url=settings.livekit_api_url,
     key=settings.livekit_api_key,
     secret=settings.livekit_api_secret,
     max_participants=settings.room_max_participants,

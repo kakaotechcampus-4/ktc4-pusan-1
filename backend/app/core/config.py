@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     livekit_api_key: str = ""
     livekit_api_secret: str = ""
 
+    # RoomService(Twirp) 호출 주소. 비우면 livekit_url 을 쓴다.
+    # BE 와 LiveKit 이 같은 compose 네트워크에 있으면 http://livekit:7880 을
+    # 넣는다 — 공개 도메인을 쓰면 바로 옆 컨테이너를 부르려고 인터넷을 한 바퀴
+    # 돌고, Caddy 에 /twirp 를 열어야 한다.
+    livekit_internal_url: str = ""
+
     # 비우면 인메모리 저장소를 쓴다. 로컬 개발과 테스트가 DB 없이 돌아야 한다.
     # 예: postgresql://irya:<password>@db:5432/irya
     database_url: str = ""
@@ -39,6 +45,11 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def livekit_api_url(self) -> str:
+        """RoomService 를 부를 주소."""
+        return self.livekit_internal_url or self.livekit_url
 
     @property
     def cors_origin_list(self) -> list[str]:

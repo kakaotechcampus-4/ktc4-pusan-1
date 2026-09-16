@@ -13,12 +13,9 @@ irya.cloud {
 		reverse_proxy livekit:7880
 	}
 
-	# LiveKit RoomService(Twirp/HTTP). BE 가 서버 SDK 로 방을 만들고 닫을 때
-	# 쓰는 관리 API 라 시그널링과 같은 7880 으로 갑니다. 경로는 항상
-	# /twirp/livekit.RoomService/<Method> 형태입니다.
-	handle /twirp/* {
-		reverse_proxy livekit:7880
-	}
+	# /twirp(RoomService 관리 API)는 일부러 열지 않습니다. BE 가 같은 compose
+	# 네트워크에서 LIVEKIT_INTERNAL_URL 로 직접 부르므로 밖으로 낼 이유가 없습니다.
+	# 여기로 프록시하면 방 생성·강제퇴장 API 가 인터넷에 노출됩니다.
 
 	# Backend API. FastAPI 가 /api/v1 을 스스로 붙이므로 접두사를 떼지 않고
 	# 원본 경로를 그대로 넘깁니다.
