@@ -61,6 +61,34 @@ uv run irya-ai analyze tests/fixtures/sample_interview.json --model gpt-4o
 [컨텍스트 분석 계약](docs/context-analysis.md)을 참고하세요. 멘토 리뷰용 검증 시나리오와
 실제 GPT 확인 절차는 [테스트 케이스](docs/test-cases.md)에 정리했습니다.
 
+## 리뷰 타임라인 (면접 기록 화면)
+
+STT가 청크마다 쌓아 둔 `Utterance` JSON을 면접 종료 후 한꺼번에 읽어, 면접 기록 화면(S3)의
+타임라인 마커와 질문별 답변 한 줄 요약을 만듭니다. Q&A 묶기(`segment_qa`)와 인용 검증
+(`locate_quote`)은 기존 코드를 그대로 쓰고, 모델은 `label`·`answer`·인용만 씁니다.
+시각·질문 원문·ID는 코드가 `QAPair`에서 채우므로 모델이 마커를 옮기거나 질문을 바꿀 수 없습니다.
+
+```bash
+# 모델 없이 파이프라인 확인 (답변 첫 문장을 그대로 인용)
+uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --backend extractive
+
+# .env의 LLM_BASE_URL / LLM_API_KEY 설정 후 프로젝트 LLM(gpt-5.6-luna) 호출
+uv run irya-ai timeline data/samples/chunks_backend_junior_01.json
+
+# FE `Moment` 형태(atSec)로만 출력
+uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --frontend
+```
+
+입력은 `Utterance` JSON 배열, JSON Lines(`simulate --json` 출력), 또는 `TranscriptSnapshot`
+파일입니다. 기본 출력 `moments[]`는 `momentId`·`atMs`·근거를 포함하는 AI 계약이며,
+`--frontend` 출력은 FE `Moment`의 `id`·`atSec`·`label`·`question`·`answer` 형태로 변환합니다.
+인용이 지원자 발화 원문에 없는 항목은 통째로 빠지며 `rejectedMomentCount`와 `rejections`에 남습니다.
+Moment는 기본 최대 8개이며 `--max-moments`는 1~8 범위만 허용합니다. 질문이 더 많으면
+답변이 긴 순으로 고릅니다. 근거를 확인한 항목이 5개 미만이면 경고를 남기고 실제 개수만 반환합니다.
+
+프로젝트 LLM은 OpenAI 호환 게이트웨이(Elice ML API)이며 **지원 목록 밖 파라미터를 400으로
+거절**합니다. 실호출 절차와 결과는 [타임라인 검증 기록](docs/timeline-eval.md)에 적습니다.
+
 ## Verify
 
 ```bash
@@ -79,11 +107,14 @@ src/irya_ai/
 │   ├── transcript.py  Track · Utterance · Word · TranscriptSnapshot
 │   ├── context.py     Company · JobDescription · Competency · Rubric · Candidate · Resume · ResumeClaim
 │   ├── analysis.py    QAPair · Finding · SuggestedQuestion · ReviewReport
-│   └── summary.py     SummaryPoint · SummaryResult · AnalysisResult
+│   ├── summary.py     SummaryPoint · SummaryResult · AnalysisResult
+│   └── timeline.py    Moment · TimelineResult (리뷰 타임라인)
 ├── pipeline/          Q&A 구조화 · 근거 접지
 ├── analysis.py        Snapshot 한 건의 분석과 상태 처리
 ├── summarize.py       요약 인터페이스 · 오프라인 추출형 요약
 ├── openai_summary.py  OpenAI 구조화 요약
+├── timeline.py        청크 병합 → Q&A → 검증된 Moment (리뷰 타임라인)
+├── openai_timeline.py 프로젝트 LLM(Luna/Terra) 타임라인 초안
 └── simulator/         대본 JSON을 STT 이벤트 스트림으로 재생
 data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데이터)
 ```
