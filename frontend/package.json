@@ -16,6 +16,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.102.8",
     "livekit-client": "^2.22.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

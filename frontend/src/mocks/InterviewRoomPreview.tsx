@@ -13,7 +13,8 @@
  */
 
 import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
-import { useEffect, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { endSession, startSession } from '../api/interview';
 import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from '../lib/candidateName';
@@ -51,7 +52,6 @@ export function InterviewRoomPreview({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [ending, setEnding] = useState(false);
 
   useEffect(() => startMockSession(), []);
 
@@ -67,32 +67,38 @@ export function InterviewRoomPreview({
     };
   }, [localVideoTrack]);
 
+  const { mutate: startSessionMutate } = useMutation({
+    mutationFn: (id: string) => startSession(id),
+    onError: (e: unknown) => console.warn('면접 시작 실패', e),
+  });
+
   // 면접 진행 상태로 전이시킨다. 명세상 면접관만 호출한다.
   // 여러 번 호출돼도 서버가 한 번만 전이시켜야 한다 (issue #9 완료 조건).
   useEffect(() => {
     if (!sessionId || roleResolved !== 'INTERVIEWER') return;
     if (startedSessionIds.has(sessionId)) return;
     startedSessionIds.add(sessionId);
-    void startSession(sessionId).catch((e: unknown) => {
-      startedSessionIds.delete(sessionId);
-      console.warn('면접 시작 실패', e);
+    startSessionMutate(sessionId, {
+      // 실패하면 표시를 지운다. 다시 들어왔을 때 시작을 한 번 더 시도할 수 있어야 한다.
+      onError: () => startedSessionIds.delete(sessionId),
     });
-  }, [sessionId, roleResolved]);
+  }, [sessionId, roleResolved, startSessionMutate]);
 
-  const handleEnd = async () => {
-    setEnding(true);
-    try {
-      // 면접관만 세션을 끝낸다. 지원자는 자기 연결만 끊는다 —
-      // 참가자 disconnect 와 면접 종료는 별개다 (명세 07).
-      if (sessionId && roleResolved === 'INTERVIEWER') {
-        await endSession(sessionId);
-      }
-      onLeave?.();
-    } catch (e) {
-      console.warn('면접 종료 실패', e);
-    } finally {
-      setEnding(false);
+  // 면접관만 세션을 끝낸다. 지원자는 자기 연결만 끊는다 —
+  // 참가자 disconnect 와 면접 종료는 별개다 (명세 07).
+  // 종료 요청이 실패해도 화면은 나간다. 통화에서 빠지는 것이 우선이다.
+  const { mutate: endSessionMutate, isPending: ending } = useMutation({
+    mutationFn: (id: string) => endSession(id),
+    onError: (e: unknown) => console.warn('면접 종료 실패', e),
+    onSettled: () => onLeave?.(),
+  });
+
+  const handleEnd = () => {
+    if (sessionId && roleResolved === 'INTERVIEWER') {
+      endSessionMutate(sessionId);
+      return;
     }
+    onLeave?.();
   };
 
   return (
@@ -105,7 +111,7 @@ export function InterviewRoomPreview({
       audioRef={audioRef}
       error={null}
       ending={ending}
-      onEnd={() => void handleEnd()}
+      onEnd={handleEnd}
       localVideoTrack={localVideoTrack}
       localAudioTrack={localAudioTrack}
       notice={
