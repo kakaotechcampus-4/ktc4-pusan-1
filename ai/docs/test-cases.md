@@ -4,6 +4,15 @@
 한 번에 리뷰할 수 있도록 정리했다. 관련 입력·출력 계약은
 [context-analysis.md](context-analysis.md), 실행 방법은 [AI README](../README.md)에 있다.
 
+2026-09-13 STT 추가 검증은 [stt-review.md](stt-review.md)에 모았다. 해당 기록이
+최신 전체 AI 테스트 수의 정본이다. 아래 9/9의 121개·빌드 결과는 당시 실행 기록이며,
+별도 인용 정책 브랜치의 132개 결과를 이 브랜치에 합산하지 않는다.
+
+STT 회귀는 합성 PCM과 `httpx.MockTransport`를 사용한다. 열린 소비자 대기·두 트랙
+정렬·불량 응답 복구·유한 큐·취소 경합·안전한 로그·주입 시계 계측을 검증한다.
+현재 Elice 경로는 청크별 FINAL만 생성한다. LiveKit 입력·화면 지연·실제 LLM 품질은
+[STT 후속 통합 테스트](stt-pipeline.md#다음-통합-테스트)로 구분한다.
+
 ## 판정 기준
 
 | 결과 | 의미 |
