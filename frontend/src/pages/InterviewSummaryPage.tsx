@@ -12,7 +12,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { getSummary } from '../api/interview';
+import { getSessionState, getSummary } from '../api/interview';
 import { fmt } from '../lib/format';
 
 /** 생성 중일 때 다시 물어보는 간격 */
@@ -28,6 +28,14 @@ export default function InterviewSummaryPage() {
     // 생성이 끝날 때까지 되묻는다. 완료되면 false 를 돌려 폴링을 멈춘다.
     refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? POLL_INTERVAL_MS : false),
   });
+
+  // 면접 기록은 면접(interview) 단위라 세션에서 interviewId 를 얻어 온다.
+  const { data: session } = useQuery({
+    queryKey: ['session', sessionId],
+    queryFn: () => getSessionState(sessionId!),
+    enabled: Boolean(sessionId),
+  });
+  const reviewPath = session ? `/review/${session.interviewId}` : null;
 
   const failed = isError;
   const processing = !failed && (summary === undefined || summary.status === 'PROCESSING');
@@ -84,12 +92,23 @@ export default function InterviewSummaryPage() {
           </>
         )}
 
-        <Link
-          to="/"
-          className="mt-7 inline-block rounded-lg bg-white/[0.08] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-white/[0.13]"
-        >
-          처음으로
-        </Link>
+        <div className="mt-7 flex flex-wrap gap-2.5">
+          {/* 요약이 실패해도 녹화와 기록은 따로 만들어지므로 기록으로 가는 길은 열어 둔다. */}
+          {reviewPath && !processing && (
+            <Link
+              to={reviewPath}
+              className="rounded-lg bg-[#2B44D6] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-[#243AB8]"
+            >
+              면접 기록 보기
+            </Link>
+          )}
+          <Link
+            to="/"
+            className="rounded-lg bg-white/[0.08] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-white/[0.13]"
+          >
+            처음으로
+          </Link>
+        </div>
       </div>
     </div>
   );
