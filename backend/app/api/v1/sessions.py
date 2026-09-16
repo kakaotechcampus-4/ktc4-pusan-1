@@ -43,9 +43,11 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
     새로고침·재접속 시 상태 복구 용도다.
     """
     session = _load(store, session_id)
+    interview = store.get_interview(session.interview_id)
     return SessionStateResponse(
         session_id=session.id,
         interview_id=session.interview_id,
+        candidate_name=interview.candidate_name if interview else None,
         status=session.status,
         started_at=session.started_at,
         ended_at=session.ended_at,
@@ -72,6 +74,7 @@ async def join_session(
     LiveKit 에 직접 붙으면서 이뤄진다. 여러 번 불러도 되며 그때마다 새 토큰이 나온다.
     """
     session = _load(store, session_id)
+    interview = store.get_interview(session.interview_id)
     if session.status is SessionStatus.ENDED:
         raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
 
@@ -84,6 +87,7 @@ async def join_session(
     issued = media.issue_token(session.room_name, body.role)
     return JoinResponse(
         session_id=session.id,
+        candidate_name=interview.candidate_name if interview else None,
         livekit_url=settings.livekit_url,
         token=issued.token,
         room_name=session.room_name,

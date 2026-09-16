@@ -32,6 +32,8 @@ export type SessionStatus = 'WAITING' | 'INTERVIEWING' | 'ENDED';
 export interface Interview {
   interviewId: string;
   interviewerId: string;
+  /** 면접관 화면에 표시할 지원자 이름 */
+  candidateName: string | null;
   createdAt: string;
 }
 
@@ -39,6 +41,7 @@ export interface Interview {
 export interface CreateSessionResponse {
   sessionId: string;
   interviewId: string;
+  candidateName: string | null;
   status: SessionStatus;
   /** 지원자에게 전달할 면접 링크 */
   inviteUrl: string;
@@ -56,6 +59,7 @@ export interface StartSessionResponse {
 export interface SessionState {
   sessionId: string;
   interviewId: string;
+  candidateName: string | null;
   status: SessionStatus;
   startedAt: string | null;
   endedAt: string | null;
@@ -101,6 +105,8 @@ export interface EndSessionResponse {
 /** POST /api/v1/sessions/{sessionId}/join */
 export interface JoinSessionResponse {
   sessionId: string;
+  /** 면접관 화면에 표시할 지원자 이름 */
+  candidateName: string | null;
   /** LiveKit 서버 접속 URL */
   livekitUrl: string;
   /** LiveKit Room 입장용 Access Token */
