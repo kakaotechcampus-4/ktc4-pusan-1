@@ -56,6 +56,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
             "status",
             "startedAt",
             "endedAt",
+            "transcriptOriginAt",
         },
         "statuses": {"200", "404"},
     },

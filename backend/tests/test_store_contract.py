@@ -90,6 +90,7 @@ def test_session_roundtrip(subject: Store):
     assert found.status is SessionStatus.WAITING
     assert found.started_at is None
     assert found.ended_at is None
+    assert found.transcript_origin_at is None
 
 
 def test_state_transition_needs_save(subject: Store):
@@ -121,3 +122,18 @@ def test_end_is_persisted(subject: Store):
     assert found is not None
     assert found.status is SessionStatus.ENDED
     assert found.ended_at == session.ended_at
+
+
+def test_transcript_origin_is_persisted(subject: Store):
+    """Webhook 이 채우는 값이다. 재시작해도 원점이 유지돼야 한다."""
+    session = _seed(subject)
+    origin = session.created_at
+
+    assert session.mark_origin(origin) is True
+    subject.save_session(session)
+
+    found = subject.get_session(session.id)
+    assert found is not None
+    assert found.transcript_origin_at == origin
+    # 두 번째 참가자·재전송이 원점을 밀면 안 된다.
+    assert found.mark_origin(session.created_at) is False

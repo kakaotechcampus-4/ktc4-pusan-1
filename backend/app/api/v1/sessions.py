@@ -51,6 +51,7 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
         status=session.status,
         started_at=session.started_at,
         ended_at=session.ended_at,
+        transcript_origin_at=session.transcript_origin_at,
     )
 
 
