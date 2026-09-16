@@ -5,9 +5,10 @@ truth, so every ``evidence_quote`` is checked as a literal substring of the
 utterance it cites. Findings that fail are dropped, not repaired: a finding
 with fabricated evidence is worse than no finding.
 
-Matching is deliberately strict. Only whitespace is normalised; wording must
-match exactly. Fuzzy matching would let the model paraphrase and still pass,
-which is the failure mode this stage exists to stop.
+Matching is deliberately strict. Only Unicode form (NFC) and runs of existing
+whitespace are normalised; wording, letter case and word boundaries must match
+exactly. Case folding or fuzzy matching would let the model paraphrase and
+still pass, which is the failure mode this stage exists to stop.
 """
 
 import re
@@ -21,7 +22,12 @@ _WS = re.compile(r"\s+")
 
 
 def normalize(text: str) -> str:
-    """NFC + collapse whitespace. Nothing else."""
+    """NFC + collapse whitespace. Nothing else.
+
+    A run of existing whitespace becomes one space, but a space is never
+    inserted or deleted between words and letter case is never folded, so
+    ``API`` still differs from ``api`` and ``API서버`` from ``API 서버``.
+    """
 
     return _WS.sub(" ", unicodedata.normalize("NFC", text)).strip()
 

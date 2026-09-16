@@ -154,7 +154,7 @@ u.model_dump(
 | `speaker` | `INTERVIEWER` \| `CANDIDATE` | API 명세 `join`의 `role`과 같은 값 |
 | `seq` | int | 세션 내 발화 순번. 화자와 무관하게 증가 |
 | `passType` | `INTERIM` \| `FINAL` | 잠정본 / 확정본 |
-| `startMs`, `endMs` | int | 세션 녹화 시작 기준 밀리초. 영상 seek에 그대로 사용 |
+| `startMs`, `endMs` | int | 원점 기준 상대 밀리초. 0 이상과 `endMs >= startMs`만 검증하며 원점 정의는 미확정입니다. 녹화와 시각을 맞추는 구현이 없어 영상 seek 값으로 쓸 수 없습니다 |
 | `content` | string | 전사 텍스트 |
 | `uncertain` | bool | STT가 확신하지 못한 발화 |
 | `words` | Word[] | 단어별 타임스탬프 (선택) |

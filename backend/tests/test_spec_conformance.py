@@ -59,6 +59,18 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
 SESSION_STATUS = {"WAITING", "INTERVIEWING", "ENDED"}
 ROLE = {"INTERVIEWER", "CANDIDATE"}
 
+# 클라이언트가 분기에 쓰는 에러 코드. 추가하면 명세도 같이 고쳐야 한다.
+ERROR_CODE = {
+    "VALIDATION_ERROR",
+    "NOT_FOUND",
+    "INTERNAL_ERROR",
+    "INTERVIEW_NOT_FOUND",
+    "SESSION_NOT_FOUND",
+    "SESSION_ENDED",
+    "INVALID_SESSION_STATE",
+    "ROOM_FULL",
+}
+
 
 @pytest.fixture(scope="module")
 def schema() -> dict[str, Any]:
@@ -131,3 +143,4 @@ def test_enum_values_match_spec(schema: dict[str, Any]):
 
     assert set(schemas["SessionStatus"]["enum"]) == SESSION_STATUS
     assert set(schemas["Role"]["enum"]) == ROLE
+    assert set(schemas["ErrorCode"]["enum"]) == ERROR_CODE

@@ -87,7 +87,9 @@ def _http_error_handler(_: Request, exc: Exception) -> JSONResponse:
 
 
 class ErrorDetail(BaseModel):
-    code: str
+    # ErrorCode 로 선언해야 OpenAPI 에 값 목록이 실린다. str 로 두면 Swagger 를 봐도
+    # 어떤 코드가 오는지 알 수 없어서 클라이언트가 status 로만 분기하게 된다.
+    code: ErrorCode
     message: str
     retryable: bool = False
 

@@ -16,27 +16,27 @@ import type { StreamEvent } from '../types/interview';
 type ScheduledEvent = { after: number; event: StreamEvent };
 
 const SCRIPT: ScheduledEvent[] = [
-  { after: 600, event: { type: 'speech.start', speaker: 'interviewer', at: 3 } },
+  { after: 600, event: { type: 'speech.start', speaker: 'INTERVIEWER', at: 3 } },
   {
     after: 300,
     event: {
       type: 'transcript.delta',
       utteranceId: 'u1',
-      speaker: 'interviewer',
+      speaker: 'INTERVIEWER',
       text: '자기소개 부탁드립니다.',
       at: 3,
       final: true,
     },
   },
-  { after: 900, event: { type: 'speech.end', speaker: 'interviewer', at: 6 } },
+  { after: 900, event: { type: 'speech.end', speaker: 'INTERVIEWER', at: 6 } },
 
-  { after: 500, event: { type: 'speech.start', speaker: 'candidate', at: 7 } },
+  { after: 500, event: { type: 'speech.start', speaker: 'CANDIDATE', at: 7 } },
   {
     after: 400,
     event: {
       type: 'transcript.delta',
       utteranceId: 'u2',
-      speaker: 'candidate',
+      speaker: 'CANDIDATE',
       text: '네, 저는 3년차 백엔드 개발자입니다. ',
       at: 7,
       final: false,
@@ -47,7 +47,7 @@ const SCRIPT: ScheduledEvent[] = [
     event: {
       type: 'transcript.delta',
       utteranceId: 'u2',
-      speaker: 'candidate',
+      speaker: 'CANDIDATE',
       text: '최근에는 실시간 스트리밍 파이프라인을 맡아 ',
       at: 7,
       final: false,
@@ -58,27 +58,27 @@ const SCRIPT: ScheduledEvent[] = [
     event: {
       type: 'transcript.delta',
       utteranceId: 'u2',
-      speaker: 'candidate',
+      speaker: 'CANDIDATE',
       text: '초당 2만 건 처리까지 끌어올렸습니다.',
       at: 7,
       final: true,
     },
   },
-  { after: 500, event: { type: 'speech.end', speaker: 'candidate', at: 21 } },
+  { after: 500, event: { type: 'speech.end', speaker: 'CANDIDATE', at: 21 } },
 
-  { after: 1200, event: { type: 'speech.start', speaker: 'interviewer', at: 26 } },
+  { after: 1200, event: { type: 'speech.start', speaker: 'INTERVIEWER', at: 26 } },
   {
     after: 400,
     event: {
       type: 'transcript.delta',
       utteranceId: 'u3',
-      speaker: 'interviewer',
+      speaker: 'INTERVIEWER',
       text: '초당 2만 건은 어떤 병목을 해결해서 나온 수치인가요?',
       at: 26,
       final: true,
     },
   },
-  { after: 1000, event: { type: 'speech.end', speaker: 'interviewer', at: 31 } },
+  { after: 1000, event: { type: 'speech.end', speaker: 'INTERVIEWER', at: 31 } },
 ];
 
 /**

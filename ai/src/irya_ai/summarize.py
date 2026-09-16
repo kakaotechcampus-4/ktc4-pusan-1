@@ -29,6 +29,13 @@ def ground_summary(
 ) -> SummaryResult:
     """Drop whole claims with invalid citations; derive all display text.
 
+    ``point.text`` may reword the answer, but every ``citation.quote`` must be
+    a verbatim substring of the cited candidate utterance: ``locate_quote``
+    normalises only Unicode form and runs of existing whitespace, so a changed
+    letter case or an added/removed word boundary fails. A claim that fails any
+    check is discarded whole - never repaired, never retried - so a rewritten
+    quote loses the claim it was meant to support.
+
     Exact quotations and number checks are mechanical checks, not proof that
     a paraphrase is entailed by its evidence. Human review is still required.
     """

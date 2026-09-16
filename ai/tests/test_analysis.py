@@ -156,6 +156,10 @@ async def test_preset_fake_is_not_reported_as_grounded_analysis(
     )
     assert result.status == "failed"
     assert result.error.code == "NO_GROUNDED_SUMMARY"
+    assert result.summary_result is None
+    assert "상수 요약" not in result.model_dump_json()
+    # 요약이 사라져도 전사에서 얻은 Q&A 구조는 남는다.
+    assert len(result.qa_pairs) == 2
 
 
 async def test_concurrent_sessions_stay_separate(

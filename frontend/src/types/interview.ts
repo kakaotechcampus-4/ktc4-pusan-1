@@ -5,7 +5,13 @@
  * 명세에 없어서 FE 가 정한 부분은 ⚠️ 로 표시했다.
  */
 
-export type Speaker = 'interviewer' | 'candidate';
+/**
+ * 전사 화자.
+ *
+ * `Role`(입장 권한)과 값은 같지만 축이 다르다 — 권한은 "무엇을 할 수 있는가",
+ * 화자는 "누가 말했는가"다. AI·BE 가 대문자를 쓰므로 표기를 맞춰 두었다.
+ */
+export type Speaker = 'INTERVIEWER' | 'CANDIDATE';
 
 /**
  * 입장 권한.
@@ -106,14 +112,17 @@ export interface JoinSessionResponse {
 /**
  * join 실패 사유.
  *
- * ⚠️ 명세에 에러 본문 스키마가 없어서 HTTP status 로만 구분한다.
- * 그래서 409 하나에 "이미 종료" 와 "정원 초과" 가 겹친다 — 문구를 합쳐 뒀다.
- * 서버가 `error.code` 를 주기 시작하면 api/interview.ts 의 표에 줄만 추가하면 된다.
+ * 서버가 `error.code` 로 사유를 구분해 주므로 409 를 두 갈래로 나눈다.
+ * 매핑은 api/interview.ts 의 FAILURE_BY_CODE 에 있다.
  */
 export type JoinFailure =
   /** 존재하지 않는 세션 */
   | 'not-found'
-  /** 현재 상태에서 입장 불가 — 종료됨 또는 정원 초과 */
+  /** 이미 종료된 세션 */
+  | 'ended'
+  /** 정원이 찬 세션 */
+  | 'room-full'
+  /** 409 인데 코드를 못 읽은 경우 — 두 사유를 합친 문구를 쓴다 */
   | 'unavailable'
   /** 그 외 (네트워크 포함) */
   | 'failed';
