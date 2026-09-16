@@ -1,11 +1,11 @@
 """저장소 인터페이스와 인메모리 구현.
 
-DB 는 아직 정해지지 않았다. 라우터가 Protocol 에만 의존하게 두어
-구현체를 갈아끼우는 것으로 붙일 수 있게 한다.
+라우터는 이 Protocol 에만 의존한다. 실제 구현은 `app/infra/postgres.py` 이고,
+테스트와 로컬 기동은 아래 인메모리 구현을 그대로 쓴다.
 
-⚠️ 인메모리라 서버를 재시작하면 세션 상태가 사라진다. LiveKit 은 별도 프로세스라
-진행 중인 통화 자체는 끊기지 않지만, `GET /sessions/{id}` 로 상태를 복구하려면
-DB 가 붙어야 한다.
+⚠️ `save_session` 을 반드시 불러야 한다. 인메모리 구현은 객체를 참조로 돌려주므로
+상태를 바꾸면 저장소에도 반영되지만, DB 구현은 그렇지 않다. 저장을 빠뜨리면
+응답은 정상인데 재조회하면 이전 상태가 나오는 식으로 조용히 깨진다.
 """
 
 from typing import Protocol
@@ -21,6 +21,10 @@ class Store(Protocol):
     def add_session(self, session: Session) -> None: ...
 
     def get_session(self, session_id: str) -> Session | None: ...
+
+    def save_session(self, session: Session) -> None:
+        """변경된 Session 을 저장한다. 상태 전이 뒤에는 항상 부른다."""
+        ...
 
 
 class InMemoryStore:
@@ -40,6 +44,11 @@ class InMemoryStore:
     def get_session(self, session_id: str) -> Session | None:
         # 값을 그대로 돌려준다. 라우터가 상태를 바꾸면 저장소에도 반영된다.
         return self._sessions.get(session_id)
+
+    def save_session(self, session: Session) -> None:
+        # 참조가 이미 같은 객체라 사실상 no-op 이지만, 라우터가 DB 구현에서도
+        # 똑같이 동작하도록 호출 규약을 맞춰 둔다.
+        self._sessions[session.id] = session
 
     def clear(self) -> None:
         """테스트용."""

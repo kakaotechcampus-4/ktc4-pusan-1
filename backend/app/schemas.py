@@ -4,6 +4,7 @@ FE 는 camelCase 를 쓴다. 파이썬 쪽은 snake_case 로 두고 alias 로 �
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,11 +22,19 @@ class CreateInterviewRequest(Schema):
     interviewer_id: str = Field(
         alias="interviewerId", min_length=1, max_length=64, examples=["user_123"]
     )
+    candidate_name: str | None = Field(
+        default=None,
+        alias="candidateName",
+        max_length=20,
+        examples=["김지원"],
+        description="면접관 화면에 표시할 지원자 이름. 비우면 기본 라벨을 쓴다.",
+    )
 
 
 class InterviewResponse(Schema):
     interview_id: str = Field(serialization_alias="interviewId")
     interviewer_id: str = Field(serialization_alias="interviewerId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
     created_at: datetime = Field(serialization_alias="createdAt")
 
 
@@ -35,6 +44,7 @@ class InterviewResponse(Schema):
 class CreateSessionResponse(Schema):
     session_id: str = Field(serialization_alias="sessionId")
     interview_id: str = Field(serialization_alias="interviewId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
     status: SessionStatus
     invite_url: str = Field(
         serialization_alias="inviteUrl", description="지원자에게 전달할 면접 링크"
@@ -47,6 +57,7 @@ class SessionStateResponse(Schema):
 
     session_id: str = Field(serialization_alias="sessionId")
     interview_id: str = Field(serialization_alias="interviewId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
     status: SessionStatus
     started_at: datetime | None = Field(serialization_alias="startedAt")
     ended_at: datetime | None = Field(serialization_alias="endedAt")
@@ -79,10 +90,82 @@ class JoinRequest(Schema):
 
 class JoinResponse(Schema):
     session_id: str = Field(serialization_alias="sessionId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
     livekit_url: str = Field(
         serialization_alias="livekitUrl", description="LiveKit 서버 접속 URL"
     )
     token: str = Field(description="LiveKit Room 입장용 Access Token")
     room_name: str = Field(
         serialization_alias="roomName", description="매핑된 LiveKit Room 이름"
+    )
+
+
+# ── 면접 기록 ────────────────────────────────────────────
+#
+# ⚠️ 이 계약은 아직 세 파트가 합의하지 않았다. 아래는 FE 가
+# `types/interview.ts` 에 적어 둔 모양을 그대로 옮긴 것이고, BE 는 지금
+# PROCESSING 만 돌려준다. 합의 전까지 READY 응답은 나가지 않는다.
+#
+# 남은 쟁점 (회의 안건)
+#   1. 키를 interviewId 로 둘지 sessionId 로 둘지
+#      — FE 는 interviewId, AI 의 TimelineResult 는 session_id 다.
+#        면접 하나에 세션이 여럿이라 그냥 같은 값이 아니다.
+#   2. 단위 — FE 는 초(atSec), AI 는 밀리초(atMs)
+#   3. recording.hlsUrl — 녹화(Egress) 가 아직 없다. FE 도 "가정했다"고 적어 뒀다.
+
+
+class ReviewMoment(Schema):
+    """질문 하나가 시작된 시점과 그 문답."""
+
+    id: str
+    at_sec: int = Field(
+        serialization_alias="atSec",
+        description=(
+            "전사 원점 기준 경과 초. 원점은 첫 참가자 접속 시각으로 합의했고, "
+            "Session 에 별도 필드로 신설한다 (별도 이슈)."
+        ),
+    )
+    label: str = Field(description="타임라인 아래 짧은 라벨")
+    question: str = Field(description="면접관 발화 원문")
+    answer: str = Field(description="답변 요약 한두 줄")
+
+
+class ReviewRecording(Schema):
+    hls_url: str = Field(serialization_alias="hlsUrl")
+
+
+class ReviewCandidate(Schema):
+    name: str
+    role: str
+
+
+class ReviewAiReview(Schema):
+    paragraphs: list[str] = Field(
+        description="전사·지원서·JD 를 근거로 쓴 서술. 합격 여부는 담지 않는다."
+    )
+
+
+class ReviewReadyResponse(Schema):
+    """준비가 끝난 면접 기록.
+
+    ⚠️ 아직 어떤 경로로도 나가지 않는다. 계약을 명세에 박아 두기 위한 모델이다.
+    """
+
+    status: Literal["READY"] = "READY"
+    interview_id: str = Field(serialization_alias="interviewId")
+    candidate: ReviewCandidate
+    duration_sec: int = Field(serialization_alias="durationSec")
+    recording: ReviewRecording
+    moments: list[ReviewMoment]
+    ai_review: ReviewAiReview = Field(serialization_alias="aiReview")
+
+
+class ReviewProcessingResponse(Schema):
+    """녹화 변환과 AI 평가가 아직 끝나지 않은 상태. 202 로 나간다."""
+
+    status: Literal["PROCESSING"] = "PROCESSING"
+    eta_sec: int | None = Field(
+        default=None,
+        serialization_alias="etaSec",
+        description="남은 예상 시간. 추정할 근거가 없으면 비운다.",
     )

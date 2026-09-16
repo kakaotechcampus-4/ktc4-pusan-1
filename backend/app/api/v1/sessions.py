@@ -43,9 +43,11 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
     새로고침·재접속 시 상태 복구 용도다.
     """
     session = _load(store, session_id)
+    interview = store.get_interview(session.interview_id)
     return SessionStateResponse(
         session_id=session.id,
         interview_id=session.interview_id,
+        candidate_name=interview.candidate_name if interview else None,
         status=session.status,
         started_at=session.started_at,
         ended_at=session.ended_at,
@@ -72,6 +74,7 @@ async def join_session(
     LiveKit 에 직접 붙으면서 이뤄진다. 여러 번 불러도 되며 그때마다 새 토큰이 나온다.
     """
     session = _load(store, session_id)
+    interview = store.get_interview(session.interview_id)
     if session.status is SessionStatus.ENDED:
         raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
 
@@ -84,6 +87,7 @@ async def join_session(
     issued = media.issue_token(session.room_name, body.role)
     return JoinResponse(
         session_id=session.id,
+        candidate_name=interview.candidate_name if interview else None,
         livekit_url=settings.livekit_url,
         token=issued.token,
         room_name=session.room_name,
@@ -105,6 +109,7 @@ def start_session(session_id: SessionIdPath, store: StoreDep) -> StartSessionRes
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 시작할 수 없습니다."
         )
+    store.save_session(session)
     assert session.started_at is not None
     return StartSessionResponse(
         session_id=session.id, status=session.status, started_at=session.started_at
@@ -133,6 +138,10 @@ async def end_session(
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 종료할 수 없습니다."
         )
+    # LiveKit Room 을 닫기 전에 저장한다. close_room 이 실패해도 종료 상태는
+    # 남아야 한다 — 방이 남는 건 정원 제한에 걸리는 정도지만, 상태가 안 남으면
+    # 이미 끝난 면접에 다시 입장할 수 있게 된다.
+    store.save_session(session)
     await media.close_room(session.room_name)
     assert session.ended_at is not None
     return EndSessionResponse(

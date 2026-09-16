@@ -18,29 +18,51 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "statuses": {"200"},
     },
     ("post", "/api/v1/interviews"): {
-        "request": {"interviewerId"},
-        "response": {"interviewId", "interviewerId", "createdAt"},
+        "request": {"interviewerId", "candidateName"},
+        "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
         "statuses": {"201", "422"},
     },
     ("get", "/api/v1/interviews/{interviewId}"): {
         "path_params": ["interviewId"],
-        "response": {"interviewId", "interviewerId", "createdAt"},
+        "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
         "statuses": {"200", "404"},
+    },
+    # ⚠️ 세 파트 합의 전이다. 응답은 지금 PROCESSING 한 갈래만 나간다.
+    # READY 쪽 필드는 모델로만 선언해 두고 여기서는 잠그지 않는다 —
+    # 합의되면 그때 이 표에 옮긴다.
+    ("get", "/api/v1/interviews/{interviewId}/review"): {
+        "path_params": ["interviewId"],
+        "response": {"status", "etaSec"},
+        "statuses": {"202", "404"},
     },
     ("post", "/api/v1/interviews/{interviewId}/sessions"): {
         "path_params": ["interviewId"],
-        "response": {"sessionId", "interviewId", "status", "inviteUrl", "createdAt"},
+        "response": {
+            "sessionId",
+            "interviewId",
+            "candidateName",
+            "status",
+            "inviteUrl",
+            "createdAt",
+        },
         "statuses": {"201", "404"},
     },
     ("get", "/api/v1/sessions/{sessionId}"): {
         "path_params": ["sessionId"],
-        "response": {"sessionId", "interviewId", "status", "startedAt", "endedAt"},
+        "response": {
+            "sessionId",
+            "interviewId",
+            "candidateName",
+            "status",
+            "startedAt",
+            "endedAt",
+        },
         "statuses": {"200", "404"},
     },
     ("post", "/api/v1/sessions/{sessionId}/join"): {
         "path_params": ["sessionId"],
         "request": {"role"},
-        "response": {"sessionId", "livekitUrl", "token", "roomName"},
+        "response": {"sessionId", "candidateName", "livekitUrl", "token", "roomName"},
         "statuses": {"200", "404", "409"},
     },
     ("post", "/api/v1/sessions/{sessionId}/start"): {

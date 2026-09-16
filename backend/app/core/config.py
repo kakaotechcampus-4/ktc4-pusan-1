@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # 돌고, Caddy 에 /twirp 를 열어야 한다.
     livekit_internal_url: str = ""
 
+    # 비우면 인메모리 저장소를 쓴다. 로컬 개발과 테스트가 DB 없이 돌아야 한다.
+    # 예: postgresql://irya:<password>@db:5432/irya
+    database_url: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

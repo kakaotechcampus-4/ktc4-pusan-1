@@ -46,6 +46,13 @@ services:
       # LiveKit 컨테이너의 LIVEKIT_KEYS 와 같은 쌍이어야 합니다. 다르면 입장이 401 납니다.
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      # 비우면 인메모리로 떨어집니다. 서버에서는 반드시 채웁니다 —
+      # 재시작할 때마다 진행 중인 면접 상태가 사라집니다.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-irya}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-irya}
+    depends_on:
+      db:
+        # 스키마 적용을 기동 시에 하므로 DB 가 받을 준비가 된 뒤에 떠야 합니다.
+        condition: service_healthy
     healthcheck:
       # python:3.12-slim 에는 curl·wget 이 없습니다. 이미지에 이미 있는 stdlib 로 확인합니다.
       test:
@@ -58,6 +65,25 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
+
+  db:
+    image: postgres:17-alpine
+    container_name: irya-db
+    restart: unless-stopped
+    # 5432 는 퍼블리싱하지 않습니다. backend 만 같은 네트워크에서 부릅니다.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-irya}
+      POSTGRES_DB: ${POSTGRES_DB:-irya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      # 이걸 빼면 컨테이너를 지울 때 면접 기록이 같이 사라집니다.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-irya} -d ${POSTGRES_DB:-irya}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 10s
 
   livekit:
@@ -84,3 +110,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  postgres_data:
