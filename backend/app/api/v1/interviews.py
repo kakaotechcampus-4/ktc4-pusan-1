@@ -8,7 +8,12 @@ from app.api.deps import MediaDep, StoreDep
 from app.core.config import settings
 from app.core.errors import ApiError, ErrorCode, responses
 from app.domain.models import Interview, Session
-from app.schemas import CreateInterviewRequest, CreateSessionResponse, InterviewResponse
+from app.schemas import (
+    CreateInterviewRequest,
+    CreateSessionResponse,
+    InterviewResponse,
+    ReviewProcessingResponse,
+)
 
 router = APIRouter(prefix="/interviews", tags=["면접"])
 
@@ -99,3 +104,36 @@ async def create_session(
         invite_url=f"{settings.frontend_origin}{settings.invite_path}/{session.id}",
         created_at=session.created_at,
     )
+
+
+@router.get(
+    "/{interviewId}/review",
+    # 지금 나가는 건 PROCESSING 한 갈래뿐이라 그것만 선언한다.
+    # READY 는 아직 합의 전이라 schemas.py 에 모델로만 둔다 — 합의 전 형태를
+    # OpenAPI 에 실으면 FE·AI 가 확정된 계약으로 읽는다.
+    response_model=ReviewProcessingResponse,
+    status_code=202,
+    summary="면접 기록 조회",
+    responses=responses((404, "면접을 찾을 수 없음")),
+)
+def get_review(
+    interview_id: InterviewIdPath, store: StoreDep
+) -> ReviewProcessingResponse:
+    """면접이 끝난 뒤의 기록(녹화 · 타임라인 · AI 서술)을 조회한다.
+
+    **지금은 항상 `PROCESSING` 을 돌려준다.** 면접 존재 여부만 확인하는 단계다.
+    FE 는 이 분기를 이미 갖고 있어(`ReviewResponse`) 화면이 로딩 상태로 뜬다.
+
+    READY 를 채우려면 셋이 더 필요하고, 전부 아직 없다.
+
+      moments   AI 의 build_timeline() 결과. ai/ 패키지를 BE 가 어떻게 부를지 미정
+      recording LiveKit Egress. compose 에 컨테이너도 저장소도 없다
+      aiReview  요약 파이프라인. moments 와 다른 산출물이다
+
+    202 로 두는 건 FE 가 그렇게 읽기 때문이다 — "준비 전에는 202 와 PROCESSING".
+    준비가 끝나면 200 + READY 로 바뀐다.
+    """
+    if store.get_interview(interview_id) is None:
+        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
+    # etaSec 은 비운다. 추정할 근거가 아직 없는데 숫자를 주면 FE 가 그걸 믿는다.
+    return ReviewProcessingResponse()
