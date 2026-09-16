@@ -37,10 +37,12 @@ services:
       CORS_ORIGINS: https://irya.cloud
       # 초대 링크를 만들 FE 주소입니다.
       FRONTEND_ORIGIN: https://irya.cloud
-      # BE 는 이 값을 두 군데에 씁니다 — FE 응답(JoinResponse.livekitUrl)과
-      # RoomService 호출(media.py 가 wss:// → https:// 로 바꿔 부릅니다).
-      # 그래서 Caddy 에 /twirp 프록시가 필요합니다.
+      # 브라우저가 붙을 주소입니다. JoinResponse.livekitUrl 로 그대로 나갑니다.
       LIVEKIT_URL: ${LIVEKIT_URL:-wss://irya.cloud}
+      # RoomService(Twirp) 호출 주소입니다. 같은 네트워크라 서비스 이름으로 바로 부릅니다.
+      # 공개 도메인을 쓰면 바로 옆 컨테이너를 부르려고 인터넷을 한 바퀴 돌고,
+      # Caddy 에 /twirp 를 열어야 합니다. 관리 API 라 밖에 낼 이유가 없습니다.
+      LIVEKIT_INTERNAL_URL: http://livekit:7880
       # LiveKit 컨테이너의 LIVEKIT_KEYS 와 같은 쌍이어야 합니다. 다르면 입장이 401 납니다.
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
