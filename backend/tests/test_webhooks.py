@@ -4,6 +4,7 @@
 `startedAt`(버튼)과 다른 값이라는 걸 여기서 고정한다.
 """
 
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -113,3 +114,55 @@ def test_webhook_is_not_in_public_spec(client):
     """클라이언트용 API 가 아니다. 명세에 실리면 FE 가 부를 것처럼 읽힌다."""
     paths = client.get("/openapi.json").json()["paths"]
     assert WEBHOOK not in paths
+
+
+def test_signature_failure_is_logged(client, media, store, session, caplog):
+    """응답은 204 로 감추되 로그에는 남겨야 한다.
+
+    `livekit.yaml` 의 `webhook.api_key` 가 어긋나면 모든 이벤트가 버려지는데,
+    LiveKit 도 204 를 받아 재시도하지 않는다. 로그가 유일한 단서다.
+    """
+    media.webhook_event = FakeEvent(
+        "participant_joined", session.room_name, int(JOINED_AT.timestamp())
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.api.v1.webhooks"):
+        assert _post(client, auth="") == 204
+
+    assert "서명 검증 실패" in caplog.text
+    assert "webhook.api_key" in caplog.text
+
+
+def test_unknown_session_is_logged(client, media, store, session, caplog):
+    """방 이름은 우리 규칙인데 세션이 없는 경우. 짚어볼 값이 있다."""
+    media.webhook_event = FakeEvent(
+        "participant_joined", "interview_ses_nope", int(JOINED_AT.timestamp())
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.api.v1.webhooks"):
+        assert _post(client) == 204
+
+    assert "세션을 찾을 수 없음" in caplog.text
+
+
+def test_ignored_event_is_not_a_warning(client, media, store, session, caplog):
+    """관심 없는 이벤트는 정상이다. warning 으로 남기면 로그가 쓸모없어진다."""
+    media.webhook_event = FakeEvent(
+        "track_published", session.room_name, int(JOINED_AT.timestamp())
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.api.v1.webhooks"):
+        assert _post(client) == 204
+
+    assert caplog.text == ""
+
+
+def test_success_is_logged(client, media, store, session, caplog):
+    media.webhook_event = FakeEvent(
+        "participant_joined", session.room_name, int(JOINED_AT.timestamp())
+    )
+
+    with caplog.at_level(logging.INFO, logger="app.api.v1.webhooks"):
+        assert _post(client) == 204
+
+    assert "전사 원점 기록" in caplog.text
