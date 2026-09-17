@@ -38,9 +38,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         postgres.close()
 
 
+# 문서 경로를 api_prefix 아래로 옮긴다. FastAPI 기본값은 앱 루트(/docs)인데,
+# Caddy 가 /api/* 만 BE 로 넘기므로 기본값이면 정적 파일 fallback 에 잡혀
+# 배포 환경에서 Swagger 가 열리지 않는다. 이렇게 두면 리버스 프록시 설정을
+# 건드리지 않고 기존 규칙을 그대로 탄다.
+#
+# redoc 은 끈다. 같은 내용을 두 곳에 두면 어느 쪽을 보라고 해야 할지 애매해진다.
 app = FastAPI(
     title=settings.app_name,
     lifespan=lifespan,
+    docs_url=f"{settings.api_prefix}/docs",
+    openapi_url=f"{settings.api_prefix}/openapi.json",
+    redoc_url=None,
 )
 
 # FE 는 :5173, BE 는 :8000 이라 이게 없으면 브라우저가 요청을 막는다.
