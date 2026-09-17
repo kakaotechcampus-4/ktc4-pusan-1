@@ -1,7 +1,7 @@
 /**
  * 카메라·마이크 권한 확인 — 방 접속보다 먼저 수행한다.
  *
- * LiveKit 서버가 필요 없다. createLocalTracks 는 내부적으로 getUserMedia 만 쓰므로
+ * LiveKit 서버가 필요 없다. 브라우저 native media API 만으로
  * BE 의 입장 토큰 없이도 장비 상태를 확인할 수 있다.
  *
  * 여기서 확보한 트랙을 useInterviewRoom 이 그대로 발행한다.
@@ -10,26 +10,19 @@
  * 전체화면 안내 UI 는 만들지 않는다 — 상태만 돌려주고 화면은 호출부가 결정한다.
  */
 
-import {
-  createLocalTracks,
-  LocalAudioTrack,
-  LocalVideoTrack,
-  MediaDeviceFailure,
-  type LocalTrack,
-} from 'livekit-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AudioCaptureOptions, VideoCaptureOptions } from 'livekit-client';
 
 /**
- * 캡처 설정. useInterviewRoom 의 Room 기본값도 이 상수를 쓴다 —
+ * 캡처 설정. useInterviewRoom 의 Room 기본값도 이 의미를 맞춰 쓴다 —
  * 프리뷰에서 잡은 트랙과 방에 발행하는 트랙의 설정이 어긋나면 안 되기 때문이다.
  */
-export const VIDEO_CAPTURE: VideoCaptureOptions = {
+export const VIDEO_CAPTURE: MediaTrackConstraints = {
   // 면접관은 지원자를 크게 보므로 원본 해상도를 유지한다.
-  resolution: { width: 1280, height: 720 },
+  width: { ideal: 1280 },
+  height: { ideal: 720 },
 };
 
-export const AUDIO_CAPTURE: AudioCaptureOptions = {
+export const AUDIO_CAPTURE: MediaTrackConstraints = {
   echoCancellation: true,
   noiseSuppression: true,
 };
@@ -50,8 +43,8 @@ export type PermissionStatus =
 
 export interface PermissionCheckResult {
   status: PermissionStatus;
-  videoTrack: LocalVideoTrack | null;
-  audioTrack: LocalAudioTrack | null;
+  videoTrack: MediaStreamTrack | null;
+  audioTrack: MediaStreamTrack | null;
   /** 원본 DOMException.name — 로그용. 정상이면 null */
   errorName: string | null;
   /**
@@ -64,13 +57,17 @@ export interface PermissionCheckResult {
 
 /** DOMException 을 화면이 구분할 수 있는 상태로 바꾼다. */
 function toStatus(error: unknown): PermissionStatus {
-  // 브라우저·버전별 별칭(PermissionDeniedError, TrackStartError 등)까지 라이브러리가 처리한다.
-  switch (MediaDeviceFailure.getFailure(error)) {
-    case MediaDeviceFailure.PermissionDenied:
+  const name = error instanceof Error ? error.name : '';
+  switch (name) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+    case 'SecurityError':
       return 'denied';
-    case MediaDeviceFailure.NotFound:
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
       return 'not-found';
-    case MediaDeviceFailure.DeviceInUse:
+    case 'NotReadableError':
+    case 'TrackStartError':
       return 'in-use';
     default:
       return 'failed';
@@ -79,8 +76,8 @@ function toStatus(error: unknown): PermissionStatus {
 
 const INITIAL = {
   status: 'requesting' as PermissionStatus,
-  videoTrack: null as LocalVideoTrack | null,
-  audioTrack: null as LocalAudioTrack | null,
+  videoTrack: null as MediaStreamTrack | null,
+  audioTrack: null as MediaStreamTrack | null,
   errorName: null as string | null,
 };
 
@@ -90,7 +87,7 @@ export function usePermissionCheck(): PermissionCheckResult {
   const [state, setState] = useState(INITIAL);
 
   /** cleanup 이 stop 해야 할 실제 트랙 목록 */
-  const tracksRef = useRef<LocalTrack[]>([]);
+  const tracksRef = useRef<MediaStreamTrack[]>([]);
   /** 소유권이 넘어갔는지. true 면 cleanup 은 stop 하지 않는다 */
   const releasedRef = useRef(false);
 
@@ -99,21 +96,24 @@ export function usePermissionCheck(): PermissionCheckResult {
 
     void (async () => {
       try {
-        const tracks = await createLocalTracks({ audio: AUDIO_CAPTURE, video: VIDEO_CAPTURE });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: AUDIO_CAPTURE,
+          video: VIDEO_CAPTURE,
+        });
+        const tracks = stream.getTracks();
 
         // getUserMedia 는 취소할 수 없다. StrictMode 1회차처럼 이미 정리된 뒤에
         // 도착한 트랙은 여기서 즉시 회수한다 — tracksRef 에 넣으면 2회차 트랙을 덮어쓴다.
         if (cancelled) {
-          tracks.forEach((t) => t.stop());
+          tracks.forEach((track) => track.stop());
           return;
         }
 
         tracksRef.current = tracks;
         setState({
           status: 'granted',
-          // 반환 타입이 LocalTrack[] 이라 kind 비교로는 타입이 좁혀지지 않는다.
-          videoTrack: tracks.find((t) => t instanceof LocalVideoTrack) ?? null,
-          audioTrack: tracks.find((t) => t instanceof LocalAudioTrack) ?? null,
+          videoTrack: tracks.find((track) => track.kind === 'video') ?? null,
+          audioTrack: tracks.find((track) => track.kind === 'audio') ?? null,
           errorName: null,
         });
       } catch (e) {
@@ -129,7 +129,7 @@ export function usePermissionCheck(): PermissionCheckResult {
 
     return () => {
       cancelled = true;
-      if (!releasedRef.current) tracksRef.current.forEach((t) => t.stop());
+      if (!releasedRef.current) tracksRef.current.forEach((track) => track.stop());
       tracksRef.current = [];
     };
   }, []);

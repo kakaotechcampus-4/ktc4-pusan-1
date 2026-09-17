@@ -7,7 +7,6 @@
  * 제외: S1 기업 컨텍스트, S3 면접 기록, S4 지원자 목록
  */
 
-import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
 import { useRef, useState } from 'react';
 import { InterviewRoomView } from '../components/interview/InterviewRoomView';
 import { useInterviewRoom } from '../hooks/useInterviewRoom';
@@ -25,8 +24,8 @@ export interface InterviewRoomProps {
    * 한쪽을 stop 해도 다른 쪽이 살아 있어 카메라 표시등이 꺼지지 않는다.
    * LocalPreview 에도 같은 이유로 훅을 부르지 말라는 주석이 달려 있다.
    */
-  videoTrack: LocalVideoTrack | null;
-  audioTrack: LocalAudioTrack | null;
+  videoTrack: MediaStreamTrack | null;
+  audioTrack: MediaStreamTrack | null;
   /** 통화 종료 후 면접 기록(S3)으로 이동 */
   onEnded: (result: EndSessionResponse | null) => void;
 }
