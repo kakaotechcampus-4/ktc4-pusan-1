@@ -5,11 +5,20 @@ camelCase keys from the Backend agreement, so renaming a field here fails the
 suite instead of failing a request at the interview.
 """
 
+from datetime import UTC, datetime
+
 import pytest
 from pydantic import ValidationError
 
+from irya_ai.schemas.analysis import SuggestedQuestion
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
-from irya_ai.schemas.wire import TranscriptPayload, transcript_payload
+from irya_ai.schemas.wire import (
+    SuggestionPayload,
+    SuggestionType,
+    TranscriptPayload,
+    suggestion_payload,
+    transcript_payload,
+)
 
 
 def utterance(**overrides) -> Utterance:
@@ -119,3 +128,61 @@ def test_the_payload_reads_the_agreed_keys_back() -> None:
 
     assert payload.speaker is SpeakerRole.INTERVIEWER
     assert payload.text == "인턴 경험을 설명해주세요."
+
+
+# --- suggestions ------------------------------------------------------------
+
+
+def question(**overrides) -> SuggestedQuestion:
+    fields = {
+        "question_id": "sug_001",
+        "session_id": "ses_123",
+        "qa_id": "qa_003",
+        "content": "말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
+        "reason": "지원자가 캐시를 언급했습니다.",
+        "evidence_utterance_ids": ["utt_001", "utt_002"],
+        "generated_at": datetime(2026, 9, 18, 9, 0, tzinfo=UTC),
+    }
+    return SuggestedQuestion(**{**fields, **overrides})
+
+
+def test_the_suggestion_payload_serialises_to_the_agreed_keys() -> None:
+    payload = suggestion_payload(question())
+
+    assert payload.model_dump(by_alias=True) == {
+        "suggestionId": "sug_001",
+        "type": "FOLLOW_UP",
+        "content": "말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
+        "evidenceUtteranceIds": ["utt_001", "utt_002"],
+    }
+
+
+def test_the_suggestion_payload_leaves_the_pipeline_s_own_fields_at_home() -> None:
+    """``reason`` is for the interviewer; ``status`` is Backend's to keep."""
+
+    keys = set(suggestion_payload(question()).model_dump())
+
+    assert keys.isdisjoint({"reason", "status", "qa_id", "session_id", "asked_at"})
+
+
+def test_a_suggestion_without_evidence_cannot_be_put_on_the_wire() -> None:
+    """The grounding gate runs first, but the contract refuses it too."""
+
+    with pytest.raises(ValidationError):
+        suggestion_payload(question(evidence_utterance_ids=[]))
+
+
+def test_the_suggestion_payload_refuses_a_key_the_contract_never_agreed() -> None:
+    with pytest.raises(ValidationError):
+        SuggestionPayload(
+            suggestionId="sug_001",
+            type="FOLLOW_UP",
+            content="더 여쭤보세요.",
+            evidenceUtteranceIds=["utt_001"],
+            qaId="qa_003",
+        )
+
+
+def test_the_only_type_the_meeting_showed_is_the_default() -> None:
+    assert [t.value for t in SuggestionType] == ["FOLLOW_UP"]
+    assert suggestion_payload(question()).type is SuggestionType.FOLLOW_UP

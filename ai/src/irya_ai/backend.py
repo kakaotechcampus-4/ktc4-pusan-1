@@ -16,7 +16,10 @@ fails. A transcript cannot be re-derived once the audio is gone, so dropping
 one loses it for good - but whether the Agent buffers, replays or gives up is
 not agreed with Backend yet, and guessing here would bury the choice in a
 retry loop. :meth:`BackendClient.post_transcript` retries what can plausibly
-answer differently and then raises, leaving the decision to its caller.
+answer differently and then raises, leaving the decision to its caller. The
+same applies to :meth:`BackendClient.post_suggestion`, which has an easier
+answer: a follow-up question that arrives after the moment has passed is worse
+than one that never arrives.
 """
 
 import asyncio
@@ -27,7 +30,7 @@ from pydantic import SecretStr
 
 from irya_ai.config import Settings
 from irya_ai.schemas.base import CamelModel
-from irya_ai.schemas.wire import TranscriptPayload
+from irya_ai.schemas.wire import SuggestionPayload, TranscriptPayload
 from irya_ai.stt.http_logging import protect_host
 
 logger = logging.getLogger(__name__)
@@ -95,6 +98,25 @@ class BackendClient:
         await self._send(
             "POST",
             f"/internal/v1/sessions/{_path_segment(session_id)}/transcripts",
+            payload,
+        )
+
+    async def post_suggestion(
+        self, session_id: str, payload: SuggestionPayload
+    ) -> None:
+        """Send one follow-up to ``POST .../sessions/{sessionId}/suggestions``.
+
+        Same failure contract as :meth:`post_transcript`, and the same caveat
+        about ``BACKEND_INVALID_SESSION_ID`` arriving as a ``BackendError``.
+        What differs is what a final failure costs: a suggestion is only worth
+        anything while the answer that prompted it is still on screen, so a
+        caller that buffers one to replay later is buffering something that
+        will arrive stale. Dropping it is the reasonable default.
+        """
+
+        await self._send(
+            "POST",
+            f"/internal/v1/sessions/{_path_segment(session_id)}/suggestions",
             payload,
         )
 
