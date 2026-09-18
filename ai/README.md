@@ -39,11 +39,21 @@ chmod 600 .env
 | `ELICE_STT_MODEL` | STT 모델 이름 | `whisper-large-v3` |
 | `ELICE_STT_LANGUAGE` | 전사 언어. ISO 코드가 아니라 단어입니다 | `korean` |
 | `ELICE_STT_TIMEOUT_SECONDS` | STT 요청 제한 시간(초), 0 초과 300 이하 | `60` |
+| `CARTESIA_API_KEY` | 서버 측 Cartesia 스트리밍 STT API Key | 없음 |
+| `CARTESIA_STT_MODEL` | 스트리밍 STT 모델 이름. `ink-whisper` 외에는 거부합니다 | `ink-whisper` |
+| `CARTESIA_STT_LANGUAGE` | 스트리밍 전사 언어. Elice와 달리 ISO 코드입니다 | `ko` |
 
 분석만 실행할 때는 LiveKit·Elice 접속 정보를 채울 필요가 없습니다.
 Elice STT만 사용할 때는 LiveKit·OpenAI 키가 필요 없습니다. 리뷰 타임라인은 별도의
 `LLM_BASE_URL`·`LLM_API_KEY`·`LLM_MODEL` 설정으로 Elice LLM을 호출합니다.
 기존 `analyze` 명령의 `OPENAI_MODEL` 경로와 구분하며 `ELICE_LLM_MODEL`은 사용하지 않습니다.
+
+Cartesia는 배치 HTTP가 아니라 WebSocket 스트리밍이라 Elice STT와 함께 쓰는 값이 아니라
+둘 중 하나를 고르는 값입니다. `CARTESIA_STT_MODEL`은 `ink-whisper`만 받습니다.
+`ink-2`는 영어 전용이라 한국어를 영어 음절로 옮기고 구간 시각을 전혀 돌려주지 않아,
+그대로 받으면 면접 전체가 0초에 놓인 채 값은 숫자처럼 보입니다. 엔드포인트는 Cartesia의
+공개 호스트라 `ELICE_STT_BASE_URL`과 달리 비공개 값이 아니고, 아래 `protect_host()`
+장치의 대상도 아닙니다.
 
 ### 로그와 배포 주소
 
