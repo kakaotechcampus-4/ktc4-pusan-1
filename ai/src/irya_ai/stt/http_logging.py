@@ -35,7 +35,7 @@ from urllib.parse import urlsplit
 
 # What a protected host is replaced with. Recognisable in a log, and not a
 # value that could be mistaken for a real host somebody might try to reach.
-REDACTED_HOST = "<stt-deployment>"
+REDACTED_HOST = "<redacted-host>"
 
 # Every logger ``httpx`` and ``httpcore`` write to. A filter only runs on the
 # logger that created the record - ancestors contribute handlers, not filters

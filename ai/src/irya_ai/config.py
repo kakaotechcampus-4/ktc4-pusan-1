@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     llm_reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
     llm_timeout_seconds: float = Field(default=60, gt=0, le=300)
 
+    # Backend internal API (``/internal/v1``). The Agent posts transcripts and
+    # suggestions here and reads interview context back. The URL names a
+    # private deployment, so it is read from the environment like a credential.
+    # How the Agent authenticates is not settled with Backend yet: an unset key
+    # means no ``Authorization`` header at all, not an empty one.
+    backend_base_url: str = ""
+    backend_api_key: SecretStr = SecretStr("")
+    backend_timeout_seconds: float = Field(default=10, gt=0, le=60)
+
     @field_validator("llm_base_url")
     @classmethod
     def _base_url_ends_with_v1(cls, value: str) -> str:
