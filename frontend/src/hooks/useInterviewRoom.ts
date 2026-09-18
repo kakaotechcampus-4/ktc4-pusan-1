@@ -22,6 +22,7 @@ import {
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
 import { endSession, joinSession } from '../api/interview';
+import { parseTranscriptEvent, TRANSCRIPT_TOPIC } from '../lib/transcriptStream';
 import { useInterviewStore } from '../stores/interviewStore';
 import type { Role, Speaker } from '../types/interview';
 import { AUDIO_CAPTURE, VIDEO_CAPTURE } from './usePermissionCheck';
@@ -78,7 +79,7 @@ export function useInterviewRoom({
 
     // 액션은 참조가 고정되어 있다. 구독하면 전사 델타마다 화면 전체가 리렌더되므로
     // 훅에서는 getState() 로 꺼내 쓰고 스토어를 구독하지 않는다.
-    const { setSession, setConnection, setRemoteJoined, setSpeaking, reset } =
+    const { setSession, setConnection, setRemoteJoined, setSpeaking, applyStreamEvent, reset } =
       useInterviewStore.getState();
 
     // 1:1 이므로 참가자는 둘뿐이다. 내 역할이 정해지면 상대 역할도 정해진다.
@@ -96,6 +97,23 @@ export function useInterviewRoom({
       audioCaptureDefaults: AUDIO_CAPTURE,
     });
     roomRef.current = room;
+
+    // AI Worker는 자막을 면접관 identity에만 보내며, 한 FINAL을 text stream
+    // 하나로 보낸다. handler를 connect 전에 등록해야 첫 발화를 놓치지 않는다.
+    // 여러 stream이 가까이 와도 받은 순서대로 store에 적용한다.
+    let transcriptQueue = Promise.resolve();
+    if (role === 'INTERVIEWER') {
+      room.registerTextStreamHandler(TRANSCRIPT_TOPIC, (reader) => {
+        transcriptQueue = transcriptQueue
+          .then(async () => {
+            const event = parseTranscriptEvent(await reader.readAll());
+            if (!cancelled && event) applyStreamEvent(event);
+          })
+          .catch((e: unknown) => {
+            if (!cancelled) console.warn('전사 스트림 수신 실패', e);
+          });
+      });
+    }
 
     /* 지원자 트랙 붙이기 — participant는 2명뿐이므로 원격 참가자는 항상 지원자다 */
     const attach = (track: RemoteTrack) => {
@@ -183,9 +201,8 @@ export function useInterviewRoom({
           });
         });
 
-        /* --- 전사·추천 질문 연결 ---
-           BE API 명세에 WebSocket 경로가 없어 아직 연결하지 않는다 (AI #7).
-           경로가 생기면 여기서 붙인다 — 통화와 분리해 두어 전사가 죽어도 통화는 유지된다. */
+        /* 전사는 위의 LiveKit text stream handler가 받는다. 통화 트랙과 별도라
+           Cartesia나 AI Worker가 끊겨도 이 Room 연결은 유지된다. */
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof ApiError ? e.code : 'CONNECT_FAILED');
