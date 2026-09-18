@@ -19,12 +19,15 @@ def test_get_session(client: TestClient, session_id: str):
         "status",
         "startedAt",
         "endedAt",
+        "transcriptOriginAt",
     }
     assert body["sessionId"] == session_id
     assert body["candidateName"] is None
     assert body["status"] == "WAITING"
     assert body["startedAt"] is None
     assert body["endedAt"] is None
+    # Webhook 이 오기 전까지는 비어 있다.
+    assert body["transcriptOriginAt"] is None
 
 
 def test_get_unknown_session(client: TestClient):

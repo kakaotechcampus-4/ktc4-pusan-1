@@ -89,9 +89,9 @@ class PostgresStore:
                 """
                 INSERT INTO session (
                     id, interview_id, status, created_at,
-                    started_at, ended_at
+                    started_at, ended_at, transcript_origin_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 self._session_values(session),
             )
@@ -100,7 +100,7 @@ class PostgresStore:
         row = self._one(
             """
             SELECT id, interview_id, status, created_at,
-                   started_at, ended_at
+                   started_at, ended_at, transcript_origin_at
             FROM session WHERE id = %s
             """,
             (session_id,),
@@ -114,6 +114,7 @@ class PostgresStore:
             created_at=row["created_at"],
             started_at=row["started_at"],
             ended_at=row["ended_at"],
+            transcript_origin_at=row["transcript_origin_at"],
         )
 
     def save_session(self, session: Session) -> None:
@@ -124,13 +125,15 @@ class PostgresStore:
                 UPDATE session
                    SET status = %s,
                        started_at = %s,
-                       ended_at = %s
+                       ended_at = %s,
+                       transcript_origin_at = %s
                  WHERE id = %s
                 """,
                 (
                     session.status.value,
                     session.started_at,
                     session.ended_at,
+                    session.transcript_origin_at,
                     session.id,
                 ),
             )
@@ -146,6 +149,7 @@ class PostgresStore:
             session.created_at,
             session.started_at,
             session.ended_at,
+            session.transcript_origin_at,
         )
 
     def _one(

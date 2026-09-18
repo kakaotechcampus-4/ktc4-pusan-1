@@ -29,3 +29,10 @@ CREATE TABLE IF NOT EXISTS session (
 
 -- 면접 하나에 세션이 여럿이다. 면접 기준 조회가 생길 때를 위해 걸어 둔다.
 CREATE INDEX IF NOT EXISTS session_interview_id_idx ON session (interview_id);
+
+-- 전사 타임라인 원점(t=0). 첫 참가자 입장 시각을 LiveKit Webhook 이 채운다.
+-- started_at 과 다른 값이다 (자세한 이유는 domain/models.py 주석 참고).
+--
+-- CREATE TABLE 안이 아니라 ALTER 로 둔다. 이미 테이블이 만들어진 환경에서도
+-- 기동 한 번으로 따라붙어야 하고, IF NOT EXISTS 라 여러 번 돌려도 안전하다.
+ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_origin_at TIMESTAMPTZ;

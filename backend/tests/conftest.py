@@ -23,6 +23,7 @@ class FakeMedia:
         self.rooms: list[str] = []
         self.closed: list[str] = []
         self.participants = 0
+        self.webhook_event: object | None = None
 
     async def ensure_room(self, room: str) -> None:
         self.rooms.append(room)
@@ -32,6 +33,16 @@ class FakeMedia:
 
     async def close_room(self, room: str) -> None:
         self.closed.append(room)
+
+    def verify_webhook(self, body: str, auth_header: str):
+        """서명 검증 대역.
+
+        `auth_header` 를 그대로 신뢰한다 — 실제 검증은 SDK 몫이고, 여기서
+        보려는 건 라우터가 이벤트를 어떻게 처리하는지다. 빈 헤더는 실패로 둔다.
+        """
+        if not auth_header:
+            return None
+        return self.webhook_event
 
     def issue_token(self, room: str, role: Role) -> IssuedToken:
         return IssuedToken(

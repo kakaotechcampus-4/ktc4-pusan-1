@@ -59,8 +59,19 @@ class SessionStateResponse(Schema):
     interview_id: str = Field(serialization_alias="interviewId")
     candidate_name: str | None = Field(serialization_alias="candidateName")
     status: SessionStatus
-    started_at: datetime | None = Field(serialization_alias="startedAt")
+    started_at: datetime | None = Field(
+        serialization_alias="startedAt",
+        description="「면접 시작」 버튼을 누른 시각. 안 누르고 끝나면 비어 있다.",
+    )
     ended_at: datetime | None = Field(serialization_alias="endedAt")
+    transcript_origin_at: datetime | None = Field(
+        serialization_alias="transcriptOriginAt",
+        description=(
+            "전사 타임라인의 원점(t=0). 첫 참가자가 입장한 시각이고 "
+            "LiveKit Webhook 이 채운다. AI 의 startMs 와 FE 의 atSec 은 "
+            "단위만 다르고 원점은 이 값을 쓴다. startedAt 과는 다른 값이다."
+        ),
+    )
 
 
 class StartSessionResponse(Schema):
