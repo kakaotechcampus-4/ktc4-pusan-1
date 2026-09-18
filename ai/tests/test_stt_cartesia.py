@@ -212,12 +212,19 @@ async def test_a_track_offset_moves_the_utterance_onto_the_session_clock() -> No
     ordering = SessionOrdering()
     ordering.register("trk_interviewer")
     candidate = ordering.register("trk_candidate", offset_ms=30_000)
-    stream = stream_for(ordering=candidate)
+    ticks = iter([100.0, 102.5])  # stream opened, then the final arrived
+    stream = stream_for(ordering=candidate, clock=lambda: next(ticks))
 
     utterances = await collect(stream, final("늦게 들어왔습니다", 1.0, 2.0))
 
     assert utterances[0].start_ms == 31_000
     assert utterances[0].end_ms == 32_000
+    # ``EventTiming`` mixes two origins on purpose: the span is on the session
+    # clock like the utterance, but the lag is a duration, so the offset must
+    # not enter it. Same arrival on a solo track, same 500ms.
+    timing = stream.timings[0]
+    assert (timing.start_ms, timing.end_ms) == (31_000, 32_000)
+    assert timing.lag_ms == 500
 
 
 async def test_two_tracks_interleave_on_one_session_timeline() -> None:
