@@ -319,6 +319,19 @@ async def test_lag_is_measured_from_the_stream_clock_not_the_wall_clock() -> Non
     assert stream.timings[0].utterance_id == "utt_trk_candidate_0000"
 
 
+async def test_explicit_start_is_not_moved_when_event_iteration_begins() -> None:
+    """The RTC bridge starts the clock at its first pushed audio frame."""
+
+    ticks = iter([100.0, 102.5])
+    stream = stream_for(clock=lambda: next(ticks))
+
+    stream.start()
+    stream.start()  # idempotent: a second caller must not move the origin
+    await collect(stream, final("레디스로 캐시를", 0.0, 2.0))
+
+    assert [t.lag_ms for t in stream.timings] == [500]
+
+
 async def test_rejections_keep_the_span_and_the_reason_and_no_text() -> None:
     """A rejected event's text is unvetted, and NO_TIMING's is actively wrong."""
 

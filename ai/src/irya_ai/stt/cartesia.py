@@ -156,9 +156,10 @@ class EventTiming:
     ``request_ended_at - ready_at`` only in spirit - that one is bounded by a
     segmenter waiting for 700ms of silence before it even starts a request.
 
-    It stops at the edge of this process. There is no browser receipt or render
-    time in it, because this repository still has no browser path, and a number
-    that stopped here would be reported as a reader's experience.
+    It stops at the edge of this process. The LiveKit text-stream bridge now
+    delivers the result to the browser, but receipt and render time are not
+    measured here; a number that stopped here must not be reported as a
+    reader's experience.
     """
 
     index: int
@@ -231,6 +232,19 @@ class CartesiaTranscriptionStream:
         self._last_start_ms: int | None = None
         self._started_at: float | None = None
 
+    def start(self) -> None:
+        """Pin the provider stream's wall-clock origin.
+
+        The LiveKit bridge calls this immediately before it pushes the first
+        audio frame. Direct consumers do not have to call it: ``utterances``
+        falls back to pinning the origin when iteration begins. Keeping the
+        operation idempotent makes it safe for the bridge to start the clock
+        before the receive task begins without that task moving it again.
+        """
+
+        if self._started_at is None:
+            self._started_at = self._clock()
+
     async def utterances(
         self, events: AsyncIterable[livekit_stt.SpeechEvent]
     ) -> AsyncIterator[Utterance]:
@@ -240,13 +254,14 @@ class CartesiaTranscriptionStream:
         time for a span it has already closed - so unlike the Elice path there
         is no barrier holding a finished result back to wait for an older one.
 
-        Iterating is what starts this track's clock, and that is the same
-        instant the module docstring requires the first audio frame to be
-        pushed at. Both the ``lag_ms`` readings and the provider's own
-        timestamps are measured from it.
+        Iterating starts this track's clock unless :meth:`start` already pinned
+        it. The LiveKit bridge uses the explicit form so the origin is the
+        first pushed audio frame rather than task scheduling a little before
+        or after it. Both the ``lag_ms`` readings and the provider's own
+        timestamps are measured from that instant.
         """
 
-        self._started_at = self._clock()
+        self.start()
         async for event in events:
             if event.type is livekit_stt.SpeechEventType.INTERIM_TRANSCRIPT:
                 self.interim_seen += 1

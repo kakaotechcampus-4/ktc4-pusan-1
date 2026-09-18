@@ -1,13 +1,16 @@
 # IRYA AI
 
-PCM 청킹·Elice STT와 전사 기반 Q&A·근거·요약을 제공하는 파트입니다. LiveKit 입력과 BE/FE 전송은 아직 연결되지 않았습니다. 현재 구현·수명·측정 정의는 [STT 파이프라인](docs/stt-pipeline.md), 검증 범위는 [STT 리뷰 기록](docs/stt-review.md)을 참고하세요.
+LiveKit 기반 Cartesia 실시간 전사, PCM 청킹·Elice 배치 전사와 전사 기반
+Q&A·근거·요약을 제공하는 파트입니다. 현재 구현·수명·측정 정의는
+[STT 파이프라인](docs/stt-pipeline.md), 검증 범위는
+[STT 리뷰 기록](docs/stt-review.md)을 참고하세요.
 
 ## Requirements
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
 - Elice STT 실행 시 서버 측 Elice API Key와 배포 주소
-- 향후 LiveKit 입력 연결 시 LiveKit 서버 접속 정보
+- 실시간 전사 실행 시 LiveKit 서버 접속 정보와 Cartesia API Key
 - GPT 분석 실행 시 OpenAI API Key (오프라인 데모에는 불필요)
 
 Python은 `ai/.python-version`의 3.12를 사용합니다. 로컬에 설치되어 있지 않으면 `uv`가 필요한 버전을 설치할 수 있습니다.
@@ -54,6 +57,30 @@ Cartesia는 배치 HTTP가 아니라 WebSocket 스트리밍이라 Elice STT와 �
 그대로 받으면 면접 전체가 0초에 놓인 채 값은 숫자처럼 보입니다. 엔드포인트는 Cartesia의
 공개 호스트라 `ELICE_STT_BASE_URL`과 달리 비공개 값이 아니고, 아래 `protect_host()`
 장치의 대상도 아닙니다.
+
+## LiveKit 실시간 전사 Worker
+
+AI Worker는 LiveKit 방에 프로그램 참가자로 자동 입장해 두 사람의 마이크 트랙을
+직접 구독합니다. 프레임은 mono 16kHz로 Cartesia `ink-whisper`에 전달하고, FINAL은
+기존 `Utterance`를 거쳐 `irya.transcript.v1` text stream으로 **면접관에게만**
+전송합니다. 별도 AI HTTP 서버나 BE 음성 중계는 없습니다.
+
+```bash
+# LiveKit·Cartesia 값을 ai/.env에 채운 뒤 로컬 개발 실행
+uv run python -m irya_ai.worker dev
+
+# 운영 모드
+uv run python -m irya_ai.worker start
+```
+
+Docker 배포에서는 `infra/docker-compose.yml`의 `ai` 서비스가 같은 작업을 합니다.
+LiveKit text stream에는 영구 저장이 없으므로 이 경로는 면접 중 자막 전용입니다.
+녹화 기반 재전사·면접 종료 후 저장은 아직 연결되지 않았습니다. Worker나 Cartesia가
+실패해도 LiveKit 통화와 녹화는 종료하지 않습니다.
+
+자막의 `at`은 현재 방에서 처음 확인한 사람의 LiveKit 입장 시각을 기준으로 한 잠정
+표시값입니다. 녹화 0프레임과의 offset 및 최종 seek 기준은 아직 팀 계약이 아니므로,
+이 값을 확정 전사나 영상 탐색 기준으로 저장하지 않습니다.
 
 ### 로그와 배포 주소
 
@@ -129,6 +156,7 @@ uv run ruff format --check .
 src/irya_ai/
 ├── config.py          환경변수 설정
 ├── cli.py             로컬 개발용 CLI (irya-ai)
+├── worker.py          LiveKit 방 자동 입장과 트랙별 STT 작업
 ├── schemas/           파이프라인 입출력 계약 (Pydantic)
 │   ├── transcript.py  Track · Utterance · Word · TranscriptSnapshot
 │   ├── context.py     Company · JobDescription · Competency · Rubric · Candidate · Resume · ResumeClaim
@@ -136,7 +164,7 @@ src/irya_ai/
 │   ├── summary.py     SummaryPoint · SummaryResult · AnalysisResult
 │   └── timeline.py    Moment · TimelineResult (리뷰 타임라인)
 ├── pipeline/          Q&A 구조화 · 근거 접지
-├── stt/               PCM 청킹 · Elice HTTP · 세션 정렬 · 비동기 전사 스트림
+├── stt/               LiveKit 구독 · Cartesia 스트림 · Elice 배치 · 세션 정렬
 ├── analysis.py        Snapshot 한 건의 분석과 상태 처리
 ├── summarize.py       요약 인터페이스 · 오프라인 추출형 요약
 ├── openai_summary.py  OpenAI 구조화 요약
@@ -146,9 +174,9 @@ src/irya_ai/
 data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데이터)
 ```
 
-현재 STT 구현은 Elice Whisper를 시험합니다. 기존 요약은 OpenAI 경로를, 리뷰 타임라인은
-별도의 Elice LLM 경로를 사용합니다. 이것을 팀의 최종 모델 선정으로 간주하지 않습니다.
-분석 모듈은 `TranscriptSnapshot`을 받으며 STT `Utterance`를 수집·전달하는 통합 계층은 후속 작업입니다.
+실시간 자막은 Cartesia `ink-whisper`, 녹화 재전사 후보는 Elice Whisper로 경로를
+분리합니다. 기존 요약은 OpenAI 경로를, 리뷰 타임라인은 별도의 Elice LLM 경로를
+사용합니다. 실시간 text stream은 영구 전사 저장이나 사후 분석 입력을 대신하지 않습니다.
 
 2026-09-13 AI 회의에서 **전사 문장의 LLM 교정·재작성 후처리를 제외**하기로 했습니다.
 Q&A 구조화·근거 검증·면접 요약은 별도 분석 범위로 유지하고 자막 표시 전에 기다리지 않습니다.
