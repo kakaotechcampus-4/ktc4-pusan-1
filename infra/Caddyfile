@@ -1,0 +1,39 @@
+irya.cloud {
+	# handle 블록은 작성 순서가 아니라 매처 기준으로 정렬되고, 매처 없는 블록이
+	# fallback 이 됩니다. 그래서 위치가 아니라 "같은 단계의 handle 로 나누는 것"이
+	# 요점입니다. 정적 파일 지시어는 fallback 블록 안에 두어야 지시어 정렬 때문에
+	# 프록시보다 먼저 경로가 바뀌는 일이 없습니다.
+	#
+	# handle_path 는 쓰지 않습니다 — 접두사를 떼어내면 LiveKit 에 원래 경로가
+	# 전달되지 않습니다.
+
+	# LiveKit 시그널링. SDK 가 쓰는 경로는 /rtc/v1 과 /rtc/v1/validate 라
+	# /rtc 만 매칭하면 놓칩니다.
+	handle /rtc* {
+		reverse_proxy livekit:7880
+	}
+
+	# /twirp(RoomService 관리 API)는 일부러 열지 않습니다. BE 가 같은 compose
+	# 네트워크에서 LIVEKIT_INTERNAL_URL 로 직접 부르므로 밖으로 낼 이유가 없습니다.
+	# 여기로 프록시하면 방 생성·강제퇴장 API 가 인터넷에 노출됩니다.
+
+	# Backend API. FastAPI 가 /api/v1 을 스스로 붙이므로 접두사를 떼지 않고
+	# 원본 경로를 그대로 넘깁니다.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# BE 생존 확인. FastAPI 의 /health 는 /api 밖에 있어 따로 잡아 주지 않으면
+	# 아래 fallback 이 SPA 의 index.html 을 돌려줍니다. compose healthcheck 는
+	# 컨테이너 안에서만 도는 검사라, "Caddy 를 거쳐 BE 까지 살아 있는가" 를
+	# 밖에서 확인하려면 인증 없는 경로가 하나 필요합니다.
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		root * /site
+		try_files {path} /index.html
+		file_server
+	}
+}

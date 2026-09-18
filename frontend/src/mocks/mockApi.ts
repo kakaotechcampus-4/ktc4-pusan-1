@@ -11,10 +11,13 @@
  */
 
 import type {
+  CompanyContext,
+  ContextDoc,
   CreateSessionResponse,
   Interview,
   InterviewSummary,
   JoinSessionResponse,
+  ReviewResponse,
   SessionState,
   StartSessionResponse,
 } from '../types/interview';
@@ -45,19 +48,96 @@ const nextId = (prefix: string) => `${prefix}_${(++seq).toString().padStart(3, '
 
 /** 생성한 면접을 기억해 둔다. 조회가 같은 값을 돌려주게 하기 위해서다. */
 const interviews = new Map<string, Interview>();
+const sessionInterviewIds = new Map<string, string>();
 
 /** 요약 조회 횟수. 생성 중 상태를 몇 번 보여줄지 세는 데 쓴다. */
 const summaryPolls = new Map<string, number>();
 
+/** 면접 기록 조회 횟수. 준비 중 상태를 몇 번 보여줄지 센다. */
+const reviewPolls = new Map<string, number>();
+
+/* ── 기업 컨텍스트 (S1) ───────────────────────────────────
+   업로드한 문서를 담아 둔다. 파싱은 시간이 걸리는 작업이므로
+   `readyAt` 이 지나야 ready 로 바뀐다 — 폴링이 실제로 동작하는지 보려면 필요하다. */
+
+const PARSE_MS = 4000;
+
+interface StoredDoc extends ContextDoc {
+  readyAt: number;
+}
+
+const docs = new Map<string, StoredDoc>();
+
+/** 저장된 문서를 현재 시각 기준 상태로 바꿔 돌려준다. */
+function viewDocs(): ContextDoc[] {
+  const now = Date.now();
+  return [...docs.values()].map(({ readyAt, ...doc }) => ({
+    ...doc,
+    status: now >= readyAt ? 'ready' : 'parsing',
+  }));
+}
+
+/**
+ * 업로드 목. 진행률을 조금씩 올려 실제 업로드처럼 보이게 한다.
+ * XHR 은 request() 를 거치지 않으므로 api/context.ts 가 직접 부른다.
+ */
+export async function handleMockUpload(
+  file: File,
+  onProgress: (ratio: number) => void,
+): Promise<ContextDoc> {
+  for (let i = 1; i <= 10; i++) {
+    await delay(120);
+    onProgress(i / 10);
+  }
+
+  const id = nextId('doc');
+  const kind = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx';
+  const stored: StoredDoc = {
+    id,
+    name: file.name,
+    kind,
+    sizeBytes: file.size,
+    status: 'parsing',
+    readyAt: Date.now() + PARSE_MS,
+  };
+  docs.set(id, stored);
+
+  // 업로드 직후에는 아직 읽는 중이다. readyAt 은 서버 내부 값이라 내보내지 않는다.
+  return viewDocs().find((d) => d.id === id) ?? { ...stored, status: 'parsing' };
+}
+
 export async function handleMock(path: string, init?: RequestInit): Promise<unknown | null> {
   const method = init?.method ?? 'GET';
 
+  const context = /^\/api\/v1\/contexts\/([^/]+)$/.exec(path);
+  if (context && method === 'GET') {
+    await delay(200);
+    return {
+      id: context[1],
+      company: '엘리스',
+      team: '플랫폼',
+      role: '백엔드 엔지니어',
+      docs: viewDocs(),
+    } satisfies CompanyContext;
+  }
+
+  const deleteDocPath = /^\/api\/v1\/contexts\/[^/]+\/docs\/([^/]+)$/.exec(path);
+  if (deleteDocPath && method === 'DELETE') {
+    await delay(400);
+    docs.delete(deleteDocPath[1]);
+    return undefined;
+  }
+
   if (path === '/api/v1/interviews' && method === 'POST') {
     await delay(400);
-    const body = JSON.parse(String(init?.body ?? '{}')) as { interviewerId?: string };
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      interviewerId?: string;
+      candidateName?: string;
+    };
     const interview: Interview = {
       interviewId: nextId('int'),
       interviewerId: body.interviewerId ?? 'user_mock',
+      candidateName: body.candidateName?.trim() || null,
       createdAt: new Date().toISOString(),
     };
     interviews.set(interview.interviewId, interview);
@@ -74,9 +154,12 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
   if (createSession && method === 'POST') {
     await delay(500);
     const sessionId = nextId('ses');
+    const interview = interviews.get(createSession[1]);
+    sessionInterviewIds.set(sessionId, createSession[1]);
     return {
       sessionId,
       interviewId: createSession[1],
+      candidateName: interview?.candidateName ?? null,
       status: 'WAITING',
       // 명세 예시는 https://irya.com/... 이지만, 목에서는 현재 오리진으로 만든다.
       // 그래야 복사한 링크를 다른 탭에서 실제로 열어볼 수 있다.
@@ -107,6 +190,8 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
 
     return {
       sessionId,
+      candidateName:
+        interviews.get(sessionInterviewIds.get(sessionId) ?? '')?.candidateName ?? null,
       // 실제 접속은 하지 않는다. useInterviewRoom 이 이 URL 로 connect 를 시도하면
       // 실패하므로, 프로토타입에서는 면접 화면이 목 이벤트로만 동작한다.
       livekitUrl: 'wss://mock.livekit.local',
@@ -121,6 +206,7 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
     return {
       sessionId: state[1],
       interviewId: 'int_mock',
+      candidateName: interviews.get(sessionInterviewIds.get(state[1]) ?? '')?.candidateName ?? null,
       status: 'INTERVIEWING',
       startedAt: new Date().toISOString(),
       endedAt: null,
@@ -161,6 +247,73 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
       },
       durationSec: 31,
     } satisfies InterviewSummary;
+  }
+
+  /* 면접 기록 (S3) — 요약과 같이 처음 두 번은 준비 중으로 응답한다. */
+  const review = /^\/api\/v1\/interviews\/([^/]+)\/review$/.exec(path);
+  if (review && method === 'GET') {
+    await delay(400);
+    const interviewId = review[1];
+    const polls = (reviewPolls.get(interviewId) ?? 0) + 1;
+    reviewPolls.set(interviewId, polls);
+
+    if (polls <= 2) return { status: 'PROCESSING', etaSec: 90 } satisfies ReviewResponse;
+
+    return {
+      status: 'READY',
+      interviewId,
+      candidate: { name: '김지원', role: '백엔드 엔지니어' },
+      // 녹화 목은 공개 테스트 스트림이라 면접 내용과 무관한 영상이다.
+      // 길이(10:34)만 맞춰 두어 타임라인 위치가 실제 재생 시점과 일치하게 했다.
+      durationSec: 634,
+      recording: { hlsUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8' },
+      moments: [
+        {
+          id: 'm1',
+          atSec: 15,
+          label: '자기소개',
+          question: '간단히 자기소개 부탁드립니다.',
+          answer:
+            '3년차 백엔드 개발자로, 실시간 스트리밍 파이프라인을 주로 맡아 왔다고 소개했습니다.',
+        },
+        {
+          id: 'm2',
+          atSec: 118,
+          label: '처리량',
+          question: '초당 2만 건을 처리했다고 하셨는데, 어떤 구조였나요?',
+          answer:
+            'Kafka 파티션을 늘리고 컨슈머를 수평 확장했다고 답했습니다. 병목 지점은 언급하지 않았습니다.',
+        },
+        {
+          id: 'm3',
+          atSec: 262,
+          label: '장애 대응',
+          question: '가장 기억에 남는 장애와 대응 과정을 말씀해 주세요.',
+          answer:
+            '컨슈머 지연으로 알림이 늦어진 사례를 들었고, 재처리 큐를 두어 복구했다고 설명했습니다.',
+        },
+        {
+          id: 'm4',
+          atSec: 405,
+          label: '개인 기여',
+          question: '그 작업에서 본인이 직접 맡은 부분은 어디까지인가요?',
+          answer: '설계 논의에 참여했다고 했으나, 직접 구현한 범위는 구체적으로 답하지 않았습니다.',
+        },
+        {
+          id: 'm5',
+          atSec: 560,
+          label: '질문',
+          question: '마지막으로 궁금한 점 있으신가요?',
+          answer: '팀의 온콜 방식과 코드 리뷰 문화를 물었습니다.',
+        },
+      ],
+      aiReview: {
+        paragraphs: [
+          '지원자는 실시간 스트리밍 파이프라인 경험을 일관되게 설명했고, 초당 2만 건이라는 구체적인 수치를 제시했습니다. 장애 대응 사례에서는 원인과 복구 방법을 순서대로 말했습니다.',
+          '다만 처리량 수치의 근거가 된 병목 해결 과정은 답변에 나오지 않았고, 팀 성과와 개인 기여가 구분되지 않았습니다. 후속 면접에서 직접 구현한 범위를 확인할 필요가 있습니다.',
+        ],
+      },
+    } satisfies ReviewResponse;
   }
 
   const end = /^\/api\/v1\/sessions\/([^/]+)\/end$/.exec(path);

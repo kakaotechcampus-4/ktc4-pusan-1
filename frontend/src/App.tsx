@@ -2,9 +2,11 @@
  * 라우팅.
  *
  *   /                       안내 화면
- *   /host                   면접 준비 — 면접 생성 · 초대 링크 발급
+ *   /context/:contextId     기업 컨텍스트 — 문서 업로드 (면접관 첫 단계)
+ *   /host                   면접 준비 — 면접 생성 · 초대 링크 발급 (문서 업로드 다음)
  *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
  *   /interview/:sessionId/summary  면접 종료 후 요약
+ *   /review/:interviewId    면접 기록 — 녹화 · 타임라인 · AI 평가
  *   /mock/interview         면접 화면만 바로 보기 — 임시, 전사 연동 시 제거
  *
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
@@ -21,15 +23,19 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
+import CompanyContextPage from './pages/CompanyContextPage';
 import InterviewSetupPage from './pages/InterviewSetupPage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
+import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from './lib/candidateName';
 import type { JoinSessionResponse, Role } from './types/interview';
 
 /* 카메라·마이크를 쓰는 화면만 따로 내려받는다.
    livekit-client 가 번들의 대부분을 차지하는데, 진입·요약 화면에는 필요 없다.
    이렇게 나누면 링크를 연 사람이 첫 화면을 보기까지 받는 양이 줄어든다. */
 const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
+// hls.js 도 크다. 면접 기록을 여는 사람만 받는다.
+const ReviewTimelinePage = lazy(() => import('./pages/ReviewTimelinePage'));
 const InterviewRoomPreview = lazy(() =>
   import('./mocks/InterviewRoomPreview').then((m) => ({ default: m.InterviewRoomPreview })),
 );
@@ -98,6 +104,10 @@ function InterviewFlow() {
   const [searchParams] = useSearchParams();
   const role: Role = searchParams.get('role') === 'interviewer' ? 'INTERVIEWER' : 'CANDIDATE';
 
+  // 면접관만 서버에 저장된 지원자 이름을 본다. 지원자에게는 면접관 실명을 알려주지 않는다.
+  const remoteName =
+    role === 'INTERVIEWER' ? (session?.candidateName ?? FALLBACK_CANDIDATE) : INTERVIEWER_LABEL;
+
   if (!session) {
     return <JoinPage role={role} onJoined={setSession} />;
   }
@@ -111,6 +121,7 @@ function InterviewFlow() {
           <InterviewRoomPreview
             role={role}
             sessionId={sessionId}
+            remoteName={remoteName}
             localVideoTrack={tracks.videoTrack}
             localAudioTrack={tracks.audioTrack}
             onLeave={() => {
@@ -142,8 +153,9 @@ function Landing() {
         </p>
 
         <div className="mt-7 flex flex-col gap-2.5">
+          {/* 면접관은 문서를 먼저 올리고 면접 방을 만든다. AI 가 이 문서를 근거로 쓴다. */}
           <Link
-            to="/host"
+            to="/context/ctx_demo"
             className="rounded-lg bg-[#2B44D6] px-5 py-3.5 text-center text-[15px] font-medium text-white transition hover:bg-[#243AB8]"
           >
             면접 만들기 (면접관)
@@ -168,6 +180,9 @@ function Landing() {
           <Link to="/interview/ended?role=interviewer" className="hover:text-white/60">
             → 입장 불가 화면 보기
           </Link>
+          <Link to="/review/int_demo" className="hover:text-white/60">
+            → 면접 기록 화면 보기
+          </Link>
         </div>
       </div>
     </div>
@@ -178,9 +193,18 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/context/:contextId" element={<CompanyContextPage />} />
       <Route path="/host" element={<InterviewSetupPage />} />
       <Route path="/interview/:sessionId" element={<InterviewFlow />} />
       <Route path="/interview/:sessionId/summary" element={<InterviewSummaryPage />} />
+      <Route
+        path="/review/:interviewId"
+        element={
+          <Suspense fallback={<ChunkFallback />}>
+            <ReviewTimelinePage />
+          </Suspense>
+        }
+      />
       <Route
         path="/mock/interview"
         element={

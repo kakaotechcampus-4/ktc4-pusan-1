@@ -12,9 +12,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from livekit import api
+from livekit.protocol.webhook import WebhookEvent
 
 from app.core.config import settings
 from app.domain.models import Role
+
+__all__ = ["IssuedToken", "MediaGateway", "LiveKitGateway", "WebhookEvent", "media"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,10 @@ class MediaGateway(Protocol):
     async def close_room(self, room: str) -> None: ...
 
     def issue_token(self, room: str, role: Role) -> IssuedToken: ...
+
+    def verify_webhook(self, body: str, auth_header: str) -> WebhookEvent | None:
+        """Webhook 본문의 서명을 확인한다. 실패하면 None."""
+        ...
 
 
 def _grants_for(room: str, role: Role) -> api.VideoGrants:
@@ -63,6 +70,24 @@ class LiveKitGateway:
         self._key = key
         self._secret = secret
         self._max_participants = max_participants
+
+    def verify_webhook(self, body: str, auth_header: str) -> WebhookEvent | None:
+        """LiveKit 이 보낸 Webhook 인지 확인하고 파싱한다.
+
+        LiveKit 은 본문의 SHA-256 을 담은 JWT 를 Authorization 헤더에 싣고,
+        우리 API Secret 으로 서명한다. 서명과 본문 해시를 둘 다 맞춰 봐야
+        본문 위조를 막을 수 있는데, SDK 의 WebhookReceiver 가 둘 다 한다.
+
+        실패 이유를 구분해 돌려주지 않는다 — 호출부가 어느 경우든 조용히
+        무시하기 때문이고, 구분해 두면 응답 차이로 새어 나갈 여지가 생긴다.
+        """
+        if not auth_header:
+            return None
+        receiver = api.WebhookReceiver(api.TokenVerifier(self._key, self._secret))
+        try:
+            return receiver.receive(body, auth_header)
+        except Exception:
+            return None
 
     def _client(self) -> api.LiveKitAPI:
         # RoomService 는 HTTP 로 부른다. ws:// 를 http:// 로 바꿔 준다.
@@ -125,7 +150,7 @@ class LiveKitGateway:
 
 
 media: MediaGateway = LiveKitGateway(
-    url=settings.livekit_url,
+    url=settings.livekit_api_url,
     key=settings.livekit_api_key,
     secret=settings.livekit_api_secret,
     max_participants=settings.room_max_participants,

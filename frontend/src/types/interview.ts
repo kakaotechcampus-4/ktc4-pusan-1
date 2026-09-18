@@ -32,6 +32,8 @@ export type SessionStatus = 'WAITING' | 'INTERVIEWING' | 'ENDED';
 export interface Interview {
   interviewId: string;
   interviewerId: string;
+  /** 면접관 화면에 표시할 지원자 이름 */
+  candidateName: string | null;
   createdAt: string;
 }
 
@@ -39,6 +41,7 @@ export interface Interview {
 export interface CreateSessionResponse {
   sessionId: string;
   interviewId: string;
+  candidateName: string | null;
   status: SessionStatus;
   /** 지원자에게 전달할 면접 링크 */
   inviteUrl: string;
@@ -56,6 +59,7 @@ export interface StartSessionResponse {
 export interface SessionState {
   sessionId: string;
   interviewId: string;
+  candidateName: string | null;
   status: SessionStatus;
   startedAt: string | null;
   endedAt: string | null;
@@ -95,12 +99,92 @@ export interface EndSessionResponse {
 }
 
 /* ---------------------------------------------------------------- *
+ * 기업 컨텍스트 (S1)
+ *
+ * ⚠️ 이 엔드포인트들은 BE 명세에 없다. 면접에 쓸 JD·회사 문서를 올리는 화면이
+ * 필요해서 FE 가 먼저 형태를 정했다. 목으로만 동작한다.
+ * ---------------------------------------------------------------- */
+
+export type DocKind = 'pdf' | 'docx';
+
+/**
+ * 문서 상태.
+ *
+ * uploading 은 클라이언트에만 있는 상태다 — 서버는 업로드가 끝난 뒤에야 문서를 안다.
+ */
+export type DocStatus = 'uploading' | 'parsing' | 'ready' | 'failed';
+
+export interface ContextDoc {
+  id: string;
+  name: string;
+  kind: DocKind;
+  sizeBytes: number;
+  status: DocStatus;
+  /** 업로드 진행률 0~1. uploading 일 때만 있다 */
+  progress?: number;
+}
+
+/** GET /contexts/{contextId} */
+export interface CompanyContext {
+  id: string;
+  company: string;
+  team: string;
+  role: string;
+  docs: ContextDoc[];
+}
+
+/** 업로드 거부 사유. 서버에 보내기 전에 FE 가 먼저 거른다. */
+export type UploadRejection = 'unsupported-type' | 'too-large';
+
+/* ---------------------------------------------------------------- *
+ * 면접 기록 (S3)
+ *
+ * ⚠️ 이 엔드포인트는 BE 명세에 없다. 프로토타입의 형태를 따르되, 상태 값은
+ * 요약(SummaryStatus)과 같은 대문자로 맞췄다. 목으로만 동작한다.
+ * ---------------------------------------------------------------- */
+
+/** 질문 하나가 시작된 시점과 그 문답 */
+export interface Moment {
+  id: string;
+  /** 질문 시작 시점(초) */
+  atSec: number;
+  /** 타임라인 아래 짧은 라벨 */
+  label: string;
+  question: string;
+  /** 답변 요약 (한두 줄) */
+  answer: string;
+}
+
+export interface Review {
+  interviewId: string;
+  candidate: { name: string; role: string };
+  durationSec: number;
+  /**
+   * ⚠️ 서명된 master.m3u8 을 받는다고 가정했다. 만료 시간 · 보관 기간 · 열람 권한은 미정이다.
+   */
+  recording: { hlsUrl: string };
+  moments: Moment[];
+  /** 전사 · 지원서 · JD 를 근거로 쓴 서술. 합격 여부는 없다. */
+  aiReview: { paragraphs: string[] };
+}
+
+/**
+ * GET /api/v1/interviews/{interviewId}/review
+ *
+ * 녹화 변환과 AI 평가에 시간이 걸리므로, 준비 전에는 202 와 PROCESSING 을 돌려준다.
+ */
+export type ReviewResponse =
+  { status: 'PROCESSING'; etaSec?: number } | ({ status: 'READY' } & Review);
+
+/* ---------------------------------------------------------------- *
  * 진입
  * ---------------------------------------------------------------- */
 
 /** POST /api/v1/sessions/{sessionId}/join */
 export interface JoinSessionResponse {
   sessionId: string;
+  /** 면접관 화면에 표시할 지원자 이름 */
+  candidateName: string | null;
   /** LiveKit 서버 접속 URL */
   livekitUrl: string;
   /** LiveKit Room 입장용 Access Token */

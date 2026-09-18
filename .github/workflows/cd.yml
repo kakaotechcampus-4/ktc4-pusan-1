@@ -1,0 +1,128 @@
+name: CD
+
+# develop 에 반영된 것을 서버에 올린다.
+#
+# pull_request 트리거는 넣지 않는다 — PR 을 열 때마다 배포되면 안 되고,
+# 배포 역할(ktc-github-deploy)의 신뢰 정책이 브랜치를 가리지 않아
+# (`repo:kakaotechcampus-4/ktc4-pusan-1:*`) 워크플로 쪽에서 좁혀야 한다.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "ai/**"
+      - "infra/**"
+      - ".github/workflows/cd.yml"
+  # 첫 실행과 롤백용. 기본 브랜치가 develop 이라 Actions 탭에 버튼이 뜬다.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "배포할 ref (브랜치·태그·커밋)"
+        required: false
+        default: develop
+
+# 기본값이 read 다. id-token 은 레포 설정으로 못 켜고 여기 적어야 한다 —
+# 안 적으면 러너가 토큰 요청 URL 자체를 주입하지 않는다.
+permissions:
+  contents: read
+  id-token: write
+
+# 배포가 겹치면 서버에서 git·docker 가 동시에 돈다. 취소하지 않고 줄 세운다 —
+# 배포 도중에 죽이면 컨테이너가 어중간한 상태로 남는다.
+concurrency:
+  group: cd-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: AWS 자격 획득 (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # 계정 ID·인스턴스 ID 는 public 레포라 시크릿으로 둔다.
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: SSM 으로 배포 실행
+        env:
+          INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+          REF: ${{ github.event.inputs.ref || 'develop' }}
+        run: |
+          set -euo pipefail
+
+          # 22번 포트를 열지 않으므로 SSH 가 아니라 SSM 으로 넣는다.
+          # SSM 은 root 로 실행한다. 레포와 docker 는 ubuntu 소유라 넘겨준다.
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "CD ${GITHUB_SHA::7}" \
+            --timeout-seconds 600 \
+            --parameters "commands=[\"sudo -u ubuntu bash -lc 'bash ~/ktc4-pusan-1/infra/deploy.sh $REF'\"],executionTimeout=[\"900\"]" \
+            --query 'Command.CommandId' --output text)
+
+          echo "CommandId: $CMD_ID"
+
+          # send-command 는 비동기다. 폴링하지 않으면 서버가 실패해도
+          # 워크플로는 초록불이 된다.
+          for _ in $(seq 1 120); do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query 'Status' --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+            sleep 5
+          done
+
+          echo "::group::서버 출력"
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' --output text || true
+          echo "::endgroup::"
+
+          ERR=$(aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query 'StandardErrorContent' --output text || true)
+          if [ -n "$ERR" ] && [ "$ERR" != "None" ]; then
+            echo "::group::stderr"
+            echo "$ERR"
+            echo "::endgroup::"
+          fi
+
+          # 실행 요약 페이지에 렌더링한다. 원격 실행이라 스텝을 쪼갤 수 없어
+          # (SSM 명령마다 셸이 새로 뜬다) 로그를 열지 않고도 결과가 보이게 한다.
+          {
+            echo "## 배포 결과"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| 결과 | \`$STATUS\` |"
+            echo "| ref | \`$REF\` |"
+            echo "| 커밋 | [\`${GITHUB_SHA::7}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) |"
+            echo
+            echo '<details><summary>서버 출력</summary>'
+            echo
+            echo '```'
+            aws ssm get-command-invocation \
+              --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query 'StandardOutputContent' --output text 2>/dev/null | tail -60 || true
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "결과: $STATUS"
+          [ "$STATUS" = "Success" ]
+
+      - name: 외부에서 확인
+        run: |
+          set -euo pipefail
+          # deploy.sh 가 서버 안에서 이미 확인했지만, 여기서는 인터넷을 거쳐
+          # 본다 — Caddy·TLS·DNS 까지 지나야 실제 사용자와 같은 경로다.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://irya.cloud/health)
+          echo "https://irya.cloud/health → $code"
+          [ "$code" = "200" ]

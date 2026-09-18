@@ -15,14 +15,19 @@ def test_get_session(client: TestClient, session_id: str):
     assert set(body) == {
         "sessionId",
         "interviewId",
+        "candidateName",
         "status",
         "startedAt",
         "endedAt",
+        "transcriptOriginAt",
     }
     assert body["sessionId"] == session_id
+    assert body["candidateName"] is None
     assert body["status"] == "WAITING"
     assert body["startedAt"] is None
     assert body["endedAt"] is None
+    # Webhook 이 오기 전까지는 비어 있다.
+    assert body["transcriptOriginAt"] is None
 
 
 def test_get_unknown_session(client: TestClient):
@@ -40,10 +45,35 @@ def test_join_returns_livekit_connection_info(client: TestClient, session_id: st
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"sessionId", "livekitUrl", "token", "roomName"}
+    assert set(body) == {
+        "sessionId",
+        "candidateName",
+        "livekitUrl",
+        "token",
+        "roomName",
+    }
     assert body["sessionId"] == session_id
+    assert body["candidateName"] is None
     assert body["roomName"] == f"interview_{session_id}"
     assert body["token"]
+
+
+def test_join_returns_candidate_name(client: TestClient):
+    interview = client.post(
+        "/api/v1/interviews",
+        json={"interviewerId": "user_123", "candidateName": "김지원"},
+    ).json()
+    session = client.post(
+        f"/api/v1/interviews/{interview['interviewId']}/sessions"
+    ).json()
+
+    response = client.post(
+        f"/api/v1/sessions/{session['sessionId']}/join",
+        json={"role": "INTERVIEWER"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["candidateName"] == "김지원"
 
 
 def test_join_defaults_to_candidate(client: TestClient, session_id: str):
