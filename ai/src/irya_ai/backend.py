@@ -15,14 +15,16 @@ What this deliberately does not decide: what happens after a send finally
 fails. Whether the Agent buffers, replays or gives up is not agreed with
 Backend yet, and guessing here would bury the choice in a retry loop.
 :meth:`BackendClient.send` retries what can plausibly answer differently and
-then raises, leaving the decision to its caller.
+then raises, leaving the decision to its caller. A suggestion is the one case
+with an easy answer already: a follow-up question that arrives after the
+moment has passed is worse than one that never arrives, so dropping it is the
+reasonable default.
 
 Transcripts do not travel this way any more. The agreed contract moved them
 onto a WebSocket, which is :mod:`irya_ai.transcripts`; Suggestion, Context and
-Review stay here on HTTP. That leaves :class:`BackendClient` with no route
-method of its own on this branch. :meth:`BackendClient.send` is public rather
-than private because it is now the class's entry point, and the route methods
-that call it - ``post_suggestion`` first - arrive in their own change.
+Review stay here on HTTP. :meth:`BackendClient.send` is public rather than
+private because it is the class's entry point, and every route method here is
+the path it builds plus that one call.
 """
 
 import asyncio
@@ -33,6 +35,7 @@ from pydantic import SecretStr
 
 from irya_ai.config import Settings
 from irya_ai.schemas.base import CamelModel
+from irya_ai.schemas.wire import SuggestionPayload
 from irya_ai.stt.http_logging import protect_host
 
 logger = logging.getLogger(__name__)
@@ -88,6 +91,26 @@ class BackendClient:
         self.client = client
         self.retries = retries
         self.backoff_seconds = backoff_seconds
+
+    async def post_suggestion(
+        self, session_id: str, payload: SuggestionPayload
+    ) -> None:
+        """Send one follow-up to ``POST .../sessions/{sessionId}/suggestions``.
+
+        Raises :class:`BackendError` and nothing else, including
+        ``BACKEND_INVALID_SESSION_ID`` for a session id that would rewrite the
+        path - that one before any request goes out. What a final failure
+        costs here is particular: a suggestion is only worth anything while
+        the answer that prompted it is still on screen, so a caller that
+        buffers one to replay later is buffering something that will arrive
+        stale. Dropping it is the reasonable default.
+        """
+
+        await self.send(
+            "POST",
+            f"/internal/v1/sessions/{path_segment(session_id)}/suggestions",
+            payload,
+        )
 
     async def send(self, method: str, path: str, payload: CamelModel) -> None:
         """Send one payload to one ``/internal/v1`` route.

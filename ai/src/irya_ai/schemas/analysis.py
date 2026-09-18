@@ -102,6 +102,10 @@ class SuggestedQuestion(CamelModel):
     qa_id: str | None = None
     content: str
     reason: str = Field(description="Short rationale shown next to the question.")
+    evidence_utterance_ids: list[str] = Field(
+        default_factory=list,
+        description="Candidate utterances the question follows up on, verified.",
+    )
     status: SuggestedQuestionStatus = SuggestedQuestionStatus.BUFFERED
     generated_at: datetime
     asked_at: datetime | None = None

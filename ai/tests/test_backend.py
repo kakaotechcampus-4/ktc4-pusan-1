@@ -14,14 +14,17 @@ from irya_ai.backend import (
 )
 from irya_ai.config import Settings
 from irya_ai.schemas.base import CamelModel
+from irya_ai.schemas.wire import SuggestionPayload
 from irya_ai.stt.http_logging import clear_protected_hosts, protected_hosts
 
 # ``send`` is route- and payload-agnostic: every ``/internal/v1`` call is a
 # path plus a wire model, and these tests are about how an answer is
 # classified, not about what any one route promises. So the payload is a
-# stand-in rather than a real contract model, and the route is the suggestion
-# one because that is what lands on this client next - transcripts left HTTP
-# for the WebSocket in ``irya_ai.transcripts``, which has its own tests.
+# stand-in rather than a real contract model - a change to ``SuggestionPayload``
+# must not turn a retry test red - and the route is the suggestion one because
+# that is the only route on this client. Transcripts left HTTP for the
+# WebSocket in ``irya_ai.transcripts``, which has its own tests; what
+# ``post_suggestion`` itself promises is at the bottom of this file.
 ROUTE = "/internal/v1/sessions/ses_123/suggestions"
 
 
@@ -214,3 +217,51 @@ def test_the_backend_host_is_registered_for_log_redaction() -> None:
         assert "backend.invalid" in protected_hosts()
     finally:
         clear_protected_hosts()
+
+
+SUGGESTION = SuggestionPayload(
+    suggestion_id="sug_001",
+    type="FOLLOW_UP",
+    content="말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
+    evidence_utterance_ids=["utt_001", "utt_002"],
+)
+
+
+async def test_a_suggestion_goes_to_the_agreed_route_with_the_agreed_body() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201)
+
+    await client_for(handler).post_suggestion("ses_123", SUGGESTION)
+
+    assert seen[0].method == "POST"
+    assert seen[0].url.path == "/internal/v1/sessions/ses_123/suggestions"
+    assert json.loads(seen[0].content) == {
+        "suggestionId": "sug_001",
+        "type": "FOLLOW_UP",
+        "content": "말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
+        "evidenceUtteranceIds": ["utt_001", "utt_002"],
+    }
+
+
+async def test_a_suggestion_fails_the_way_every_send_does() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    with pytest.raises(BackendError) as info:
+        await client_for(handler).post_suggestion("ses_123", SUGGESTION)
+
+    assert info.value.code == "BACKEND_REQUEST_FAILED"
+    assert info.value.retryable is True
+
+
+async def test_a_suggestion_route_refuses_a_session_id_that_rewrites_the_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("must not send")
+
+    with pytest.raises(BackendError) as info:
+        await client_for(handler).post_suggestion("../../admin", SUGGESTION)
+
+    assert info.value.code == "BACKEND_INVALID_SESSION_ID"

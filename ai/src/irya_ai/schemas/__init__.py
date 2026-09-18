@@ -30,6 +30,11 @@ from irya_ai.schemas.context import (
     ResumeClaim,
     Rubric,
 )
+from irya_ai.schemas.suggestion import (
+    SuggestionBatchDraft,
+    SuggestionDraft,
+    SuggestionResult,
+)
 from irya_ai.schemas.summary import (
     AnalysisError,
     AnalysisResult,
@@ -58,7 +63,13 @@ from irya_ai.schemas.transcript import (
     Utterance,
     Word,
 )
-from irya_ai.schemas.wire import TranscriptPayload, transcript_payload
+from irya_ai.schemas.wire import (
+    SuggestionPayload,
+    SuggestionType,
+    TranscriptPayload,
+    suggestion_payload,
+    transcript_payload,
+)
 
 __all__ = [
     "CamelModel",
@@ -90,6 +101,11 @@ __all__ = [
     "SpeakerRole",
     "SuggestedQuestion",
     "SuggestedQuestionStatus",
+    "SuggestionBatchDraft",
+    "SuggestionDraft",
+    "SuggestionPayload",
+    "SuggestionResult",
+    "SuggestionType",
     "SummaryDraft",
     "SummaryPoint",
     "SummaryResult",
@@ -101,5 +117,6 @@ __all__ = [
     "TranscriptStage",
     "Utterance",
     "Word",
+    "suggestion_payload",
     "transcript_payload",
 ]
