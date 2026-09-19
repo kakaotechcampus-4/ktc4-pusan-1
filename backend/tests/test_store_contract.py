@@ -154,6 +154,19 @@ def test_conditional_save_rejects_stale_expectation(subject: Store):
     assert subject.save_session(session, expected_status=SessionStatus.WAITING) is False
 
 
+def test_save_does_not_create(subject: Store):
+    """`save_session` 은 갱신이다. 없는 세션은 쓰지 않고 False 를 준다.
+
+    추가는 `add_session` 의 일이다. DB 구현의 `UPDATE` 가 0행을 바꾸는 것과
+    인메모리가 같은 답을 내야 한다.
+    """
+    ghost = Session(interview_id="iv_nope")
+
+    assert subject.save_session(ghost) is False
+    assert subject.save_session(ghost, expected_status=SessionStatus.WAITING) is False
+    assert subject.get_session(ghost.id) is None
+
+
 def test_conditional_save_without_expectation_always_writes(subject: Store):
     """`expected_status` 가 없으면 조건 없이 쓴다 (Webhook 의 원점 기록)."""
     session = _seed(subject)

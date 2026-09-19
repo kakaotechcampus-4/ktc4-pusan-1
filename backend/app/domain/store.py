@@ -63,6 +63,11 @@ class InMemoryStore:
     ) -> bool:
         # 객체 저장은 참조가 같아 사실상 no-op 이지만, 라우터가 DB 구현에서도
         # 똑같이 동작하도록 호출 규약을 맞춰 둔다.
+        #
+        # 없는 세션은 쓰지 않는다. DB 구현의 UPDATE 가 0행을 바꾸는 것과 같다 —
+        # `save_session` 은 갱신이지 추가가 아니다 (추가는 `add_session`).
+        if session.id not in self._sessions:
+            return False
         if expected_status is not None:
             if self._saved_status.get(session.id) is not expected_status:
                 return False
