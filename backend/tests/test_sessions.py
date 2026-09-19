@@ -1,7 +1,9 @@
 """세션 상태 · 입장 — 명세 `면접`·`진입` 카테고리."""
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.domain.store import InMemoryStore
 from tests.conftest import FakeMedia
 
 # ── 상태 조회 ────────────────────────────────────────────
@@ -157,6 +159,24 @@ def test_start_twice_is_conflict(client: TestClient, session_id: str):
     client.post(path)
 
     response = client.post(path)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "INVALID_SESSION_STATE"
+
+
+def test_start_losing_the_race_is_conflict(
+    client: TestClient,
+    session_id: str,
+    store: InMemoryStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """읽은 뒤 저장하기 전에 다른 요청이 먼저 시작한 경우도 409 다.
+
+    상태 검사는 통과했는데 저장이 거절당하는 상황을 만든다.
+    """
+    monkeypatch.setattr(store, "save_session", lambda *a, **k: False)
+
+    response = client.post(f"/api/v1/sessions/{session_id}/start")
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "INVALID_SESSION_STATE"
