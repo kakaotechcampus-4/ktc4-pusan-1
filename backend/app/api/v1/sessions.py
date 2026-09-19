@@ -106,15 +106,17 @@ async def join_session(
 def start_session(session_id: SessionIdPath, store: StoreDep) -> StartSessionResponse:
     """Session 을 면접 진행 상태로 변경하고 시작 시각을 기록한다.
 
-    검사가 두 번인 건 중복이 아니다. 앞엣것은 애초에 시작할 수 없는 상태를 DB 를
-    건드리기 전에 거른다. 뒤엣것은 읽은 뒤 저장하기 전에 다른 요청이 먼저 시작해
-    버린 경우를 잡는다 — 버튼 두 번 누르기나 재시도에 닿는다.
+    동시에 여러 번 불려도 **하나만 200 을 받고 나머지는 409** 다. 버튼을 두 번
+    눌렀거나 응답이 늦어 클라이언트가 재시도한 경우에 닿는다.
     """
     session = _load(store, session_id)
+    # 애초에 시작할 수 없는 상태(이미 끝난 면접 등)를 DB 를 건드리기 전에 거른다.
     if not session.start():
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 시작할 수 없습니다."
         )
+    # 읽은 뒤 저장하기 전에 다른 요청이 먼저 시작해 버린 경우를 잡는다.
+    # 위 검사와 중복이 아니다 — 저 검사는 메모리 안의 객체만 본다.
     if not store.save_session(session, expected_status=SessionStatus.WAITING):
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 시작할 수 없습니다."
