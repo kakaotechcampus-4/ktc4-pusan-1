@@ -8,7 +8,15 @@ host in its DEBUG connection records. Both propagate to the root logger, so
 an application running at ``LOG_LEVEL=INFO``, which is the configured
 default, prints the private endpoint without any code here asking it to.
 
-The protection is a :class:`logging.Filter` on those two libraries' loggers.
+:mod:`irya_ai.transcripts` puts a third library on the same footing.
+``aiohttp`` is quieter than httpx - it writes no per-request line - but the
+Backend host still reaches its records: ``aiohttp.client`` repr's the
+connection in "Error while closing connector: %r" and names a proxy URL it
+refuses, and ``aiohttp.internal`` reports cookies the Backend sent. The
+WebSocket carries the same private host as the HTTP client, so it is
+registered the same way rather than being treated as a quieter exception.
+
+The protection is a :class:`logging.Filter` on those libraries' loggers.
 A filter is the extension point :mod:`logging` publishes for this, so no
 third-party method is replaced, and it runs on the logger the record came
 from, which means it covers handlers the application attached anywhere above
@@ -37,11 +45,13 @@ from urllib.parse import urlsplit
 # value that could be mistaken for a real host somebody might try to reach.
 REDACTED_HOST = "<redacted-host>"
 
-# Every logger ``httpx`` and ``httpcore`` write to. A filter only runs on the
-# logger that created the record - ancestors contribute handlers, not filters
-# - so "httpcore" alone would miss "httpcore.connection". The list is checked
-# against the installed packages by ``test_stt_http_logging.py``, which is
-# what catches a new logger name on an upgrade.
+# Every logger ``httpx``, ``httpcore`` and ``aiohttp`` write to. A filter only
+# runs on the logger that created the record - ancestors contribute handlers,
+# not filters - so "httpcore" alone would miss "httpcore.connection". aiohttp's
+# server-side names are here too: they cost nothing, and ``aiohttp.web`` is
+# what a local test server logs through. The list is checked against the
+# installed packages by ``test_stt_http_logging.py``, which is what catches a
+# new logger name on an upgrade.
 HTTP_CLIENT_LOGGERS = (
     "httpx",
     "httpcore.connection",
@@ -49,6 +59,12 @@ HTTP_CLIENT_LOGGERS = (
     "httpcore.http2",
     "httpcore.proxy",
     "httpcore.socks",
+    "aiohttp.access",
+    "aiohttp.client",
+    "aiohttp.internal",
+    "aiohttp.server",
+    "aiohttp.web",
+    "aiohttp.websocket",
 )
 
 _lock = threading.Lock()
@@ -100,7 +116,7 @@ def protect_host(base_url: object) -> str | None:
     :class:`irya_ai.stt.elice.EliceSttClient` calls this for the client it is
     given, so both the supported entry path and a caller-supplied
     ``AsyncClient`` are covered without the caller arranging anything. It is
-    public so applications can register additional hosts used by httpx/httpcore.
+    public so applications can register additional hosts used by those libraries.
     It does not install protection on another library's or application's logger.
     """
 

@@ -29,11 +29,18 @@ from irya_ai.schemas.transcript import SpeakerRole, Utterance
 
 
 class TranscriptPayload(CamelModel):
-    """One utterance as ``POST /internal/v1/sessions/{sessionId}/transcripts``.
+    """One utterance as a frame on ``WS .../sessions/{sessionId}/transcripts``.
 
     The session is in the path, not the body, so ``session_id`` is deliberately
     not a field: repeating it here would let a payload disagree with the URL it
     was sent to.
+
+    The frame the Agent writes is this payload plus ``"type":
+    "transcript.upsert"``. The discriminator is not a field here either, for
+    the same reason the session is not: it identifies the frame, not the
+    utterance, and :mod:`irya_ai.transcripts` is the one place that knows a
+    frame is being built. Backend keys on ``(sessionId, utteranceId)`` and
+    upserts, so the same payload resent after a reconnect is not a duplicate.
     """
 
     utterance_id: str = Field(min_length=1, examples=["utt_001"])

@@ -37,14 +37,28 @@ class Settings(BaseSettings):
     llm_reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
     llm_timeout_seconds: float = Field(default=60, gt=0, le=300)
 
-    # Backend internal API (``/internal/v1``). The Agent posts transcripts and
-    # suggestions here and reads interview context back. The URL names a
-    # private deployment, so it is read from the environment like a credential.
+    # Backend internal API (``/internal/v1``). The Agent posts suggestions here
+    # and reads interview context back; transcripts go over the WebSocket
+    # below. The URL names a private deployment, so it is read from the
+    # environment like a credential.
     # How the Agent authenticates is not settled with Backend yet: an unset key
     # means no ``Authorization`` header at all, not an empty one.
     backend_base_url: str = ""
     backend_api_key: SecretStr = SecretStr("")
     backend_timeout_seconds: float = Field(default=10, gt=0, le=60)
+
+    # Transcript WebSocket (``WS /internal/v1/sessions/{sessionId}/transcripts``).
+    # The address is derived from ``backend_base_url`` rather than configured
+    # separately - the contract puts it on the same host - so there is no second
+    # private URL to keep out of the logs.
+    #
+    # All three numbers below are provisional. The contract's open item 3 is
+    # "ACK 대기 시간·버퍼 상한·재연결 정책", which is not agreed with Backend yet;
+    # these are defaults that keep a local run honest, not settled values, and
+    # they are expected to change when that item closes.
+    transcript_ack_timeout_seconds: float = Field(default=5, gt=0, le=120)
+    transcript_max_pending: int = Field(default=200, gt=0, le=10_000)
+    transcript_reconnect_backoff_seconds: float = Field(default=0.5, ge=0, le=30)
 
     @field_validator("llm_base_url")
     @classmethod

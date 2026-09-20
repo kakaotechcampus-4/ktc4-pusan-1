@@ -10,18 +10,31 @@ from irya_ai.backend import (
     BackendError,
     build_client,
     build_http_client,
+    path_segment,
 )
 from irya_ai.config import Settings
-from irya_ai.schemas.wire import TranscriptPayload
+from irya_ai.schemas.base import CamelModel
 from irya_ai.stt.http_logging import clear_protected_hosts, protected_hosts
 
-PAYLOAD = TranscriptPayload(
+# ``send`` is route- and payload-agnostic: every ``/internal/v1`` call is a
+# path plus a wire model, and these tests are about how an answer is
+# classified, not about what any one route promises. So the payload is a
+# stand-in rather than a real contract model, and the route is the suggestion
+# one because that is what lands on this client next - transcripts left HTTP
+# for the WebSocket in ``irya_ai.transcripts``, which has its own tests.
+ROUTE = "/internal/v1/sessions/ses_123/suggestions"
+
+
+class Payload(CamelModel):
+    """Two fields, one of them renamed, which is all ``by_alias`` needs to show."""
+
+    utterance_id: str
+    text: str
+
+
+PAYLOAD = Payload(
     utterance_id="utt_001",
-    participant_id="candidate_123",
-    speaker="CANDIDATE",
     text="인턴 당시 React Native로 지도 기능을 개발했습니다.",
-    started_at_ms=15_200,
-    ended_at_ms=23_800,
 )
 
 
@@ -36,24 +49,20 @@ def client_for(handler, **kwargs) -> BackendClient:
     )
 
 
-async def test_a_transcript_goes_to_the_agreed_route_with_the_agreed_body() -> None:
+async def test_a_payload_goes_to_the_route_it_was_given_in_camel_case() -> None:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         return httpx.Response(201)
 
-    await client_for(handler).post_transcript("ses_123", PAYLOAD)
+    await client_for(handler).send("POST", ROUTE, PAYLOAD)
 
     assert seen[0].method == "POST"
-    assert seen[0].url.path == "/internal/v1/sessions/ses_123/transcripts"
+    assert seen[0].url.path == ROUTE
     assert json.loads(seen[0].content) == {
         "utteranceId": "utt_001",
-        "participantId": "candidate_123",
-        "speaker": "CANDIDATE",
         "text": "인턴 당시 React Native로 지도 기능을 개발했습니다.",
-        "startedAtMs": 15_200,
-        "endedAtMs": 23_800,
     }
 
 
@@ -74,9 +83,7 @@ async def test_a_status_becomes_a_typed_error(
     status: int, code: str, retryable: bool
 ) -> None:
     with pytest.raises(BackendError) as caught:
-        await client_for(lambda r: httpx.Response(status)).post_transcript(
-            "ses_123", PAYLOAD
-        )
+        await client_for(lambda r: httpx.Response(status)).send("POST", ROUTE, PAYLOAD)
 
     assert caught.value.code == code
     assert caught.value.retryable is retryable
@@ -92,7 +99,7 @@ async def test_only_a_failure_that_could_answer_differently_is_retried() -> None
         return httpx.Response(422)
 
     with pytest.raises(BackendError):
-        await client_for(handler).post_transcript("ses_123", PAYLOAD)
+        await client_for(handler).send("POST", ROUTE, PAYLOAD)
 
     assert len(attempts) == 1
 
@@ -103,7 +110,7 @@ async def test_a_retryable_failure_is_tried_again_and_can_succeed() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(next(answers))
 
-    await client_for(handler).post_transcript("ses_123", PAYLOAD)
+    await client_for(handler).send("POST", ROUTE, PAYLOAD)
 
 
 async def test_it_gives_up_after_the_last_attempt() -> None:
@@ -114,7 +121,7 @@ async def test_it_gives_up_after_the_last_attempt() -> None:
         return httpx.Response(503)
 
     with pytest.raises(BackendError, match="BACKEND_REQUEST_FAILED"):
-        await client_for(handler, retries=2).post_transcript("ses_123", PAYLOAD)
+        await client_for(handler, retries=2).send("POST", ROUTE, PAYLOAD)
 
     assert len(attempts) == 3
 
@@ -124,35 +131,31 @@ async def test_a_transport_failure_is_retryable() -> None:
         raise httpx.ConnectError("refused")
 
     with pytest.raises(BackendError) as caught:
-        await client_for(handler).post_transcript("ses_123", PAYLOAD)
+        await client_for(handler).send("POST", ROUTE, PAYLOAD)
 
     assert caught.value.retryable is True
 
 
 async def test_a_cancelled_request_is_not_reported_as_a_backend_failure() -> None:
-    """Shutting the Agent down must not look like Backend rejecting a transcript."""
+    """Shutting the Agent down must not look like Backend rejecting a call."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        await client_for(handler).post_transcript("ses_123", PAYLOAD)
+        await client_for(handler).send("POST", ROUTE, PAYLOAD)
 
 
 @pytest.mark.parametrize("session_id", ["", "   ", "ses/../other", "..", "a/b"])
-async def test_a_session_id_that_would_rewrite_the_path_is_refused(
-    session_id: str,
-) -> None:
-    sent: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        sent.append(request)
-        return httpx.Response(201)
+def test_a_session_id_that_would_rewrite_the_path_is_refused(session_id: str) -> None:
+    """Both transports build their path with this, so it is tested on its own."""
 
     with pytest.raises(BackendError, match="BACKEND_INVALID_SESSION_ID"):
-        await client_for(handler).post_transcript(session_id, PAYLOAD)
+        path_segment(session_id)
 
-    assert sent == []
+
+def test_a_session_id_is_taken_as_given_once_it_is_safe() -> None:
+    assert path_segment("  ses_123  ") == "ses_123"
 
 
 @pytest.mark.parametrize(

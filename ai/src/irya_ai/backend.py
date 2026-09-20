@@ -12,11 +12,17 @@ built instead of when the interview starts, the host is registered with
 libraries' own log records, and the client itself stays caller-owned.
 
 What this deliberately does not decide: what happens after a send finally
-fails. A transcript cannot be re-derived once the audio is gone, so dropping
-one loses it for good - but whether the Agent buffers, replays or gives up is
-not agreed with Backend yet, and guessing here would bury the choice in a
-retry loop. :meth:`BackendClient.post_transcript` retries what can plausibly
-answer differently and then raises, leaving the decision to its caller.
+fails. Whether the Agent buffers, replays or gives up is not agreed with
+Backend yet, and guessing here would bury the choice in a retry loop.
+:meth:`BackendClient.send` retries what can plausibly answer differently and
+then raises, leaving the decision to its caller.
+
+Transcripts do not travel this way any more. The agreed contract moved them
+onto a WebSocket, which is :mod:`irya_ai.transcripts`; Suggestion, Context and
+Review stay here on HTTP. That leaves :class:`BackendClient` with no route
+method of its own on this branch. :meth:`BackendClient.send` is public rather
+than private because it is now the class's entry point, and the route methods
+that call it - ``post_suggestion`` first - arrive in their own change.
 """
 
 import asyncio
@@ -27,7 +33,6 @@ from pydantic import SecretStr
 
 from irya_ai.config import Settings
 from irya_ai.schemas.base import CamelModel
-from irya_ai.schemas.wire import TranscriptPayload
 from irya_ai.stt.http_logging import protect_host
 
 logger = logging.getLogger(__name__)
@@ -59,6 +64,11 @@ class BackendClient:
 
     Constructing one registers ``client.base_url``'s host for log redaction.
     The client is not closed here and its headers are not read.
+
+    :mod:`irya_ai.transcripts` does not go through here - it holds a
+    WebSocket, not an ``AsyncClient`` - but it classifies its handshake
+    answers with the same :func:`status_error` and builds its path with the
+    same :func:`path_segment`, so one status means one code across both.
     """
 
     def __init__(
@@ -79,28 +89,15 @@ class BackendClient:
         self.retries = retries
         self.backoff_seconds = backoff_seconds
 
-    async def post_transcript(
-        self, session_id: str, payload: TranscriptPayload
-    ) -> None:
-        """Send one utterance to ``POST .../sessions/{sessionId}/transcripts``.
+    async def send(self, method: str, path: str, payload: CamelModel) -> None:
+        """Send one payload to one ``/internal/v1`` route.
 
-        Raises :class:`BackendError` and nothing else. A caller looping over a
-        session's utterances should note that a malformed ``session_id`` raises
-        the same type as a rejected send - ``BACKEND_INVALID_SESSION_ID``,
-        before any request goes out - so a blanket ``except BackendError``
-        around the loop will retry-or-drop a programming error as if Backend
-        had answered.
+        Raises :class:`BackendError` and nothing else. Route- and payload-
+        agnostic on purpose: the suggestion and review calls travel the same
+        way and differ only in their model, so each route method is the path
+        it builds plus this.
         """
 
-        await self._send(
-            "POST",
-            f"/internal/v1/sessions/{_path_segment(session_id)}/transcripts",
-            payload,
-        )
-
-    async def _send(self, method: str, path: str, payload: CamelModel) -> None:
-        # Typed on ``CamelModel`` rather than on one payload: the suggestion
-        # and review calls travel the same way and differ only in their model.
         # ``by_alias`` is the whole point of the wire models - the agreed
         # contract is camelCase, and the field names are snake_case here.
         body = payload.model_dump(by_alias=True, mode="json")
@@ -111,7 +108,7 @@ class BackendClient:
                 response = await self.client.request(method, path, json=body)
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
-                failure = _status_error(exc.response.status_code)
+                failure = status_error(exc.response.status_code)
             except (httpx.HTTPError, httpx.InvalidURL):
                 # Transport-level: timeouts, DNS, refused connections. Every
                 # one of them can answer differently on the next attempt.
@@ -127,7 +124,7 @@ class BackendClient:
         raise failure
 
 
-def _status_error(status_code: int) -> BackendError:
+def status_error(status_code: int) -> BackendError:
     """Classify an HTTP status into a typed error, without the body."""
 
     if status_code in (401, 403):
@@ -139,12 +136,18 @@ def _status_error(status_code: int) -> BackendError:
     return BackendError("BACKEND_REQUEST_FAILED", retryable=True)
 
 
-def _path_segment(value: str) -> str:
+def path_segment(value: str) -> str:
     """Refuse an id that would rewrite the path it is interpolated into.
 
     A session id arriving with a slash or a traversal in it would silently
     aim the request at a different route, and the Backend would answer about
     a session nobody asked for.
+
+    It raises :class:`BackendError` - ``BACKEND_INVALID_SESSION_ID``, before
+    any request goes out - which is the same type a rejected send raises. A
+    caller looping over a session with a blanket ``except BackendError``
+    around it will retry-or-drop a programming error as if Backend had
+    answered.
     """
 
     segment = value.strip()
@@ -167,7 +170,7 @@ def build_http_client(
         raise BackendError("BACKEND_BASE_URL_NOT_SET", retryable=False)
     return httpx.AsyncClient(
         base_url=base_url,
-        headers=_auth_headers(settings.backend_api_key),
+        headers=auth_headers(settings.backend_api_key),
         timeout=settings.backend_timeout_seconds,
         transport=transport,
     )
@@ -181,7 +184,7 @@ def build_client(
     return BackendClient(build_http_client(settings, transport=transport))
 
 
-def _auth_headers(api_key: SecretStr) -> dict[str, str]:
+def auth_headers(api_key: SecretStr) -> dict[str, str]:
     """Bearer when a key is configured, nothing when it is not.
 
     How the Agent authenticates to ``/internal/v1`` is not settled with
