@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.141.1",
     "livekit-api>=1.2.1",
+    "psycopg[binary,pool]>=3.2.12",
     "pydantic-settings>=2.15.0",
     "uvicorn[standard]>=0.52.4",
 ]

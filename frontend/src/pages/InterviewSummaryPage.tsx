@@ -10,48 +10,35 @@
  * 지금 구조(overview + keyPoints)는 FE 제안이다.
  */
 
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { getSummary } from '../api/interview';
+import { getSessionState, getSummary } from '../api/interview';
 import { fmt } from '../lib/format';
-import type { InterviewSummary } from '../types/interview';
 
 /** 생성 중일 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 2000;
 
 export default function InterviewSummaryPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const [summary, setSummary] = useState<InterviewSummary | null>(null);
-  const [failed, setFailed] = useState(false);
+  const { data: summary, isError } = useQuery({
+    queryKey: ['summary', sessionId],
+    queryFn: () => getSummary(sessionId!),
+    // sessionId 가 없으면 조회할 대상이 없다.
+    enabled: Boolean(sessionId),
+    // 생성이 끝날 때까지 되묻는다. 완료되면 false 를 돌려 폴링을 멈춘다.
+    refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? POLL_INTERVAL_MS : false),
+  });
 
-  useEffect(() => {
-    if (!sessionId) return;
+  // 면접 기록은 면접(interview) 단위라 세션에서 interviewId 를 얻어 온다.
+  const { data: session } = useQuery({
+    queryKey: ['session', sessionId],
+    queryFn: () => getSessionState(sessionId!),
+    enabled: Boolean(sessionId),
+  });
+  const reviewPath = session ? `/review/${session.interviewId}` : null;
 
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-
-    // 생성이 끝날 때까지 되묻는다. 재귀 setTimeout 이라 응답이 늦어도 요청이 겹치지 않는다.
-    const run = async () => {
-      try {
-        const next = await getSummary(sessionId);
-        if (cancelled) return;
-        setSummary(next);
-        if (next.status === 'PROCESSING') {
-          timer = setTimeout(() => void run(), POLL_INTERVAL_MS);
-        }
-      } catch {
-        if (!cancelled) setFailed(true);
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [sessionId]);
-
-  const processing = !failed && (summary === null || summary.status === 'PROCESSING');
+  const failed = isError;
+  const processing = !failed && (summary === undefined || summary.status === 'PROCESSING');
 
   return (
     <div className="flex min-h-full items-center justify-center bg-[#0B0E14] p-8">
@@ -105,12 +92,23 @@ export default function InterviewSummaryPage() {
           </>
         )}
 
-        <Link
-          to="/"
-          className="mt-7 inline-block rounded-lg bg-white/[0.08] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-white/[0.13]"
-        >
-          처음으로
-        </Link>
+        <div className="mt-7 flex flex-wrap gap-2.5">
+          {/* 요약이 실패해도 녹화와 기록은 따로 만들어지므로 기록으로 가는 길은 열어 둔다. */}
+          {reviewPath && !processing && (
+            <Link
+              to={reviewPath}
+              className="rounded-lg bg-[#2B44D6] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-[#243AB8]"
+            >
+              면접 기록 보기
+            </Link>
+          )}
+          <Link
+            to="/"
+            className="rounded-lg bg-white/[0.08] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-white/[0.13]"
+          >
+            처음으로
+          </Link>
+        </div>
       </div>
     </div>
   );

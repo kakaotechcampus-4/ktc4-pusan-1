@@ -22,6 +22,18 @@
   }
 }
 
+/* 면접 기록 — 질문을 바꿀 때 오버레이가 옆에서 들어온다. */
+@keyframes slidein {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 html,
 body,
 #root {

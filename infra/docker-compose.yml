@@ -1,0 +1,113 @@
+# 서버 배포 구성.
+#
+#   cd ~/ktc4-pusan-1/infra
+#   docker compose up -d
+#
+# 같은 디렉터리의 `.env` 를 compose 가 자동으로 읽습니다.
+# `.env` 는 커밋되지 않습니다 (.gitignore).
+
+name: irya
+
+services:
+  caddy:
+    image: caddy:2.10
+    container_name: irya-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /home/ubuntu/fe:/site:ro
+      # 인증서 저장소. 빼면 재기동마다 새로 발급받아 Let's Encrypt 한도를 소진합니다.
+      - caddy_data:/data
+      - caddy_config:/config
+
+  backend:
+    build: ../backend
+    container_name: irya-backend
+    restart: unless-stopped
+    # 8000 은 퍼블리싱하지 않습니다. Caddy 가 같은 compose 네트워크에서
+    # 서비스 이름으로 부르므로 외부에 열 필요가 없습니다.
+    environment:
+      APP_ENV: production
+      # FE 와 같은 오리진에서 서비스되므로 브라우저 요청은 사실상 same-origin 입니다.
+      # 그래도 기본값(localhost:5173)이 그대로 남지 않도록 실제 도메인을 적어 둡니다.
+      CORS_ORIGINS: https://irya.cloud
+      # 초대 링크를 만들 FE 주소입니다.
+      FRONTEND_ORIGIN: https://irya.cloud
+      # 브라우저가 붙을 주소입니다. JoinResponse.livekitUrl 로 그대로 나갑니다.
+      LIVEKIT_URL: ${LIVEKIT_URL:-wss://irya.cloud}
+      # RoomService(Twirp) 호출 주소입니다. 같은 네트워크라 서비스 이름으로 바로 부릅니다.
+      # 공개 도메인을 쓰면 바로 옆 컨테이너를 부르려고 인터넷을 한 바퀴 돌고,
+      # Caddy 에 /twirp 를 열어야 합니다. 관리 API 라 밖에 낼 이유가 없습니다.
+      LIVEKIT_INTERNAL_URL: http://livekit:7880
+      # LiveKit 컨테이너의 LIVEKIT_KEYS 와 같은 쌍이어야 합니다. 다르면 입장이 401 납니다.
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      # 비우면 인메모리로 떨어집니다. 서버에서는 반드시 채웁니다 —
+      # 재시작할 때마다 진행 중인 면접 상태가 사라집니다.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-irya}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-irya}
+    depends_on:
+      db:
+        # 스키마 적용을 기동 시에 하므로 DB 가 받을 준비가 된 뒤에 떠야 합니다.
+        condition: service_healthy
+    healthcheck:
+      # python:3.12-slim 에는 curl·wget 이 없습니다. 이미지에 이미 있는 stdlib 로 확인합니다.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: postgres:17-alpine
+    container_name: irya-db
+    restart: unless-stopped
+    # 5432 는 퍼블리싱하지 않습니다. backend 만 같은 네트워크에서 부릅니다.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-irya}
+      POSTGRES_DB: ${POSTGRES_DB:-irya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      # 이걸 빼면 컨테이너를 지울 때 면접 기록이 같이 사라집니다.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-irya} -d ${POSTGRES_DB:-irya}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  livekit:
+    image: livekit/livekit-server:v1.13.6
+    container_name: irya-livekit
+    restart: unless-stopped
+    # 이미지에 기본 CMD 가 없어 설정 경로를 직접 넘깁니다.
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
+    environment:
+      # LiveKit 은 "키: 시크릿" 한 덩어리로 받고 BE 는 둘로 나눠 받습니다.
+      # 값은 .env 에 한 번만 적고 형식은 여기서 조립합니다. 콜론 뒤 공백이 필수입니다.
+      # 값이 비어 있으면 기동 자체가 실패하도록 :? 를 씁니다.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}"
+    ports:
+      # 호스트와 컨테이너의 포트 번호를 같게 맞춥니다. LiveKit 이 advertise 하는
+      # ICE 후보는 컨테이너 내부 포트라, 번호가 다르면 클라이언트가 엉뚱한 곳으로 붙습니다.
+      - "7881:7881"      # ICE/TCP 폴백
+      - "7882:7882/udp"  # 미디어
+      # 7880(시그널링)은 퍼블리싱하지 않습니다. Caddy 가 같은 compose 네트워크에서
+      # 서비스 이름으로 부르므로 외부에 열 필요가 없습니다.
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
