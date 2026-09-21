@@ -268,10 +268,17 @@ class FakeSuggestionGenerator:
 class LiveSuggestionAgent:
     """Watches one session's utterances and offers follow-ups as they arrive.
 
-    Feed every FINAL utterance to :meth:`observe` in order. It returns a
-    :class:`SuggestionResult` on the utterance that triggered a round and
-    ``None`` on every other one, so a caller can send whatever comes back
-    without tracking state itself.
+    The work is split in three so that the part sitting in the media path
+    never waits on a model:
+
+    - :meth:`ingest` records one FINAL utterance. Synchronous, no I/O.
+    - :meth:`due` says which open pair deserves a round right now, if any.
+    - :meth:`run_round` runs the model against that pair and verifies the
+      drafts. This is the only step that awaits anything.
+
+    A wiring loop can therefore drain a queue through ``ingest``, ask ``due``
+    once, and await ``run_round`` off the audio path. :meth:`observe` chains
+    the three for callers that handle utterances one at a time.
 
     The agent owns its own :class:`QASegmenter`; one instance is one interview.
     """
@@ -312,11 +319,33 @@ class LiveSuggestionAgent:
         self._seen_contents: set[str] = set()
         self._sources: dict[str, Utterance] = {}
 
-    def _due(self, utterance: Utterance) -> QAPair | None:
-        """The open pair this utterance made worth a round, if any."""
+    def ingest(self, utterance: Utterance) -> bool:
+        """Record one utterance. Returns whether it added to an open answer.
 
-        if utterance.speaker is not SpeakerRole.CANDIDATE:
-            return None
+        Safe to call from the media path: it touches the segmenter and the
+        source map and nothing else. Non-FINAL utterances are ignored, as are
+        FINAL ones from the interviewer as far as the return value goes - they
+        still go into the segmenter, because that is how a pair closes.
+        """
+
+        if not utterance.is_final:
+            return False
+        self._sources[utterance.utterance_id] = utterance
+        self.segmenter.feed(utterance)
+        return utterance.speaker is SpeakerRole.CANDIDATE
+
+    def due(self) -> QAPair | None:
+        """The open pair that deserves a round now, or ``None``.
+
+        Decided from the segmenter's state alone, not from whichever utterance
+        happened to arrive last, so a caller that ingested several utterances
+        in one go gets the same answer as one that asked after each. A pair
+        only becomes due through candidate speech: it needs answer utterances
+        and enough of them (``min_answer_words``), and an interviewer utterance
+        either closes the pair - leaving a new one with no answer - or is a
+        back-channel the segmenter already dropped.
+        """
+
         if self.kept_count >= self.max_per_session:
             return None
         pair = self.segmenter.current()
@@ -329,32 +358,36 @@ class LiveSuggestionAgent:
         return pair
 
     async def observe(self, utterance: Utterance) -> SuggestionResult | None:
-        """Take one FINAL utterance; run a round when this one calls for it."""
+        """Take one utterance; run a round when it makes one due.
 
-        if not utterance.is_final:
+        :meth:`ingest`, :meth:`due` and :meth:`run_round` in one call, for a
+        caller that can afford to await the model where it stands. Returns the
+        round's result, or ``None`` when this utterance did not trigger one.
+        """
+
+        if not self.ingest(utterance):
             return None
-        self._sources[utterance.utterance_id] = utterance
-        self.segmenter.feed(utterance)
-        pair = self._due(utterance)
+        pair = self.due()
         if pair is None:
             return None
-        # Marked before the round runs, not after: a round that times out or
-        # comes back ungrounded is deliberately not retried. The interview has
-        # already moved on, and a second attempt would land on an answer the
-        # interviewer has stopped listening to.
-        self._handled.add(pair.qa_id)
-        return await self.suggest(pair)
+        return await self.run_round(pair)
 
-    async def suggest(self, pair: QAPair) -> SuggestionResult:
+    async def run_round(self, pair: QAPair) -> SuggestionResult:
         """Run one round against an already-chosen pair.
 
         Public because a caller with its own trigger - a Backend-driven one,
         say - may want to pick the pair itself. It reads the utterances
-        :meth:`observe` has been collecting, so a pair whose utterances never
-        went through ``observe`` grounds against nothing and every suggestion
+        :meth:`ingest` has been collecting, so a pair whose utterances never
+        went through ``ingest`` grounds against nothing and every suggestion
         in the round is dropped.
+
+        The pair is marked as handled before the round runs, not after: a
+        round that times out or comes back ungrounded is deliberately not
+        retried. The interview has already moved on, and a second attempt
+        would land on an answer the interviewer has stopped listening to.
         """
 
+        self._handled.add(pair.qa_id)
         started = perf_counter()
         result = SuggestionResult(
             session_id=pair.session_id,

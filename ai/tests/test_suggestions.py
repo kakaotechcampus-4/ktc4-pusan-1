@@ -1,5 +1,6 @@
 """Live suggestions without a model: the trigger, the grounding gate, the caps."""
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -357,6 +358,79 @@ async def test_a_non_final_utterance_never_triggers_a_round() -> None:
     assert live.generator.calls == []
 
 
+def question(**overrides) -> Utterance:
+    fields = {
+        "utterance_id": "utt_q",
+        "speaker": SpeakerRole.INTERVIEWER,
+        "track_id": "trk_interviewer",
+        "seq": 0,
+        "start_ms": 0,
+        "end_ms": 900,
+        "content": "어떤 일을 하셨는지 말씀해주세요.",
+    }
+    return utterance(**{**fields, **overrides})
+
+
+def test_ingest_records_without_running_anything() -> None:
+    live = agent()
+
+    assert live.ingest(question()) is False, "interviewer speech opens, not answers"
+    assert live.ingest(utterance(pass_type="INTERIM")) is False
+    assert live.ingest(utterance()) is True, "candidate FINAL adds to the answer"
+
+    assert live.generator.calls == [], "ingest never touches the model"
+    assert live.segmenter.current() is not None
+    assert live.segmenter.current().answer_utterance_ids == ["utt_a"]
+
+
+def test_due_reads_the_segmenter_not_the_last_utterance() -> None:
+    live = agent()
+    nod = question(utterance_id="utt_n", seq=2, start_ms=9_000, end_ms=9_300)
+    nod = nod.model_copy(update={"content": "네."})
+
+    # A wiring loop drains its queue first and asks once. The last thing in
+    # the queue being an interviewer back-channel must not hide the answer
+    # that became long enough just before it.
+    live.ingest(question())
+    live.ingest(utterance())
+    live.ingest(nod)
+
+    due = live.due()
+    assert due is not None
+    assert due.answer_utterance_ids == ["utt_a"]
+
+
+def test_due_is_none_until_the_answer_is_long_enough() -> None:
+    live = agent()
+    live.ingest(question())
+    assert live.due() is None, "a question alone is not a moment"
+
+    short = utterance(utterance_id="utt_s", seq=1, start_ms=1_000, end_ms=2_000)
+    live.ingest(short.model_copy(update={"content": "네."}))
+    assert live.due() is None, "a two-word answer is not one either"
+
+    live.ingest(utterance(seq=2, start_ms=2_000))
+    assert live.due() is not None
+
+
+async def test_run_round_marks_the_pair_handled_even_when_it_fails() -> None:
+    class Hanging:
+        async def generate(self, pair, sources, context=None):
+            await asyncio.sleep(10)
+            return SuggestionBatchDraft(suggestions=[])
+
+    live = agent(generator=Hanging(), timeout_seconds=0.01)
+    live.ingest(question())
+    live.ingest(utterance())
+    pair = live.due()
+    assert pair is not None
+
+    result = await live.run_round(pair)
+
+    assert result.status == "failed"
+    assert live.due() is None, "a round that failed is not offered again"
+
+
 async def test_a_round_that_drops_everything_says_so_instead_of_staying_silent() -> (
     None
 ):
@@ -393,7 +467,7 @@ async def test_a_generator_failure_becomes_a_typed_error_not_an_exception() -> N
 
     live = agent(generator=Failing())
     source = utterance()
-    result = await live.suggest(pair_for(source))
+    result = await live.run_round(pair_for(source))
 
     assert result.status == "failed"
     assert result.error is not None
@@ -411,7 +485,7 @@ async def test_a_generator_that_hangs_times_out_as_a_retryable_error() -> None:
 
     live = agent(generator=Hanging(), timeout_seconds=0.01)
     source = utterance()
-    result = await live.suggest(pair_for(source))
+    result = await live.run_round(pair_for(source))
 
     assert result.status == "failed"
     assert result.error is not None
@@ -424,10 +498,10 @@ async def test_the_session_budget_is_a_stop_not_a_slowdown() -> None:
     source = utterance()
     live._sources[source.utterance_id] = source
 
-    first = await live.suggest(pair_for(source))
+    first = await live.run_round(pair_for(source))
     assert len(first.suggestions) == 1
 
-    second = await live.suggest(pair_for(source))
+    second = await live.run_round(pair_for(source))
     assert second.suggestions == []
     assert second.status == "empty"
     assert second.warnings == ["SESSION_LIMIT_REACHED"]
@@ -438,8 +512,8 @@ async def test_a_session_never_offers_the_same_question_twice() -> None:
     source = utterance()
     live._sources[source.utterance_id] = source
 
-    await live.suggest(pair_for(source))
-    again = await live.suggest(pair_for(source))
+    await live.run_round(pair_for(source))
+    again = await live.run_round(pair_for(source))
 
     assert again.suggestions == []
     assert again.rejections == ["1: duplicate of an earlier suggestion"]

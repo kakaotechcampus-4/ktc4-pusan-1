@@ -298,7 +298,7 @@ async def test_the_agent_keeps_what_the_transcript_backs_and_drops_the_rest(
             OpenAISuggestionGenerator(client), model="gpt-5.6-luna"
         )
         agent._sources.update(sources)
-        result = await agent.suggest(pair)
+        result = await agent.run_round(pair)
 
     assert result.status == "partial"
     assert len(result.suggestions) == 1
