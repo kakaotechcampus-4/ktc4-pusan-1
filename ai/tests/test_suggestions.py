@@ -22,6 +22,9 @@ from irya_ai.schemas import (
 )
 from irya_ai.suggestions import (
     DEFAULT_MAX_PER_ANSWER,
+    DEFAULT_MAX_PER_ROUND,
+    DEFAULT_MAX_ROUNDS_PER_ANSWER,
+    RERUN_WORDS,
     ExtractiveSuggestionGenerator,
     FakeSuggestionGenerator,
     LiveSuggestionAgent,
@@ -346,7 +349,7 @@ async def test_the_agent_waits_for_the_answer_then_fires_once() -> None:
     assert result.status == "completed"
     assert len(result.suggestions) == 1
 
-    assert await live.observe(more) is None, "one round per question"
+    assert await live.observe(more) is None, "three more words is the same answer"
     assert live.generator.calls == [result.qa_id]
 
 
@@ -429,6 +432,126 @@ async def test_run_round_marks_the_pair_handled_even_when_it_fails() -> None:
 
     assert result.status == "failed"
     assert live.due() is None, "a round that failed is not offered again"
+
+
+# --- re-running as the answer grows -----------------------------------------
+
+
+def more_words(n: int, *, utterance_id: str, seq: int) -> Utterance:
+    """``n`` words of candidate speech that quote nothing the drafts cite."""
+
+    return utterance(
+        utterance_id=utterance_id,
+        seq=seq,
+        start_ms=seq * 10_000,
+        end_ms=seq * 10_000 + 5_000,
+        content=" ".join(f"그리고{i}" for i in range(n)),
+    )
+
+
+class Sequenced:
+    """A generator whose drafts differ per round, so rounds can accumulate."""
+
+    def __init__(self, *contents: str) -> None:
+        self.drafts = [SuggestionBatchDraft(suggestions=[draft(c)]) for c in contents]
+        self.calls: list[str] = []
+
+    async def generate(self, pair, sources, context=None):
+        self.calls.append(pair.qa_id)
+        return self.drafts[min(len(self.calls), len(self.drafts)) - 1]
+
+
+def test_the_defaults_say_what_the_module_promises() -> None:
+    assert RERUN_WORDS == 8
+    assert DEFAULT_MAX_ROUNDS_PER_ANSWER == 3
+
+
+async def test_a_round_reruns_once_the_answer_has_grown_by_rerun_words() -> None:
+    generator = Sequenced(
+        "캐시를 어디에 두셨는지 여쭤보세요.", "캐시 적중률을 여쭤보세요."
+    )
+    live = agent(generator=generator)
+    live.ingest(question())
+
+    first = await live.observe(utterance())  # 8 words: the first round
+    assert first is not None
+    assert [s.question_id for s in first.suggestions] == ["sug_qa_utt_q_1"]
+
+    assert await live.observe(more_words(3, utterance_id="utt_b", seq=2)) is None
+    assert live.due() is None, "three words on is still the same answer"
+
+    second = await live.observe(more_words(5, utterance_id="utt_c", seq=3))
+    assert second is not None, "eight words on is a new look"
+    assert second.status == "completed"
+    assert [s.question_id for s in second.suggestions] == ["sug_qa_utt_q_2"]
+    assert generator.calls == ["qa_utt_q", "qa_utt_q"]
+    assert live.kept_count == 2, "the first suggestion stays; the second joins it"
+
+
+async def test_a_question_is_looked_at_only_so_many_times() -> None:
+    generator = Sequenced("하나를 여쭤보세요.", "둘을 여쭤보세요.", "셋을 여쭤보세요.")
+    live = agent(generator=generator, max_rounds_per_answer=2)
+    live.ingest(question())
+    live.ingest(utterance())
+
+    for seq in (2, 3, 4):
+        await live.observe(more_words(8, utterance_id=f"utt_{seq}", seq=seq))
+
+    assert len(generator.calls) == 2
+
+
+async def test_a_question_stops_once_it_has_enough_suggestions() -> None:
+    generator = Sequenced("하나를 여쭤보세요.", "둘을 여쭤보세요.")
+    live = agent(generator=generator, max_per_answer=1)
+    live.ingest(question())
+
+    first = await live.observe(utterance())
+    assert first is not None
+    assert len(first.suggestions) == 1
+
+    assert await live.observe(more_words(8, utterance_id="utt_b", seq=2)) is None
+    assert generator.calls == ["qa_utt_q"], "the question has what it may carry"
+
+
+async def test_a_failed_round_still_moves_the_growth_mark() -> None:
+    class Hanging:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate(self, pair, sources, context=None):
+            self.calls += 1
+            await asyncio.sleep(10)
+            return SuggestionBatchDraft(suggestions=[])
+
+    generator = Hanging()
+    live = agent(generator=generator, timeout_seconds=0.01)
+    live.ingest(question())
+
+    failed = await live.observe(utterance())
+    assert failed is not None
+    assert failed.status == "failed"
+
+    assert await live.observe(more_words(3, utterance_id="utt_b", seq=2)) is None
+    assert generator.calls == 1, "not retried on the words that just timed out"
+
+    retried = await live.observe(more_words(5, utterance_id="utt_c", seq=3))
+    assert retried is not None
+    assert generator.calls == 2, "but eight new words earn a fresh look"
+
+
+async def test_a_direct_round_past_the_answer_cap_says_which_cap() -> None:
+    live = agent(max_per_answer=1)
+    source = utterance()
+    live._sources[source.utterance_id] = source
+    pair = pair_for(source)
+
+    first = await live.run_round(pair)
+    assert len(first.suggestions) == 1
+
+    again = await live.run_round(pair)
+    assert again.status == "empty"
+    assert again.warnings == ["ANSWER_LIMIT_REACHED"]
+    assert live.kept_count == 1
 
 
 async def test_a_round_that_drops_everything_says_so_instead_of_staying_silent() -> (
@@ -546,15 +669,19 @@ async def test_the_sample_interview_produces_grounded_suggestions(
     results = [r for u in chunks if (r := await live.observe(u)) is not None]
 
     assert results, "the sample interview has answers worth following up on"
-    # One round per Q&A at most. ``segment_qa`` re-runs over every final on
-    # each feed, so a pair that gets re-cut - a backchannel "네." kept at feed
-    # time and folded into the answer on the next pass - must not come back
-    # under a new ``qa_id`` and earn a second round.
-    assert len({r.qa_id for r in results}) == len(results)
+    # A Q&A may be looked at more than once as its answer grows, but only
+    # under its final ``qa_id`` and only so many times. ``segment_qa`` re-runs
+    # over every final on each feed, so a pair that gets re-cut - a backchannel
+    # "네." kept at feed time and folded into the answer on the next pass -
+    # must not come back under a new ``qa_id`` and earn rounds of its own.
+    pairs = {p.qa_id: p for p in segment_qa(chunks).qa_pairs}
+    rounds = {q: sum(r.qa_id == q for r in results) for q in {r.qa_id for r in results}}
+    assert set(rounds) <= set(pairs)
+    assert max(rounds.values()) <= DEFAULT_MAX_ROUNDS_PER_ANSWER
+    assert max(rounds.values()) > 1, "a long answer in the sample earns a second look"
     suggestions = [s for r in results for s in r.suggestions]
     assert suggestions
 
-    pairs = {p.qa_id: p for p in segment_qa(chunks).qa_pairs}
     for s in suggestions:
         assert s.evidence_utterance_ids
         for uid in s.evidence_utterance_ids:
@@ -574,7 +701,8 @@ async def test_the_sample_interview_stays_inside_its_own_budget(
 
     assert total == 3
     assert live.kept_count == 3
-    assert DEFAULT_MAX_PER_ANSWER == 2
+    assert DEFAULT_MAX_PER_ROUND == 2
+    assert DEFAULT_MAX_PER_ANSWER == 3
 
 
 # --- from the agent to Backend ---------------------------------------------

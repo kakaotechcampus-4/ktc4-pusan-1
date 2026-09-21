@@ -39,7 +39,7 @@ from irya_ai.schemas.suggestion import (
 )
 from irya_ai.schemas.timeline import LlmUsage
 from irya_ai.schemas.transcript import Utterance
-from irya_ai.suggestions import DEFAULT_MAX_PER_ANSWER, SuggestionError
+from irya_ai.suggestions import DEFAULT_MAX_PER_ROUND, SuggestionError
 
 ReasoningEffort = Literal["none", "low", "medium", "high"]
 
@@ -73,7 +73,7 @@ def build_payload(
     sources: Mapping[str, Utterance],
     context: InterviewContext | None = None,
     *,
-    max_suggestions: int = DEFAULT_MAX_PER_ANSWER,
+    max_suggestions: int = DEFAULT_MAX_PER_ROUND,
 ) -> dict:
     # Session-stable context comes first on purpose. JSON preserves insertion
     # order, so repeated rounds share the longest possible prompt prefix and
@@ -112,7 +112,7 @@ class OpenAISuggestionGenerator:
         *,
         model: str = "gpt-5.6-luna",
         max_completion_tokens: int = 1200,
-        max_suggestions: int = DEFAULT_MAX_PER_ANSWER,
+        max_suggestions: int = DEFAULT_MAX_PER_ROUND,
         reasoning_effort: ReasoningEffort | None = None,
     ) -> None:
         self.client = client

@@ -12,12 +12,16 @@ has asked the next question - by then the moment to follow up has passed - so
 this module watches ``current`` instead and fires once the open answer is long
 enough to have something in it (``MIN_ANSWER_WORDS``).
 
-Firing once per question is a deliberate floor, not a measured one: how often
-suggestions may be generated, and how many an interview may carry, are not
-settled with the team yet. A long answer that turns a corner after the first
-round therefore gets no second suggestion. The knobs are constructor arguments
-with the constants below as defaults rather than settings, because a value
-nobody has decided should not look like one somebody configured.
+One round is not enough for a long answer: the first fires on the first
+sentence or two, and an answer that turns a corner afterwards would get no
+second look. So the agent runs again each time the open answer has grown by
+``RERUN_WORDS`` since the last round, up to ``DEFAULT_MAX_ROUNDS_PER_ANSWER``
+rounds and ``DEFAULT_MAX_PER_ANSWER`` kept suggestions per question. Earlier
+suggestions stay; later rounds add beside them. How often is often enough, and
+how many an interview may carry, are not settled with the team yet, so every
+knob is a constructor argument with the constants below as defaults rather
+than a setting - a value nobody has decided should not look like one somebody
+configured.
 
 Grounding follows :func:`irya_ai.timeline.build_timeline` exactly: every
 citation must name a candidate utterance belonging to *this* answer, the quote
@@ -28,6 +32,7 @@ in the exchange it cites. A draft that fails any check is dropped whole.
 import asyncio
 import re
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Protocol, runtime_checkable
@@ -48,12 +53,19 @@ from irya_ai.schemas.summary import AnalysisError, CitationDraft
 from irya_ai.schemas.timeline import LlmUsage
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
 
-# Two questions fit beside a live interview; more is a list nobody reads.
-DEFAULT_MAX_PER_ANSWER = 2
+# Two questions fit beside a live interview at once; more is a list nobody reads.
+DEFAULT_MAX_PER_ROUND = 2
+# What one question may pile up over its rounds before the panel is a list.
+DEFAULT_MAX_PER_ANSWER = 3
 # A whole interview's budget, so a talkative session cannot bury the panel.
 DEFAULT_MAX_PER_SESSION = 12
 # Below this the candidate has said hello, not answered.
 MIN_ANSWER_WORDS = 8
+# An answer that has grown by this much since the last round has something
+# new in it; anything less is the same answer, still being finished.
+RERUN_WORDS = 8
+# How many times one question is looked at. A two-minute answer gets three.
+DEFAULT_MAX_ROUNDS_PER_ANSWER = 3
 
 _COLLAPSE = re.compile(r"\s+")
 
@@ -124,15 +136,19 @@ def build_suggestions(
     sources: Mapping[str, Utterance],
     *,
     generated_at: datetime,
-    max_per_answer: int = DEFAULT_MAX_PER_ANSWER,
+    max_per_answer: int = DEFAULT_MAX_PER_ROUND,
     seen_contents: frozenset[str] = frozenset(),
+    first_index: int = 1,
 ) -> tuple[list[SuggestedQuestion], list[str]]:
     """Turn model drafts into verified suggestions; report every rejection.
 
     Returns ``(suggestions, rejections)`` in the order the model listed them,
-    capped at ``max_per_answer``. ``seen_contents`` holds normalised content
+    capped at ``max_per_answer`` - the cap for *this batch*, whatever the
+    caller has left to spend. ``seen_contents`` holds normalised content
     already suggested in this session, so the panel does not repeat itself
-    when two answers circle the same ground.
+    when two answers circle the same ground. ``first_index`` is where the
+    question ids start counting, so a later round on the same pair carries
+    on from the earlier one instead of reissuing ``_1``.
     """
 
     if max_per_answer < 1:
@@ -175,7 +191,7 @@ def build_suggestions(
         seen.add(content)
         kept.append(
             SuggestedQuestion(
-                question_id=f"sug_{pair.qa_id}_{len(kept) + 1}",
+                question_id=f"sug_{pair.qa_id}_{first_index + len(kept)}",
                 session_id=pair.session_id,
                 qa_id=pair.qa_id,
                 content=content,
@@ -265,6 +281,18 @@ class FakeSuggestionGenerator:
 # --- agent -----------------------------------------------------------------
 
 
+@dataclass
+class RoundState:
+    """What the agent remembers about one question between rounds."""
+
+    rounds: int = 0
+    # ``answer_word_count`` when the last round started; growth is measured
+    # from here, so a round that failed still moves the mark.
+    snapshot_words: int = 0
+    # Suggestions kept for this question so far, across rounds.
+    kept: int = 0
+
+
 class LiveSuggestionAgent:
     """Watches one session's utterances and offers follow-ups as they arrive.
 
@@ -290,32 +318,44 @@ class LiveSuggestionAgent:
         context: InterviewContext | None = None,
         model: str = "",
         timeout_seconds: float = 10,
+        max_per_round: int = DEFAULT_MAX_PER_ROUND,
         max_per_answer: int = DEFAULT_MAX_PER_ANSWER,
         max_per_session: int = DEFAULT_MAX_PER_SESSION,
         min_answer_words: int = MIN_ANSWER_WORDS,
+        rerun_words: int = RERUN_WORDS,
+        max_rounds_per_answer: int = DEFAULT_MAX_ROUNDS_PER_ANSWER,
         clock: Callable[[], datetime] = utcnow,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if max_per_round < 1:
+            raise ValueError("max_per_round must be at least 1")
         if max_per_answer < 1:
             raise ValueError("max_per_answer must be at least 1")
         if max_per_session < 1:
             raise ValueError("max_per_session must be at least 1")
         if min_answer_words < 1:
             raise ValueError("min_answer_words must be at least 1")
+        if rerun_words < 1:
+            raise ValueError("rerun_words must be at least 1")
+        if max_rounds_per_answer < 1:
+            raise ValueError("max_rounds_per_answer must be at least 1")
 
         self.generator = generator
         self.context = context
         self.model = model
         self.timeout_seconds = timeout_seconds
+        self.max_per_round = max_per_round
         self.max_per_answer = max_per_answer
         self.max_per_session = max_per_session
         self.min_answer_words = min_answer_words
+        self.rerun_words = rerun_words
+        self.max_rounds_per_answer = max_rounds_per_answer
         self.clock = clock
 
         self.segmenter = QASegmenter()
         self.kept_count = 0
-        self._handled: set[str] = set()
+        self._rounds: dict[str, RoundState] = {}
         self._seen_contents: set[str] = set()
         self._sources: dict[str, Utterance] = {}
 
@@ -344,6 +384,14 @@ class LiveSuggestionAgent:
         and enough of them (``min_answer_words``), and an interviewer utterance
         either closes the pair - leaving a new one with no answer - or is a
         back-channel the segmenter already dropped.
+
+        The first round on a pair is due once the answer clears
+        ``min_answer_words``. A further round is due once the answer has grown
+        by ``rerun_words`` since the last round started, as long as the
+        question has rounds (``max_rounds_per_answer``) and suggestions
+        (``max_per_answer``) left. Growth is measured from the last round's
+        snapshot whether or not that round produced anything, so a round that
+        timed out is not retried on the same words.
         """
 
         if self.kept_count >= self.max_per_session:
@@ -351,9 +399,16 @@ class LiveSuggestionAgent:
         pair = self.segmenter.current()
         if pair is None or not pair.answer_utterance_ids:
             return None
-        if pair.qa_id in self._handled:
-            return None
         if pair.answer_word_count < self.min_answer_words:
+            return None
+        state = self._rounds.get(pair.qa_id)
+        if state is None:
+            return pair
+        if state.rounds >= self.max_rounds_per_answer:
+            return None
+        if state.kept >= self.max_per_answer:
+            return None
+        if pair.answer_word_count - state.snapshot_words < self.rerun_words:
             return None
         return pair
 
@@ -381,13 +436,18 @@ class LiveSuggestionAgent:
         went through ``ingest`` grounds against nothing and every suggestion
         in the round is dropped.
 
-        The pair is marked as handled before the round runs, not after: a
-        round that times out or comes back ungrounded is deliberately not
-        retried. The interview has already moved on, and a second attempt
-        would land on an answer the interviewer has stopped listening to.
+        The round is counted and the answer's length snapshotted *before* it
+        runs, not after: a round that times out or comes back ungrounded is
+        deliberately not retried on the same words. The interview has already
+        moved on, and a second attempt would land on an answer the interviewer
+        has stopped listening to. The next round waits for ``rerun_words``
+        more, like any other.
         """
 
-        self._handled.add(pair.qa_id)
+        state = self._rounds.setdefault(pair.qa_id, RoundState())
+        state.rounds += 1
+        state.snapshot_words = pair.answer_word_count
+
         started = perf_counter()
         result = SuggestionResult(
             session_id=pair.session_id,
@@ -395,9 +455,13 @@ class LiveSuggestionAgent:
             status="empty",
             model=self.model,
         )
-        remaining = max(self.max_per_session - self.kept_count, 0)
+        session_left = max(self.max_per_session - self.kept_count, 0)
+        answer_left = max(self.max_per_answer - state.kept, 0)
+        remaining = min(session_left, answer_left)
         if not remaining:
-            result.warnings.append("SESSION_LIMIT_REACHED")
+            result.warnings.append(
+                "SESSION_LIMIT_REACHED" if not session_left else "ANSWER_LIMIT_REACHED"
+            )
             result.elapsed_ms = round((perf_counter() - started) * 1000)
             return result
 
@@ -423,8 +487,9 @@ class LiveSuggestionAgent:
             draft,
             self._sources,
             generated_at=self.clock(),
-            max_per_answer=min(self.max_per_answer, remaining),
+            max_per_answer=min(self.max_per_round, remaining),
             seen_contents=frozenset(self._seen_contents),
+            first_index=state.kept + 1,
         )
         result.suggestions = suggestions
         result.rejections = rejections
@@ -434,6 +499,7 @@ class LiveSuggestionAgent:
             result.status = "partial"
             result.warnings.append("UNGROUNDED_SUGGESTIONS_REMOVED")
 
+        state.kept += len(suggestions)
         self.kept_count += len(suggestions)
         self._seen_contents.update(s.content for s in suggestions)
         result.elapsed_ms = round((perf_counter() - started) * 1000)
