@@ -4,6 +4,9 @@
   request on audio that holds no speech. Pure, deterministic, no network.
 - ``elice``: the Elice prediction-service client, plus the guard that spots a
   transcription describing more audio than was sent.
+- ``cartesia``: the other shape of provider - a WebSocket that decides its own
+  spans and reports their timing, so none of ``segmentation`` applies to it.
+  It converts provider events to the same utterances and shares only that.
 - ``http_logging``: keeps the deployment host out of the records ``httpx`` and
   ``httpcore`` write about those requests. The client wires it up itself.
 - ``session``: puts a session's several tracks on one timeline, which is what
@@ -11,6 +14,16 @@
 - ``stream``: connects them and emits utterances in spoken order.
 """
 
+from irya_ai.stt.cartesia import (
+    REASON_EMPTY,
+    REASON_NO_TIMING,
+    REASON_OUT_OF_ORDER,
+    REASON_TIMESTAMP_INVALID,
+    CartesiaTranscriptionStream,
+    EventTiming,
+    RejectedEvent,
+    build_stt,
+)
 from irya_ai.stt.elice import (
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL,
@@ -56,11 +69,18 @@ __all__ = [
     "DEFAULT_LANGUAGE",
     "DEFAULT_MAX_PENDING",
     "DEFAULT_MODEL",
+    "REASON_EMPTY",
+    "REASON_NO_TIMING",
+    "REASON_OUT_OF_ORDER",
+    "REASON_TIMESTAMP_INVALID",
     "REDACTED_HOST",
     "AudioSegment",
+    "CartesiaTranscriptionStream",
     "CutReason",
     "EliceSttClient",
+    "EventTiming",
     "NoiseFloor",
+    "RejectedEvent",
     "RejectedSegment",
     "SegmentTiming",
     "SegmentationConfig",
@@ -72,6 +92,7 @@ __all__ = [
     "TranscriptionStream",
     "build_client",
     "build_http_client",
+    "build_stt",
     "clear_protected_hosts",
     "frame_rms",
     "is_hallucinated",

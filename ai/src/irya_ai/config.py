@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     elice_stt_language: str = "korean"
     elice_stt_timeout_seconds: float = Field(default=60, gt=0, le=300)
 
+    # Cartesia streaming STT. Only the key is secret here: the endpoint is the
+    # provider's own public host, not a deployment of ours, which is why
+    # ``irya_ai.stt.cartesia`` has no ``protect_host`` call the way the Elice
+    # client does. ``ink-whisper`` is not a default to change casually - the
+    # plugin picks the mode from the model name, and ``ink-2`` transcribes
+    # Korean into English syllables. See the module docstring.
+    cartesia_api_key: SecretStr = SecretStr("")
+    cartesia_stt_model: str = "ink-whisper"
+    cartesia_stt_language: str = "ko"
+
     # Project LLM (Elice ML API, OpenAI-compatible). The base URL names a
     # private gateway, so it is read from the environment like a credential.
     llm_base_url: str = ""
