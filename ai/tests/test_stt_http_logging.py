@@ -1,22 +1,23 @@
 """The deployment host, and whether the HTTP libraries can print it.
 
 Every test here captures the root logger, because that is where an embedding
-application attaches its handler and where ``httpx`` and ``httpcore`` records
-arrive by propagation. Capturing the STT package's own logger instead is what
-let this leak sit unnoticed: the records that carry the URL are not written by
-this package.
+application attaches its handler and where ``httpx``, ``httpcore`` and
+``aiohttp`` records arrive by propagation. Capturing the STT package's own
+logger instead is what let this leak sit unnoticed: the records that carry the
+URL are not written by this package.
 
 Nothing here touches the network. ``MockTransport`` answers every request, so
 ``httpcore`` never runs - the records shaped like its are logged directly, at
 the format strings the installed version uses.
 """
 
+import ast
 import asyncio
 import io
 import logging
 import pathlib
-import re
 
+import aiohttp
 import httpcore
 import httpx
 import pytest
@@ -333,18 +334,39 @@ def test_a_bare_host_string_is_accepted() -> None:
     assert protect_host("deployment.invalid:8000") == "deployment.invalid"
 
 
+def _declared_logger_names(package: object) -> set[str]:
+    """Every literal name ``package`` passes to ``getLogger``.
+
+    Read from the syntax tree, not by matching the text: aiohttp's
+    ``AccessLogger`` docstring shows ``logging.getLogger("spam")`` as a usage
+    example, and a regex over the source counts that as a real logger.
+    """
+
+    names: set[str] = set()
+    for module in pathlib.Path(package.__file__).parent.rglob("*.py"):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                called = func.attr
+            else:
+                called = getattr(func, "id", None)
+            if called != "getLogger" or not node.args:
+                continue
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                names.add(first.value)
+    return names
+
+
 def test_every_logger_the_installed_http_stack_writes_to_is_protected() -> None:
-    """Catches a new logger name arriving with an upgrade of either package."""
+    """Catches a new logger name arriving with an upgrade of any of the packages."""
 
     declared: set[str] = set()
-    for package in (httpx, httpcore):
-        for module in pathlib.Path(package.__file__).parent.rglob("*.py"):
-            declared |= set(
-                re.findall(
-                    r'getLogger\(\s*["\']([^"\']+)["\']',
-                    module.read_text(encoding="utf-8"),
-                )
-            )
+    for package in (httpx, httpcore, aiohttp):
+        declared |= _declared_logger_names(package)
 
     assert declared
     assert declared <= set(HTTP_CLIENT_LOGGERS)
