@@ -8,7 +8,6 @@
  * 전사 · 추천 질문 · 화자 표시 · 경과 시간만 스토어를 통해 실제로 움직인다.
  */
 
-import { ConnectionState } from 'livekit-client';
 import { useInterviewStore } from '../stores/interviewStore';
 import type { StreamEvent } from '../types/interview';
 
@@ -89,7 +88,7 @@ export function startMockSession(): () => void {
     useInterviewStore.getState();
 
   setSession('mock-session');
-  setConnection(ConnectionState.Connected);
+  setConnection('connected');
 
   const timers: ReturnType<typeof setTimeout>[] = [];
 

@@ -24,6 +24,10 @@ export type Role = 'INTERVIEWER' | 'CANDIDATE';
 /** Session 진행 상태 */
 export type SessionStatus = 'WAITING' | 'INTERVIEWING' | 'ENDED';
 
+/** LiveKit 연결 상태를 화면 표시용 문자열로만 보관한다. */
+export type RoomConnectionState =
+  'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'signalReconnecting';
+
 /* ---------------------------------------------------------------- *
  * 면접
  * ---------------------------------------------------------------- */

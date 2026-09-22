@@ -9,22 +9,16 @@
  * 여기서는 그 트랙을 발행하기만 한다 — 권한 프롬프트를 두 번 띄우지 않기 위해서다.
  */
 
-import {
-  RemoteParticipant,
-  Room,
-  RoomEvent,
-  Track,
-  type LocalAudioTrack,
-  type LocalVideoTrack,
-  type RemoteTrack,
-  type RemoteTrackPublication,
-} from 'livekit-client';
+import type { RemoteTrack, RemoteTrackPublication } from 'livekit-client';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
 import { endSession, joinSession } from '../api/interview';
+import { loadLiveKit } from '../lib/livekit';
 import { useInterviewStore } from '../stores/interviewStore';
-import type { Role, Speaker } from '../types/interview';
-import { AUDIO_CAPTURE, VIDEO_CAPTURE } from './usePermissionCheck';
+import type { Role, RoomConnectionState, Speaker } from '../types/interview';
+
+type LiveKitModule = typeof import('livekit-client');
+type LiveKitRoom = InstanceType<LiveKitModule['Room']>;
 
 interface UseInterviewRoomOptions {
   /** 초대 링크에서 받은 세션 식별자. join 이 이걸로 토큰을 발급한다 */
@@ -42,8 +36,8 @@ interface UseInterviewRoomOptions {
    */
   ready: boolean;
   /** 프리뷰에서 확보한 트랙 — 다시 요청하지 않고 그대로 발행한다 */
-  videoTrack: LocalVideoTrack | null;
-  audioTrack: LocalAudioTrack | null;
+  videoTrack: MediaStreamTrack | null;
+  audioTrack: MediaStreamTrack | null;
   /**
    * 발행 성공 시 호출 — 트랙 소유권이 Room 으로 넘어갔음을 알린다.
    *
@@ -62,7 +56,7 @@ export function useInterviewRoom({
   audioTrack,
   onTracksPublished,
 }: UseInterviewRoomOptions) {
-  const roomRef = useRef<Room | null>(null);
+  const roomRef = useRef<LiveKitRoom | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // 트랙과 콜백을 deps 에 넣으면 트랙 도착이나 콜백 교체마다 재접속이 일어난다.
@@ -87,51 +81,57 @@ export function useInterviewRoom({
     const remoteSpeaker: Speaker = role === 'INTERVIEWER' ? 'CANDIDATE' : 'INTERVIEWER';
 
     let cancelled = false;
-
-    const room = new Room({
-      adaptiveStream: true,
-      dynacast: true,
-      // 프리뷰에서 잡은 트랙과 설정이 어긋나지 않게 같은 상수를 쓴다.
-      videoCaptureDefaults: VIDEO_CAPTURE,
-      audioCaptureDefaults: AUDIO_CAPTURE,
-    });
-    roomRef.current = room;
-
-    /* 지원자 트랙 붙이기 — participant는 2명뿐이므로 원격 참가자는 항상 지원자다 */
-    const attach = (track: RemoteTrack) => {
-      if (track.kind === Track.Kind.Video && videoRef.current) {
-        track.attach(videoRef.current);
-      }
-      if (track.kind === Track.Kind.Audio && audioRef.current) {
-        track.attach(audioRef.current);
-      }
-    };
-
-    room
-      .on(RoomEvent.ConnectionStateChanged, setConnection)
-      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => attach(track))
-      .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => track.detach())
-      .on(RoomEvent.ParticipantConnected, () => setRemoteJoined(true))
-      .on(RoomEvent.ParticipantDisconnected, () => {
-        setRemoteJoined(false);
-        setSpeaking(null);
-      })
-      // 발화 중 화자 표시. 서버 speech.start와 별개로 즉시 반응한다.
-      //
-      // 원격 참가자가 누구인지는 내 역할에 따라 뒤집힌다 —
-      // 면접관에게 원격은 지원자이고, 지원자에게 원격은 면접관이다.
-      .on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-        if (speakers.length === 0) {
-          setSpeaking(null);
-          return;
-        }
-        const isRemote = speakers.some((p) => p instanceof RemoteParticipant);
-        setSpeaking(isRemote ? remoteSpeaker : localSpeaker);
-      })
-      .on(RoomEvent.Disconnected, () => setRemoteJoined(false));
+    let room: LiveKitRoom | null = null;
 
     void (async () => {
       try {
+        const { Room, RoomEvent, Track } = await loadLiveKit();
+        if (cancelled) return;
+
+        room = new Room({
+          adaptiveStream: true,
+          dynacast: true,
+          // 프리뷰에서 잡은 트랙과 설정이 어긋나지 않게 같은 값을 둔다.
+          videoCaptureDefaults: { resolution: { width: 1280, height: 720 } },
+          audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true },
+        });
+        roomRef.current = room;
+
+        /* 지원자 트랙 붙이기 — participant는 2명뿐이므로 원격 참가자는 항상 지원자다 */
+        const attach = (track: RemoteTrack) => {
+          if (track.kind === Track.Kind.Video && videoRef.current) {
+            track.attach(videoRef.current);
+          }
+          if (track.kind === Track.Kind.Audio && audioRef.current) {
+            track.attach(audioRef.current);
+          }
+        };
+
+        room
+          .on(RoomEvent.ConnectionStateChanged, (state) =>
+            setConnection(String(state) as RoomConnectionState),
+          )
+          .on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => attach(track))
+          .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => track.detach())
+          .on(RoomEvent.ParticipantConnected, () => setRemoteJoined(true))
+          .on(RoomEvent.ParticipantDisconnected, () => {
+            setRemoteJoined(false);
+            setSpeaking(null);
+          })
+          // 발화 중 화자 표시. 서버 speech.start와 별개로 즉시 반응한다.
+          //
+          // 원격 참가자가 누구인지는 내 역할에 따라 뒤집힌다 —
+          // 면접관에게 원격은 지원자이고, 지원자에게 원격은 면접관이다.
+          .on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+            if (speakers.length === 0) {
+              setSpeaking(null);
+              return;
+            }
+            const isRemote = speakers.some((p) => p !== room?.localParticipant);
+            setSpeaking(isRemote ? remoteSpeaker : localSpeaker);
+          })
+          .on(RoomEvent.Disconnected, () => setRemoteJoined(false));
+
         // join 이 입장 권한 확인과 LiveKit 접속 정보 발급을 함께 한다.
         // start 는 상태 전이 전용이라 여기서 부르지 않는다.
         const { livekitUrl, token } = await joinSession(sessionId, role);
@@ -195,8 +195,8 @@ export function useInterviewRoom({
 
     return () => {
       cancelled = true;
-      room.removeAllListeners();
-      void room.disconnect();
+      room?.removeAllListeners();
+      void room?.disconnect();
       reset();
     };
   }, [sessionId, role, videoRef, audioRef, ready]);
