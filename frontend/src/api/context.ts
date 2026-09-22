@@ -13,6 +13,18 @@ const V1 = '/api/v1';
 export const getContext = (contextId: string) =>
   request<CompanyContext>(`${V1}/contexts/${contextId}`);
 
+/**
+ * 붙여넣은 텍스트를 문서로 등록한다.
+ *
+ * 파일과 달리 파싱이 필요 없어 한 번의 요청으로 끝난다.
+ * ⚠️ BE 명세에 없는 엔드포인트다. 목으로만 동작한다.
+ */
+export const createTextDoc = (contextId: string, title: string, body: string) =>
+  request<ContextDoc>(`${V1}/contexts/${contextId}/texts`, {
+    method: 'POST',
+    body: JSON.stringify({ title, body }),
+  });
+
 export const deleteDoc = (contextId: string, docId: string) =>
   request<void>(`${V1}/contexts/${contextId}/docs/${docId}`, { method: 'DELETE' });
 
