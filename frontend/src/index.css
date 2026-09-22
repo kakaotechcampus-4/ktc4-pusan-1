@@ -1,5 +1,43 @@
 @import 'tailwindcss';
 
+/* 디자인 토큰 — Stitch 시안(dark)에서 옮겼다.
+   화면마다 색을 직접 적지 않고 이 이름을 쓴다. */
+@theme {
+  --color-surface: #0b0f17;
+  --color-surface-panel: #151924;
+  --color-surface-container: #171c26;
+  --color-surface-bright: #1e2433;
+  --color-surface-input: #0f131d;
+  --color-border-base: #262c3d;
+  --color-border-input: #2a3144;
+  --color-brand: #2563eb;
+  --color-brand-soft: #60a5fa;
+  --color-ink: #f8fafc;
+  --color-ink-muted: #94a3b8;
+  --color-ink-dim: #64748b;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Material Symbols — 시안이 아이콘 폰트를 쓴다. */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  direction: ltr;
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+}
+
 /* SpeakerBadge 의 animate-[wave_...] 가 참조한다.
    Tailwind v4 는 임의값 애니메이션의 keyframes 를 자동으로 만들어주지 않으므로 직접 정의한다. */
 @keyframes wave {
@@ -38,4 +76,11 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
