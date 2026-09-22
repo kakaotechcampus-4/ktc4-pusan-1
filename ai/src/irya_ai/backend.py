@@ -150,6 +150,10 @@ class BackendClient:
 def status_error(status_code: int) -> BackendError:
     """Classify an HTTP status into a typed error, without the body."""
 
+    if 300 <= status_code < 400:
+        # Internal API calls do not follow redirects. Repeating the same URL
+        # cannot turn a route or slash mismatch into a success.
+        return BackendError("BACKEND_CLIENT_ERROR", retryable=False)
     if status_code in (401, 403):
         return BackendError("BACKEND_AUTH_FAILED", retryable=False)
     if status_code in RETRYABLE_STATUSES or status_code >= 500:

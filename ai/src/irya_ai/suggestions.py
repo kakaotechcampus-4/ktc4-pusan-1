@@ -307,7 +307,7 @@ class LiveSuggestionAgent:
         self.clock = clock
 
         self.segmenter = QASegmenter()
-        self.sent_count = 0
+        self.kept_count = 0
         self._handled: set[str] = set()
         self._seen_contents: set[str] = set()
         self._sources: dict[str, Utterance] = {}
@@ -317,7 +317,7 @@ class LiveSuggestionAgent:
 
         if utterance.speaker is not SpeakerRole.CANDIDATE:
             return None
-        if self.sent_count >= self.max_per_session:
+        if self.kept_count >= self.max_per_session:
             return None
         pair = self.segmenter.current()
         if pair is None or not pair.answer_utterance_ids:
@@ -362,7 +362,7 @@ class LiveSuggestionAgent:
             status="empty",
             model=self.model,
         )
-        remaining = max(self.max_per_session - self.sent_count, 0)
+        remaining = max(self.max_per_session - self.kept_count, 0)
         if not remaining:
             result.warnings.append("SESSION_LIMIT_REACHED")
             result.elapsed_ms = round((perf_counter() - started) * 1000)
@@ -401,7 +401,7 @@ class LiveSuggestionAgent:
             result.status = "partial"
             result.warnings.append("UNGROUNDED_SUGGESTIONS_REMOVED")
 
-        self.sent_count += len(suggestions)
+        self.kept_count += len(suggestions)
         self._seen_contents.update(s.content for s in suggestions)
         result.elapsed_ms = round((perf_counter() - started) * 1000)
         return result

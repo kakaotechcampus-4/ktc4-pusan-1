@@ -77,6 +77,13 @@ def test_a_participant_id_must_be_supplied() -> None:
         transcript_payload(utterance())  # type: ignore[call-arg]
 
 
+def test_an_interim_utterance_cannot_overwrite_a_final_on_the_wire() -> None:
+    with pytest.raises(ValueError, match="only FINAL"):
+        transcript_payload(
+            utterance(pass_type="INTERIM"), participant_id="candidate_123"
+        )
+
+
 @pytest.mark.parametrize("blank", ["", "   "])
 def test_a_blank_participant_id_is_refused(blank: str) -> None:
     """A trackless placeholder would label every utterance with nothing."""

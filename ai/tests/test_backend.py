@@ -72,6 +72,7 @@ async def test_a_payload_goes_to_the_route_it_was_given_in_camel_case() -> None:
 @pytest.mark.parametrize(
     ("status", "code", "retryable"),
     [
+        (307, "BACKEND_CLIENT_ERROR", False),
         (401, "BACKEND_AUTH_FAILED", False),
         (403, "BACKEND_AUTH_FAILED", False),
         (400, "BACKEND_CLIENT_ERROR", False),

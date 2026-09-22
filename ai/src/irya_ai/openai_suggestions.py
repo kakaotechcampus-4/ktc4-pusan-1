@@ -75,18 +75,10 @@ def build_payload(
     *,
     max_suggestions: int = DEFAULT_MAX_PER_ANSWER,
 ) -> dict:
-    payload: dict = {
-        "maxSuggestions": max_suggestions,
-        "qa": {
-            "qaId": pair.qa_id,
-            "question": pair.question_text,
-            "answer": [
-                {"utteranceId": uid, "text": sources[uid].content}
-                for uid in pair.answer_utterance_ids
-                if uid in sources
-            ],
-        },
-    }
+    # Session-stable context comes first on purpose. JSON preserves insertion
+    # order, so repeated rounds share the longest possible prompt prefix and
+    # can use the provider's prompt cache before the per-round Q&A begins.
+    payload: dict = {}
     if context is not None:
         payload["job"] = {
             "title": context.job_description.title,
@@ -100,6 +92,16 @@ def build_payload(
             payload["resumeClaims"] = [
                 {"claimId": c.claim_id, "quote": c.quote} for c in context.resume_claims
             ]
+    payload["maxSuggestions"] = max_suggestions
+    payload["qa"] = {
+        "qaId": pair.qa_id,
+        "question": pair.question_text,
+        "answer": [
+            {"utteranceId": uid, "text": sources[uid].content}
+            for uid in pair.answer_utterance_ids
+            if uid in sources
+        ],
+    }
     return payload
 
 
@@ -197,4 +199,6 @@ class OpenAISuggestionGenerator:
             # Malformed HTTP 200 envelopes can fail before a draft is returned.
             raise SuggestionError("LLM_INVALID_OUTPUT") from None
         except OpenAIError:
-            raise SuggestionError("LLM_INVALID_OUTPUT") from None
+            # A generic SDK failure is still a provider/API failure. Malformed
+            # successful envelopes are handled by the validation branch above.
+            raise SuggestionError("LLM_API_ERROR") from None

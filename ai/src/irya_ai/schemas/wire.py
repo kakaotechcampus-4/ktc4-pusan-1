@@ -90,6 +90,9 @@ def transcript_payload(
     settled, the type system asks for it at every call site.
     """
 
+    if not utterance.is_final:
+        raise ValueError("only FINAL utterances may be sent to Backend")
+
     return TranscriptPayload(
         utterance_id=utterance.utterance_id,
         participant_id=participant_id,

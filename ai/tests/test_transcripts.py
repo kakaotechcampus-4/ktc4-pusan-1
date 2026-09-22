@@ -81,16 +81,19 @@ class FakeBackend:
         ack: bool = True,
         drop_first_after: int | None = None,
         drop_after: int | None = None,
+        close_code: int = 1000,
         refuse_with: int | None = None,
         stall: asyncio.Event | None = None,
     ) -> None:
         self.ack = ack
         self.drop_first_after = drop_first_after
         self.drop_after = drop_after
+        self.close_code = close_code
         self.refuse_with = refuse_with
         self.stall = stall
         self.received: list[Received] = []
         self.handshakes: list[str | None] = []
+        self.connected_at: list[float] = []
         self.connections = 0
         self._server: TestServer | None = None
 
@@ -128,6 +131,7 @@ class FakeBackend:
             return web.Response(status=self.refuse_with)
 
         self.connections += 1
+        self.connected_at.append(time.monotonic())
         connection = self.connections
         ws = web.WebSocketResponse()
         await ws.prepare(request)
@@ -148,10 +152,10 @@ class FakeBackend:
                 and connection == 1
                 and carried >= self.drop_first_after
             ):
-                await ws.close()
+                await ws.close(code=self.close_code)
                 break
             if self.drop_after is not None and carried >= self.drop_after:
-                await ws.close()
+                await ws.close(code=self.close_code)
                 break
         return ws
 
@@ -273,6 +277,40 @@ async def test_a_refused_upgrade_is_classified_like_a_refused_post(
             assert caught.value.retryable is retryable
 
 
+async def test_a_non_retryable_handshake_failure_closes_the_channel() -> None:
+    """A bad credential does not improve by filling the buffer and retrying."""
+
+    async with FakeBackend(refuse_with=401) as backend:
+        channel = channel_for(backend)
+        try:
+            with pytest.raises(BackendError, match="BACKEND_AUTH_FAILED"):
+                await channel.send(payload("utt_001"))
+
+            backend.refuse_with = None
+            with pytest.raises(BackendError, match="BACKEND_AUTH_FAILED"):
+                await channel.send(payload("utt_002"))
+
+            assert len(backend.handshakes) == 1
+            assert channel.unacknowledged == 1
+        finally:
+            await channel.aclose()
+
+
+async def test_a_policy_close_does_not_start_a_reconnect_loop() -> None:
+    async with FakeBackend(ack=False, drop_after=1, close_code=1008) as backend:
+        channel = channel_for(backend)
+        try:
+            await channel.send(payload("utt_001"))
+            await eventually(lambda: channel._closed)
+
+            with pytest.raises(BackendError, match="BACKEND_CLIENT_ERROR"):
+                await channel.send(payload("utt_002"))
+
+            assert backend.connections == 1
+        finally:
+            await channel.aclose()
+
+
 async def test_a_backend_that_is_not_listening_is_retryable() -> None:
     channel = TranscriptChannel(
         transcript_url("http://127.0.0.1:1", "ses_123"),
@@ -349,6 +387,17 @@ async def test_a_backend_that_keeps_hanging_up_keeps_being_reconnected() -> None
                 (4, "utt_001"),
             ]
             assert channel.unacknowledged == 1
+
+
+async def test_reconnect_backoff_is_applied_between_connections() -> None:
+    async with FakeBackend(ack=False, drop_first_after=1) as backend:
+        async with closing_quickly(
+            channel_for(backend, reconnect_backoff_seconds=0.05)
+        ) as channel:
+            await channel.send(payload("utt_001"))
+            await eventually(lambda: backend.connections == 2)
+
+        assert backend.connected_at[1] - backend.connected_at[0] >= 0.04
 
 
 async def test_a_connection_that_dies_during_a_recovery_is_still_answered() -> None:
@@ -456,6 +505,38 @@ async def test_a_corrected_utterance_replaces_the_one_in_flight() -> None:
 
             assert channel.unacknowledged == 1
             assert backend.frames()[1]["text"] == "첫 발화입니다. 정정합니다."
+            assert backend.connections == 2
+
+
+async def test_an_old_ack_cannot_clear_an_unwritten_correction() -> None:
+    """ACK has no revision, so an unsent replacement is never its target."""
+
+    channel = TranscriptChannel("wss://backend.invalid/x")
+    channel._pending["utt_001"] = _Pending(
+        {"type": FRAME_UPSERT, "text": "원본"},
+        exposed=True,
+        written_at=time.monotonic(),
+    )
+    async with channel._lock:
+        admitted, isolate_revision = channel._admit(
+            "utt_001", {"type": FRAME_UPSERT, "text": "교정본"}
+        )
+
+    async def one_ack():
+        yield type(
+            "Ack",
+            (),
+            {
+                "type": aiohttp.WSMsgType.TEXT,
+                "data": json.dumps({"type": FRAME_ACK, "utteranceId": "utt_001"}),
+            },
+        )()
+
+    await channel._read_acks(one_ack())  # type: ignore[arg-type]
+
+    assert admitted and isolate_revision
+    assert channel.unacknowledged == 1
+    assert channel._pending["utt_001"].frame["text"] == "교정본"
 
 
 async def test_sends_arriving_together_cannot_take_the_buffer_over_the_cap() -> None:

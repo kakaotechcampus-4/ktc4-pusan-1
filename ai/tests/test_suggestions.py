@@ -383,7 +383,7 @@ async def test_a_round_that_drops_everything_says_so_instead_of_staying_silent()
     assert result.suggestions == []
     assert result.status == "partial"
     assert result.warnings == ["UNGROUNDED_SUGGESTIONS_REMOVED"]
-    assert live.sent_count == 0
+    assert live.kept_count == 0
 
 
 async def test_a_generator_failure_becomes_a_typed_error_not_an_exception() -> None:
@@ -499,7 +499,7 @@ async def test_the_sample_interview_stays_inside_its_own_budget(
     total = sum(len(r.suggestions) for r in results)
 
     assert total == 3
-    assert live.sent_count == 3
+    assert live.kept_count == 3
     assert DEFAULT_MAX_PER_ANSWER == 2
 
 

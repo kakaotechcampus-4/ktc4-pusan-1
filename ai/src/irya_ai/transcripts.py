@@ -128,6 +128,10 @@ class _Pending:
     """
 
     frame: dict[str, object]
+    # Set immediately before a write starts. An ACK for an older revision of
+    # the same utterance must not clear a replacement that has never reached
+    # the socket.
+    exposed: bool = False
     written_at: float | None = None
 
 
@@ -201,6 +205,7 @@ class TranscriptChannel:
         # Sockets a cancelled :meth:`_discard` could not stay to close.
         self._abandoned: set[asyncio.Task[None]] = set()
         self._closed = False
+        self._terminal_failure: BackendError | None = None
         self._lock = asyncio.Lock()
         self._connect_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
@@ -239,7 +244,7 @@ class TranscriptChannel:
         """
 
         if self._closed:
-            raise BackendError("BACKEND_TRANSCRIPT_CHANNEL_CLOSED", retryable=False)
+            raise self._closed_error()
 
         frame: dict[str, object] = {
             "type": FRAME_UPSERT,
@@ -259,9 +264,9 @@ class TranscriptChannel:
             # so admission needs the same check inside the critical section or
             # shutdown can finish with a newly buffered, undeliverable frame.
             if self._closed:
-                raise BackendError("BACKEND_TRANSCRIPT_CHANNEL_CLOSED", retryable=False)
+                raise self._closed_error()
             self._report_reader_failure()
-            admitted = self._admit(utterance_id, frame)
+            admitted, isolate_revision = self._admit(utterance_id, frame)
             overdue = self._ack_overdue() if admitted else False
 
         if not admitted:
@@ -275,10 +280,8 @@ class TranscriptChannel:
             await self._deliver_buffered()
             async with self._lock:
                 if self._closed:
-                    raise BackendError(
-                        "BACKEND_TRANSCRIPT_CHANNEL_CLOSED", retryable=False
-                    )
-                admitted = self._admit(utterance_id, frame)
+                    raise self._closed_error()
+                admitted, isolate_revision = self._admit(utterance_id, frame)
                 overdue = self._ack_overdue() if admitted else False
             if not admitted:
                 logger.warning(
@@ -287,7 +290,14 @@ class TranscriptChannel:
                 )
                 raise BackendError("BACKEND_TRANSCRIPT_BUFFER_FULL", retryable=False)
 
-        if overdue:
+        if isolate_revision:
+            # ACKs carry only utteranceId. Once an earlier revision has begun
+            # writing, its ACK is indistinguishable from the replacement's on
+            # the same socket. Reopen before writing the replacement so an ACK
+            # from the old revision cannot clear it from the buffer.
+            logger.info("Transcript correction requires a fresh connection")
+            await self._drop_connection()
+        elif overdue:
             # The socket is open and Backend is not answering on it. That is
             # indistinguishable from a half-open connection from here, so it
             # is treated as one: drop it and let the reconnect below write
@@ -402,7 +412,7 @@ class TranscriptChannel:
 
             if self._closed or session is None or session.closed:
                 # :meth:`aclose` took the session away while this waited.
-                raise BackendError("BACKEND_TRANSCRIPT_CHANNEL_CLOSED", retryable=False)
+                raise self._closed_error()
 
             try:
                 ws = await session.ws_connect(
@@ -415,6 +425,14 @@ class TranscriptChannel:
                 # refused upgrade classifies exactly like a refused POST.
                 failure = status_error(exc.status)
                 logger.warning("Transcript handshake refused: %s", failure.code)
+                if not failure.retryable:
+                    # Authentication, route and request failures do not change
+                    # by reconnecting. Remember the exact failure so later
+                    # sends fail immediately instead of filling the buffer with
+                    # frames that can never be delivered.
+                    async with self._lock:
+                        self._terminal_failure = failure
+                        self._closed = True
                 # ``from None``: aiohttp's message names the URL it tried, and
                 # a traceback is not somewhere the redaction filter reaches.
                 raise failure from None
@@ -438,9 +456,7 @@ class TranscriptChannel:
                     # Closed while the handshake was in flight. Nothing is ever
                     # going to read this socket, so it does not get left open.
                     await self._close_socket(ws)
-                    raise BackendError(
-                        "BACKEND_TRANSCRIPT_CHANNEL_CLOSED", retryable=False
-                    )
+                    raise self._closed_error()
             except BaseException:
                 if self._ws is not ws and not ws.closed:
                     self._abandon_socket(ws)
@@ -469,21 +485,27 @@ class TranscriptChannel:
                 if ws is None:  # pragma: no cover - _ensure_connection sets it
                     raise BackendError("BACKEND_REQUEST_FAILED", retryable=True)
                 queue = [
-                    entry
-                    for entry in self._pending.values()
+                    (utterance_id, entry)
+                    for utterance_id, entry in self._pending.items()
                     if entry.written_at is None
                 ]
 
-            for entry in queue:
+            for utterance_id, entry in queue:
                 async with self._lock:
                     if self._ws is not ws:
                         # Dropped underneath this flush. Every entry is already
                         # unmarked, so the reconnect is what carries them now;
                         # writing on the old socket would only be noise.
                         raise BackendError("BACKEND_REQUEST_FAILED", retryable=True)
-                    if entry.written_at is not None:
+                    if (
+                        entry.written_at is not None
+                        or self._pending.get(utterance_id) is not entry
+                    ):
                         continue
                     data = json.dumps(entry.frame, ensure_ascii=False)
+                    # Mark before yielding to the writer: Backend can answer as
+                    # soon as bytes reach it, before ``send_str`` returns.
+                    entry.exposed = True
 
                 try:
                     await asyncio.wait_for(ws.send_str(data), WRITE_TIMEOUT_SECONDS)
@@ -504,7 +526,7 @@ class TranscriptChannel:
                     ) from None
 
                 async with self._lock:
-                    if self._ws is ws:
+                    if self._ws is ws and self._pending.get(utterance_id) is entry:
                         entry.written_at = time.monotonic()
 
     async def _read_acks(self, ws: aiohttp.ClientWebSocketResponse) -> None:
@@ -541,6 +563,12 @@ class TranscriptChannel:
                     continue
                 utterance_id = frame.get("utteranceId")
                 if isinstance(utterance_id, str):
+                    entry = self._pending.get(utterance_id)
+                    # A replacement enters the map before it is written. An
+                    # ACK arriving in that interval belongs to the old frame
+                    # and must not clear the new one.
+                    if entry is None or not entry.exposed:
+                        continue
                     self._pending.pop(utterance_id, None)
                     if not self._pending:
                         self._drained.set()
@@ -553,7 +581,22 @@ class TranscriptChannel:
             # before it cancels this task, so the connection it replaces does
             # not also ask for a replacement of its own.
             if self._ws is ws:
-                self._start_recovery()
+                close_code = ws.close_code
+                if close_code == aiohttp.WSCloseCode.POLICY_VIOLATION or (
+                    close_code is not None and 4000 <= close_code < 5000
+                ):
+                    # Reopening with the same route and credentials cannot fix
+                    # a policy/private-use rejection. Preserve a stable error
+                    # and stop the automatic reconnect loop.
+                    self._terminal_failure = BackendError(
+                        "BACKEND_CLIENT_ERROR", retryable=False
+                    )
+                    self._closed = True
+                    logger.warning(
+                        "Transcript channel closed by Backend policy (%d)", close_code
+                    )
+                else:
+                    self._start_recovery()
 
     def _start_recovery(self) -> None:
         """Reconnect in the background, if there is anything left to deliver."""
@@ -638,6 +681,7 @@ class TranscriptChannel:
         reader, self._reader = self._reader, None
         ws, self._ws = self._ws, None
         for entry in self._pending.values():
+            entry.exposed = False
             entry.written_at = None
         return ws, reader
 
@@ -704,7 +748,7 @@ class TranscriptChannel:
             and not self._reader.done()
         )
 
-    def _admit(self, utterance_id: str, frame: dict[str, object]) -> bool:
+    def _admit(self, utterance_id: str, frame: dict[str, object]) -> tuple[bool, bool]:
         """Buffer this frame unless that would exceed the cap. Under the lock.
 
         Checking and taking the slot are one call because they have to be one
@@ -719,13 +763,24 @@ class TranscriptChannel:
         does not reorder what has not gone out yet.
         """
 
-        replacing = utterance_id in self._pending
+        existing = self._pending.get(utterance_id)
+        replacing = existing is not None
         if not replacing and len(self._pending) >= self.max_pending:
-            return False
+            return False, False
 
         self._pending[utterance_id] = _Pending(frame)
         self._drained.clear()
-        return True
+        return True, bool(existing and existing.exposed)
+
+    def _closed_error(self) -> BackendError:
+        """The terminal failure that closed this channel, or ordinary close."""
+
+        if self._terminal_failure is not None:
+            return BackendError(
+                self._terminal_failure.code,
+                retryable=self._terminal_failure.retryable,
+            )
+        return BackendError("BACKEND_TRANSCRIPT_CHANNEL_CLOSED", retryable=False)
 
     def _ack_overdue(self) -> bool:
         """Whether the oldest written-but-unacknowledged frame has waited too long."""

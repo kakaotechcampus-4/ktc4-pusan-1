@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAIError
 from pydantic import TypeAdapter
 
 from irya_ai.openai_suggestions import (
@@ -169,6 +169,22 @@ def test_payload_carries_hiring_context_but_never_the_candidate_s_name(
     added = {k: v for k, v in payload.items() if k not in ("maxSuggestions", "qa")}
     assert "정민호" not in json.dumps(added, ensure_ascii=False)
     assert "candidate" not in added and "candidateId" not in added
+
+
+def test_session_context_is_the_serialized_prompt_prefix(
+    pair: QAPair, sources: dict[str, Utterance]
+) -> None:
+    payload = build_payload(pair, sources, context_for(pair.session_id))
+
+    assert list(payload) == [
+        "job",
+        "competencies",
+        "resumeClaims",
+        "maxSuggestions",
+        "qa",
+    ]
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert serialized.index('"job"') < serialized.index('"qa"')
 
 
 def test_payload_skips_utterances_it_was_not_given(pair: QAPair) -> None:
@@ -369,6 +385,26 @@ async def test_connection_error_is_retryable(
             await OpenAISuggestionGenerator(client).generate(pair, sources)
 
     assert info.value.code == "LLM_UNAVAILABLE" and info.value.retryable
+
+
+async def test_an_unclassified_sdk_failure_is_an_api_error(
+    pair: QAPair, sources: dict[str, Utterance]
+) -> None:
+    class FailingCompletions:
+        async def parse(self, **_request):
+            raise OpenAIError("sdk failed")
+
+    class FakeClient:
+        class Chat:
+            completions = FailingCompletions()
+
+        chat = Chat()
+
+    with pytest.raises(SuggestionError) as info:
+        await OpenAISuggestionGenerator(FakeClient()).generate(pair, sources)  # type: ignore[arg-type]
+
+    assert info.value.code == "LLM_API_ERROR"
+    assert info.value.retryable is False
 
 
 @pytest.mark.parametrize(
