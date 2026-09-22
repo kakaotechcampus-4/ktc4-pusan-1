@@ -32,7 +32,7 @@ in the exchange it cites. A draft that fails any check is dropped whole.
 import asyncio
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Protocol, runtime_checkable
@@ -66,6 +66,9 @@ MIN_ANSWER_WORDS = 8
 RERUN_WORDS = 8
 # How many times one question is looked at. A two-minute answer gets three.
 DEFAULT_MAX_ROUNDS_PER_ANSWER = 3
+# Closed pairs handed to the model as context, so a follow-up the interviewer
+# asked themselves still reads as one. Two covers a question and its follow-up.
+RECENT_EXCHANGES = 2
 
 _COLLAPSE = re.compile(r"\s+")
 
@@ -207,6 +210,21 @@ def build_suggestions(
 # --- generators ------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class RoundHistory:
+    """What earlier rounds and earlier questions leave for this one to read.
+
+    ``already_suggested`` is what this question's previous rounds kept, so a
+    model asked again does not offer the same thing in other words.
+    ``recent_exchanges`` are the closed pairs just before this one, oldest
+    first: context for a follow-up the interviewer asked themselves, never a
+    source of evidence - a suggestion still has to cite the open answer.
+    """
+
+    already_suggested: tuple[str, ...] = ()
+    recent_exchanges: tuple[QAPair, ...] = ()
+
+
 @runtime_checkable
 class SuggestionGenerator(Protocol):
     """Writes the draft. Implementations must cite, never assert."""
@@ -216,6 +234,7 @@ class SuggestionGenerator(Protocol):
         pair: QAPair,
         sources: Mapping[str, Utterance],
         context: InterviewContext | None = None,
+        history: RoundHistory | None = None,
     ) -> SuggestionBatchDraft: ...
 
 
@@ -236,6 +255,7 @@ class ExtractiveSuggestionGenerator:
         pair: QAPair,
         sources: Mapping[str, Utterance],
         context: InterviewContext | None = None,
+        history: RoundHistory | None = None,
     ) -> SuggestionBatchDraft:
         for uid in pair.answer_utterance_ids:
             source = sources.get(uid)
@@ -267,14 +287,17 @@ class FakeSuggestionGenerator:
     def __init__(self, draft: SuggestionBatchDraft) -> None:
         self.draft = draft
         self.calls: list[str] = []
+        self.histories: list[RoundHistory | None] = []
 
     async def generate(
         self,
         pair: QAPair,
         sources: Mapping[str, Utterance],
         context: InterviewContext | None = None,
+        history: RoundHistory | None = None,
     ) -> SuggestionBatchDraft:
         self.calls.append(pair.qa_id)
+        self.histories.append(history)
         return self.draft
 
 
@@ -291,6 +314,8 @@ class RoundState:
     snapshot_words: int = 0
     # Suggestions kept for this question so far, across rounds.
     kept: int = 0
+    # Their content, in order, for the next round to read and not repeat.
+    contents: list[str] = field(default_factory=list)
 
 
 class LiveSuggestionAgent:
@@ -324,6 +349,7 @@ class LiveSuggestionAgent:
         min_answer_words: int = MIN_ANSWER_WORDS,
         rerun_words: int = RERUN_WORDS,
         max_rounds_per_answer: int = DEFAULT_MAX_ROUNDS_PER_ANSWER,
+        recent_exchanges: int = RECENT_EXCHANGES,
         clock: Callable[[], datetime] = utcnow,
     ) -> None:
         if timeout_seconds <= 0:
@@ -340,6 +366,8 @@ class LiveSuggestionAgent:
             raise ValueError("rerun_words must be at least 1")
         if max_rounds_per_answer < 1:
             raise ValueError("max_rounds_per_answer must be at least 1")
+        if recent_exchanges < 0:
+            raise ValueError("recent_exchanges must not be negative")
 
         self.generator = generator
         self.context = context
@@ -351,6 +379,7 @@ class LiveSuggestionAgent:
         self.min_answer_words = min_answer_words
         self.rerun_words = rerun_words
         self.max_rounds_per_answer = max_rounds_per_answer
+        self.recent_exchanges = recent_exchanges
         self.clock = clock
 
         self.segmenter = QASegmenter()
@@ -465,9 +494,15 @@ class LiveSuggestionAgent:
             result.elapsed_ms = round((perf_counter() - started) * 1000)
             return result
 
+        history = RoundHistory(
+            already_suggested=tuple(state.contents),
+            recent_exchanges=self._recent_exchanges(pair),
+        )
         try:
             async with asyncio.timeout(self.timeout_seconds):
-                draft = await self.generator.generate(pair, self._sources, self.context)
+                draft = await self.generator.generate(
+                    pair, self._sources, self.context, history
+                )
         except TimeoutError:
             return self._failed(result, "LLM_TIMEOUT", retryable=True, started=started)
         except SuggestionError as exc:
@@ -500,10 +535,23 @@ class LiveSuggestionAgent:
             result.warnings.append("UNGROUNDED_SUGGESTIONS_REMOVED")
 
         state.kept += len(suggestions)
+        state.contents.extend(s.content for s in suggestions)
         self.kept_count += len(suggestions)
         self._seen_contents.update(s.content for s in suggestions)
         result.elapsed_ms = round((perf_counter() - started) * 1000)
         return result
+
+    def _recent_exchanges(self, pair: QAPair) -> tuple[QAPair, ...]:
+        """The closed pairs just before ``pair``, oldest first, capped."""
+
+        if not self.recent_exchanges:
+            return ()
+        before = [
+            p
+            for p in self.segmenter.result().qa_pairs
+            if p.qa_id != pair.qa_id and p.start_ms < pair.start_ms
+        ]
+        return tuple(before[-self.recent_exchanges :])
 
     def _failed(
         self,

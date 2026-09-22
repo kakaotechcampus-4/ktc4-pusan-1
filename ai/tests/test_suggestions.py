@@ -418,7 +418,7 @@ def test_due_is_none_until_the_answer_is_long_enough() -> None:
 
 async def test_run_round_marks_the_pair_handled_even_when_it_fails() -> None:
     class Hanging:
-        async def generate(self, pair, sources, context=None):
+        async def generate(self, pair, sources, context=None, history=None):
             await asyncio.sleep(10)
             return SuggestionBatchDraft(suggestions=[])
 
@@ -456,7 +456,7 @@ class Sequenced:
         self.drafts = [SuggestionBatchDraft(suggestions=[draft(c)]) for c in contents]
         self.calls: list[str] = []
 
-    async def generate(self, pair, sources, context=None):
+    async def generate(self, pair, sources, context=None, history=None):
         self.calls.append(pair.qa_id)
         return self.drafts[min(len(self.calls), len(self.drafts)) - 1]
 
@@ -518,7 +518,7 @@ async def test_a_failed_round_still_moves_the_growth_mark() -> None:
         def __init__(self) -> None:
             self.calls = 0
 
-        async def generate(self, pair, sources, context=None):
+        async def generate(self, pair, sources, context=None, history=None):
             self.calls += 1
             await asyncio.sleep(10)
             return SuggestionBatchDraft(suggestions=[])
@@ -554,6 +554,75 @@ async def test_a_direct_round_past_the_answer_cap_says_which_cap() -> None:
     assert live.kept_count == 1
 
 
+# --- what a round is told about the rounds and questions before it ----------
+
+
+async def test_a_later_round_is_told_what_the_question_already_has() -> None:
+    fake = FakeSuggestionGenerator(SuggestionBatchDraft(suggestions=[draft()]))
+    live = agent(generator=fake)
+    live.ingest(question())
+
+    await live.observe(utterance())
+    await live.observe(more_words(8, utterance_id="utt_b", seq=2))
+
+    first, second = fake.histories
+    assert first is not None and first.already_suggested == ()
+    assert second is not None
+    assert second.already_suggested == ("캐시를 어디에 두셨는지 더 여쭤보세요.",)
+
+
+async def test_a_round_reads_the_exchanges_before_its_question() -> None:
+    fake = FakeSuggestionGenerator(SuggestionBatchDraft(suggestions=[draft()]))
+    live = agent(generator=fake, recent_exchanges=2)
+
+    # Three questions in a row. The fourth round should see the two closest
+    # closed pairs, oldest first, and never the open one it is about.
+    for n in range(3):
+        live.ingest(
+            question(
+                utterance_id=f"utt_q{n}",
+                seq=n * 10,
+                start_ms=n * 100_000,
+                end_ms=n * 100_000 + 900,
+            )
+        )
+        live.ingest(more_words(2, utterance_id=f"utt_a{n}", seq=n * 10 + 1))
+    live.ingest(question(seq=30, start_ms=300_000, end_ms=300_900))
+    result = await live.observe(utterance(seq=31, start_ms=301_000, end_ms=305_000))
+
+    assert result is not None
+    (history,) = fake.histories
+    assert history is not None
+    assert [p.qa_id for p in history.recent_exchanges] == ["qa_utt_q1", "qa_utt_q2"]
+    assert all(p.qa_id != result.qa_id for p in history.recent_exchanges)
+
+
+async def test_the_first_question_has_no_exchanges_to_read() -> None:
+    fake = FakeSuggestionGenerator(SuggestionBatchDraft(suggestions=[draft()]))
+    live = agent(generator=fake)
+    live.ingest(question())
+
+    await live.observe(utterance())
+
+    (history,) = fake.histories
+    assert history is not None
+    assert history.recent_exchanges == ()
+
+
+async def test_exchanges_can_be_switched_off() -> None:
+    fake = FakeSuggestionGenerator(SuggestionBatchDraft(suggestions=[draft()]))
+    live = agent(generator=fake, recent_exchanges=0)
+    live.ingest(question(utterance_id="utt_q0", seq=0, start_ms=0))
+    live.ingest(more_words(2, utterance_id="utt_a0", seq=1))
+    live.ingest(question(seq=10, start_ms=100_000, end_ms=100_900))
+
+    await live.observe(utterance(seq=11, start_ms=101_000, end_ms=105_000))
+
+    (history,) = fake.histories
+    assert history is not None
+    assert history.recent_exchanges == ()
+
+
 async def test_a_round_that_drops_everything_says_so_instead_of_staying_silent() -> (
     None
 ):
@@ -585,7 +654,7 @@ async def test_a_round_that_drops_everything_says_so_instead_of_staying_silent()
 
 async def test_a_generator_failure_becomes_a_typed_error_not_an_exception() -> None:
     class Failing:
-        async def generate(self, pair, sources, context=None):
+        async def generate(self, pair, sources, context=None, history=None):
             raise SuggestionError("LLM_RATE_LIMITED", retryable=True)
 
     live = agent(generator=Failing())
@@ -600,7 +669,7 @@ async def test_a_generator_failure_becomes_a_typed_error_not_an_exception() -> N
 
 async def test_a_generator_that_hangs_times_out_as_a_retryable_error() -> None:
     class Hanging:
-        async def generate(self, pair, sources, context=None):
+        async def generate(self, pair, sources, context=None, history=None):
             import asyncio
 
             await asyncio.sleep(10)
