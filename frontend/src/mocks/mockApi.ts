@@ -21,6 +21,9 @@ import type {
   SessionState,
   StartSessionResponse,
 } from '../types/interview';
+import { handleAuthMock } from './authMock';
+import { contextProfile } from './contextStore';
+import { handleContextSettingsMock } from './contextSettingsMock';
 
 /**
  * 목이 켜져 있는가.
@@ -109,14 +112,23 @@ export async function handleMockUpload(
 export async function handleMock(path: string, init?: RequestInit): Promise<unknown | null> {
   const method = init?.method ?? 'GET';
 
+  // 화면별로 나눠 둔 목 핸들러를 먼저 태운다. 맞는 경로가 없으면 null 을 돌려주므로
+  // 아래 기본 경로 매칭으로 그대로 내려간다.
+  for (const handle of [handleAuthMock, handleContextSettingsMock]) {
+    const handled = await handle(path, init);
+    if (handled !== null) return handled;
+  }
+
   const context = /^\/api\/v1\/contexts\/([^/]+)$/.exec(path);
   if (context && method === 'GET') {
     await delay(200);
     return {
       id: context[1],
-      company: '엘리스',
-      team: '플랫폼',
-      role: '백엔드 엔지니어',
+      // 설정 화면에서 저장한 값을 그대로 돌려준다. 고정값이면 저장이 반영되지 않아
+      // 새로 고칠 때마다 입력이 되돌아간다.
+      company: contextProfile.company,
+      team: contextProfile.team,
+      role: contextProfile.role,
       docs: viewDocs(),
     } satisfies CompanyContext;
   }
