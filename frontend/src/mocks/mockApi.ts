@@ -21,6 +21,9 @@ import type {
   SessionState,
   StartSessionResponse,
 } from '../types/interview';
+import { handleAuthMock } from './authMock';
+import { contextProfile } from './contextStore';
+import { handleContextSettingsMock } from './contextSettingsMock';
 
 /**
  * 목이 켜져 있는가.
@@ -109,16 +112,44 @@ export async function handleMockUpload(
 export async function handleMock(path: string, init?: RequestInit): Promise<unknown | null> {
   const method = init?.method ?? 'GET';
 
+  // 화면별로 나눠 둔 목 핸들러를 먼저 태운다. 맞는 경로가 없으면 null 을 돌려주므로
+  // 아래 기본 경로 매칭으로 그대로 내려간다.
+  for (const handle of [handleAuthMock, handleContextSettingsMock]) {
+    const handled = await handle(path, init);
+    if (handled !== null) return handled;
+  }
+
   const context = /^\/api\/v1\/contexts\/([^/]+)$/.exec(path);
   if (context && method === 'GET') {
     await delay(200);
     return {
       id: context[1],
-      company: '엘리스',
-      team: '플랫폼',
-      role: '백엔드 엔지니어',
+      // 설정 화면에서 저장한 값을 그대로 돌려준다. 고정값이면 저장이 반영되지 않아
+      // 새로 고칠 때마다 입력이 되돌아간다.
+      company: contextProfile.company,
+      team: contextProfile.team,
+      role: contextProfile.role,
       docs: viewDocs(),
     } satisfies CompanyContext;
+  }
+
+  // 붙여넣은 텍스트 — 파싱할 것이 없으므로 바로 ready 다.
+  const textDoc = /^\/api\/v1\/contexts\/[^/]+\/texts$/.exec(path);
+  if (textDoc && method === 'POST') {
+    await delay(300);
+    const body = JSON.parse(String(init?.body ?? '{}')) as { title?: string; body?: string };
+    const text = body.body ?? '';
+    const stored: StoredDoc = {
+      id: nextId('doc'),
+      name: body.title || '붙여넣은 텍스트',
+      kind: 'text',
+      sizeBytes: new Blob([text]).size,
+      status: 'ready',
+      readyAt: Date.now(),
+    };
+    docs.set(stored.id, stored);
+    // readyAt 은 서버 내부 값이라 내보내지 않는다.
+    return viewDocs().find((d) => d.id === stored.id) satisfies ContextDoc | undefined;
   }
 
   const deleteDocPath = /^\/api\/v1\/contexts\/[^/]+\/docs\/([^/]+)$/.exec(path);

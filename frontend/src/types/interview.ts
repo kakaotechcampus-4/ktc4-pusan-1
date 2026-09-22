@@ -105,7 +105,8 @@ export interface EndSessionResponse {
  * 필요해서 FE 가 먼저 형태를 정했다. 목으로만 동작한다.
  * ---------------------------------------------------------------- */
 
-export type DocKind = 'pdf' | 'docx';
+/** 붙여넣은 텍스트도 문서 한 건으로 다룬다 — 화면과 목록을 파일과 똑같이 쓸 수 있다. */
+export type DocKind = 'pdf' | 'docx' | 'text';
 
 /**
  * 문서 상태.
