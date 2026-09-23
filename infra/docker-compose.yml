@@ -67,6 +67,39 @@ services:
       retries: 3
       start_period: 10s
 
+  ai:
+    build: ../ai
+    container_name: irya-ai
+    restart: unless-stopped
+    # LiveKit AgentServer 가 방마다 별도 작업 프로세스를 만들고, 각 작업이
+    # 사람의 마이크 트랙을 직접 구독해 Elice Whisper 로 전사한다. BE 는 음성을
+    # 중계하지 않는다. 전사는 LiveKit text stream 으로 면접관에게만 간다.
+    environment:
+      APP_ENV: production
+      LOG_LEVEL: INFO
+      # 에이전트는 같은 compose 네트워크 안에서 시그널링 서버에 등록한다.
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      # BE 와 같은 Elice STT 배포를 쓴다. 이름만 AI 쪽 Settings 에 맞춘다.
+      ELICE_STT_BASE_URL: ${STT_API_BASE_URL:?STT_API_BASE_URL is required}
+      ELICE_API_KEY: ${STT_API_KEY:?STT_API_KEY is required}
+    depends_on:
+      livekit:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/').read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   db:
     image: postgres:17-alpine
     container_name: irya-db
