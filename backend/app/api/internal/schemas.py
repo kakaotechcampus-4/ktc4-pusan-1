@@ -24,9 +24,18 @@ FRAME_NACK: Final = "transcript.nack"
 
 
 class InternalSchema(BaseModel):
-    # 모르는 필드는 거절한다. Agent 가 계약에 없는 것을 보내기 시작하면
-    # 조용히 버려지는 대신 여기서 드러나야 한다.
-    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    """모르는 필드는 **무시한다.**
+
+    처음에는 `extra="forbid"` 로 두었다. 계약이 어긋나면 조용히 버려지는 대신
+    드러나야 한다고 봤기 때문인데, 실패 방식이 너무 나쁘다 — Agent 가
+    `TranscriptPayload` 에 필드를 하나 더하면 **모든 프레임이 NACK** 이 되고,
+    받는 쪽이 아직 NACK 을 처리하지 않아서 면접 내내 재연결 루프가 된다.
+
+    필드가 늘어난 프레임은 우리가 아는 부분만 읽어도 맞는 값이다. 계약이 갈라지는
+    것은 명세 잠금 테스트와 계약 테스트가 잡는다 — 운영 중에 잡을 일이 아니다.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
 
 class TranscriptUpsert(InternalSchema):
@@ -59,10 +68,13 @@ class TranscriptAck(InternalSchema):
 
 
 class TranscriptNack(InternalSchema):
-    """받을 수 없다는 답. Agent 는 이 발화를 버리고 다음으로 넘어간다.
+    """받을 수 없다는 답. **다시 보내지 말라**는 뜻이다.
 
-    ACK 과 달리 **다시 보내지 말라**는 뜻이다. 계약이 어긋난 프레임은 다시 보내도
-    같은 답이라, 재전송하면 그 발화에서 영원히 막힌다.
+    ⚠️ **Agent 는 아직 이걸 처리하지 않는다.** `irya_ai.transcripts` 의 수신부가
+    `type != "transcript.ack"` 인 프레임을 전부 넘기므로, 지금 NACK 을 보내면 그
+    발화가 버퍼에 남아 ACK 타임아웃 → 재연결 → 재전송이 반복된다. #76 에 처리를
+    요청해 두었고, 그때까지는 계약이 갈라지지 않는 한 이 프레임이 나갈 일이 없다
+    (`extra="ignore"` 로 둔 이유가 그것이다).
     """
 
     type: Literal["transcript.nack"] = FRAME_NACK

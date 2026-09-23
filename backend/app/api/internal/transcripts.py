@@ -17,6 +17,11 @@ ACK 과 반대로 **다시 보내지 말라**는 뜻이다. 계약이 어긋난 
 같은 답이라, 끊어서 재전송을 유도하면 그 발화에서 영원히 막힌다. 연결은 살려 둔다 —
 발화 하나가 잘못됐다고 면접 전체의 전사를 끊을 이유가 없다.
 
+⚠️ **Agent 는 아직 NACK 을 처리하지 않는다** (`irya_ai.transcripts` 가 ACK 이 아닌
+프레임을 전부 넘긴다). #76 에 요청해 두었다. 그 사이 NACK 이 실제로 나가면 그 발화가
+버퍼에 남아 재연결이 반복되므로, 계약이 조금 갈라졌다고 NACK 이 쏟아지지 않도록
+프레임 모델을 `extra="ignore"` 로 두었다.
+
 ⚠️ **아직 저장하지 않는다.** 전사 테이블이 없다 (#85). 지금은 검증하고 로그만
 남긴 뒤 ACK 한다 — Agent 가 핸드셰이크·인증·프레임 모양·ACK 까지 한 번 통과시켜
 보기 위한 단계다. #85 가 붙기 전까지 이 경로로 들어온 전사는 사라진다.
@@ -97,9 +102,13 @@ async def receive_transcripts(
         while True:
             try:
                 raw = await websocket.receive_json()
-            except ValueError:
+            except (ValueError, KeyError):
                 # JSON 도 아니다. 어느 발화인지 알 수 없어 NACK 을 못 보낸다.
-                logger.error("전사 프레임이 JSON 이 아님 session_id=%s", sessionId)
+                #
+                # `KeyError` 는 바이너리 프레임이다 — Starlette 의 `receive_json`
+                # 이 텍스트 키를 찾다 터진다. 1003 은 Agent 가 일시 장애로 보고
+                # 다시 붙는 코드라, 텍스트로 고쳐 보내면 이어진다.
+                logger.error("전사 프레임을 읽을 수 없음 session_id=%s", sessionId)
                 await websocket.close(code=status.WS_1003_UNSUPPORTED_DATA)
                 return
 
@@ -115,6 +124,11 @@ async def receive_transcripts(
                     exc.error_count(),
                 )
                 if utterance_id is None:
+                    # 어느 발화를 버리라고 할 수가 없어 NACK 이 의미가 없다.
+                    #
+                    # 1008 은 Agent 에게 "다시 오지 마라"로 읽힌다 — 채널을 영구
+                    # 폐기하고 그 면접의 남은 전사를 전부 버린다. 자기 발화에 id 를
+                    # 못 붙이는 쪽은 우리 Agent 가 아니므로 그게 맞다.
                     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                     return
                 refused += 1

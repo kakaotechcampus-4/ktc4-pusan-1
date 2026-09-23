@@ -21,7 +21,7 @@ import secrets
 from fastapi import Header, WebSocket, status
 
 from app.core.config import settings
-from app.core.errors import ApiError, ErrorCode
+from app.core.errors import ApiError
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,13 @@ def _accepted(authorization: str) -> bool:
     token = _presented(authorization)
     if token is None:
         return False
-    # 앞자리부터 비교해 길이로 정답을 좁힐 수 있는 걸 막는다.
-    return secrets.compare_digest(token, expected)
+    # bytes 로 비교한다. str 끼리 넘기면 비ASCII 문자가 하나라도 있을 때
+    # `TypeError` 가 나고, 그게 500 이 되어 Agent 가 재시도 가능한 실패로 읽는다
+    # — 틀린 키로 무한히 다시 붙는 상황이 여기서 되살아난다. 키를 사람이 손으로
+    # 적는 값이라 한글이 섞일 수 있다.
+    #
+    # 앞자리부터 비교해 길이로 정답을 좁힐 수 있는 걸 막는 성질은 그대로다.
+    return secrets.compare_digest(token.encode(), expected.encode())
 
 
 def require_internal_auth(authorization: str = Header(default="")) -> None:
@@ -58,9 +63,9 @@ def require_internal_auth(authorization: str = Header(default="")) -> None:
     # 무엇이 왔는지는 남기지 않는다 — 우리가 발급한 값이 아니라 신뢰할 수 없고,
     # 로그에 남기면 비밀이 로그로 새는 경로가 된다.
     logger.warning("internal API 인증 실패")
-    raise ApiError(
-        ErrorCode.NOT_FOUND, status.HTTP_401_UNAUTHORIZED, "인증이 필요합니다."
-    )
+    # `ErrorCode` 에는 인증용 값이 없다. 클라이언트용 API 가 아니라 공개 명세의
+    # 에러 코드 집합을 넓힐 이유가 없어, 여기서만 쓰는 문자열로 둔다.
+    raise ApiError("UNAUTHORIZED", status.HTTP_401_UNAUTHORIZED, "인증이 필요합니다.")
 
 
 async def websocket_authorized(websocket: WebSocket) -> bool:
@@ -76,10 +81,23 @@ async def websocket_authorized(websocket: WebSocket) -> bool:
     return False
 
 
-def warn_if_open() -> None:
-    """키가 비어 있으면 기동 때 한 번 알린다."""
-    if not settings.internal_api_key:
-        logger.warning(
-            "INTERNAL_API_KEY 가 비어 있어 /internal/v1 인증을 건너뜁니다. "
-            "서버 배포에서는 반드시 채우세요."
+def check_key_at_startup() -> None:
+    """키가 비어 있을 때, 로컬은 경고만 하고 **운영은 기동을 막는다.**
+
+    compose 에서 `:?` 로 강제하지 않는 이유는 그 보간이 `ps`·`logs`·`down` 에서도
+    일어나기 때문이다 — 값이 없으면 서버에서 로그도 못 본다. 그래서 강제는 앱이 한다.
+
+    로컬은 막지 않는다. Agent 쪽도 키가 없으면 헤더를 안 보내므로, 둘 다 비어 있는
+    개발 환경은 자격증명을 지어내지 않고 그대로 돈다.
+    """
+    if settings.internal_api_key:
+        return
+    if settings.app_env == "production":
+        raise RuntimeError(
+            "INTERNAL_API_KEY 가 비어 있습니다. 운영에서는 /internal/v1 이 인증 없이 "
+            "열리므로 기동하지 않습니다. infra/.env 에 값을 넣으세요."
         )
+    logger.warning(
+        "INTERNAL_API_KEY 가 비어 있어 /internal/v1 인증을 건너뜁니다 (APP_ENV=%s).",
+        settings.app_env,
+    )

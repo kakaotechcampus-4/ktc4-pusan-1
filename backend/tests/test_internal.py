@@ -132,7 +132,6 @@ def test_unknown_session_is_refused_before_accept(client: TestClient, key: str) 
         {**UPSERT, "endedAtMs": 1000},  # 끝이 시작보다 앞
         {**UPSERT, "text": ""},  # 빈 발화
         {**UPSERT, "speaker": "OBSERVER"},  # 모르는 화자
-        {**UPSERT, "extra": "x"},  # 계약에 없는 필드
     ],
 )
 def test_broken_frame_is_nacked(
@@ -151,6 +150,56 @@ def test_broken_frame_is_nacked(
         # 발화 하나가 잘못됐다고 면접 전체의 전사를 끊을 이유가 없다.
         ws.send_json(UPSERT)
         assert ws.receive_json()["type"] == "transcript.ack"
+
+
+def test_unknown_field_is_ignored_not_nacked(
+    client: TestClient, session_id: str, key: str
+) -> None:
+    """Agent 가 페이로드에 필드를 더해도 전 프레임이 NACK 이 되면 안 된다.
+
+    받는 쪽이 아직 NACK 을 처리하지 않아서, 그렇게 되면 면접 내내 재연결 루프가 된다.
+    우리가 아는 부분만 읽어도 맞는 값이다.
+    """
+    with client.websocket_connect(
+        f"/internal/v1/sessions/{session_id}/transcripts", headers=auth(key)
+    ) as ws:
+        ws.send_json({**UPSERT, "passType": "FINAL", "confidence": 0.9})
+        assert ws.receive_json()["type"] == "transcript.ack"
+
+
+def test_non_ascii_server_key_rejects_instead_of_crashing(
+    client: TestClient, session_id: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """서버 키에 비ASCII 가 들어가도 500 이 나면 안 된다.
+
+    `secrets.compare_digest` 는 str 인자 중 **어느 쪽이든** 비ASCII 면 `TypeError`
+    를 낸다. 잡히지 않으면 500 이 되고, Agent 의 `status_error` 는 500 을
+    **재시도 가능한** 실패로 분류한다 — 그러면 정상 Agent 가 영원히 다시 붙는다.
+
+    키는 사람이 `.env` 에 손으로 적는 값이라 한글이 섞일 수 있다. (그런 키는 HTTP
+    헤더에 실을 수도 없으니 애초에 붙을 수 없는데, 그때 조용히 401 로 거절하는 것과
+    500 으로 터지는 것은 운영에서 전혀 다르다.)
+    """
+    monkeypatch.setattr(settings, "internal_api_key", "한글키")
+    got = client.post(
+        f"/internal/v1/sessions/{session_id}/suggestions",
+        json=SUGGESTION,
+        headers=auth("ascii-token"),
+    )
+    assert got.status_code == 401
+
+
+def test_binary_frame_closes_with_unsupported_data(
+    client: TestClient, session_id: str, key: str
+) -> None:
+    """Starlette 의 `receive_json` 이 바이너리 프레임에서 KeyError 를 낸다."""
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(
+            f"/internal/v1/sessions/{session_id}/transcripts", headers=auth(key)
+        ) as ws:
+            ws.send_bytes(b"\x00\x01binary")
+            ws.receive_json()
+    assert exc.value.code == 1003
 
 
 def test_frame_without_id_closes_the_socket(
@@ -243,6 +292,34 @@ def test_suggestion_for_unknown_session_is_404(client: TestClient, key: str) -> 
         headers=auth(key),
     )
     assert got.status_code == 404
+
+
+# ── 기동 검사 ───────────────────────────────────────────
+
+
+def test_production_refuses_to_start_without_a_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """운영에서 키가 비면 /internal/v1 이 누구에게나 열린다. 그럴 바엔 안 뜨는 게 낫다.
+
+    compose 에서 `:?` 로 막지 않는 이유는 그 보간이 `ps`·`logs`·`down` 에서도 일어나
+    값이 없을 때 서버에서 수습조차 못 하게 되기 때문이다. 강제는 여기서 한다.
+    """
+    from app.api.internal.deps import check_key_at_startup
+
+    monkeypatch.setattr(settings, "internal_api_key", "")
+    monkeypatch.setattr(settings, "app_env", "production")
+    with pytest.raises(RuntimeError, match="INTERNAL_API_KEY"):
+        check_key_at_startup()
+
+
+def test_local_starts_without_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """둘 다 비어 있는 개발 환경은 자격증명을 지어내지 않고 그대로 돈다."""
+    from app.api.internal.deps import check_key_at_startup
+
+    monkeypatch.setattr(settings, "internal_api_key", "")
+    monkeypatch.setattr(settings, "app_env", "local")
+    check_key_at_startup()
 
 
 # ── 공개 명세 ───────────────────────────────────────────

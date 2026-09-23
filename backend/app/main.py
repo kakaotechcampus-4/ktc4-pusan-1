@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.internal import router as internal_router
-from app.api.internal.deps import warn_if_open
+from app.api.internal.deps import check_key_at_startup
 from app.api.v1 import router as v1_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     `IF NOT EXISTS` 라 기동할 때마다 돌려도 안전하다. 컬럼을 바꿔야 할 때가
     오면 Alembic 을 넣고 이 호출을 걷어낸다.
     """
-    warn_if_open()
+    check_key_at_startup()
 
     if not settings.database_url:
         yield

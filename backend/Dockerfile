@@ -39,8 +39,4 @@ USER app
 
 EXPOSE 8000
 
-# --ws-max-queue: Agent 가 ACK 못 받은 발화를 최대 200건까지 들고 있다가 재연결하면
-#   한꺼번에 보낸다 (irya_ai.config 의 max_pending). uvicorn 기본값이 32 라 그대로 두면
-#   재연결 직후 버스트에서 서버 큐가 먼저 찬다. 보내는 쪽 상한보다 넉넉히 잡는다.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--ws-max-queue", "256"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
