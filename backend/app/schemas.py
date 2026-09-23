@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.models import Role, SessionStatus
+from app.domain.models import DocKind, DocStatus, Role, SessionStatus
 
 
 class Schema(BaseModel):
@@ -180,3 +180,51 @@ class ReviewProcessingResponse(Schema):
         serialization_alias="etaSec",
         description="남은 예상 시간. 추정할 근거가 없으면 비운다.",
     )
+
+
+# ── 기업 컨텍스트 ────────────────────────────────────────
+
+
+class CreateContextRequest(Schema):
+    interviewer_id: str = Field(
+        alias="interviewerId",
+        min_length=1,
+        description="면접관 한 명에 컨텍스트 하나다. 이미 있으면 그걸 돌려준다.",
+    )
+
+
+class ContextDocResponse(Schema):
+    """FE 의 `ContextDoc` 과 같은 모양.
+
+    `progress` 는 내보내지 않는다 — 업로드 진행률은 클라이언트만 아는 값이다.
+    """
+
+    id: str
+    name: str
+    kind: DocKind
+    size_bytes: int = Field(serialization_alias="sizeBytes")
+    status: DocStatus
+
+
+class ContextResponse(Schema):
+    """FE 의 `CompanyContext` 에 `talentProfile` 을 더한 것.
+
+    FE 가 「조회가 talentProfile 을 안 돌려줘서 새로 고치면 빈 칸에서 시작한다」고
+    한계를 적어 뒀는데(#81), 저장만 되고 못 읽으면 쓸 수 없으므로 여기 싣는다.
+    """
+
+    id: str
+    company: str
+    team: str
+    role: str
+    talent_profile: str = Field(serialization_alias="talentProfile")
+    docs: list[ContextDocResponse]
+
+
+class UpdateContextRequest(Schema):
+    """`PATCH /contexts/{contextId}` — 넣은 항목만 바꾼다."""
+
+    company: str | None = None
+    team: str | None = None
+    role: str | None = None
+    talent_profile: str | None = Field(default=None, alias="talentProfile")

@@ -19,6 +19,29 @@ class SessionStatus(StrEnum):
     ENDED = "ENDED"
 
 
+class DocKind(StrEnum):
+    """업로드할 수 있는 문서 형식. FE 의 `DocKind` 와 같다."""
+
+    PDF = "pdf"
+    DOCX = "docx"
+
+
+class DocStatus(StrEnum):
+    """서버가 아는 문서 상태.
+
+    FE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —
+    서버는 업로드가 끝난 뒤에야 문서를 안다.
+
+    `PARSING` 은 아직 쓰지 않는다. 본문 추출을 누가 하는지가 안 정해져서(#70) 지금은
+    올라온 즉시 `READY` 다. 값은 미리 둔다 — 나중에 파싱이 붙을 때 FE 가 이미 이
+    분기를 갖고 있다.
+    """
+
+    PARSING = "parsing"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class Role(StrEnum):
     """입장 권한. 명세의 Request Body 예시가 `"role": "CANDIDATE"` 다."""
 
@@ -114,3 +137,39 @@ class Session:
         self.status = SessionStatus.ENDED
         self.ended_at = _now()
         return True
+
+
+@dataclass
+class Context:
+    """면접관의 기업 컨텍스트 — 회사·직무·인재상과 올려 둔 문서.
+
+    **면접이 아니라 면접관에게 딸린다.** 회사 정보와 JD 는 면접마다 바뀌지 않으므로
+    한 번 넣고 계속 쓰는 편이 맞다는 것이 #79 의 제안이고, 이 모델이 그걸 따른다.
+    면접관 한 명에 하나다.
+    """
+
+    interviewer_id: str
+    id: str = field(default_factory=lambda: _new_id("ctx"))
+    company: str = ""
+    team: str = ""
+    role: str = ""
+    #: AI 면접관이 참고할 추가 인재상·평가 포인트 (#81).
+    talent_profile: str = ""
+    created_at: datetime = field(default_factory=_now)
+
+
+@dataclass
+class ContextDoc:
+    """컨텍스트에 올린 문서 한 건의 메타데이터.
+
+    원본 바이트는 저장소가 따로 들고 있다 — 목록을 부를 때마다 파일 전체가 딸려
+    오면 안 된다.
+    """
+
+    context_id: str
+    name: str
+    kind: DocKind
+    size_bytes: int
+    id: str = field(default_factory=lambda: _new_id("doc"))
+    status: DocStatus = DocStatus.READY
+    created_at: datetime = field(default_factory=_now)

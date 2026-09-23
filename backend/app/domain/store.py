@@ -10,7 +10,7 @@
 
 from typing import Protocol
 
-from app.domain.models import Interview, Session
+from app.domain.models import Context, ContextDoc, Interview, Session
 
 
 class Store(Protocol):
@@ -26,11 +26,40 @@ class Store(Protocol):
         """변경된 Session 을 저장한다. 상태 전이 뒤에는 항상 부른다."""
         ...
 
+    # ── 기업 컨텍스트 ───────────────────────────────────
+
+    def add_context(self, context: Context) -> None: ...
+
+    def get_context(self, context_id: str) -> Context | None: ...
+
+    def get_context_by_interviewer(self, interviewer_id: str) -> Context | None:
+        """면접관 한 명에 컨텍스트 하나. 생성이 멱등하려면 이게 필요하다."""
+        ...
+
+    def save_context(self, context: Context) -> None: ...
+
+    def add_doc(self, doc: ContextDoc, content: bytes) -> None:
+        """문서 메타데이터와 원본을 같이 넣는다."""
+        ...
+
+    def list_docs(self, context_id: str) -> list[ContextDoc]:
+        """올린 순서대로."""
+        ...
+
+    def get_doc(self, context_id: str, doc_id: str) -> ContextDoc | None: ...
+
+    def delete_doc(self, context_id: str, doc_id: str) -> bool:
+        """지웠으면 True. 없던 문서면 False."""
+        ...
+
 
 class InMemoryStore:
     def __init__(self) -> None:
         self._interviews: dict[str, Interview] = {}
         self._sessions: dict[str, Session] = {}
+        self._contexts: dict[str, Context] = {}
+        #: (context_id, doc_id) -> (메타데이터, 원본)
+        self._docs: dict[tuple[str, str], tuple[ContextDoc, bytes]] = {}
 
     def add_interview(self, interview: Interview) -> None:
         self._interviews[interview.id] = interview
@@ -50,10 +79,46 @@ class InMemoryStore:
         # 똑같이 동작하도록 호출 규약을 맞춰 둔다.
         self._sessions[session.id] = session
 
+    # ── 기업 컨텍스트 ───────────────────────────────────
+
+    def add_context(self, context: Context) -> None:
+        self._contexts[context.id] = context
+
+    def get_context(self, context_id: str) -> Context | None:
+        return self._contexts.get(context_id)
+
+    def get_context_by_interviewer(self, interviewer_id: str) -> Context | None:
+        for context in self._contexts.values():
+            if context.interviewer_id == interviewer_id:
+                return context
+        return None
+
+    def save_context(self, context: Context) -> None:
+        self._contexts[context.id] = context
+
+    def add_doc(self, doc: ContextDoc, content: bytes) -> None:
+        self._docs[(doc.context_id, doc.id)] = (doc, content)
+
+    def list_docs(self, context_id: str) -> list[ContextDoc]:
+        return [
+            doc
+            for (ctx_id, _), (doc, _content) in self._docs.items()
+            if ctx_id == context_id
+        ]
+
+    def get_doc(self, context_id: str, doc_id: str) -> ContextDoc | None:
+        found = self._docs.get((context_id, doc_id))
+        return None if found is None else found[0]
+
+    def delete_doc(self, context_id: str, doc_id: str) -> bool:
+        return self._docs.pop((context_id, doc_id), None) is not None
+
     def clear(self) -> None:
         """테스트용."""
         self._interviews.clear()
         self._sessions.clear()
+        self._contexts.clear()
+        self._docs.clear()
 
 
 store: Store = InMemoryStore()

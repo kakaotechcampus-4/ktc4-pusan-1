@@ -16,7 +16,14 @@ from collections.abc import Iterator
 
 import pytest
 
-from app.domain.models import Interview, Session, SessionStatus
+from app.domain.models import (
+    Context,
+    ContextDoc,
+    DocKind,
+    Interview,
+    Session,
+    SessionStatus,
+)
 from app.domain.store import InMemoryStore, Store
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "")
@@ -39,6 +46,7 @@ def subject(request: pytest.FixtureRequest) -> Iterator[Store]:
     # 테스트끼리 섞이지 않게 비운다. interview 를 지우면 session 은 CASCADE 다.
     with postgres._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
         conn.execute("TRUNCATE interview CASCADE")
+        conn.execute("TRUNCATE context CASCADE")
     try:
         yield postgres
     finally:
@@ -137,3 +145,107 @@ def test_transcript_origin_is_persisted(subject: Store):
     assert found.transcript_origin_at == origin
     # 두 번째 참가자·재전송이 원점을 밀면 안 된다.
     assert found.mark_origin(session.created_at) is False
+
+
+# ── 기업 컨텍스트 ────────────────────────────────────────
+
+
+def _context(subject: Store, interviewer_id: str = "user_123") -> Context:
+    context = Context(interviewer_id=interviewer_id)
+    subject.add_context(context)
+    return context
+
+
+def test_context_roundtrip(subject: Store):
+    context = Context(
+        interviewer_id="user_123",
+        company="카카오",
+        team="플랫폼",
+        role="백엔드",
+        talent_profile="협업",
+    )
+    subject.add_context(context)
+
+    found = subject.get_context(context.id)
+    assert found is not None
+    assert found.interviewer_id == "user_123"
+    assert found.company == "카카오"
+    assert found.team == "플랫폼"
+    assert found.role == "백엔드"
+    assert found.talent_profile == "협업"
+
+
+def test_context_is_found_by_interviewer(subject: Store):
+    """면접관 한 명에 하나. 생성이 멱등하려면 이 조회가 맞아야 한다."""
+    context = _context(subject)
+    found = subject.get_context_by_interviewer("user_123")
+    assert found is not None
+    assert found.id == context.id
+    assert subject.get_context_by_interviewer("아무도아님") is None
+
+
+def test_saving_a_context_persists_the_change(subject: Store):
+    context = _context(subject)
+    context.company = "카카오"
+    context.talent_profile = "끈기"
+    subject.save_context(context)
+
+    found = subject.get_context(context.id)
+    assert found is not None
+    assert found.company == "카카오"
+    assert found.talent_profile == "끈기"
+
+
+def test_unknown_context_is_none(subject: Store):
+    assert subject.get_context("ctx_없는것") is None
+
+
+# ── 문서 ────────────────────────────────────────────────
+
+
+def _doc(context_id: str, name: str = "jd.pdf") -> ContextDoc:
+    return ContextDoc(context_id=context_id, name=name, kind=DocKind.PDF, size_bytes=12)
+
+
+def test_doc_roundtrip(subject: Store):
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"%PDF-1.7\nx\n")
+
+    found = subject.get_doc(context.id, doc.id)
+    assert found is not None
+    assert found.name == "jd.pdf"
+    assert found.kind is DocKind.PDF
+    assert found.size_bytes == 12
+
+
+def test_docs_are_listed_in_upload_order(subject: Store):
+    context = _context(subject)
+    for name in ("first.pdf", "second.pdf", "third.pdf"):
+        subject.add_doc(_doc(context.id, name), b"x")
+
+    listed = [doc.name for doc in subject.list_docs(context.id)]
+    assert listed == ["first.pdf", "second.pdf", "third.pdf"]
+
+
+def test_docs_are_scoped_to_their_context(subject: Store):
+    """id 만 알면 남의 문서를 읽거나 지울 수 있으면 안 된다."""
+    mine = _context(subject, "user_a")
+    yours = _context(subject, "user_b")
+    doc = _doc(yours.id)
+    subject.add_doc(doc, b"x")
+
+    assert subject.get_doc(mine.id, doc.id) is None
+    assert subject.delete_doc(mine.id, doc.id) is False
+    assert subject.list_docs(mine.id) == []
+    assert len(subject.list_docs(yours.id)) == 1
+
+
+def test_deleting_a_doc_reports_whether_it_existed(subject: Store):
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"x")
+
+    assert subject.delete_doc(context.id, doc.id) is True
+    assert subject.delete_doc(context.id, doc.id) is False
+    assert subject.get_doc(context.id, doc.id) is None
