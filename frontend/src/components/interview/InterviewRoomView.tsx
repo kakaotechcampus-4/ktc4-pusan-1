@@ -16,6 +16,7 @@
  * 덕분에 서버 없이도 이 화면만 따로 띄워 확인할 수 있다.
  */
 
+import { ConnectionState } from 'livekit-client';
 import { useEffect, useState, type RefObject } from 'react';
 import { fmt } from '../../lib/format';
 import type { Role } from '../../types/interview';

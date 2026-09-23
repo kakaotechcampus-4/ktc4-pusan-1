@@ -8,6 +8,8 @@
  * 다시 읽어 올 곳이 없어, 화면은 새로 고치면 빈 칸에서 시작한다.
  */
 
+// 목 조회는 talentProfile 을 돌려준다. 실제 API 응답은 병합 후 계약을 확인한다.
+
 import { request } from './client';
 
 const V1 = '/api/v1';

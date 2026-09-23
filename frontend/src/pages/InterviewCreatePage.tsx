@@ -37,7 +37,11 @@ const REJECTION_MESSAGE: Record<UploadRejection, string> = {
 
 export default function InterviewCreatePage() {
   const [candidateName, setCandidateName] = useState('');
-  const { data: context, isError: contextError, isLoading: contextLoading } = useQuery({
+  const {
+    data: context,
+    isError: contextError,
+    isLoading: contextLoading,
+  } = useQuery({
     queryKey: ['context', CONTEXT_ID],
     queryFn: () => getContext(CONTEXT_ID),
   });

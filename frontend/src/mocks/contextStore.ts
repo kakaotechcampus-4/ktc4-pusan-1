@@ -16,9 +16,40 @@ export interface MockContextProfile {
   talentProfile: string;
 }
 
-export const contextProfile: MockContextProfile = {
+const DEFAULT_PROFILE: MockContextProfile = {
   company: '엘리스',
   team: '플랫폼',
   role: '백엔드 엔지니어',
   talentProfile: '',
 };
+
+const STORAGE_KEY = 'irya:mock-context-profile:v1';
+
+function loadContextProfile(): MockContextProfile {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? 'null') as MockContextProfile;
+    if (
+      value &&
+      typeof value.company === 'string' &&
+      typeof value.team === 'string' &&
+      typeof value.role === 'string' &&
+      typeof value.talentProfile === 'string'
+    ) {
+      return value;
+    }
+  } catch {
+    return { ...DEFAULT_PROFILE };
+  }
+  return { ...DEFAULT_PROFILE };
+}
+
+// 데모에서도 저장 후 새로고침하면 입력값을 다시 보여준다.
+export const contextProfile: MockContextProfile = loadContextProfile();
+
+export function saveContextProfile() {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(contextProfile));
+  } catch {
+    return;
+  }
+}

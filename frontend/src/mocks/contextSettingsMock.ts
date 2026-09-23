@@ -8,7 +8,7 @@
  */
 
 import type { ContextSettings, ContextSettingsPatch } from '../api/contextSettings';
-import { contextProfile } from './contextStore';
+import { contextProfile, saveContextProfile } from './contextStore';
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -28,6 +28,7 @@ export async function handleContextSettingsMock(
     if (patch.company !== undefined) contextProfile.company = patch.company;
     if (patch.role !== undefined) contextProfile.role = patch.role;
     if (patch.talentProfile !== undefined) contextProfile.talentProfile = patch.talentProfile;
+    saveContextProfile();
 
     return {
       id: contextId,

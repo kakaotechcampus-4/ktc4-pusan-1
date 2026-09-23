@@ -9,6 +9,8 @@
  * 유지를 끈 로그인도 헤더에 실리게 하려면 그쪽이 readAccessToken() 을 쓰도록 바꿔야 한다.
  */
 
+// 현재 client.ts 는 readAccessToken()으로 두 저장소를 확인한다.
+
 const KEY = 'accessToken';
 
 export function saveAccessToken(token: string, keepSignedIn: boolean) {
