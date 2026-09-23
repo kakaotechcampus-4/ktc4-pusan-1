@@ -8,10 +8,10 @@ from app.api.health import router as health_router
 from app.api.internal import router as internal_router
 from app.api.internal.deps import check_key_at_startup
 from app.api.v1 import router as v1_router
-from app.api.v1.contexts import MAX_UPLOAD_BYTES, MULTIPART_SLACK_BYTES
 from app.core.body_limit import BodySizeLimitMiddleware
 from app.core.config import settings
 from app.core.errors import register_error_handlers
+from app.core.uploads import MAX_UPLOAD_BYTES, MULTIPART_SLACK_BYTES
 from app.domain import store as store_module
 
 

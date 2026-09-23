@@ -21,6 +21,7 @@ from app.domain.models import (
     ContextDoc,
     DocKind,
     Interview,
+    Resume,
     Session,
     SessionStatus,
 )
@@ -261,3 +262,37 @@ def test_deleting_a_doc_reports_whether_it_existed(subject: Store):
     assert subject.delete_doc(context.id, doc.id) is True
     assert subject.delete_doc(context.id, doc.id) is False
     assert subject.get_doc(context.id, doc.id) is None
+
+
+# ── 지원자 이력서 ────────────────────────────────────────
+
+
+def _resume(interview_id: str, name: str = "이력서.pdf") -> Resume:
+    return Resume(interview_id=interview_id, name=name, kind=DocKind.PDF, size_bytes=9)
+
+
+def test_resume_roundtrip(subject: Store):
+    session = _seed(subject)
+    subject.save_resume(_resume(session.interview_id), b"%PDF-1.7\n")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None
+    assert found.name == "이력서.pdf"
+    assert found.kind is DocKind.PDF
+    assert found.size_bytes == 9
+
+
+def test_resume_is_replaced_not_appended(subject: Store):
+    """면접 한 건에 한 장. 다시 올리면 덮어쓴다."""
+    session = _seed(subject)
+    subject.save_resume(_resume(session.interview_id, "old.pdf"), b"old")
+    subject.save_resume(_resume(session.interview_id, "new.pdf"), b"new")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None
+    assert found.name == "new.pdf"
+
+
+def test_resume_of_an_interview_without_one_is_none(subject: Store):
+    session = _seed(subject)
+    assert subject.get_resume(session.interview_id) is None

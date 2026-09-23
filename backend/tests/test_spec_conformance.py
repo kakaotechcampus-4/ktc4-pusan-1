@@ -82,6 +82,14 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     #
     # `talentProfile` 은 FE 의 `CompanyContext` 에 없는 필드다. FE 가 저장만 하고
     # 다시 못 읽어 새로 고치면 빈 칸이 된다고 적어 둬서(#81), 조회에 실어 보낸다.
+    # ⚠️ Notion 명세에 없다. FE 가 형태를 먼저 정했다(#81 의 `api/resume.ts`).
+    # 응답은 기업 컨텍스트 문서와 같은 모양이다 — FE 가 같은 카드로 그린다.
+    ("post", "/api/v1/interviews/{interviewId}/resume"): {
+        "path_params": ["interviewId"],
+        "multipart": True,
+        "response": {"id", "name", "kind", "sizeBytes", "status"},
+        "statuses": {"201", "404", "413", "415", "422"},
+    },
     ("get", "/api/v1/contexts/current"): {
         "response": {"id", "company", "team", "role", "talentProfile", "docs"},
         "statuses": {"200"},

@@ -185,3 +185,23 @@ class ContextDoc:
     id: str = field(default_factory=lambda: _new_id("doc"))
     status: DocStatus = DocStatus.READY
     created_at: datetime = field(default_factory=_now)
+
+
+@dataclass
+class Resume:
+    """지원자 이력서 — 면접 한 건에 한 장.
+
+    `ContextDoc` 과 모양이 거의 같지만 주인이 다르다. 기업 컨텍스트는 조직에 딸려
+    여러 면접이 함께 쓰고, 이력서는 면접 한 건의 것이다. 한 테이블에 섞으면 「이
+    문서가 누구 것인가」가 컬럼 값으로만 갈려 조회마다 조건이 붙는다.
+
+    다시 올리면 덮어쓴다 — FE 가 목록도 삭제도 두지 않았다(#81).
+    """
+
+    interview_id: str
+    name: str
+    kind: DocKind
+    size_bytes: int
+    id: str = field(default_factory=lambda: _new_id("doc"))
+    status: DocStatus = DocStatus.READY
+    created_at: datetime = field(default_factory=_now)

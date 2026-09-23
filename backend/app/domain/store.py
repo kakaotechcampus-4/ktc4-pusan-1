@@ -10,7 +10,7 @@
 
 from typing import Protocol
 
-from app.domain.models import Context, ContextDoc, Interview, Session
+from app.domain.models import Context, ContextDoc, Interview, Resume, Session
 
 
 class Store(Protocol):
@@ -54,6 +54,14 @@ class Store(Protocol):
         """지웠으면 True. 없던 문서면 False."""
         ...
 
+    # ── 지원자 이력서 ───────────────────────────────────
+
+    def save_resume(self, resume: Resume, content: bytes) -> None:
+        """면접 한 건에 한 장. 이미 있으면 덮어쓴다."""
+        ...
+
+    def get_resume(self, interview_id: str) -> Resume | None: ...
+
 
 class InMemoryStore:
     def __init__(self) -> None:
@@ -62,6 +70,8 @@ class InMemoryStore:
         self._contexts: dict[str, Context] = {}
         #: (context_id, doc_id) -> (메타데이터, 원본)
         self._docs: dict[tuple[str, str], tuple[ContextDoc, bytes]] = {}
+        #: interview_id -> (메타데이터, 원본)
+        self._resumes: dict[str, tuple[Resume, bytes]] = {}
 
     def add_interview(self, interview: Interview) -> None:
         self._interviews[interview.id] = interview
@@ -113,12 +123,22 @@ class InMemoryStore:
     def delete_doc(self, context_id: str, doc_id: str) -> bool:
         return self._docs.pop((context_id, doc_id), None) is not None
 
+    # ── 지원자 이력서 ───────────────────────────────────
+
+    def save_resume(self, resume: Resume, content: bytes) -> None:
+        self._resumes[resume.interview_id] = (resume, content)
+
+    def get_resume(self, interview_id: str) -> Resume | None:
+        found = self._resumes.get(interview_id)
+        return None if found is None else found[0]
+
     def clear(self) -> None:
         """테스트용."""
         self._interviews.clear()
         self._sessions.clear()
         self._contexts.clear()
         self._docs.clear()
+        self._resumes.clear()
 
 
 store: Store = InMemoryStore()

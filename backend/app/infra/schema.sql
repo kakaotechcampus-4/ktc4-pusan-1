@@ -73,3 +73,16 @@ CREATE TABLE IF NOT EXISTS context_doc (
 );
 
 CREATE INDEX IF NOT EXISTS context_doc_context_id_idx ON context_doc (context_id);
+
+-- 지원자 이력서. 면접 한 건에 한 장이라 interview_id 가 기본키다 — 다시 올리면
+-- 덮어쓴다. 원본을 여기 두는 이유는 context_doc 과 같다.
+CREATE TABLE IF NOT EXISTS interview_resume (
+    interview_id TEXT        PRIMARY KEY REFERENCES interview (id) ON DELETE CASCADE,
+    id           TEXT        NOT NULL,
+    name         TEXT        NOT NULL,
+    kind         TEXT        NOT NULL,
+    size_bytes   BIGINT      NOT NULL,
+    status       TEXT        NOT NULL,
+    content      BYTEA       NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL
+);

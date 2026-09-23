@@ -150,7 +150,7 @@ def test_unsupported_type_is_415(
 
 
 def test_too_large_is_413(client: TestClient, context_id: str) -> None:
-    from app.api.v1.contexts import MAX_UPLOAD_BYTES
+    from app.core.uploads import MAX_UPLOAD_BYTES
 
     big = b"%PDF-" + b"x" * MAX_UPLOAD_BYTES
     assert upload(client, context_id, "big.pdf", big).status_code == 413
@@ -170,7 +170,7 @@ def test_oversized_body_is_refused_before_it_is_read(
     그게 앞에 있다는 걸 잠근다. 라우터 안에서 검사하면 본문을 기다리느라 이 요청은
     답을 못 받는다.
     """
-    from app.api.v1.contexts import MAX_UPLOAD_BYTES
+    from app.core.uploads import MAX_UPLOAD_BYTES
 
     got = client.post(
         f"{V1}/contexts/{context_id}/docs",
