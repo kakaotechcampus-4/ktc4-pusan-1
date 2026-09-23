@@ -2,7 +2,11 @@ name: AI CI
 
 on:
   pull_request:
-    branches: [develop]
+    # 스택 PR 은 base 가 develop 이 아니라 앞선 feature 브랜치다. develop 만 걸면
+    # 그런 PR 에는 검사가 아예 안 돌아 무검증으로 리뷰에 올라간다 — 실제로 PR #94 가
+    # 그랬다. push 쪽은 develop 만 둔다. feature 브랜치마다 돌리면 PR 하나에 검사가
+    # 두 번씩 돈다.
+    branches: [develop, "feature/**", "fix/**", "chore/**", "refactor/**", "perf/**"]
     paths:
       - "ai/**"
       - ".github/workflows/ai-ci.yml"

@@ -46,6 +46,17 @@ services:
       # LiveKit 컨테이너의 LIVEKIT_KEYS 와 같은 쌍이어야 합니다. 다르면 입장이 401 납니다.
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      # Agent 가 /internal/v1 에 붙을 때 쓰는 공유 비밀입니다.
+      #
+      # 비우면 BE 가 검사를 건너뛰므로 운영에서는 반드시 채웁니다. 다만 여기서
+      # `:?` 로 강제하지는 않습니다 — 보간은 compose 파일을 읽는 **모든** 서브커맨드에서
+      # 일어나서, 값이 없으면 `ps`·`logs`·`down` 까지 막힙니다. 장애가 났을 때 로그도
+      # 못 보게 됩니다. 대신 APP_ENV=production 이면 BE 가 기동을 거부합니다
+      # (`app/api/internal/deps.py`).
+      #
+      # ⚠️ ai 서비스가 들어오면 같은 값을 BACKEND_API_KEY 로도 줘야 합니다.
+      #    다르면 Agent 가 BACKEND_AUTH_FAILED 로 붙지 못합니다.
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
       # 비우면 인메모리로 떨어집니다. 서버에서는 반드시 채웁니다 —
       # 재시작할 때마다 진행 중인 면접 상태가 사라집니다.
       DATABASE_URL: postgresql://${POSTGRES_USER:-irya}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-irya}
