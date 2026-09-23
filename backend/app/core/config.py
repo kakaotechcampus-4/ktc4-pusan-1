@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     # 예: postgresql://irya:<password>@db:5432/irya
     database_url: str = ""
 
+    # Agent 가 /internal/v1 에 붙을 때 쓰는 공유 비밀.
+    #
+    # 비우면 검사하지 않는다. Agent 쪽도 키가 없으면 Authorization 헤더를 아예
+    # 보내지 않으므로(`irya_ai.backend.auth_headers`), 양쪽이 비어 있으면 로컬에서
+    # 자격증명을 지어내지 않고 그대로 붙는다. 서버에서는 반드시 채운다 —
+    # 비워 두면 /internal/v1 이 누구에게나 열린다.
+    internal_api_key: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
