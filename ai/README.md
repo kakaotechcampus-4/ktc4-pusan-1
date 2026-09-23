@@ -1,13 +1,13 @@
 # IRYA AI
 
-PCM 청킹·Elice STT와 전사 기반 Q&A·근거·요약을 제공하는 파트입니다. LiveKit 입력과 BE/FE 전송은 아직 연결되지 않았습니다. 현재 구현·수명·측정 정의는 [STT 파이프라인](docs/stt-pipeline.md), 검증 범위는 [STT 리뷰 기록](docs/stt-review.md)을 참고하세요.
+LiveKit 마이크 트랙을 Elice Whisper로 실시간 전사해 면접관에게 표시하고, 전사 기반 Q&A·근거·요약을 제공하는 파트입니다. BE 전송(전사 WebSocket·꼬리질문)은 클라이언트만 있고 워커에 아직 붙지 않았습니다. 현재 구현·수명·측정 정의는 [STT 파이프라인](docs/stt-pipeline.md), 검증 범위는 [STT 리뷰 기록](docs/stt-review.md)을 참고하세요.
 
 ## Requirements
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
 - Elice STT 실행 시 서버 측 Elice API Key와 배포 주소
-- 향후 LiveKit 입력 연결 시 LiveKit 서버 접속 정보
+- 실시간 전사 워커 실행 시 LiveKit 서버 접속 정보 (STT는 위 Elice 값을 그대로 씁니다)
 - GPT 분석 실행 시 OpenAI API Key (오프라인 데모에는 불필요)
 
 Python은 `ai/.python-version`의 3.12를 사용합니다. 로컬에 설치되어 있지 않으면 `uv`가 필요한 버전을 설치할 수 있습니다.
@@ -50,6 +50,37 @@ chmod 600 .env
 Elice STT만 사용할 때는 LiveKit·OpenAI 키가 필요 없습니다. 리뷰 타임라인은 별도의
 `LLM_BASE_URL`·`LLM_API_KEY`·`LLM_MODEL` 설정으로 Elice LLM을 호출합니다.
 기존 `analyze` 명령의 `OPENAI_MODEL` 경로와 구분하며 `ELICE_LLM_MODEL`은 사용하지 않습니다.
+
+## LiveKit 실시간 전사 워커
+
+AI 워커는 LiveKit 방에 프로그램 참가자로 자동 입장해 두 사람의 마이크 트랙을 직접
+구독합니다. 프레임은 mono 16kHz PCM으로 `stt/stream.py`의 `TranscriptionStream`에
+들어가 발화 경계에서 잘려 Elice Whisper로 전사되고, FINAL `Utterance`는
+`irya.transcript.v1` text stream으로 **면접관에게만** 전송됩니다. 별도 AI HTTP 서버나
+BE 음성 중계는 없습니다. STT 제공자는 2026-09-22 회의에서 프로젝트 기본 제공 모델인
+Elice Whisper로 MVP를 만들기로 정한 것을 따릅니다.
+
+```bash
+# LiveKit·Elice 값을 ai/.env에 채운 뒤 로컬 개발 실행
+uv run python -m irya_ai.worker dev
+
+# 운영 모드
+uv run python -m irya_ai.worker start
+```
+
+Docker 배포에서는 `infra/docker-compose.yml`의 `ai` 서비스가 같은 작업을 합니다.
+`ELICE_STT_BASE_URL`이 비어 있으면 워커는 방에 남지 않고 떠납니다. 작업이 시작되면
+접속과 나란히 무음 프로브로 `warm_up`을 한 번 보내 배포의 콜드 스타트를 첫 발화 앞으로
+당기려 하며, 실패해도 전사는 계속됩니다.
+
+LiveKit text stream에는 영구 저장이 없으므로 이 경로는 면접 중 자막 전용입니다.
+녹화 기반 재전사·면접 종료 후 저장은 아직 연결되지 않았습니다. 요청 한 건이 실패하면
+스트림이 그 세그먼트만 버리고 이어 가고, 워커 자체가 실패하면 `stream.degraded`만
+보내며 LiveKit 통화와 녹화는 종료하지 않습니다.
+
+자막의 `at`은 현재 방에서 처음 확인한 사람의 LiveKit 입장 시각을 기준으로 한 잠정
+표시값입니다. 녹화 0프레임과의 offset 및 최종 seek 기준은 아직 팀 계약이 아니므로,
+이 값을 확정 전사나 영상 탐색 기준으로 저장하지 않습니다.
 
 ### 로그와 배포 주소
 
@@ -125,6 +156,7 @@ uv run ruff format --check .
 src/irya_ai/
 ├── config.py          환경변수 설정
 ├── cli.py             로컬 개발용 CLI (irya-ai)
+├── worker.py          LiveKit 방 자동 입장과 트랙별 STT 작업 (irya-ai-worker)
 ├── schemas/           파이프라인 입출력 계약 (Pydantic)
 │   ├── transcript.py  Track · Utterance · Word · TranscriptSnapshot
 │   ├── context.py     Company · JobDescription · Competency · Rubric · Candidate · Resume · ResumeClaim
@@ -132,7 +164,7 @@ src/irya_ai/
 │   ├── summary.py     SummaryPoint · SummaryResult · AnalysisResult
 │   └── timeline.py    Moment · TimelineResult (리뷰 타임라인)
 ├── pipeline/          Q&A 구조화 · 근거 접지
-├── stt/               PCM 청킹 · Elice HTTP · 세션 정렬 · 비동기 전사 스트림
+├── stt/               LiveKit 브리지 · PCM 청킹 · Elice HTTP · 세션 정렬 · 비동기 전사 스트림
 ├── analysis.py        Snapshot 한 건의 분석과 상태 처리
 ├── summarize.py       요약 인터페이스 · 오프라인 추출형 요약
 ├── openai_summary.py  OpenAI 구조화 요약
@@ -142,9 +174,10 @@ src/irya_ai/
 data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데이터)
 ```
 
-현재 STT 구현은 Elice Whisper를 시험합니다. 기존 요약은 OpenAI 경로를, 리뷰 타임라인은
-별도의 Elice LLM 경로를 사용합니다. 이것을 팀의 최종 모델 선정으로 간주하지 않습니다.
-분석 모듈은 `TranscriptSnapshot`을 받으며 STT `Utterance`를 수집·전달하는 통합 계층은 후속 작업입니다.
+실시간 자막과 STT는 Elice Whisper입니다 (2026-09-22 회의: 프로젝트 기본 제공 모델로 MVP).
+기존 요약은 OpenAI 경로를, 리뷰 타임라인은 별도의 Elice LLM 경로를 사용합니다.
+분석 모듈은 `TranscriptSnapshot`을 받으며, 워커의 `Utterance`를 꼬리질문 에이전트와 BE 전송에
+잇는 배선은 후속 작업(#83)입니다.
 
 2026-09-13 AI 회의에서 **전사 문장의 LLM 교정·재작성 후처리를 제외**하기로 했습니다.
 Q&A 구조화·근거 검증·면접 요약은 별도 분석 범위로 유지하고 자막 표시 전에 기다리지 않습니다.
