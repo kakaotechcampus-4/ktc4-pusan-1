@@ -16,7 +16,7 @@ FE 가 develop 때부터 이 경로들을 부르고 있었는데 BE 에 하나�
 import unicodedata
 from typing import Annotated
 
-from fastapi import APIRouter, File, Path, Request, UploadFile, status
+from fastapi import APIRouter, File, Path, UploadFile, status
 
 from app.api.deps import StoreDep
 from app.core.errors import ApiError, ErrorCode, responses
@@ -36,8 +36,8 @@ DocIdPath = Annotated[str, Path(alias="docId")]
 #: 업로드 상한. FE 가 이 값을 전제로 진행률 표시를 XHR 로 구현해 뒀다.
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
-#: multipart 의 경계·헤더가 본문에 더 붙는다. 넉넉히 잡아 선검사가 정상 업로드를
-#: 막지 않게 한다 — 정확한 크기는 본문을 읽은 뒤에 다시 본다.
+#: multipart 의 경계·헤더가 본문에 더 붙는다. 넉넉히 잡아 미들웨어의 선검사가 정상
+#: 업로드를 막지 않게 한다 — 정확한 크기는 본문을 읽은 뒤에 다시 본다.
 MULTIPART_SLACK_BYTES = 64 * 1024
 
 #: 파일명 길이 상한. 저장소를 S3 로 옮기면 키 길이가 된다.
@@ -147,26 +147,6 @@ def update_context(
     return _to_response(store, context)
 
 
-def _reject_oversized(request: Request) -> None:
-    """본문을 읽기 전에 `Content-Length` 로 먼저 거른다.
-
-    읽은 뒤에 재는 것만으로는 부족하다. Starlette 은 파일 파트를 상한 없이
-    임시파일로 받으므로, 1GB 를 보내면 그걸 끝까지 받아 디스크에 쓰고 메모리에
-    올린 뒤에야 413 이 나간다. 인증이 없는 자리라 누구나 칠 수 있다.
-
-    헤더가 없으면(청크 전송) 막지 않는다 — 그때는 읽은 뒤 검사가 받는다.
-    """
-    raw = request.headers.get("content-length")
-    if raw is None:
-        return
-    try:
-        declared = int(raw)
-    except ValueError:
-        return
-    if declared > MAX_UPLOAD_BYTES + MULTIPART_SLACK_BYTES:
-        raise ApiError(ErrorCode.VALIDATION_ERROR, 413, "파일이 너무 큽니다.")
-
-
 @router.post(
     "/{contextId}/docs",
     response_model=ContextDocResponse,
@@ -179,7 +159,6 @@ def _reject_oversized(request: Request) -> None:
     ),
 )
 async def upload_doc(
-    request: Request,
     context_id: ContextIdPath,
     store: StoreDep,
     file: Annotated[UploadFile, File()],
@@ -189,7 +168,6 @@ async def upload_doc(
     FE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지
     경계가 아니다. 여기서 다시 본다.
     """
-    _reject_oversized(request)
     context = _load(store, context_id)
     name = _normalized_name(file.filename)
     if not name:

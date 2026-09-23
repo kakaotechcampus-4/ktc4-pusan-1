@@ -144,30 +144,38 @@ def test_too_large_is_413(client: TestClient, context_id: str) -> None:
     assert upload(client, context_id, "big.pdf", big).status_code == 413
 
 
-def test_oversized_body_is_refused_before_it_is_read() -> None:
+def test_oversized_body_is_refused_before_it_is_read(
+    client: TestClient, context_id: str
+) -> None:
     """읽은 뒤에 재는 것만으로는 부족하다.
 
-    Starlette 은 파일 파트를 상한 없이 임시파일로 받는다. 1GB 를 보내면 그걸 끝까지
-    받아 디스크에 쓰고 메모리에 올린 뒤에야 413 이 나간다. 인증이 없는 자리라 누구나
-    칠 수 있으므로 헤더만 보고 먼저 끊는다.
+    `file: UploadFile = File()` 이 있으면 **FastAPI 가 핸들러에 들어가기 전에**
+    multipart 를 전부 파싱한다. 그래서 핸들러 첫 줄에서 `Content-Length` 를 봐도
+    그때는 이미 본문을 다 받은 뒤다 — 1GB 를 선언하고 1KB 만 보내면 서버가 나머지를
+    계속 기다리는 것을 실제로 확인했다.
+
+    그래서 검사는 미들웨어에 있다. 여기서는 **본문을 안 보내고도 413 이 오는지**로
+    그게 앞에 있다는 걸 잠근다. 라우터 안에서 검사하면 본문을 기다리느라 이 요청은
+    답을 못 받는다.
     """
-    from starlette.datastructures import Headers
+    from app.api.v1.contexts import MAX_UPLOAD_BYTES
 
-    from app.api.v1.contexts import MAX_UPLOAD_BYTES, _reject_oversized
-    from app.core.errors import ApiError
+    got = client.post(
+        f"{V1}/contexts/{context_id}/docs",
+        content=b"",
+        headers={
+            "content-type": "multipart/form-data; boundary=x",
+            "content-length": str(MAX_UPLOAD_BYTES * 20),
+        },
+    )
+    assert got.status_code == 413
 
-    class FakeRequest:
-        def __init__(self, length: str | None) -> None:
-            self.headers = Headers({} if length is None else {"content-length": length})
 
-    with pytest.raises(ApiError) as exc:
-        _reject_oversized(FakeRequest(str(MAX_UPLOAD_BYTES * 20)))  # pyright: ignore[reportArgumentType]
-    assert exc.value.status_code == 413
-
-    # 정상 크기와, 헤더가 없는 경우(청크 전송)는 통과시킨다 — 뒤의 검사가 받는다.
-    _reject_oversized(FakeRequest(str(MAX_UPLOAD_BYTES)))  # pyright: ignore[reportArgumentType]
-    _reject_oversized(FakeRequest(None))  # pyright: ignore[reportArgumentType]
-    _reject_oversized(FakeRequest("not-a-number"))  # pyright: ignore[reportArgumentType]
+def test_normal_upload_is_not_blocked_by_the_limit(
+    client: TestClient, context_id: str
+) -> None:
+    """선검사가 정상 업로드를 막으면 안 된다 — multipart 경계·헤더가 더 붙는다."""
+    assert upload(client, context_id, "jd.pdf").status_code == 201
 
 
 def test_control_characters_are_stripped_from_the_name(
