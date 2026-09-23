@@ -21,19 +21,19 @@ export interface DocCardProps {
 
 export function DocCard({ doc, onDelete }: DocCardProps) {
   return (
-    <div className="flex min-w-0 items-center gap-4 rounded-xl bg-white/[0.06] px-5 py-4">
+    <div className="border-border-base bg-surface-container flex min-w-0 items-center gap-4 rounded-xl border px-5 py-4">
       <span
         aria-hidden
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/[0.08] font-mono text-[11px] font-semibold text-white/60"
+        className="bg-surface-bright text-ink-muted flex h-10 w-10 shrink-0 items-center justify-center rounded-lg font-mono text-[11px] font-semibold"
       >
         {doc.kind.toUpperCase()}
       </span>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="truncate text-[15px] text-white">{doc.name}</span>
+        <span className="text-ink truncate text-[15px]">{doc.name}</span>
         <span
           className={`font-mono text-[12px] ${
-            doc.status === 'failed' ? 'text-[#FF8A8A]' : 'text-white/45'
+            doc.status === 'failed' ? 'text-[#FF8A8A]' : 'text-ink-dim'
           }`}
         >
           {STATUS_TEXT(doc)}
@@ -42,7 +42,7 @@ export function DocCard({ doc, onDelete }: DocCardProps) {
         {doc.status === 'uploading' && (
           <span className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/10">
             <span
-              className="block h-full rounded-full bg-[#2B44D6] transition-[width] duration-200"
+              className="bg-brand block h-full rounded-full transition-[width] duration-200"
               style={{ width: `${(doc.progress ?? 0) * 100}%` }}
             />
           </span>
@@ -54,7 +54,7 @@ export function DocCard({ doc, onDelete }: DocCardProps) {
           type="button"
           onClick={onDelete}
           aria-label={`${doc.name} 삭제`}
-          className="shrink-0 rounded-md px-2 py-1 text-[13px] text-white/40 transition hover:bg-white/[0.08] hover:text-white/80"
+          className="text-ink-dim hover:bg-surface-bright hover:text-ink shrink-0 rounded-md px-2 py-1 text-[13px] transition"
         >
           삭제
         </button>

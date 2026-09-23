@@ -3,6 +3,10 @@
 Field names follow the TechSpec data model (snake_case). Every model also
 accepts and emits camelCase keys so the same objects can cross the REST /
 WebSocket boundary without a second mapping layer.
+
+``wire`` is the one exception: the ``/internal/v1`` contract agreed with
+Backend renames several transcript fields rather than only re-casing them, so
+that boundary gets explicit payload models instead of a shared one.
 """
 
 from irya_ai.schemas.analysis import (
@@ -25,6 +29,11 @@ from irya_ai.schemas.context import (
     Resume,
     ResumeClaim,
     Rubric,
+)
+from irya_ai.schemas.suggestion import (
+    SuggestionBatchDraft,
+    SuggestionDraft,
+    SuggestionResult,
 )
 from irya_ai.schemas.summary import (
     AnalysisError,
@@ -53,6 +62,13 @@ from irya_ai.schemas.transcript import (
     TranscriptStage,
     Utterance,
     Word,
+)
+from irya_ai.schemas.wire import (
+    SuggestionPayload,
+    SuggestionType,
+    TranscriptPayload,
+    suggestion_payload,
+    transcript_payload,
 )
 
 __all__ = [
@@ -85,14 +101,22 @@ __all__ = [
     "SpeakerRole",
     "SuggestedQuestion",
     "SuggestedQuestionStatus",
+    "SuggestionBatchDraft",
+    "SuggestionDraft",
+    "SuggestionPayload",
+    "SuggestionResult",
+    "SuggestionType",
     "SummaryDraft",
     "SummaryPoint",
     "SummaryResult",
     "TimelineDraft",
     "TimelineResult",
     "Track",
+    "TranscriptPayload",
     "TranscriptSnapshot",
     "TranscriptStage",
     "Utterance",
     "Word",
+    "suggestion_payload",
+    "transcript_payload",
 ]
