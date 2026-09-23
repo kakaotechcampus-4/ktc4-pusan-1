@@ -16,7 +16,15 @@ from psycopg import Connection, sql
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from app.domain.models import Interview, Session, SessionStatus
+from app.domain.models import (
+    Context,
+    ContextDoc,
+    DocKind,
+    DocStatus,
+    Interview,
+    Session,
+    SessionStatus,
+)
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
@@ -152,6 +160,15 @@ class PostgresStore:
             session.transcript_origin_at,
         )
 
+    def _all(
+        self, query: LiteralString, params: tuple[Any, ...]
+    ) -> list[dict[str, Any]]:
+        conn: Connection[dict[str, Any]]
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(query, params)
+                return cur.fetchall()
+
     def _one(
         self, query: LiteralString, params: tuple[Any, ...]
     ) -> dict[str, Any] | None:
@@ -160,3 +177,142 @@ class PostgresStore:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(query, params)
                 return cur.fetchone()
+
+    # ── 기업 컨텍스트 ───────────────────────────────────
+
+    def ensure_context(self, context: Context) -> Context:
+        """한 문장으로 넣거나 넘긴다.
+
+        확인한 뒤 넣으면 그 사이에 다른 요청이 넣을 수 있고, `owner_id` 가 UNIQUE 라
+        그때 두 번째 요청이 500 으로 터진다. `DO NOTHING` 으로 넘기고 다시 읽는다 —
+        어느 쪽이 이겼든 결과는 같다.
+        """
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO context
+                    (id, owner_id, company, team, role, talent_profile, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (owner_id) DO NOTHING
+                """,
+                self._context_values(context),
+            )
+        found = self._context_by_owner(context.owner_id)
+        # UNIQUE 가 있으니 방금 넣었거나 남이 넣었거나 둘 중 하나다.
+        assert found is not None
+        return found
+
+    def get_context(self, context_id: str) -> Context | None:
+        row = self._one(
+            "SELECT id, owner_id, company, team, role, talent_profile,"
+            " created_at FROM context WHERE id = %s",
+            (context_id,),
+        )
+        return None if row is None else self._to_context(row)
+
+    def _context_by_owner(self, owner_id: str) -> Context | None:
+        row = self._one(
+            "SELECT id, owner_id, company, team, role, talent_profile,"
+            " created_at FROM context WHERE owner_id = %s",
+            (owner_id,),
+        )
+        return None if row is None else self._to_context(row)
+
+    def save_context(self, context: Context) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE context
+                   SET company = %s, team = %s, role = %s, talent_profile = %s
+                 WHERE id = %s
+                """,
+                (
+                    context.company,
+                    context.team,
+                    context.role,
+                    context.talent_profile,
+                    context.id,
+                ),
+            )
+
+    def add_doc(self, doc: ContextDoc, content: bytes) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO context_doc
+                    (id, context_id, name, kind, size_bytes, status, content,
+                     created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    doc.id,
+                    doc.context_id,
+                    doc.name,
+                    doc.kind.value,
+                    doc.size_bytes,
+                    doc.status.value,
+                    content,
+                    doc.created_at,
+                ),
+            )
+
+    def list_docs(self, context_id: str) -> list[ContextDoc]:
+        # content 는 고르지 않는다. 목록 한 번에 파일 전체가 딸려 오면 안 된다.
+        rows = self._all(
+            "SELECT id, context_id, name, kind, size_bytes, status, created_at"
+            " FROM context_doc WHERE context_id = %s ORDER BY created_at",
+            (context_id,),
+        )
+        return [self._to_doc(row) for row in rows]
+
+    def get_doc(self, context_id: str, doc_id: str) -> ContextDoc | None:
+        row = self._one(
+            "SELECT id, context_id, name, kind, size_bytes, status, created_at"
+            " FROM context_doc WHERE context_id = %s AND id = %s",
+            (context_id, doc_id),
+        )
+        return None if row is None else self._to_doc(row)
+
+    def delete_doc(self, context_id: str, doc_id: str) -> bool:
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM context_doc WHERE context_id = %s AND id = %s",
+                (context_id, doc_id),
+            )
+            return cursor.rowcount == 1
+
+    @staticmethod
+    def _context_values(context: Context) -> tuple[Any, ...]:
+        return (
+            context.id,
+            context.owner_id,
+            context.company,
+            context.team,
+            context.role,
+            context.talent_profile,
+            context.created_at,
+        )
+
+    @staticmethod
+    def _to_context(row: dict[str, Any]) -> Context:
+        return Context(
+            id=row["id"],
+            owner_id=row["owner_id"],
+            company=row["company"],
+            team=row["team"],
+            role=row["role"],
+            talent_profile=row["talent_profile"],
+            created_at=row["created_at"],
+        )
+
+    @staticmethod
+    def _to_doc(row: dict[str, Any]) -> ContextDoc:
+        return ContextDoc(
+            id=row["id"],
+            context_id=row["context_id"],
+            name=row["name"],
+            kind=DocKind(row["kind"]),
+            size_bytes=row["size_bytes"],
+            status=DocStatus(row["status"]),
+            created_at=row["created_at"],
+        )

@@ -20,6 +20,15 @@ irya.cloud {
 	# Backend API. FastAPI 가 /api/v1 을 스스로 붙이므로 접두사를 떼지 않고
 	# 원본 경로를 그대로 넘깁니다.
 	handle /api/* {
+		# 업로드 상한(50MB)보다 조금 크게 잡습니다. multipart 의 경계·헤더가
+		# 본문에 더 붙기 때문입니다.
+		#
+		# BE 에도 같은 검사가 있습니다(BodySizeLimitMiddleware). 둘 다 두는 이유는
+		# 둘이 막는 범위가 다르기 때문입니다 — 여기는 본문이 우리 네트워크에 들어오기
+		# 전이고, BE 쪽은 /internal/v1 처럼 Caddy 를 안 거치는 경로까지 덮습니다.
+		request_body {
+			max_size 51MB
+		}
 		reverse_proxy backend:8000
 	}
 
