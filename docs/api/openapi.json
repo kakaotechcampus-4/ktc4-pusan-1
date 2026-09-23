@@ -1452,7 +1452,7 @@
     },
     "/api/v1/sessions/{sessionId}/start": {
       "post": {
-        "description": "Session 을 면접 진행 상태로 변경하고 시작 시각을 기록한다.",
+        "description": "Session 을 면접 진행 상태로 변경하고 시작 시각을 기록한다.\n\n동시에 여러 번 불려도 **하나만 200 을 받고 나머지는 409** 다. 버튼을 두 번\n눌렀거나 응답이 늦어 클라이언트가 재시도한 경우에 닿는다.",
         "operationId": "start_session_api_v1_sessions__sessionId__start_post",
         "parameters": [
           {

@@ -151,6 +151,84 @@ def test_transcript_origin_is_persisted(subject: Store):
     assert found.mark_origin(session.created_at) is False
 
 
+def test_conditional_save_rejects_stale_expectation(subject: Store):
+    """기대한 상태가 아니면 쓰지 않고 False 를 준다.
+
+    두 구현이 같아야 하는 지점이다. DB 는 `WHERE` 의 상태 조건으로, 인메모리는
+    마지막으로 저장된 상태를 따로 들고 비교해서 같은 답을 낸다.
+    """
+    session = _seed(subject)
+
+    assert session.start() is True
+    assert subject.save_session(session, expected_status=SessionStatus.WAITING) is True
+
+    # 저장소는 이제 INTERVIEWING 이다. 다시 WAITING 을 기대하면 거절해야 한다.
+    assert subject.save_session(session, expected_status=SessionStatus.WAITING) is False
+
+
+def test_save_does_not_create(subject: Store):
+    """`save_session` 은 갱신이다. 없는 세션은 쓰지 않고 False 를 준다.
+
+    추가는 `add_session` 의 일이다. DB 구현의 `UPDATE` 가 0행을 바꾸는 것과
+    인메모리가 같은 답을 내야 한다.
+    """
+    ghost = Session(interview_id="iv_nope")
+
+    assert subject.save_session(ghost) is False
+    assert subject.save_session(ghost, expected_status=SessionStatus.WAITING) is False
+    assert subject.get_session(ghost.id) is None
+
+
+def test_conditional_save_without_expectation_always_writes(subject: Store):
+    """`expected_status` 가 없으면 조건 없이 쓴다 (Webhook 의 원점 기록)."""
+    session = _seed(subject)
+    session.start()
+
+    assert subject.save_session(session) is True
+    assert subject.save_session(session) is True
+
+
+@pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL 이 없다")
+def test_two_readers_race_on_start():
+    """멘토가 재현한 그 상황. 스레드 없이 조회를 두 번 해서 만든다.
+
+    인메모리에는 이 테스트가 없다. `get_session` 이 같은 객체를 돌려줘서 두
+    번째 `start()` 가 애초에 False 가 난다 — 저장소가 우연히 잠금 역할을 하므로
+    이 경쟁이 구조적으로 생기지 않는다.
+    """
+    from app.infra.postgres import PostgresStore
+
+    postgres = PostgresStore(TEST_DATABASE_URL)
+    postgres.open()
+    postgres.create_schema()
+    with postgres._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+        conn.execute("TRUNCATE interview CASCADE")
+    try:
+        seeded = _seed(postgres)
+
+        first = postgres.get_session(seeded.id)
+        second = postgres.get_session(seeded.id)
+        assert first is not None and second is not None
+        assert first is not second  # DB 는 조회마다 새로 만든다
+
+        assert first.start() is True
+        assert second.start() is True  # 둘 다 WAITING 을 들고 있다
+
+        assert (
+            postgres.save_session(first, expected_status=SessionStatus.WAITING) is True
+        )
+        assert (
+            postgres.save_session(second, expected_status=SessionStatus.WAITING)
+            is False
+        )
+
+        stored = postgres.get_session(seeded.id)
+        assert stored is not None
+        assert stored.started_at == first.started_at  # 뒤 요청이 덮어쓰지 않았다
+    finally:
+        postgres.close()
+
+
 # ── 기업 컨텍스트 ────────────────────────────────────────
 
 

@@ -129,26 +129,42 @@ class PostgresStore:
             transcript_origin_at=row["transcript_origin_at"],
         )
 
-    def save_session(self, session: Session) -> None:
-        """상태 전이 뒤 저장. `id` 와 `interview_id` 는 바뀌지 않으므로 뺀다."""
+    def save_session(
+        self, session: Session, *, expected_status: SessionStatus | None = None
+    ) -> bool:
+        """상태 전이 뒤 저장. `id` 와 `interview_id` 는 바뀌지 않으므로 뺀다.
+
+        `expected_status` 가 있으면 `WHERE` 에 상태 조건을 얹는다. 조건 평가와
+        갱신이 한 문장 안에서 끝나므로 그 사이가 열리지 않는다. 읽고 나서 다른
+        요청이 먼저 상태를 바꿨으면 0행이 바뀌고 False 가 나간다.
+
+        조건절을 문자열로 붙이지만 값이 아니라 구조만 고른다 — 두 가지 중
+        하나이고 바깥 입력이 닿지 않는다. 상태 값 자체는 파라미터로 나간다.
+        """
+        clause = "" if expected_status is None else " AND status = %s"
+        params: tuple[Any, ...] = (
+            session.status.value,
+            session.started_at,
+            session.ended_at,
+            session.transcript_origin_at,
+            session.id,
+        )
+        if expected_status is not None:
+            params += (expected_status.value,)
+
         with self._pool.connection() as conn:
-            conn.execute(
-                """
+            cursor = conn.execute(
+                f"""
                 UPDATE session
                    SET status = %s,
                        started_at = %s,
                        ended_at = %s,
                        transcript_origin_at = %s
-                 WHERE id = %s
+                 WHERE id = %s{clause}
                 """,
-                (
-                    session.status.value,
-                    session.started_at,
-                    session.ended_at,
-                    session.transcript_origin_at,
-                    session.id,
-                ),
+                params,
             )
+            return cursor.rowcount == 1
 
     # ── 요약 ────────────────────────────────────────────────
 
