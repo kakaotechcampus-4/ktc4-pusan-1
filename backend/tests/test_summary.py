@@ -6,6 +6,8 @@
 
 from fastapi.testclient import TestClient
 
+from app.domain.store import InMemoryStore
+
 V1 = "/api/v1"
 
 
@@ -38,16 +40,13 @@ def test_duration_is_zero_while_the_interview_runs(
 
 
 def test_duration_is_counted_between_start_and_end(
-    client: TestClient, session_id: str
+    client: TestClient, store: InMemoryStore, session_id: str
 ) -> None:
     from datetime import timedelta
-
-    from app.api.deps import get_store
 
     client.post(f"{V1}/sessions/{session_id}/start")
 
     # 실제로 기다리지 않고 시작 시각을 뒤로 민다.
-    store = client.app.dependency_overrides[get_store]()  # pyright: ignore[reportFunctionMemberAccess]
     session = store.get_session(session_id)
     assert session is not None and session.started_at is not None
     session.started_at -= timedelta(seconds=125)
