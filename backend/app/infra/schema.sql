@@ -39,12 +39,15 @@ ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_origin_at TIMESTAMPTZ;
 
 -- ── 기업 컨텍스트 ──────────────────────────────────────────
 --
--- 면접이 아니라 면접관에게 딸린다. 회사 정보와 JD 는 면접마다 바뀌지 않으므로
--- 한 번 넣고 계속 쓴다 (#79). 면접관 한 명에 하나라 interviewer_id 가 유일하다.
+-- 면접이 아니라 조직에 딸린다. 회사 정보와 JD 는 면접마다 바뀌지 않으므로 설정에
+-- 한 번 넣고 계속 쓴다 (#79). 주인당 하나라 owner_id 가 유일하다.
+--
+-- 조직도 로그인도 아직 없어서 주인은 지금 하나뿐이다. 로그인이 들어오면 토큰에서
+-- 정하게 되고, 컬럼 이름은 그때도 그대로 쓴다.
 
 CREATE TABLE IF NOT EXISTS context (
     id              TEXT        PRIMARY KEY,
-    interviewer_id  TEXT        NOT NULL UNIQUE,
+    owner_id        TEXT        NOT NULL UNIQUE,
     company         TEXT        NOT NULL DEFAULT '',
     team            TEXT        NOT NULL DEFAULT '',
     role            TEXT        NOT NULL DEFAULT '',

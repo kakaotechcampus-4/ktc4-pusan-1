@@ -9,15 +9,16 @@ import unicodedata
 import pytest
 from fastapi.testclient import TestClient
 
+from app.domain.models import Context
+from app.domain.store import InMemoryStore
+
 V1 = "/api/v1"
 PDF = b"%PDF-1.7\nfake\n"
 
 
 @pytest.fixture
 def context_id(client: TestClient) -> str:
-    made = client.post(f"{V1}/contexts", json={"interviewerId": "user_123"})
-    assert made.status_code == 201
-    return made.json()["id"]
+    return client.get(f"{V1}/contexts/current").json()["id"]
 
 
 def upload(client: TestClient, context_id: str, name: str, body: bytes = PDF):
@@ -27,29 +28,42 @@ def upload(client: TestClient, context_id: str, name: str, body: bytes = PDF):
     )
 
 
-# ── 생성 ────────────────────────────────────────────────
+# ── 현재 컨텍스트 ───────────────────────────────────────
 
 
-def test_create_returns_fe_shape(client: TestClient) -> None:
-    got = client.post(f"{V1}/contexts", json={"interviewerId": "user_123"})
-    assert got.status_code == 201
+def test_current_returns_fe_shape(client: TestClient) -> None:
+    got = client.get(f"{V1}/contexts/current")
+    assert got.status_code == 200
     body = got.json()
     # FE 의 CompanyContext + talentProfile.
     assert set(body) == {"id", "company", "team", "role", "talentProfile", "docs"}
     assert body["docs"] == []
 
 
-def test_create_is_idempotent_per_interviewer(client: TestClient) -> None:
-    """설정 화면에 들어올 때마다 부르는 자리다. 두 번 불러 둘이 생기면 안 된다."""
-    first = client.post(f"{V1}/contexts", json={"interviewerId": "user_123"}).json()
-    second = client.post(f"{V1}/contexts", json={"interviewerId": "user_123"}).json()
-    assert first["id"] == second["id"]
+def test_current_is_the_same_context_every_time(client: TestClient) -> None:
+    """설정 화면에 들어올 때마다 부르는 자리다. 부를 때마다 새로 생기면 안 된다."""
+    first = client.get(f"{V1}/contexts/current").json()["id"]
+    second = client.get(f"{V1}/contexts/current").json()["id"]
+    assert first == second
 
 
-def test_different_interviewers_get_different_contexts(client: TestClient) -> None:
-    a = client.post(f"{V1}/contexts", json={"interviewerId": "user_a"}).json()
-    b = client.post(f"{V1}/contexts", json={"interviewerId": "user_b"}).json()
-    assert a["id"] != b["id"]
+def test_current_keeps_what_was_saved(client: TestClient) -> None:
+    context_id = client.get(f"{V1}/contexts/current").json()["id"]
+    client.patch(f"{V1}/contexts/{context_id}", json={"company": "카카오"})
+    assert client.get(f"{V1}/contexts/current").json()["company"] == "카카오"
+
+
+def test_concurrent_current_calls_make_one_context(client: TestClient) -> None:
+    """React StrictMode 나 재시도로 겹쳐 불린다. 확인한 뒤 넣으면 둘이 생긴다."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        ids = list(
+            pool.map(
+                lambda _: client.get(f"{V1}/contexts/current").json()["id"], range(8)
+            )
+        )
+    assert len(set(ids)) == 1
 
 
 # ── 조회·수정 ───────────────────────────────────────────
@@ -130,6 +144,68 @@ def test_too_large_is_413(client: TestClient, context_id: str) -> None:
     assert upload(client, context_id, "big.pdf", big).status_code == 413
 
 
+def test_oversized_body_is_refused_before_it_is_read() -> None:
+    """읽은 뒤에 재는 것만으로는 부족하다.
+
+    Starlette 은 파일 파트를 상한 없이 임시파일로 받는다. 1GB 를 보내면 그걸 끝까지
+    받아 디스크에 쓰고 메모리에 올린 뒤에야 413 이 나간다. 인증이 없는 자리라 누구나
+    칠 수 있으므로 헤더만 보고 먼저 끊는다.
+    """
+    from starlette.datastructures import Headers
+
+    from app.api.v1.contexts import MAX_UPLOAD_BYTES, _reject_oversized
+    from app.core.errors import ApiError
+
+    class FakeRequest:
+        def __init__(self, length: str | None) -> None:
+            self.headers = Headers({} if length is None else {"content-length": length})
+
+    with pytest.raises(ApiError) as exc:
+        _reject_oversized(FakeRequest(str(MAX_UPLOAD_BYTES * 20)))  # pyright: ignore[reportArgumentType]
+    assert exc.value.status_code == 413
+
+    # 정상 크기와, 헤더가 없는 경우(청크 전송)는 통과시킨다 — 뒤의 검사가 받는다.
+    _reject_oversized(FakeRequest(str(MAX_UPLOAD_BYTES)))  # pyright: ignore[reportArgumentType]
+    _reject_oversized(FakeRequest(None))  # pyright: ignore[reportArgumentType]
+    _reject_oversized(FakeRequest("not-a-number"))  # pyright: ignore[reportArgumentType]
+
+
+def test_control_characters_are_stripped_from_the_name(
+    client: TestClient, context_id: str
+) -> None:
+    """널 바이트가 그대로 들어가면 psycopg 가 거부해 500 이 나고, 인메모리는 그냥
+    받아서 두 저장소가 갈린다.
+
+    테스트 클라이언트의 `files=` 는 파일명을 이스케이프하므로 여기서는 multipart
+    본문을 직접 만든다 — 진짜 브라우저·라이브러리는 그대로 실어 보낼 수 있다.
+    """
+    boundary = "----irya"
+    body = (
+        (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="file"; filename="a\x00b.pdf"\r\n'
+            "Content-Type: application/pdf\r\n\r\n"
+        ).encode()
+        + PDF
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+
+    got = client.post(
+        f"{V1}/contexts/{context_id}/docs",
+        content=body,
+        headers={"content-type": f"multipart/form-data; boundary={boundary}"},
+    )
+    assert got.status_code == 201
+    assert got.json()["name"] == "ab.pdf"
+
+
+def test_patch_rejects_an_overlong_field(client: TestClient, context_id: str) -> None:
+    got = client.patch(
+        f"{V1}/contexts/{context_id}", json={"talentProfile": "가" * 4001}
+    )
+    assert got.status_code == 422
+
+
 def test_empty_file_is_422(client: TestClient, context_id: str) -> None:
     assert upload(client, context_id, "empty.pdf", b"").status_code == 422
 
@@ -152,11 +228,12 @@ def test_delete_unknown_doc_is_404(client: TestClient, context_id: str) -> None:
     assert got.status_code == 404
 
 
-def test_delete_is_scoped_to_its_context(client: TestClient) -> None:
+def test_delete_is_scoped_to_its_context(
+    client: TestClient, store: InMemoryStore, context_id: str
+) -> None:
     """남의 컨텍스트 문서를 id 만 알면 지울 수 있으면 안 된다."""
-    mine = client.post(f"{V1}/contexts", json={"interviewerId": "user_a"}).json()["id"]
-    yours = client.post(f"{V1}/contexts", json={"interviewerId": "user_b"}).json()["id"]
-    doc_id = upload(client, yours, "jd.pdf").json()["id"]
+    other = store.ensure_context(Context(owner_id="다른조직"))
+    doc_id = upload(client, context_id, "jd.pdf").json()["id"]
 
-    assert client.delete(f"{V1}/contexts/{mine}/docs/{doc_id}").status_code == 404
-    assert len(client.get(f"{V1}/contexts/{yours}").json()["docs"]) == 1
+    assert client.delete(f"{V1}/contexts/{other.id}/docs/{doc_id}").status_code == 404
+    assert len(client.get(f"{V1}/contexts/{context_id}").json()["docs"]) == 1

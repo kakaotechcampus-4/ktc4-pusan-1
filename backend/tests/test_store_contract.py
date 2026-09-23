@@ -150,38 +150,50 @@ def test_transcript_origin_is_persisted(subject: Store):
 # ── 기업 컨텍스트 ────────────────────────────────────────
 
 
-def _context(subject: Store, interviewer_id: str = "user_123") -> Context:
-    context = Context(interviewer_id=interviewer_id)
-    subject.add_context(context)
-    return context
+def _context(subject: Store, owner_id: str = "조직A") -> Context:
+    return subject.ensure_context(Context(owner_id=owner_id))
 
 
 def test_context_roundtrip(subject: Store):
-    context = Context(
-        interviewer_id="user_123",
-        company="카카오",
-        team="플랫폼",
-        role="백엔드",
-        talent_profile="협업",
+    context = subject.ensure_context(
+        Context(
+            owner_id="조직A",
+            company="카카오",
+            team="플랫폼",
+            role="백엔드",
+            talent_profile="협업",
+        )
     )
-    subject.add_context(context)
 
     found = subject.get_context(context.id)
     assert found is not None
-    assert found.interviewer_id == "user_123"
+    assert found.owner_id == "조직A"
     assert found.company == "카카오"
     assert found.team == "플랫폼"
     assert found.role == "백엔드"
     assert found.talent_profile == "협업"
 
 
-def test_context_is_found_by_interviewer(subject: Store):
-    """면접관 한 명에 하나. 생성이 멱등하려면 이 조회가 맞아야 한다."""
-    context = _context(subject)
-    found = subject.get_context_by_interviewer("user_123")
-    assert found is not None
-    assert found.id == context.id
-    assert subject.get_context_by_interviewer("아무도아님") is None
+def test_ensure_is_idempotent_per_owner(subject: Store):
+    """주인당 하나. 두 번 불러 둘이 생기면 어느 쪽에 문서를 올렸는지가 갈린다."""
+    first = _context(subject)
+    second = _context(subject)
+    assert first.id == second.id
+
+
+def test_ensure_keeps_the_stored_one_not_the_new_one(subject: Store):
+    """이미 있으면 새로 만든 쪽을 버린다 — 저장된 내용이 지워지면 안 된다."""
+    stored = _context(subject)
+    stored.company = "카카오"
+    subject.save_context(stored)
+
+    again = subject.ensure_context(Context(owner_id="조직A"))
+    assert again.id == stored.id
+    assert again.company == "카카오"
+
+
+def test_different_owners_get_different_contexts(subject: Store):
+    assert _context(subject, "조직A").id != _context(subject, "조직B").id
 
 
 def test_saving_a_context_persists_the_change(subject: Store):
@@ -230,8 +242,8 @@ def test_docs_are_listed_in_upload_order(subject: Store):
 
 def test_docs_are_scoped_to_their_context(subject: Store):
     """id 만 알면 남의 문서를 읽거나 지울 수 있으면 안 된다."""
-    mine = _context(subject, "user_a")
-    yours = _context(subject, "user_b")
+    mine = _context(subject, "조직A")
+    yours = _context(subject, "조직B")
     doc = _doc(yours.id)
     subject.add_doc(doc, b"x")
 

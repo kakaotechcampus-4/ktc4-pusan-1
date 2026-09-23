@@ -28,13 +28,15 @@ class Store(Protocol):
 
     # ── 기업 컨텍스트 ───────────────────────────────────
 
-    def add_context(self, context: Context) -> None: ...
+    def ensure_context(self, context: Context) -> Context:
+        """주인당 하나. 이미 있으면 **그것을 돌려주고 새 것은 버린다.**
+
+        확인한 뒤 넣는 두 단계로 나누면 그 사이에 다른 요청이 넣을 수 있다. 설정
+        화면에 들어올 때마다 부르는 자리라 실제로 겹친다 — 한 문장으로 끝내야 한다.
+        """
+        ...
 
     def get_context(self, context_id: str) -> Context | None: ...
-
-    def get_context_by_interviewer(self, interviewer_id: str) -> Context | None:
-        """면접관 한 명에 컨텍스트 하나. 생성이 멱등하려면 이게 필요하다."""
-        ...
 
     def save_context(self, context: Context) -> None: ...
 
@@ -81,17 +83,15 @@ class InMemoryStore:
 
     # ── 기업 컨텍스트 ───────────────────────────────────
 
-    def add_context(self, context: Context) -> None:
+    def ensure_context(self, context: Context) -> Context:
+        for existing in self._contexts.values():
+            if existing.owner_id == context.owner_id:
+                return existing
         self._contexts[context.id] = context
+        return context
 
     def get_context(self, context_id: str) -> Context | None:
         return self._contexts.get(context_id)
-
-    def get_context_by_interviewer(self, interviewer_id: str) -> Context | None:
-        for context in self._contexts.values():
-            if context.interviewer_id == interviewer_id:
-                return context
-        return None
 
     def save_context(self, context: Context) -> None:
         self._contexts[context.id] = context

@@ -82,10 +82,9 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     #
     # `talentProfile` 은 FE 의 `CompanyContext` 에 없는 필드다. FE 가 저장만 하고
     # 다시 못 읽어 새로 고치면 빈 칸이 된다고 적어 둬서(#81), 조회에 실어 보낸다.
-    ("post", "/api/v1/contexts"): {
-        "request": {"interviewerId"},
+    ("get", "/api/v1/contexts/current"): {
         "response": {"id", "company", "team", "role", "talentProfile", "docs"},
-        "statuses": {"201", "422"},
+        "statuses": {"200"},
     },
     ("get", "/api/v1/contexts/{contextId}"): {
         "path_params": ["contextId"],

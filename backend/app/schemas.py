@@ -185,14 +185,6 @@ class ReviewProcessingResponse(Schema):
 # ── 기업 컨텍스트 ────────────────────────────────────────
 
 
-class CreateContextRequest(Schema):
-    interviewer_id: str = Field(
-        alias="interviewerId",
-        min_length=1,
-        description="면접관 한 명에 컨텍스트 하나다. 이미 있으면 그걸 돌려준다.",
-    )
-
-
 class ContextDocResponse(Schema):
     """FE 의 `ContextDoc` 과 같은 모양.
 
@@ -222,9 +214,15 @@ class ContextResponse(Schema):
 
 
 class UpdateContextRequest(Schema):
-    """`PATCH /contexts/{contextId}` — 넣은 항목만 바꾼다."""
+    """`PATCH /contexts/{contextId}` — 넣은 항목만 바꾼다.
 
-    company: str | None = None
-    team: str | None = None
-    role: str | None = None
-    talent_profile: str | None = Field(default=None, alias="talentProfile")
+    길이를 막아 둔다. FE 도 입력창에서 거르지만 그건 편의이지 경계가 아니다 —
+    업로드에 같은 원칙을 쓰면서 여기만 열어 두면 앞뒤가 안 맞는다.
+    """
+
+    company: str | None = Field(default=None, max_length=100)
+    team: str | None = Field(default=None, max_length=100)
+    role: str | None = Field(default=None, max_length=100)
+    talent_profile: str | None = Field(
+        default=None, alias="talentProfile", max_length=4000
+    )

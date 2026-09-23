@@ -16,7 +16,7 @@ FE 가 develop 때부터 이 경로들을 부르고 있었는데 BE 에 하나�
 import unicodedata
 from typing import Annotated
 
-from fastapi import APIRouter, File, Path, UploadFile, status
+from fastapi import APIRouter, File, Path, Request, UploadFile, status
 
 from app.api.deps import StoreDep
 from app.core.errors import ApiError, ErrorCode, responses
@@ -25,7 +25,6 @@ from app.domain.store import Store
 from app.schemas import (
     ContextDocResponse,
     ContextResponse,
-    CreateContextRequest,
     UpdateContextRequest,
 )
 
@@ -36,6 +35,13 @@ DocIdPath = Annotated[str, Path(alias="docId")]
 
 #: 업로드 상한. FE 가 이 값을 전제로 진행률 표시를 XHR 로 구현해 뒀다.
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+#: multipart 의 경계·헤더가 본문에 더 붙는다. 넉넉히 잡아 선검사가 정상 업로드를
+#: 막지 않게 한다 — 정확한 크기는 본문을 읽은 뒤에 다시 본다.
+MULTIPART_SLACK_BYTES = 64 * 1024
+
+#: 파일명 길이 상한. 저장소를 S3 로 옮기면 키 길이가 된다.
+MAX_NAME_CHARS = 255
 
 #: 확장자 → 형식. FE 의 `DocKind` 와 같은 둘만 받는다.
 KIND_BY_SUFFIX = {".pdf": DocKind.PDF, ".docx": DocKind.DOCX}
@@ -79,29 +85,32 @@ def _normalized_name(raw: str | None) -> str:
     S3 로 옮기면 그게 키의 일부가 된다.
     """
     name = unicodedata.normalize("NFC", (raw or "").strip())
-    return name.replace("/", "_").replace("\\", "_")
+    name = name.replace("/", "_").replace("\\", "_")
+    # 제어문자를 지운다. 널 바이트가 그대로 들어가면 psycopg 가 거부해 500 이 나고,
+    # 인메모리 구현은 그냥 받아서 두 저장소가 갈린다.
+    name = "".join(ch for ch in name if ch.isprintable())
+    return name[:MAX_NAME_CHARS]
 
 
-@router.post(
-    "",
+@router.get(
+    "/current",
     response_model=ContextResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="기업 컨텍스트 생성",
-    responses=responses((422, "요청값 검증 실패")),
+    summary="기업 컨텍스트 조회 (현재 조직)",
 )
-def create_context(body: CreateContextRequest, store: StoreDep) -> ContextResponse:
-    """면접관의 기업 컨텍스트를 만든다.
+def get_current_context(store: StoreDep) -> ContextResponse:
+    """지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.
 
-    면접관 한 명에 하나라 **이미 있으면 그걸 돌려준다.** 설정 화면이 들어올 때마다
-    부르게 되는 자리라, 두 번 불러서 두 개가 생기면 어느 쪽에 문서를 올렸는지가
-    갈린다.
+    FE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수
+    있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어
+    contextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.
+
+    **주인은 지금 하나뿐이다.** 조직도 로그인도 없어서 조직을 가릴 방법이 없다.
+    로그인이 들어오면 토큰에서 주인을 정하게 되고, 이 라우트의 겉모습은 그대로다.
+
+    없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가
+    구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.
     """
-    existing = store.get_context_by_interviewer(body.interviewer_id)
-    if existing is not None:
-        return _to_response(store, existing)
-
-    context = Context(interviewer_id=body.interviewer_id)
-    store.add_context(context)
+    context = store.ensure_context(Context())
     return _to_response(store, context)
 
 
@@ -138,6 +147,26 @@ def update_context(
     return _to_response(store, context)
 
 
+def _reject_oversized(request: Request) -> None:
+    """본문을 읽기 전에 `Content-Length` 로 먼저 거른다.
+
+    읽은 뒤에 재는 것만으로는 부족하다. Starlette 은 파일 파트를 상한 없이
+    임시파일로 받으므로, 1GB 를 보내면 그걸 끝까지 받아 디스크에 쓰고 메모리에
+    올린 뒤에야 413 이 나간다. 인증이 없는 자리라 누구나 칠 수 있다.
+
+    헤더가 없으면(청크 전송) 막지 않는다 — 그때는 읽은 뒤 검사가 받는다.
+    """
+    raw = request.headers.get("content-length")
+    if raw is None:
+        return
+    try:
+        declared = int(raw)
+    except ValueError:
+        return
+    if declared > MAX_UPLOAD_BYTES + MULTIPART_SLACK_BYTES:
+        raise ApiError(ErrorCode.VALIDATION_ERROR, 413, "파일이 너무 큽니다.")
+
+
 @router.post(
     "/{contextId}/docs",
     response_model=ContextDocResponse,
@@ -150,6 +179,7 @@ def update_context(
     ),
 )
 async def upload_doc(
+    request: Request,
     context_id: ContextIdPath,
     store: StoreDep,
     file: Annotated[UploadFile, File()],
@@ -159,6 +189,7 @@ async def upload_doc(
     FE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지
     경계가 아니다. 여기서 다시 본다.
     """
+    _reject_oversized(request)
     context = _load(store, context_id)
     name = _normalized_name(file.filename)
     if not name:

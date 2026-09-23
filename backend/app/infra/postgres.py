@@ -180,31 +180,41 @@ class PostgresStore:
 
     # ── 기업 컨텍스트 ───────────────────────────────────
 
-    def add_context(self, context: Context) -> None:
+    def ensure_context(self, context: Context) -> Context:
+        """한 문장으로 넣거나 넘긴다.
+
+        확인한 뒤 넣으면 그 사이에 다른 요청이 넣을 수 있고, `owner_id` 가 UNIQUE 라
+        그때 두 번째 요청이 500 으로 터진다. `DO NOTHING` 으로 넘기고 다시 읽는다 —
+        어느 쪽이 이겼든 결과는 같다.
+        """
         with self._pool.connection() as conn:
             conn.execute(
                 """
                 INSERT INTO context
-                    (id, interviewer_id, company, team, role, talent_profile,
-                     created_at)
+                    (id, owner_id, company, team, role, talent_profile, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (owner_id) DO NOTHING
                 """,
                 self._context_values(context),
             )
+        found = self._context_by_owner(context.owner_id)
+        # UNIQUE 가 있으니 방금 넣었거나 남이 넣었거나 둘 중 하나다.
+        assert found is not None
+        return found
 
     def get_context(self, context_id: str) -> Context | None:
         row = self._one(
-            "SELECT id, interviewer_id, company, team, role, talent_profile,"
+            "SELECT id, owner_id, company, team, role, talent_profile,"
             " created_at FROM context WHERE id = %s",
             (context_id,),
         )
         return None if row is None else self._to_context(row)
 
-    def get_context_by_interviewer(self, interviewer_id: str) -> Context | None:
+    def _context_by_owner(self, owner_id: str) -> Context | None:
         row = self._one(
-            "SELECT id, interviewer_id, company, team, role, talent_profile,"
-            " created_at FROM context WHERE interviewer_id = %s",
-            (interviewer_id,),
+            "SELECT id, owner_id, company, team, role, talent_profile,"
+            " created_at FROM context WHERE owner_id = %s",
+            (owner_id,),
         )
         return None if row is None else self._to_context(row)
 
@@ -275,7 +285,7 @@ class PostgresStore:
     def _context_values(context: Context) -> tuple[Any, ...]:
         return (
             context.id,
-            context.interviewer_id,
+            context.owner_id,
             context.company,
             context.team,
             context.role,
@@ -287,7 +297,7 @@ class PostgresStore:
     def _to_context(row: dict[str, Any]) -> Context:
         return Context(
             id=row["id"],
-            interviewer_id=row["interviewer_id"],
+            owner_id=row["owner_id"],
             company=row["company"],
             team=row["team"],
             role=row["role"],
