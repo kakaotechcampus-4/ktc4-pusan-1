@@ -46,6 +46,14 @@ services:
       # LiveKit 컨테이너의 LIVEKIT_KEYS 와 같은 쌍이어야 합니다. 다르면 입장이 401 납니다.
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      # Agent 가 /internal/v1 에 붙을 때 쓰는 공유 비밀입니다.
+      #
+      # 비우면 BE 가 검사를 건너뛰므로 :? 로 받습니다 — 값이 없으면 기동을 거부하는
+      # 편이, 인증이 꺼진 줄 모르고 도는 것보다 낫습니다.
+      #
+      # ⚠️ ai 서비스가 들어오면 같은 값을 BACKEND_API_KEY 로도 줘야 합니다.
+      #    다르면 Agent 가 BACKEND_AUTH_FAILED 로 붙지 못합니다.
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY is required}
       # 비우면 인메모리로 떨어집니다. 서버에서는 반드시 채웁니다 —
       # 재시작할 때마다 진행 중인 면접 상태가 사라집니다.
       DATABASE_URL: postgresql://${POSTGRES_USER:-irya}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-irya}
