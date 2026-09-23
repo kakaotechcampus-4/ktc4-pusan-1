@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.models import Role, SessionStatus, SummaryStatus
+from app.domain.models import DocKind, DocStatus, Role, SessionStatus, SummaryStatus
 
 
 class Schema(BaseModel):
@@ -211,3 +211,49 @@ class SummaryResponse(Schema):
         default=None, description="READY 일 때만 찬다."
     )
     duration_sec: int = Field(serialization_alias="durationSec")
+
+
+# ── 기업 컨텍스트 ────────────────────────────────────────
+
+
+class ContextDocResponse(Schema):
+    """FE 의 `ContextDoc` 과 같은 모양.
+
+    `progress` 는 내보내지 않는다 — 업로드 진행률은 클라이언트만 아는 값이다.
+    """
+
+    id: str
+    name: str
+    kind: DocKind
+    size_bytes: int = Field(serialization_alias="sizeBytes")
+    status: DocStatus
+
+
+class ContextResponse(Schema):
+    """FE 의 `CompanyContext` 에 `talentProfile` 을 더한 것.
+
+    FE 가 「조회가 talentProfile 을 안 돌려줘서 새로 고치면 빈 칸에서 시작한다」고
+    한계를 적어 뒀는데(#81), 저장만 되고 못 읽으면 쓸 수 없으므로 여기 싣는다.
+    """
+
+    id: str
+    company: str
+    team: str
+    role: str
+    talent_profile: str = Field(serialization_alias="talentProfile")
+    docs: list[ContextDocResponse]
+
+
+class UpdateContextRequest(Schema):
+    """`PATCH /contexts/{contextId}` — 넣은 항목만 바꾼다.
+
+    길이를 막아 둔다. FE 도 입력창에서 거르지만 그건 편의이지 경계가 아니다 —
+    업로드에 같은 원칙을 쓰면서 여기만 열어 두면 앞뒤가 안 맞는다.
+    """
+
+    company: str | None = Field(default=None, max_length=100)
+    team: str | None = Field(default=None, max_length=100)
+    role: str | None = Field(default=None, max_length=100)
+    talent_profile: str | None = Field(
+        default=None, alias="talentProfile", max_length=4000
+    )

@@ -59,10 +59,13 @@ from irya_ai.stt.http_logging import protect_host
 
 logger = logging.getLogger(__name__)
 
-# The two frame types on this socket. ``type`` identifies the frame, not the
+# The frame types on this socket. ``type`` identifies the frame, not the
 # utterance, which is why it is not a field on :class:`TranscriptPayload`.
+# Backend answers an upsert with an ACK ("we hold it") or a NACK ("we cannot
+# take it, and sending it again gets the same answer").
 FRAME_UPSERT = "transcript.upsert"
 FRAME_ACK = "transcript.ack"
+FRAME_NACK = "transcript.nack"
 
 # ``http`` and ``https`` are what ``BACKEND_BASE_URL`` realistically holds; the
 # ``ws`` pair is accepted so a WebSocket-only override does not have to be
@@ -191,6 +194,10 @@ class TranscriptChannel:
 
         self._headers = dict(headers or {})
         self._pending: dict[str, _Pending] = {}
+        # Utterances Backend refused with a NACK, by id, with the reason it
+        # gave. They leave the buffer for good: a frame the contract rejects
+        # gets the same answer however often it is sent. The text is not kept.
+        self.refused: dict[str, str] = {}
         self._session: aiohttp.ClientSession | None = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._reader: asyncio.Task[None] | None = None
@@ -559,19 +566,37 @@ class TranscriptChannel:
                 except ValueError:
                     logger.warning("Transcript frame from Backend was not JSON")
                     continue
-                if not isinstance(frame, dict) or frame.get("type") != FRAME_ACK:
+                if not isinstance(frame, dict):
+                    continue
+                kind = frame.get("type")
+                if kind not in (FRAME_ACK, FRAME_NACK):
                     continue
                 utterance_id = frame.get("utteranceId")
-                if isinstance(utterance_id, str):
-                    entry = self._pending.get(utterance_id)
-                    # A replacement enters the map before it is written. An
-                    # ACK arriving in that interval belongs to the old frame
-                    # and must not clear the new one.
-                    if entry is None or not entry.exposed:
-                        continue
-                    self._pending.pop(utterance_id, None)
-                    if not self._pending:
-                        self._drained.set()
+                if not isinstance(utterance_id, str):
+                    continue
+                entry = self._pending.get(utterance_id)
+                # A replacement enters the map before it is written. An ACK
+                # or NACK arriving in that interval belongs to the old frame
+                # and must not clear the new one.
+                if entry is None or not entry.exposed:
+                    continue
+                if kind == FRAME_NACK:
+                    # Backend could not take the frame and says not to send
+                    # it again. Left in the buffer it would be written on
+                    # every reconnect and refused every time, and the ACK
+                    # timeout would keep forcing those reconnects. The id and
+                    # the reason are enough to find it; the text is not logged.
+                    reason = frame.get("reason")
+                    reason = reason if isinstance(reason, str) and reason else "?"
+                    self.refused[utterance_id] = reason
+                    logger.warning(
+                        "Transcript utterance %s refused by Backend: %s",
+                        utterance_id,
+                        reason,
+                    )
+                self._pending.pop(utterance_id, None)
+                if not self._pending:
+                    self._drained.set()
         except Exception as exc:  # noqa: BLE001 - parked, then reported
             # ``asyncio.CancelledError`` is a ``BaseException``, so a drop
             # cancelling this task does not land here.

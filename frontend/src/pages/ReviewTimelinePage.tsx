@@ -41,7 +41,8 @@ export default function ReviewTimelinePage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(true);
 
-  const active = review?.moments.find((m) => m.id === activeId);
+  const activeIndex = review?.moments.findIndex((m) => m.id === activeId) ?? -1;
+  const active = activeIndex >= 0 ? review?.moments[activeIndex] : undefined;
 
   const select = (moment: Moment) => {
     setActiveId(moment.id);
@@ -52,7 +53,7 @@ export default function ReviewTimelinePage() {
     return (
       <Centered>
         <p className="text-[15px] text-[#FFC46B]">면접 기록을 불러오지 못했습니다.</p>
-        <p className="mt-1.5 text-sm text-white/55">잠시 후 다시 확인해주세요.</p>
+        <p className="text-ink-muted mt-1.5 text-sm">잠시 후 다시 확인해주세요.</p>
         <HomeLink />
       </Centered>
     );
@@ -62,14 +63,17 @@ export default function ReviewTimelinePage() {
     const etaSec = data?.status === 'PROCESSING' ? data.etaSec : undefined;
     return (
       <Centered>
-        <div aria-live="polite" className="rounded-xl bg-white/[0.06] p-6">
-          <p className="text-[15px] text-white">면접 기록을 정리하고 있습니다</p>
-          <p className="mt-1.5 text-sm text-white/50">
+        <div
+          aria-live="polite"
+          className="border-border-base bg-surface-panel rounded-2xl border p-6"
+        >
+          <p className="text-ink text-[15px]">면접 기록을 정리하고 있습니다</p>
+          <p className="text-ink-muted mt-1.5 text-sm">
             녹화를 변환하고 AI 평가를 만드는 중입니다.
             {etaSec ? ` 약 ${Math.ceil(etaSec / 60)}분 남았습니다.` : ''}
           </p>
-          <div className="mt-4 h-1 overflow-hidden rounded-full bg-white/10">
-            <div className="h-full w-1/3 animate-[indeterminate_1.4s_ease-in-out_infinite] rounded-full bg-[#2B44D6]" />
+          <div className="bg-surface-bright mt-4 h-1 overflow-hidden rounded-full">
+            <div className="bg-brand h-full w-1/3 animate-[indeterminate_1.4s_ease-in-out_infinite] rounded-full" />
           </div>
         </div>
       </Centered>
@@ -77,25 +81,40 @@ export default function ReviewTimelinePage() {
   }
 
   return (
-    <div className="min-h-full bg-[#0B0E14] px-6 py-8 md:px-10">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
-        <header className="flex flex-wrap items-end gap-x-4 gap-y-2 pb-1">
+    <div className="bg-surface min-h-full px-4 py-6 sm:px-6 md:px-10 md:py-8">
+      <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-3">
+        <header className="flex flex-wrap items-end gap-x-4 gap-y-2">
           <div className="min-w-0">
-            <p className="text-[13px] text-white/45">면접 기록</p>
-            <h1 className="mt-1 text-2xl font-semibold text-white">{review.candidate.name}</h1>
+            <p className="text-ink-dim text-[13px]">면접 기록</p>
+            <h1 className="text-ink mt-1 text-2xl font-semibold">{review.candidate.name}</h1>
           </div>
-          <span className="pb-1 font-mono text-[13px] text-white/50">
+          <span className="text-ink-muted pb-1 font-mono text-[13px]">
             {review.candidate.role} · {fmt(review.durationSec)}
           </span>
           <span className="flex-1" />
           {/* 지원자 목록(S4)이 아직 없어 처음으로 돌아간다. */}
           <Link
             to="/"
-            className="rounded-lg bg-[#2B44D6] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-[#243AB8]"
+            className="bg-brand hover:bg-brand/85 rounded-lg px-5 py-3 text-[15px] font-medium text-white transition"
           >
             정리 마치기
           </Link>
         </header>
+
+        {/* 이 화면이 무엇을 하는 곳인지 먼저 적는다 — 시안의 첫 줄이다. */}
+        <p className="text-ink-muted text-[13px] leading-relaxed">
+          이 화면은 지원자를 평가하지 않습니다. 질문과 답변을 원본 영상의 위치에 연결해 두었습니다.
+          판단은 면접관이 합니다.
+        </p>
+
+        <ReviewPlayer
+          videoRef={videoRef}
+          active={active}
+          activeNo={activeIndex + 1}
+          candidateName={review.candidate.name}
+          durationSec={review.durationSec}
+          failed={failed}
+        />
 
         <Timeline
           moments={review.moments}
@@ -103,8 +122,6 @@ export default function ReviewTimelinePage() {
           activeId={activeId}
           onSelect={select}
         />
-
-        <ReviewPlayer videoRef={videoRef} active={active} failed={failed} />
 
         <QaList
           moments={review.moments}
@@ -122,7 +139,7 @@ export default function ReviewTimelinePage() {
 
 function Centered({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-full items-center justify-center bg-[#0B0E14] p-8">
+    <div className="bg-surface flex min-h-full items-center justify-center p-8">
       <div className="w-full max-w-md">{children}</div>
     </div>
   );
@@ -132,7 +149,7 @@ function HomeLink() {
   return (
     <Link
       to="/"
-      className="mt-6 inline-block rounded-lg bg-white/[0.08] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-white/[0.13]"
+      className="border-border-base bg-surface-bright text-ink hover:bg-surface-container mt-6 inline-block rounded-lg border px-5 py-3 text-[15px] font-medium transition"
     >
       처음으로
     </Link>

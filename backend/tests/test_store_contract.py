@@ -18,7 +18,11 @@ from datetime import timedelta
 import pytest
 
 from app.domain.models import (
+    Context,
+    ContextDoc,
+    DocKind,
     Interview,
+    Resume,
     Session,
     SessionStatus,
     SessionSummary,
@@ -46,6 +50,7 @@ def subject(request: pytest.FixtureRequest) -> Iterator[Store]:
     # 테스트끼리 섞이지 않게 비운다. interview 를 지우면 session 은 CASCADE 다.
     with postgres._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
         conn.execute("TRUNCATE interview CASCADE")
+        conn.execute("TRUNCATE context CASCADE")
     try:
         yield postgres
     finally:
@@ -144,6 +149,156 @@ def test_transcript_origin_is_persisted(subject: Store):
     assert found.transcript_origin_at == origin
     # 두 번째 참가자·재전송이 원점을 밀면 안 된다.
     assert found.mark_origin(session.created_at) is False
+
+
+# ── 기업 컨텍스트 ────────────────────────────────────────
+
+
+def _context(subject: Store, owner_id: str = "조직A") -> Context:
+    return subject.ensure_context(Context(owner_id=owner_id))
+
+
+def test_context_roundtrip(subject: Store):
+    context = subject.ensure_context(
+        Context(
+            owner_id="조직A",
+            company="카카오",
+            team="플랫폼",
+            role="백엔드",
+            talent_profile="협업",
+        )
+    )
+
+    found = subject.get_context(context.id)
+    assert found is not None
+    assert found.owner_id == "조직A"
+    assert found.company == "카카오"
+    assert found.team == "플랫폼"
+    assert found.role == "백엔드"
+    assert found.talent_profile == "협업"
+
+
+def test_ensure_is_idempotent_per_owner(subject: Store):
+    """주인당 하나. 두 번 불러 둘이 생기면 어느 쪽에 문서를 올렸는지가 갈린다."""
+    first = _context(subject)
+    second = _context(subject)
+    assert first.id == second.id
+
+
+def test_ensure_keeps_the_stored_one_not_the_new_one(subject: Store):
+    """이미 있으면 새로 만든 쪽을 버린다 — 저장된 내용이 지워지면 안 된다."""
+    stored = _context(subject)
+    stored.company = "카카오"
+    subject.save_context(stored)
+
+    again = subject.ensure_context(Context(owner_id="조직A"))
+    assert again.id == stored.id
+    assert again.company == "카카오"
+
+
+def test_different_owners_get_different_contexts(subject: Store):
+    assert _context(subject, "조직A").id != _context(subject, "조직B").id
+
+
+def test_saving_a_context_persists_the_change(subject: Store):
+    context = _context(subject)
+    context.company = "카카오"
+    context.talent_profile = "끈기"
+    subject.save_context(context)
+
+    found = subject.get_context(context.id)
+    assert found is not None
+    assert found.company == "카카오"
+    assert found.talent_profile == "끈기"
+
+
+def test_unknown_context_is_none(subject: Store):
+    assert subject.get_context("ctx_없는것") is None
+
+
+# ── 문서 ────────────────────────────────────────────────
+
+
+def _doc(context_id: str, name: str = "jd.pdf") -> ContextDoc:
+    return ContextDoc(context_id=context_id, name=name, kind=DocKind.PDF, size_bytes=12)
+
+
+def test_doc_roundtrip(subject: Store):
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"%PDF-1.7\nx\n")
+
+    found = subject.get_doc(context.id, doc.id)
+    assert found is not None
+    assert found.name == "jd.pdf"
+    assert found.kind is DocKind.PDF
+    assert found.size_bytes == 12
+
+
+def test_docs_are_listed_in_upload_order(subject: Store):
+    context = _context(subject)
+    for name in ("first.pdf", "second.pdf", "third.pdf"):
+        subject.add_doc(_doc(context.id, name), b"x")
+
+    listed = [doc.name for doc in subject.list_docs(context.id)]
+    assert listed == ["first.pdf", "second.pdf", "third.pdf"]
+
+
+def test_docs_are_scoped_to_their_context(subject: Store):
+    """id 만 알면 남의 문서를 읽거나 지울 수 있으면 안 된다."""
+    mine = _context(subject, "조직A")
+    yours = _context(subject, "조직B")
+    doc = _doc(yours.id)
+    subject.add_doc(doc, b"x")
+
+    assert subject.get_doc(mine.id, doc.id) is None
+    assert subject.delete_doc(mine.id, doc.id) is False
+    assert subject.list_docs(mine.id) == []
+    assert len(subject.list_docs(yours.id)) == 1
+
+
+def test_deleting_a_doc_reports_whether_it_existed(subject: Store):
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"x")
+
+    assert subject.delete_doc(context.id, doc.id) is True
+    assert subject.delete_doc(context.id, doc.id) is False
+    assert subject.get_doc(context.id, doc.id) is None
+
+
+# ── 지원자 이력서 ────────────────────────────────────────
+
+
+def _resume(interview_id: str, name: str = "이력서.pdf") -> Resume:
+    return Resume(interview_id=interview_id, name=name, kind=DocKind.PDF, size_bytes=9)
+
+
+def test_resume_roundtrip(subject: Store):
+    session = _seed(subject)
+    subject.save_resume(_resume(session.interview_id), b"%PDF-1.7\n")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None
+    assert found.name == "이력서.pdf"
+    assert found.kind is DocKind.PDF
+    assert found.size_bytes == 9
+
+
+def test_resume_is_replaced_not_appended(subject: Store):
+    """면접 한 건에 한 장. 다시 올리면 덮어쓴다."""
+    session = _seed(subject)
+    subject.save_resume(_resume(session.interview_id, "old.pdf"), b"old")
+    subject.save_resume(_resume(session.interview_id, "new.pdf"), b"new")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None
+    assert found.name == "new.pdf"
+
+
+def test_resume_of_an_interview_without_one_is_none(subject: Store):
+    session = _seed(subject)
+    assert subject.get_resume(session.interview_id) is None
 
 
 # ── 요약 ────────────────────────────────────────────────

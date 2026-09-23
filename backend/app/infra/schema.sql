@@ -37,6 +37,56 @@ CREATE INDEX IF NOT EXISTS session_interview_id_idx ON session (interview_id);
 -- 기동 한 번으로 따라붙어야 하고, IF NOT EXISTS 라 여러 번 돌려도 안전하다.
 ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_origin_at TIMESTAMPTZ;
 
+-- ── 기업 컨텍스트 ──────────────────────────────────────────
+--
+-- 면접이 아니라 조직에 딸린다. 회사 정보와 JD 는 면접마다 바뀌지 않으므로 설정에
+-- 한 번 넣고 계속 쓴다 (#79). 주인당 하나라 owner_id 가 유일하다.
+--
+-- 조직도 로그인도 아직 없어서 주인은 지금 하나뿐이다. 로그인이 들어오면 토큰에서
+-- 정하게 되고, 컬럼 이름은 그때도 그대로 쓴다.
+
+CREATE TABLE IF NOT EXISTS context (
+    id              TEXT        PRIMARY KEY,
+    owner_id        TEXT        NOT NULL UNIQUE,
+    company         TEXT        NOT NULL DEFAULT '',
+    team            TEXT        NOT NULL DEFAULT '',
+    role            TEXT        NOT NULL DEFAULT '',
+    -- AI 면접관이 참고할 추가 인재상·평가 포인트.
+    talent_profile  TEXT        NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL
+);
+
+-- 원본 바이트를 여기 둔다. S3 가 아직 없고, 컨테이너 볼륨을 새로 붙이면 배포 협의가
+-- 필요한데 문서 몇 개를 위해 그럴 단계가 아니다. 저장소 교체가 필요해지면 content 를
+-- 빼고 키만 남기면 된다 — 나머지 컬럼은 그대로 쓴다.
+CREATE TABLE IF NOT EXISTS context_doc (
+    id          TEXT        PRIMARY KEY,
+    context_id  TEXT        NOT NULL REFERENCES context (id) ON DELETE CASCADE,
+    -- 파일명은 NFC 로 정규화해 넣는다. macOS 앱이 만든 이름은 NFD 라, 그대로 두면
+    -- 눈에는 같아 보이는데 검색·중복 제거가 어긋난다.
+    name        TEXT        NOT NULL,
+    kind        TEXT        NOT NULL,
+    size_bytes  BIGINT      NOT NULL,
+    status      TEXT        NOT NULL,
+    content     BYTEA       NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS context_doc_context_id_idx ON context_doc (context_id);
+
+-- 지원자 이력서. 면접 한 건에 한 장이라 interview_id 가 기본키다 — 다시 올리면
+-- 덮어쓴다. 원본을 여기 두는 이유는 context_doc 과 같다.
+CREATE TABLE IF NOT EXISTS interview_resume (
+    interview_id TEXT        PRIMARY KEY REFERENCES interview (id) ON DELETE CASCADE,
+    id           TEXT        NOT NULL,
+    name         TEXT        NOT NULL,
+    kind         TEXT        NOT NULL,
+    size_bytes   BIGINT      NOT NULL,
+    status       TEXT        NOT NULL,
+    content      BYTEA       NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL
+);
+
 -- 세션 하나의 요약. 면접이 끝나는 순간 PROCESSING 으로 만들어지고, Agent 가
 -- `PUT /internal/v1/sessions/{id}/review` 로 결과를 써 넣으면 READY 가 된다.
 -- 아무도 안 써 주면 한도(SUMMARY_TIMEOUT) 를 넘긴 뒤 조회 시점에 FAILED 로 간다.

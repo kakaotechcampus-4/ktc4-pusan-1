@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import aiohttp
@@ -23,6 +24,7 @@ from irya_ai.schemas.wire import TranscriptPayload
 from irya_ai.stt.http_logging import clear_protected_hosts, protected_hosts
 from irya_ai.transcripts import (
     FRAME_ACK,
+    FRAME_NACK,
     FRAME_UPSERT,
     TranscriptChannel,
     _Pending,
@@ -84,8 +86,17 @@ class FakeBackend:
         close_code: int = 1000,
         refuse_with: int | None = None,
         stall: asyncio.Event | None = None,
+        nack: dict[str, str | None] | None = None,
+        reply: Callable[[dict], dict | None] | None = None,
     ) -> None:
         self.ack = ack
+        # Overrides every reply: whatever this returns is sent for a frame,
+        # ``None`` meaning silence. For answers the contract does not produce.
+        self.reply = reply
+        # Utterance ids Backend refuses, mapped to the reason it gives (``None``
+        # sends a NACK with no reason at all, which the contract does not
+        # promise but a client should survive).
+        self.nack = nack or {}
         self.drop_first_after = drop_first_after
         self.drop_after = drop_after
         self.close_code = close_code
@@ -143,9 +154,19 @@ class FakeBackend:
             frame = json.loads(message.data)
             self.received.append(Received(connection, frame))
             carried += 1
-            if self.ack:
+            utterance_id = frame["utteranceId"]
+            if self.reply is not None:
+                answer = self.reply(frame)
+                if answer is not None:
+                    await ws.send_str(json.dumps(answer))
+            elif utterance_id in self.nack:
+                reply: dict = {"type": FRAME_NACK, "utteranceId": utterance_id}
+                if self.nack[utterance_id] is not None:
+                    reply["reason"] = self.nack[utterance_id]
+                await ws.send_str(json.dumps(reply))
+            elif self.ack:
                 await ws.send_str(
-                    json.dumps({"type": FRAME_ACK, "utteranceId": frame["utteranceId"]})
+                    json.dumps({"type": FRAME_ACK, "utteranceId": utterance_id})
                 )
             if (
                 self.drop_first_after is not None
@@ -492,6 +513,53 @@ async def test_a_full_buffer_refuses_the_utterance_rather_than_pretending() -> N
             assert caught.value.retryable is False
             assert channel.unacknowledged == 1
             assert len(backend.received) == 1
+
+
+async def test_a_refused_utterance_leaves_the_buffer_and_is_never_resent() -> None:
+    """Backend's NACK means "do not send this again"; the client must obey.
+
+    Left in the buffer, the frame would be written on every reconnect and
+    refused every time, with the ACK timeout forcing those reconnects.
+    """
+
+    async with FakeBackend(nack={"utt_bad": "SCHEMA"}, drop_after=3) as backend:
+        async with closing_quickly(channel_for(backend)) as channel:
+            await channel.send(payload("utt_001"))
+            await channel.send(payload("utt_bad"))
+            await channel.send(payload("utt_002"))
+            await eventually(lambda: channel.unacknowledged == 0)
+
+            assert channel.refused == {"utt_bad": "SCHEMA"}
+            # Backend hung up after three frames; the recovery that follows
+            # must have nothing left to carry, so no fourth frame ever lands.
+            await eventually(lambda: backend.connections >= 1)
+            await asyncio.sleep(0.3)
+            assert [u for _, u in carried(backend)] == ["utt_001", "utt_bad", "utt_002"]
+            assert channel.unacknowledged == 0
+
+
+async def test_a_nack_without_a_reason_is_still_a_refusal() -> None:
+    async with FakeBackend(nack={"utt_bad": None}) as backend:
+        async with closing_quickly(channel_for(backend)) as channel:
+            await channel.send(payload("utt_bad"))
+            await eventually(lambda: channel.unacknowledged == 0)
+
+            assert channel.refused == {"utt_bad": "?"}
+
+
+async def test_a_nack_for_an_unknown_utterance_changes_nothing() -> None:
+    # Backend answers about something it never got from this client.
+    misaddressed = FakeBackend(
+        reply=lambda _frame: {"type": FRAME_NACK, "utteranceId": "utt_zzz"}
+    )
+    async with misaddressed as backend:
+        async with closing_quickly(channel_for(backend)) as channel:
+            await channel.send(payload("utt_001"))
+            await eventually(lambda: len(backend.received) == 1)
+            await asyncio.sleep(0.05)
+
+            assert channel.unacknowledged == 1
+            assert channel.refused == {}
 
 
 async def test_a_corrected_utterance_replaces_the_one_in_flight() -> None:

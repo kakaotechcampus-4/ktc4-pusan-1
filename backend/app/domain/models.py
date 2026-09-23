@@ -19,6 +19,29 @@ class SessionStatus(StrEnum):
     ENDED = "ENDED"
 
 
+class DocKind(StrEnum):
+    """업로드할 수 있는 문서 형식. FE 의 `DocKind` 와 같다."""
+
+    PDF = "pdf"
+    DOCX = "docx"
+
+
+class DocStatus(StrEnum):
+    """서버가 아는 문서 상태.
+
+    FE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —
+    서버는 업로드가 끝난 뒤에야 문서를 안다.
+
+    `PARSING` 은 아직 쓰지 않는다. 본문 추출을 누가 하는지가 안 정해져서(#70) 지금은
+    올라온 즉시 `READY` 다. 값은 미리 둔다 — 나중에 파싱이 붙을 때 FE 가 이미 이
+    분기를 갖고 있다.
+    """
+
+    PARSING = "parsing"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class Role(StrEnum):
     """입장 권한. 명세의 Request Body 예시가 `"role": "CANDIDATE"` 다."""
 
@@ -114,6 +137,74 @@ class Session:
         self.status = SessionStatus.ENDED
         self.ended_at = _now()
         return True
+
+
+#: 컨텍스트의 기본 주인.
+#:
+#: FE 는 이 설정을 「조직당 하나」로 그린다 — 「조직 하나가 공유하는 면접 기준」
+#: (`ContextSettingsPage.tsx`). 그런데 조직도 로그인도 아직 없어서 조직을 가릴 방법이
+#: 없다. FE 도 같은 이유로 `contextId` 를 상수로 두고 있다 (「조직 컨텍스트를
+#: 알려주는 API 가 없어 contextId 를 상수로 둔다」).
+#:
+#: 그래서 지금은 주인이 하나뿐이고, 컨텍스트도 하나다. 로그인이 들어오면 토큰에서
+#: 주인을 정하게 되고 그때 이 상수가 사라진다 — 컬럼은 `owner_id` 로 두었으니
+#: 스키마는 그대로 쓴다.
+DEFAULT_CONTEXT_OWNER = "__default__"
+
+
+@dataclass
+class Context:
+    """기업 컨텍스트 — 회사·직무·인재상과 올려 둔 문서.
+
+    **면접이 아니라 조직에 딸린다.** 회사 정보와 JD 는 면접마다 바뀌지 않으므로
+    설정에 한 번 넣고 계속 쓴다 (#79). 주인당 하나다.
+    """
+
+    owner_id: str = DEFAULT_CONTEXT_OWNER
+    id: str = field(default_factory=lambda: _new_id("ctx"))
+    company: str = ""
+    team: str = ""
+    role: str = ""
+    #: AI 면접관이 참고할 추가 인재상·평가 포인트 (#81).
+    talent_profile: str = ""
+    created_at: datetime = field(default_factory=_now)
+
+
+@dataclass
+class ContextDoc:
+    """컨텍스트에 올린 문서 한 건의 메타데이터.
+
+    원본 바이트는 저장소가 따로 들고 있다 — 목록을 부를 때마다 파일 전체가 딸려
+    오면 안 된다.
+    """
+
+    context_id: str
+    name: str
+    kind: DocKind
+    size_bytes: int
+    id: str = field(default_factory=lambda: _new_id("doc"))
+    status: DocStatus = DocStatus.READY
+    created_at: datetime = field(default_factory=_now)
+
+
+@dataclass
+class Resume:
+    """지원자 이력서 — 면접 한 건에 한 장.
+
+    `ContextDoc` 과 모양이 거의 같지만 주인이 다르다. 기업 컨텍스트는 조직에 딸려
+    여러 면접이 함께 쓰고, 이력서는 면접 한 건의 것이다. 한 테이블에 섞으면 「이
+    문서가 누구 것인가」가 컬럼 값으로만 갈려 조회마다 조건이 붙는다.
+
+    다시 올리면 덮어쓴다 — FE 가 목록도 삭제도 두지 않았다(#81).
+    """
+
+    interview_id: str
+    name: str
+    kind: DocKind
+    size_bytes: int
+    id: str = field(default_factory=lambda: _new_id("doc"))
+    status: DocStatus = DocStatus.READY
+    created_at: datetime = field(default_factory=_now)
 
 
 class SummaryStatus(StrEnum):

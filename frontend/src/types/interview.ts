@@ -134,6 +134,7 @@ export interface CompanyContext {
   company: string;
   team: string;
   role: string;
+  talentProfile?: string;
   docs: ContextDoc[];
 }
 

@@ -1,6 +1,108 @@
 {
   "components": {
     "schemas": {
+      "Body_upload_doc_api_v1_contexts__contextId__docs_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_doc_api_v1_contexts__contextId__docs_post",
+        "type": "object"
+      },
+      "Body_upload_resume_api_v1_interviews__interviewId__resume_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_resume_api_v1_interviews__interviewId__resume_post",
+        "type": "object"
+      },
+      "ContextDocResponse": {
+        "description": "FE 의 `ContextDoc` 과 같은 모양.\n\n`progress` 는 내보내지 않는다 — 업로드 진행률은 클라이언트만 아는 값이다.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DocKind"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sizeBytes": {
+            "title": "Sizebytes",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocStatus"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "sizeBytes",
+          "status"
+        ],
+        "title": "ContextDocResponse",
+        "type": "object"
+      },
+      "ContextResponse": {
+        "description": "FE 의 `CompanyContext` 에 `talentProfile` 을 더한 것.\n\nFE 가 「조회가 talentProfile 을 안 돌려줘서 새로 고치면 빈 칸에서 시작한다」고\n한계를 적어 뒀는데(#81), 저장만 되고 못 읽으면 쓸 수 없으므로 여기 싣는다.",
+        "properties": {
+          "company": {
+            "title": "Company",
+            "type": "string"
+          },
+          "docs": {
+            "items": {
+              "$ref": "#/components/schemas/ContextDocResponse"
+            },
+            "title": "Docs",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "talentProfile": {
+            "title": "Talentprofile",
+            "type": "string"
+          },
+          "team": {
+            "title": "Team",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "company",
+          "team",
+          "role",
+          "talentProfile",
+          "docs"
+        ],
+        "title": "ContextResponse",
+        "type": "object"
+      },
       "CreateInterviewRequest": {
         "properties": {
           "candidateName": {
@@ -80,6 +182,25 @@
         ],
         "title": "CreateSessionResponse",
         "type": "object"
+      },
+      "DocKind": {
+        "description": "업로드할 수 있는 문서 형식. FE 의 `DocKind` 와 같다.",
+        "enum": [
+          "pdf",
+          "docx"
+        ],
+        "title": "DocKind",
+        "type": "string"
+      },
+      "DocStatus": {
+        "description": "서버가 아는 문서 상태.\n\nFE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —\n서버는 업로드가 끝난 뒤에야 문서를 안다.\n\n`PARSING` 은 아직 쓰지 않는다. 본문 추출을 누가 하는지가 안 정해져서(#70) 지금은\n올라온 즉시 `READY` 다. 값은 미리 둔다 — 나중에 파싱이 붙을 때 FE 가 이미 이\n분기를 갖고 있다.",
+        "enum": [
+          "parsing",
+          "ready",
+          "failed"
+        ],
+        "title": "DocStatus",
+        "type": "string"
       },
       "EndSessionResponse": {
         "properties": {
@@ -481,6 +602,61 @@
         "title": "SummaryStatus",
         "type": "string"
       },
+      "UpdateContextRequest": {
+        "description": "`PATCH /contexts/{contextId}` — 넣은 항목만 바꾼다.\n\n길이를 막아 둔다. FE 도 입력창에서 거르지만 그건 편의이지 경계가 아니다 —\n업로드에 같은 원칙을 쓰면서 여기만 열어 두면 앞뒤가 안 맞는다.",
+        "properties": {
+          "company": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "talentProfile": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talentprofile"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team"
+          }
+        },
+        "title": "UpdateContextRequest",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -529,6 +705,278 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/contexts/current": {
+      "get": {
+        "description": "지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.\n\nFE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수\n있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어\ncontextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.\n\n**주인은 지금 하나뿐이다.** 조직도 로그인도 없어서 조직을 가릴 방법이 없다.\n로그인이 들어오면 토큰에서 주인을 정하게 되고, 이 라우트의 겉모습은 그대로다.\n\n없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가\n구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.",
+        "operationId": "get_current_context_api_v1_contexts_current_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "기업 컨텍스트 조회 (현재 조직)",
+        "tags": [
+          "기업 컨텍스트"
+        ]
+      }
+    },
+    "/api/v1/contexts/{contextId}": {
+      "get": {
+        "operationId": "get_context_api_v1_contexts__contextId__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "title": "Contextid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "컨텍스트를 찾을 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "기업 컨텍스트 조회",
+        "tags": [
+          "기업 컨텍스트"
+        ]
+      },
+      "patch": {
+        "description": "넣은 항목만 바꾼다. 빈 문자열은 지우라는 뜻이라 그대로 받는다.",
+        "operationId": "update_context_api_v1_contexts__contextId__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "title": "Contextid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateContextRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "컨텍스트를 찾을 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "요청값 검증 실패"
+          }
+        },
+        "summary": "기업 컨텍스트 수정",
+        "tags": [
+          "기업 컨텍스트"
+        ]
+      }
+    },
+    "/api/v1/contexts/{contextId}/docs": {
+      "post": {
+        "description": "면접에 쓸 문서를 올린다. `pdf` 와 `docx` 만 받는다.\n\nFE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지\n경계가 아니다. 여기서 다시 본다.",
+        "operationId": "upload_doc_api_v1_contexts__contextId__docs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "title": "Contextid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_doc_api_v1_contexts__contextId__docs_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextDocResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "컨텍스트를 찾을 수 없음"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "파일이 너무 큼"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "지원하지 않는 형식"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "문서 업로드",
+        "tags": [
+          "기업 컨텍스트"
+        ]
+      }
+    },
+    "/api/v1/contexts/{contextId}/docs/{docId}": {
+      "delete": {
+        "operationId": "delete_doc_api_v1_contexts__contextId__docs__docId__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "contextId",
+            "required": true,
+            "schema": {
+              "title": "Contextid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "docId",
+            "required": true,
+            "schema": {
+              "title": "Docid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "컨텍스트 또는 문서를 찾을 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "문서 삭제",
+        "tags": [
+          "기업 컨텍스트"
+        ]
+      }
+    },
     "/api/v1/interviews": {
       "post": {
         "description": "면접관이 새로운 면접 정보를 생성한다.\n\nSession 과 LiveKit Room 은 여기서 만들지 않는다 —\n`POST /interviews/{interviewId}/sessions` 가 담당한다.",
@@ -619,6 +1067,89 @@
           }
         },
         "summary": "면접 조회",
+        "tags": [
+          "면접"
+        ]
+      }
+    },
+    "/api/v1/interviews/{interviewId}/resume": {
+      "post": {
+        "description": "지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.\n\n**면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은\n것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.\n\n응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드\n컴포넌트로 그린다.\n\n본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로\n하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.",
+        "operationId": "upload_resume_api_v1_interviews__interviewId__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_resume_api_v1_interviews__interviewId__resume_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextDocResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접을 찾을 수 없음"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "파일이 너무 큼"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "지원하지 않는 형식"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "지원자 이력서 업로드",
         "tags": [
           "면접"
         ]
