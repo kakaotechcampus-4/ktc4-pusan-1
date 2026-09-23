@@ -20,6 +20,7 @@ from app.domain.models import Role
 
 FRAME_UPSERT: Final = "transcript.upsert"
 FRAME_ACK: Final = "transcript.ack"
+FRAME_NACK: Final = "transcript.nack"
 
 
 class InternalSchema(BaseModel):
@@ -55,6 +56,18 @@ class TranscriptAck(InternalSchema):
 
     type: Literal["transcript.ack"] = FRAME_ACK
     utterance_id: str = Field(serialization_alias="utteranceId")
+
+
+class TranscriptNack(InternalSchema):
+    """받을 수 없다는 답. Agent 는 이 발화를 버리고 다음으로 넘어간다.
+
+    ACK 과 달리 **다시 보내지 말라**는 뜻이다. 계약이 어긋난 프레임은 다시 보내도
+    같은 답이라, 재전송하면 그 발화에서 영원히 막힌다.
+    """
+
+    type: Literal["transcript.nack"] = FRAME_NACK
+    utterance_id: str = Field(serialization_alias="utteranceId")
+    reason: str = Field(description="지금은 SCHEMA 하나뿐이다.")
 
 
 class SuggestionCreate(InternalSchema):

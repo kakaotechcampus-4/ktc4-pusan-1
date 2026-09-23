@@ -9,8 +9,9 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+from app.api.internal import transcripts
 from app.core.config import settings
 
 UPSERT = {
@@ -132,20 +133,83 @@ def test_unknown_session_is_refused_before_accept(client: TestClient, key: str) 
         {**UPSERT, "text": ""},  # 빈 발화
         {**UPSERT, "speaker": "OBSERVER"},  # 모르는 화자
         {**UPSERT, "extra": "x"},  # 계약에 없는 필드
-        {k: v for k, v in UPSERT.items() if k != "utteranceId"},  # 빠진 필드
     ],
 )
-def test_broken_frame_closes_the_socket(
+def test_broken_frame_is_nacked(
     client: TestClient, session_id: str, key: str, broken: dict
 ) -> None:
-    """계약이 어긋나면 다시 보내도 같은 결과다. 조용히 삼키지 않는다."""
+    """계약이 어긋나면 다시 보내지 말라고 답한다. 연결은 살려 둔다."""
+    with client.websocket_connect(
+        f"/internal/v1/sessions/{session_id}/transcripts", headers=auth(key)
+    ) as ws:
+        ws.send_json(broken)
+        assert ws.receive_json() == {
+            "type": "transcript.nack",
+            "utteranceId": "utt_001",
+            "reason": "SCHEMA",
+        }
+        # 발화 하나가 잘못됐다고 면접 전체의 전사를 끊을 이유가 없다.
+        ws.send_json(UPSERT)
+        assert ws.receive_json()["type"] == "transcript.ack"
+
+
+def test_frame_without_id_closes_the_socket(
+    client: TestClient, session_id: str, key: str
+) -> None:
+    """어느 발화를 버리라고 할 수가 없으면 NACK 이 의미가 없다."""
+    nameless = {k: v for k, v in UPSERT.items() if k != "utteranceId"}
     with pytest.raises(WebSocketDisconnect) as exc:
         with client.websocket_connect(
             f"/internal/v1/sessions/{session_id}/transcripts", headers=auth(key)
         ) as ws:
-            ws.send_json(broken)
+            ws.send_json(nameless)
             ws.receive_json()
     assert exc.value.code == 1008
+
+
+def test_non_json_closes_the_socket(
+    client: TestClient, session_id: str, key: str
+) -> None:
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(
+            f"/internal/v1/sessions/{session_id}/transcripts", headers=auth(key)
+        ) as ws:
+            ws.send_text("전사 아님")
+            ws.receive_json()
+    assert exc.value.code == 1003
+
+
+def test_new_connection_replaces_the_old_one(
+    client: TestClient, session_id: str, key: str
+) -> None:
+    """Agent 가 끊긴 걸 눈치 못 채고 새로 붙는 경우가 대부분이라 새 쪽이 최신이다.
+
+    옛 소켓에서 블로킹으로 읽어 확인하면, 교체가 깨졌을 때 실패가 아니라 행이 된다.
+    그래서 서버가 들고 있는 연결 표를 직접 본다.
+    """
+    path = f"/internal/v1/sessions/{session_id}/transcripts"
+    with client.websocket_connect(path, headers=auth(key)):
+        served_first = transcripts._live[session_id]
+        with client.websocket_connect(path, headers=auth(key)) as second:
+            # 왕복을 한 번 돌려 서버 핸들러가 교체 지점을 지났음을 보장한다.
+            # 핸드셰이크만으로는 accept() 직후에서 멈춰 있을 수 있다.
+            second.send_json(UPSERT)
+            assert second.receive_json()["type"] == "transcript.ack"
+
+            assert transcripts._live[session_id] is not served_first
+            assert served_first.application_state is WebSocketState.DISCONNECTED
+
+
+def test_connection_table_is_emptied_on_disconnect(
+    client: TestClient, session_id: str, key: str
+) -> None:
+    """끊긴 세션이 표에 남으면 다음 연결이 이미 죽은 소켓을 끊으려 든다."""
+    path = f"/internal/v1/sessions/{session_id}/transcripts"
+    with client.websocket_connect(path, headers=auth(key)) as ws:
+        ws.send_json(UPSERT)
+        ws.receive_json()
+        assert session_id in transcripts._live
+    assert session_id not in transcripts._live
 
 
 # ── 꼬리질문 ────────────────────────────────────────────
