@@ -14,9 +14,10 @@
  * 그때는 다시 누르면 새 면접이 생긴다 — 기존 InterviewSetupPage 와 같은 방침이다.
  */
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { getContext } from '../api/context';
 import { createInterview, createSession } from '../api/interview';
 import { uploadResume } from '../api/resume';
 import { DocCard } from '../components/context/DocCard';
@@ -27,6 +28,7 @@ import type { ContextDoc, UploadRejection } from '../types/interview';
 
 /** ⚠️ 인증이 없어 면접관 ID 를 클라이언트가 정한다. 로그인 도입 시 사라진다. */
 const MOCK_INTERVIEWER_ID = 'user_demo';
+const CONTEXT_ID = 'ctx_demo';
 
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
   'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
@@ -35,8 +37,10 @@ const REJECTION_MESSAGE: Record<UploadRejection, string> = {
 
 export default function InterviewCreatePage() {
   const [candidateName, setCandidateName] = useState('');
-  const [company, setCompany] = useState('');
-  const [role, setRole] = useState('');
+  const { data: context, isError: contextError, isLoading: contextLoading } = useQuery({
+    queryKey: ['context', CONTEXT_ID],
+    queryFn: () => getContext(CONTEXT_ID),
+  });
 
   // 고른 파일과 화면에 보여줄 상태를 나눠 둔다 — 파일은 업로드에, 상태는 카드 표시에 쓴다.
   const [resume, setResume] = useState<File | null>(null);
@@ -170,34 +174,32 @@ export default function InterviewCreatePage() {
                 </p>
               </Field>
 
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="회사 이름" htmlFor="company">
-                  <input
-                    id="company"
-                    value={company}
-                    onChange={(e) => setCompany(e.target.value)}
-                    placeholder="예) (주)카카오"
-                    autoComplete="off"
-                    className={INPUT_CLASS}
-                  />
-                </Field>
-                <Field label="직무" htmlFor="job-role">
-                  <input
-                    id="job-role"
-                    value={role}
-                    onChange={(e) => setRole(e.target.value)}
-                    placeholder="예) 백엔드 엔지니어"
-                    autoComplete="off"
-                    className={INPUT_CLASS}
-                  />
-                </Field>
-              </div>
-
               {/* ⚠️ 회사·직무를 실어 보낼 필드가 면접 생성 계약에 없다.
                   지금은 화면에만 남고 서버로 가지 않는다 — BE 스키마가 생기면 함께 넘긴다. */}
-              <p className="text-ink-dim mt-3 text-[13px] leading-relaxed">
-                회사와 직무는 AI 질문의 기준이 됩니다.
-              </p>
+              {/* 회사와 기본 직무는 읽기 전용으로 보여주고, 값 수정은 기업 설정에서 한다. */}
+              <div className="border-border-base bg-surface-container mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
+                <div>
+                  <p className="text-ink-muted text-[12px]">기업 컨텍스트</p>
+                  <p className="text-ink mt-0.5 text-[14px] font-medium">
+                    {contextLoading
+                      ? '불러오는 중…'
+                      : context
+                        ? `${context.company} · ${context.role}`
+                        : contextError
+                          ? '설정을 불러오지 못했습니다.'
+                          : '아직 등록된 설정이 없습니다.'}
+                  </p>
+                  <p className="text-ink-dim mt-1 text-[12px]">
+                    회사와 기본 직무는 기업 설정에서 관리합니다.
+                  </p>
+                </div>
+                <Link
+                  to="/settings/context"
+                  className="text-brand-soft text-[13px] font-medium hover:underline"
+                >
+                  설정 확인
+                </Link>
+              </div>
             </SectionCard>
 
             <SectionCard icon="upload_file" title="지원자 이력서" badge="PDF · DOCX · 50MB 이하">
@@ -277,8 +279,8 @@ export default function InterviewCreatePage() {
           <SectionCard icon="check_circle" title="면접 세션이 만들어졌습니다">
             <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Summary label="지원자" value={session.candidateName ?? candidateName} />
-              <Summary label="회사" value={company || '—'} />
-              <Summary label="직무" value={role || '—'} />
+              <Summary label="회사 설정" value={context?.company ?? '—'} />
+              <Summary label="직무 설정" value={context?.role ?? '—'} />
             </dl>
 
             <dl className="border-border-input bg-surface-input mt-4 rounded-xl border p-5 font-mono text-[13px]">

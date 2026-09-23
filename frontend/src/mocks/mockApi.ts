@@ -129,6 +129,7 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
       company: contextProfile.company,
       team: contextProfile.team,
       role: contextProfile.role,
+      talentProfile: contextProfile.talentProfile,
       docs: viewDocs(),
     } satisfies CompanyContext;
   }

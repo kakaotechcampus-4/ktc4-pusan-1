@@ -85,12 +85,14 @@ export default function ContextSettingsPage() {
   });
 
   // 서버 값 위에 고친 칸을 얹은 것이 지금 화면의 값이다.
+  //
   // ⚠️ 조회 응답에 인재상 필드가 없어 그 칸은 늘 빈 값에서 시작한다 (api/contextSettings.ts 참고).
+  // 최신 응답에 talentProfile 이 있으면 저장된 값을 표시하고, 이전 응답은 빈 값으로 처리한다.
   const form: SettingsForm | null = data
     ? {
         company: draft.company ?? data.company,
         role: draft.role ?? data.role,
-        talentProfile: draft.talentProfile ?? '',
+        talentProfile: draft.talentProfile ?? data.talentProfile ?? '',
       }
     : null;
 

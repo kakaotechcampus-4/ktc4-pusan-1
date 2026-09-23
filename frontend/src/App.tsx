@@ -170,13 +170,22 @@ export default function App() {
         }
       />
       <Route path="/interview/:sessionId" element={<InterviewFlow />} />
-      <Route path="/interview/:sessionId/summary" element={<InterviewSummaryPage />} />
+      <Route
+        path="/interview/:sessionId/summary"
+        element={
+          <RequireAuth>
+            <InterviewSummaryPage />
+          </RequireAuth>
+        }
+      />
       <Route
         path="/review/:interviewId"
         element={
-          <Suspense fallback={<ChunkFallback />}>
-            <ReviewTimelinePage />
-          </Suspense>
+          <RequireAuth>
+            <Suspense fallback={<ChunkFallback />}>
+              <ReviewTimelinePage />
+            </Suspense>
+          </RequireAuth>
         }
       />
       <Route
