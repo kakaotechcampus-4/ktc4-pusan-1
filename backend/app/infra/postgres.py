@@ -14,15 +14,22 @@ from typing import Any, LiteralString
 
 from psycopg import Connection, sql
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
-from app.domain.models import Interview, Session, SessionStatus
+from app.domain.models import (
+    Interview,
+    Session,
+    SessionStatus,
+    SessionSummary,
+    SummaryStatus,
+)
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 
 class PostgresStore:
-    """테이블 두 개(`interview`, `session`)를 읽고 쓴다.
+    """`interview` · `session` · `session_summary` 를 읽고 쓴다.
 
     커넥션 풀을 하나 들고 있다가 호출마다 빌려 쓴다. 매번 새로 연결하면
     면접 입장처럼 짧은 요청이 몰릴 때 연결 비용이 응답 시간을 지배한다.
@@ -138,7 +145,84 @@ class PostgresStore:
                 ),
             )
 
+    # ── 요약 ────────────────────────────────────────────────
+
+    def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
+        """없으면 넣고, 있든 없든 **저장소에 있는 것**을 돌려준다.
+
+        `ON CONFLICT DO NOTHING` 뒤에 다시 읽는다. `RETURNING` 은 충돌했을 때
+        아무 행도 안 주므로 그것만으로는 기존 값을 못 가져온다. 종료 요청이
+        겹쳐 들어와도 먼저 들어간 `requested_at` 이 남아야 한다.
+        """
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO session_summary (
+                    session_id, status, overview, key_points,
+                    requested_at, completed_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (session_id) DO NOTHING
+                """,
+                self._summary_values(summary),
+            )
+        stored = self.get_summary(summary.session_id)
+        assert stored is not None  # 방금 넣었거나 이미 있었다
+        return stored
+
+    def get_summary(self, session_id: str) -> SessionSummary | None:
+        row = self._one(
+            """
+            SELECT session_id, status, overview, key_points,
+                   requested_at, completed_at
+            FROM session_summary WHERE session_id = %s
+            """,
+            (session_id,),
+        )
+        if row is None:
+            return None
+        return SessionSummary(
+            session_id=row["session_id"],
+            status=SummaryStatus(row["status"]),
+            overview=row["overview"],
+            key_points=list(row["key_points"]),
+            requested_at=row["requested_at"],
+            completed_at=row["completed_at"],
+        )
+
+    def save_summary(self, summary: SessionSummary) -> None:
+        """`requested_at` 은 바꾸지 않는다 — 한도의 기준점이다."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE session_summary
+                   SET status = %s,
+                       overview = %s,
+                       key_points = %s,
+                       completed_at = %s
+                 WHERE session_id = %s
+                """,
+                (
+                    summary.status.value,
+                    summary.overview,
+                    Jsonb(summary.key_points),
+                    summary.completed_at,
+                    summary.session_id,
+                ),
+            )
+
     # ── 내부 ────────────────────────────────────────────────
+
+    @staticmethod
+    def _summary_values(summary: SessionSummary) -> tuple[Any, ...]:
+        return (
+            summary.session_id,
+            summary.status.value,
+            summary.overview,
+            Jsonb(summary.key_points),
+            summary.requested_at,
+            summary.completed_at,
+        )
 
     @staticmethod
     def _session_values(session: Session) -> tuple[Any, ...]:

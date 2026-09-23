@@ -10,7 +10,7 @@
 
 from typing import Protocol
 
-from app.domain.models import Interview, Session
+from app.domain.models import Interview, Session, SessionSummary
 
 
 class Store(Protocol):
@@ -26,11 +26,25 @@ class Store(Protocol):
         """변경된 Session 을 저장한다. 상태 전이 뒤에는 항상 부른다."""
         ...
 
+    def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
+        """요약 자리를 만들고 돌려준다. 이미 있으면 **있는 것을 돌려준다.**
+
+        면접 종료를 두 번 눌러도, 종료 요청이 겹쳐 들어와도 기다리기 시작한
+        시각이 뒤로 밀리면 안 된다. 밀리면 한도가 계속 연장돼 FAILED 로 가지
+        못한다.
+        """
+        ...
+
+    def get_summary(self, session_id: str) -> SessionSummary | None: ...
+
+    def save_summary(self, summary: SessionSummary) -> None: ...
+
 
 class InMemoryStore:
     def __init__(self) -> None:
         self._interviews: dict[str, Interview] = {}
         self._sessions: dict[str, Session] = {}
+        self._summaries: dict[str, SessionSummary] = {}
 
     def add_interview(self, interview: Interview) -> None:
         self._interviews[interview.id] = interview
@@ -50,10 +64,20 @@ class InMemoryStore:
         # 똑같이 동작하도록 호출 규약을 맞춰 둔다.
         self._sessions[session.id] = session
 
+    def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
+        return self._summaries.setdefault(summary.session_id, summary)
+
+    def get_summary(self, session_id: str) -> SessionSummary | None:
+        return self._summaries.get(session_id)
+
+    def save_summary(self, summary: SessionSummary) -> None:
+        self._summaries[summary.session_id] = summary
+
     def clear(self) -> None:
         """테스트용."""
         self._interviews.clear()
         self._sessions.clear()
+        self._summaries.clear()
 
 
 store: Store = InMemoryStore()

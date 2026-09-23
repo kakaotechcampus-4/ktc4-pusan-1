@@ -36,3 +36,20 @@ CREATE INDEX IF NOT EXISTS session_interview_id_idx ON session (interview_id);
 -- CREATE TABLE 안이 아니라 ALTER 로 둔다. 이미 테이블이 만들어진 환경에서도
 -- 기동 한 번으로 따라붙어야 하고, IF NOT EXISTS 라 여러 번 돌려도 안전하다.
 ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_origin_at TIMESTAMPTZ;
+
+-- 세션 하나의 요약. 면접이 끝나는 순간 PROCESSING 으로 만들어지고, Agent 가
+-- `PUT /internal/v1/sessions/{id}/review` 로 결과를 써 넣으면 READY 가 된다.
+-- 아무도 안 써 주면 한도(SUMMARY_TIMEOUT) 를 넘긴 뒤 조회 시점에 FAILED 로 간다.
+--
+-- 세션당 하나라 session_id 가 그대로 PK 다. 면접이 지워지면 요약도 같이 간다.
+CREATE TABLE IF NOT EXISTS session_summary (
+    session_id   TEXT        PRIMARY KEY REFERENCES session (id) ON DELETE CASCADE,
+    -- SummaryStatus. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+    status       TEXT        NOT NULL,
+    -- READY 일 때만 찬다. FAILED 로 갈 때 다시 비운다.
+    overview     TEXT        NOT NULL DEFAULT '',
+    key_points   JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    -- 기다리기 시작한 시각. 한도 판정의 기준점이라 면접 종료 시각과 따로 둔다.
+    requested_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ
+);

@@ -57,6 +57,10 @@ services:
       # ⚠️ ai 서비스가 들어오면 같은 값을 BACKEND_API_KEY 로도 줘야 합니다.
       #    다르면 Agent 가 BACKEND_AUTH_FAILED 로 붙지 못합니다.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      # 면접이 끝난 뒤 요약을 기다리는 한도(초)입니다. 넘기면 FAILED 로 넘어가
+      # 화면이 멈춥니다. 비워 두면 3분입니다 — 요약 파이프라인이 붙은 뒤
+      # 실제로 얼마나 걸리는지 보고 조정하라고 밖으로 빼 두었습니다.
+      SUMMARY_TIMEOUT_SECONDS: ${SUMMARY_TIMEOUT_SECONDS:-180}
       # 비우면 인메모리로 떨어집니다. 서버에서는 반드시 채웁니다 —
       # 재시작할 때마다 진행 중인 면접 상태가 사라집니다.
       DATABASE_URL: postgresql://${POSTGRES_USER:-irya}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-irya}
