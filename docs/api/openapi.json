@@ -15,6 +15,20 @@
         "title": "Body_upload_doc_api_v1_contexts__contextId__docs_post",
         "type": "object"
       },
+      "Body_upload_resume_api_v1_interviews__interviewId__resume_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_resume_api_v1_interviews__interviewId__resume_post",
+        "type": "object"
+      },
       "ContextDocResponse": {
         "description": "FE 의 `ContextDoc` 과 같은 모양.\n\n`progress` 는 내보내지 않는다 — 업로드 진행률은 클라이언트만 아는 값이다.",
         "properties": {
@@ -985,6 +999,89 @@
           }
         },
         "summary": "면접 조회",
+        "tags": [
+          "면접"
+        ]
+      }
+    },
+    "/api/v1/interviews/{interviewId}/resume": {
+      "post": {
+        "description": "지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.\n\n**면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은\n것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.\n\n응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드\n컴포넌트로 그린다.\n\n본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로\n하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.",
+        "operationId": "upload_resume_api_v1_interviews__interviewId__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_resume_api_v1_interviews__interviewId__resume_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextDocResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접을 찾을 수 없음"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "파일이 너무 큼"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "지원하지 않는 형식"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "지원자 이력서 업로드",
         "tags": [
           "면접"
         ]

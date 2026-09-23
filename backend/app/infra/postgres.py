@@ -22,6 +22,7 @@ from app.domain.models import (
     DocKind,
     DocStatus,
     Interview,
+    Resume,
     Session,
     SessionStatus,
 )
@@ -310,6 +311,56 @@ class PostgresStore:
         return ContextDoc(
             id=row["id"],
             context_id=row["context_id"],
+            name=row["name"],
+            kind=DocKind(row["kind"]),
+            size_bytes=row["size_bytes"],
+            status=DocStatus(row["status"]),
+            created_at=row["created_at"],
+        )
+
+    # ── 지원자 이력서 ───────────────────────────────────
+
+    def save_resume(self, resume: Resume, content: bytes) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO interview_resume
+                    (interview_id, id, name, kind, size_bytes, status, content,
+                     created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (interview_id) DO UPDATE SET
+                    id = EXCLUDED.id,
+                    name = EXCLUDED.name,
+                    kind = EXCLUDED.kind,
+                    size_bytes = EXCLUDED.size_bytes,
+                    status = EXCLUDED.status,
+                    content = EXCLUDED.content,
+                    created_at = EXCLUDED.created_at
+                """,
+                (
+                    resume.interview_id,
+                    resume.id,
+                    resume.name,
+                    resume.kind.value,
+                    resume.size_bytes,
+                    resume.status.value,
+                    content,
+                    resume.created_at,
+                ),
+            )
+
+    def get_resume(self, interview_id: str) -> Resume | None:
+        # content 는 고르지 않는다. 메타데이터만 필요한 자리가 대부분이다.
+        row = self._one(
+            "SELECT interview_id, id, name, kind, size_bytes, status, created_at"
+            " FROM interview_resume WHERE interview_id = %s",
+            (interview_id,),
+        )
+        if row is None:
+            return None
+        return Resume(
+            interview_id=row["interview_id"],
+            id=row["id"],
             name=row["name"],
             kind=DocKind(row["kind"]),
             size_bytes=row["size_bytes"],
