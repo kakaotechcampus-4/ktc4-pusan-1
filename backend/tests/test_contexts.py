@@ -130,6 +130,18 @@ def test_filename_is_normalized_to_nfc(client: TestClient, context_id: str) -> N
     assert stored == nfc
 
 
+@pytest.mark.parametrize("suffix", [".pdf", ".DOCX"])
+def test_overlong_name_keeps_its_suffix(
+    client: TestClient, context_id: str, suffix: str
+) -> None:
+    """길이로 자를 때 확장자가 잘려 415 가 나면 안 된다."""
+    response = upload(client, context_id, "가" * 300 + suffix)
+    assert response.status_code == 201
+    name = response.json()["name"]
+    assert len(name) == 255
+    assert name.endswith(suffix)
+
+
 @pytest.mark.parametrize("name", ["notes.txt", "sheet.xlsx", "noext"])
 def test_unsupported_type_is_415(
     client: TestClient, context_id: str, name: str

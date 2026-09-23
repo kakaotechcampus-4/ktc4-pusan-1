@@ -89,7 +89,14 @@ def _normalized_name(raw: str | None) -> str:
     # 제어문자를 지운다. 널 바이트가 그대로 들어가면 psycopg 가 거부해 500 이 나고,
     # 인메모리 구현은 그냥 받아서 두 저장소가 갈린다.
     name = "".join(ch for ch in name if ch.isprintable())
-    return name[:MAX_NAME_CHARS]
+    if len(name) <= MAX_NAME_CHARS:
+        return name
+    # 길이로 자르기 전에 확장자를 떼어 둔다. 뒤에서 자르면 확장자가 잘려 나가
+    # 멀쩡한 PDF 가 415 를 맞는다. 받는 형식의 확장자만 지키면 된다 — 나머지는
+    # 어차피 415 다.
+    dot = name.rfind(".")
+    suffix = name[dot:] if dot > 0 and name[dot:].lower() in KIND_BY_SUFFIX else ""
+    return name[: MAX_NAME_CHARS - len(suffix)] + suffix
 
 
 @router.get(
