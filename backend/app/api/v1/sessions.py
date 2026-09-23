@@ -15,6 +15,7 @@ from app.schemas import (
     JoinResponse,
     SessionStateResponse,
     StartSessionResponse,
+    SummaryProcessingResponse,
 )
 
 router = APIRouter(prefix="/sessions", tags=["세션"])
@@ -148,3 +149,36 @@ async def end_session(
     return EndSessionResponse(
         session_id=session.id, status=session.status, ended_at=session.ended_at
     )
+
+
+@router.get(
+    "/{sessionId}/summary",
+    # 지금 나가는 건 PROCESSING 한 갈래뿐이라 그것만 선언한다.
+    # READY 쪽은 요약 파이프라인이 붙을 때 넓힌다 — `/interviews/{id}/review` 와 같다.
+    response_model=SummaryProcessingResponse,
+    status_code=202,
+    summary="면접 요약 조회",
+    responses=responses((404, "Session을 찾을 수 없음")),
+)
+def get_summary(
+    session_id: SessionIdPath, store: StoreDep
+) -> SummaryProcessingResponse:
+    """면접이 끝난 뒤의 짧은 요약을 조회한다.
+
+    **지금은 항상 `PROCESSING` 을 돌려준다.** 요약을 만드는 쪽이 아직 BE 에 붙지
+    않았다(#70). FE 는 이 분기를 이미 갖고 있어(`SummaryStatus`) 화면이 로딩 상태로
+    뜨고 잠시 뒤 다시 부른다.
+
+    `durationSec` 은 진짜 값이다. 「면접 시작」과 「종료」 사이를 센다 — 둘 중 하나가
+    비어 있으면 0 이다. 시작을 안 누르고 끝냈거나 아직 안 끝난 면접이다.
+    """
+    session = _load(store, session_id)
+    return SummaryProcessingResponse(
+        session_id=session.id, duration_sec=_duration_sec(session)
+    )
+
+
+def _duration_sec(session: Session) -> int:
+    if session.started_at is None or session.ended_at is None:
+        return 0
+    return max(0, int((session.ended_at - session.started_at).total_seconds()))

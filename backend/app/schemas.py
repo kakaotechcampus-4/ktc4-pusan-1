@@ -180,3 +180,21 @@ class ReviewProcessingResponse(Schema):
         serialization_alias="etaSec",
         description="남은 예상 시간. 추정할 근거가 없으면 비운다.",
     )
+
+
+class SummaryProcessingResponse(Schema):
+    """면접 요약이 아직 없는 상태. 202 로 나간다.
+
+    FE 의 `InterviewSummary` 와 같은 모양이다. `content` 는 `READY` 일 때만 차므로
+    지금은 항상 `None` 이다 — 요약 파이프라인이 BE 에 붙지 않았다(#70).
+
+    `durationSec` 만은 진짜 값이다. `startedAt` 과 `endedAt` 으로 셀 수 있고, 요약과
+    무관하게 화면이 쓴다.
+    """
+
+    session_id: str = Field(serialization_alias="sessionId")
+    status: Literal["PROCESSING"] = "PROCESSING"
+    content: None = Field(
+        default=None, description="READY 일 때만 찬다. 지금은 항상 비어 있다."
+    )
+    duration_sec: int = Field(serialization_alias="durationSec")

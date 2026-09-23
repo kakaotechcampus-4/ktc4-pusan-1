@@ -71,6 +71,14 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"sessionId", "status", "startedAt"},
         "statuses": {"200", "404", "409"},
     },
+    # ⚠️ Notion 명세에 아직 없다. FE 가 요약 화면을 만들며 형태를 정했고
+    # (`api/interview.ts` 의 「아직 명세에 없는 엔드포인트다」), BE 가 따라간 것이다.
+    # 지금은 PROCESSING 한 갈래만 나간다 — READY 는 요약 파이프라인이 붙을 때(#70).
+    ("get", "/api/v1/sessions/{sessionId}/summary"): {
+        "path_params": ["sessionId"],
+        "response": {"sessionId", "status", "content", "durationSec"},
+        "statuses": {"202", "404"},
+    },
     ("post", "/api/v1/sessions/{sessionId}/end"): {
         "path_params": ["sessionId"],
         "response": {"sessionId", "status", "endedAt"},

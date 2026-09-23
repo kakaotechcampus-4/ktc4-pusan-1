@@ -413,6 +413,36 @@
         "title": "StartSessionResponse",
         "type": "object"
       },
+      "SummaryProcessingResponse": {
+        "description": "면접 요약이 아직 없는 상태. 202 로 나간다.\n\nFE 의 `InterviewSummary` 와 같은 모양이다. `content` 는 `READY` 일 때만 차므로\n지금은 항상 `None` 이다 — 요약 파이프라인이 BE 에 붙지 않았다(#70).\n\n`durationSec` 만은 진짜 값이다. `startedAt` 과 `endedAt` 으로 셀 수 있고, 요약과\n무관하게 화면이 쓴다.",
+        "properties": {
+          "content": {
+            "description": "READY 일 때만 찬다. 지금은 항상 비어 있다.",
+            "title": "Content",
+            "type": "null"
+          },
+          "durationSec": {
+            "title": "Durationsec",
+            "type": "integer"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "const": "PROCESSING",
+            "default": "PROCESSING",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "durationSec"
+        ],
+        "title": "SummaryProcessingResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -909,6 +939,59 @@
           }
         },
         "summary": "면접 시작",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/summary": {
+      "get": {
+        "description": "면접이 끝난 뒤의 짧은 요약을 조회한다.\n\n**지금은 항상 `PROCESSING` 을 돌려준다.** 요약을 만드는 쪽이 아직 BE 에 붙지\n않았다(#70). FE 는 이 분기를 이미 갖고 있어(`SummaryStatus`) 화면이 로딩 상태로\n뜨고 잠시 뒤 다시 부른다.\n\n`durationSec` 은 진짜 값이다. 「면접 시작」과 「종료」 사이를 센다 — 둘 중 하나가\n비어 있으면 0 이다. 시작을 안 누르고 끝냈거나 아직 안 끝난 면접이다.",
+        "operationId": "get_summary_api_v1_sessions__sessionId__summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryProcessingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session을 찾을 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "면접 요약 조회",
         "tags": [
           "세션"
         ]
