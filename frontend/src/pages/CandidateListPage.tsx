@@ -195,7 +195,7 @@ export default function CandidateListPage({ demo = false }: { demo?: boolean }) 
             className="mt-3 rounded-lg border border-[#272a33] bg-[#18191f] p-3"
           >
             <div className="flex flex-wrap gap-x-4 gap-y-2">
-              {COLUMNS.map((column) => (
+              {COLUMNS.filter((column) => column.id !== 'candidate').map((column) => (
                 <label key={column.id} className="flex items-center gap-2 text-xs text-[#c4c7c9]">
                   <input
                     type="checkbox"

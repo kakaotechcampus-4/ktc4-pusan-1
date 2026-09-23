@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { USE_MOCK_API } from '../../mocks/mockApi';
 
 export function InterviewerHeader({ demo = false }: { demo?: boolean }) {
   const candidatePath = demo ? '/demo/candidates' : '/candidates';
@@ -27,6 +28,22 @@ export function InterviewerHeader({ demo = false }: { demo?: boolean }) {
           >
             지원자 검토
           </Link>
+          {demo && USE_MOCK_API && (
+            <>
+              <Link
+                className="rounded px-3 py-2 text-[#c4c7c9] hover:bg-[#22242c] hover:text-white"
+                to="/interview/ses_demo?role=interviewer"
+              >
+                면접 입장·기기 점검
+              </Link>
+              <Link
+                className="rounded px-3 py-2 text-[#c4c7c9] hover:bg-[#22242c] hover:text-white"
+                to="/review/int_demo"
+              >
+                면접 기록 예시
+              </Link>
+            </>
+          )}
         </nav>
 
         {demo && (
