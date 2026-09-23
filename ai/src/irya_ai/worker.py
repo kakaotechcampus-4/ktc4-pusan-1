@@ -83,7 +83,14 @@ async def transcribe_room(ctx: JobContext) -> None:
     warm_up = asyncio.create_task(_warm_up(client), name="stt-warm-up")
     ctx.add_shutdown_callback(lambda: _cancel(warm_up))
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
-    transcriber.initialize_origin(ctx.room.remote_participants.values())
+    origin = transcriber.initialize_origin(ctx.room.remote_participants.values())
+    logger.info(
+        "joined room=%s session=%s participants=%d origin=%s",
+        ctx.room.name,
+        session_id,
+        len(ctx.room.remote_participants),
+        origin.isoformat() if origin else "pending first human",
+    )
 
 
 async def _cancel(task: asyncio.Task[None]) -> None:

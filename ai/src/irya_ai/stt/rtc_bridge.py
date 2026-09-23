@@ -195,6 +195,49 @@ async def _emit_utterances(
     async for utterance in stream:
         for sink in sinks:
             await sink(utterance)
+        # The id, the speaker and the span - never the text. Interview speech
+        # does not belong in an application log, and the span is enough to
+        # match this line against the segment timings summarised at the end.
+        logger.info(
+            "caption delivered utterance=%s speaker=%s %d-%dms chars=%d",
+            utterance.utterance_id,
+            utterance.speaker.value,
+            utterance.start_ms,
+            utterance.end_ms,
+            len(utterance.content),
+        )
+
+
+def _percentile(values: Sequence[int], fraction: float) -> int | None:
+    """Nearest-rank percentile, or ``None`` when there is nothing to rank."""
+
+    if not values:
+        return None
+    ordered = sorted(values)
+    rank = max(1, round(fraction * len(ordered)))
+    return ordered[min(rank, len(ordered)) - 1]
+
+
+def lag_summary(stream: TranscriptionStream) -> str:
+    """p50/p95 of first-sample-to-release, for the end-of-track log line.
+
+    :attr:`~irya_ai.stt.stream.SegmentTiming.source_to_release_ms` assumes
+    real-time capture, which a live track is, and stops at the consumer; the
+    hop to the interviewer's screen is not in this process. It is the figure
+    the team asked to see before deciding whether the Whisper path is fast
+    enough, so it is measured and logged here rather than judged.
+    """
+
+    lags = [
+        lag
+        for t in stream.timings
+        if t.outcome == "RELEASED" and (lag := t.source_to_release_ms) is not None
+    ]
+    p50 = _percentile(lags, 0.5)
+    p95 = _percentile(lags, 0.95)
+    if p50 is None or p95 is None:
+        return "lag n=0"
+    return f"lag n={len(lags)} p50={p50}ms p95={p95}ms"
 
 
 async def _run_stream_tasks(
@@ -459,6 +502,12 @@ class RoomTranscriber:
                 continue
 
             track_id = publication.sid
+            logger.info(
+                "microphone subscribed track=%s speaker=%s session=%s",
+                track_id,
+                speaker.value,
+                self.session_id,
+            )
             audio_stream = rtc.AudioStream.from_track(
                 track=track,
                 sample_rate=SAMPLE_RATE,
@@ -474,12 +523,13 @@ class RoomTranscriber:
                 if isinstance(stream, TranscriptionStream):
                     logger.info(
                         "microphone transcription ended track=%s speaker=%s "
-                        "segments=%d rejected=%d dropped=%d",
+                        "segments=%d rejected=%d dropped=%d %s",
                         publication.sid,
                         speaker.value,
                         len(stream.timings),
                         len(stream.rejected),
                         len(stream.dropped_spans),
+                        lag_summary(stream),
                     )
             except asyncio.CancelledError:
                 raise

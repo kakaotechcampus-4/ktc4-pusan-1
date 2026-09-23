@@ -21,6 +21,7 @@ from irya_ai.stt.rtc_bridge import (
     RoomTranscriber,
     degraded_event_json,
     frame_pcm,
+    lag_summary,
     session_id_from_room,
     speaker_from_identity,
     transcribe_audio_frames,
@@ -253,6 +254,29 @@ async def test_a_real_stream_turns_a_spoken_turn_into_a_caption() -> None:
     assert received[0].utterance_id == "utt_trk_candidate_0000"
     assert received[0].speaker is SpeakerRole.CANDIDATE
     assert stream.rejected == []
+
+
+async def test_the_end_of_track_summary_reports_release_lag_percentiles() -> None:
+    client = stt_client(lambda request: ok("네"))
+    stream = TranscriptionStream(
+        client,
+        session_id="ses_123",
+        track_id="trk_candidate",
+        speaker=SpeakerRole.CANDIDATE,
+    )
+    assert lag_summary(stream) == "lag n=0", "nothing to rank before any audio"
+
+    async def sink(_value: Utterance) -> None:
+        pass
+
+    two_turns = (tone(1500) + silence(800)) * 2
+    await transcribe_audio_frames(
+        frames=frames(*chunked(two_turns)), stream_factory=lambda: stream, sinks=[sink]
+    )
+
+    summary = lag_summary(stream)
+    assert summary.startswith("lag n=2 p50=")
+    assert "p95=" in summary and summary.endswith("ms")
 
 
 # --- the interviewer boundary -------------------------------------------------
