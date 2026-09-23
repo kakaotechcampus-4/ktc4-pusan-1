@@ -5,6 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
+from app.api.internal import router as internal_router
+from app.api.internal.deps import check_key_at_startup
 from app.api.v1 import router as v1_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
@@ -22,6 +24,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     `IF NOT EXISTS` 라 기동할 때마다 돌려도 안전하다. 컬럼을 바꿔야 할 때가
     오면 Alembic 을 넣고 이 호출을 걷어낸다.
     """
+    check_key_at_startup()
+
     if not settings.database_url:
         yield
         return
@@ -57,3 +61,7 @@ register_error_handlers(app)
 # /health 만 prefix 밖이다. 나머지는 전부 settings.api_prefix 아래로 들어간다.
 app.include_router(health_router)
 app.include_router(v1_router, prefix=settings.api_prefix)
+
+# Agent 전용. /api/v1 과 나눠 두면 둘이 섞이지 않고, Caddy 가 /api/* 만 프록시하므로
+# 밖으로 열리지 않는다. 공개 명세(openapi.json)에도 싣지 않는다.
+app.include_router(internal_router, prefix="/internal/v1")

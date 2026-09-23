@@ -8,9 +8,10 @@
  * 트랙 획득 지점은 앱 전체에서 usePermissionCheck 하나다.
  */
 
+import { useCallback, useEffect, useState } from 'react';
 import { LocalPreview } from '../components/interview/LocalPreview';
 import { usePermissionCheck, type PermissionStatus } from '../hooks/usePermissionCheck';
-import type { LocalAudioTrack, LocalVideoTrack } from 'livekit-client';
+import { prepareLiveKitConnection, preloadLiveKit } from '../lib/livekit';
 
 /** 상태별 안내. 사용자가 다음에 뭘 해야 하는지까지 적는다. */
 const GUIDE: Record<Exclude<PermissionStatus, 'granted'>, { title: string; detail: string }> = {
@@ -38,17 +39,41 @@ const GUIDE: Record<Exclude<PermissionStatus, 'granted'>, { title: string; detai
 };
 
 export interface DeviceCheckPageProps {
+  livekitConnection?: {
+    livekitUrl: string;
+    token: string;
+  };
   /** 점검 완료 — 확보한 트랙을 그대로 방으로 넘긴다 */
   onReady: (tracks: {
-    videoTrack: LocalVideoTrack | null;
-    audioTrack: LocalAudioTrack | null;
+    videoTrack: MediaStreamTrack | null;
+    audioTrack: MediaStreamTrack | null;
     release: () => void;
   }) => void;
 }
 
-export default function DeviceCheckPage({ onReady }: DeviceCheckPageProps) {
+export default function DeviceCheckPage({ livekitConnection, onReady }: DeviceCheckPageProps) {
   const { status, videoTrack, audioTrack, errorName, release } = usePermissionCheck();
+  const [starting, setStarting] = useState(false);
   const guide = status === 'granted' ? null : GUIDE[status];
+
+  const warmLiveKit = useCallback(() => {
+    if (!livekitConnection) {
+      preloadLiveKit();
+      return;
+    }
+    void prepareLiveKitConnection(livekitConnection.livekitUrl, livekitConnection.token).catch(
+      () => undefined,
+    );
+  }, [livekitConnection]);
+
+  useEffect(() => {
+    if (status === 'granted') warmLiveKit();
+  }, [status, warmLiveKit]);
+
+  const handleStart = () => {
+    setStarting(true);
+    onReady({ videoTrack, audioTrack, release });
+  };
 
   return (
     <div className="flex min-h-full items-center justify-center bg-[#0B0E14] p-8">
@@ -80,11 +105,13 @@ export default function DeviceCheckPage({ onReady }: DeviceCheckPageProps) {
 
         <button
           type="button"
-          onClick={() => onReady({ videoTrack, audioTrack, release })}
-          disabled={status !== 'granted'}
+          onMouseEnter={warmLiveKit}
+          onFocus={warmLiveKit}
+          onClick={handleStart}
+          disabled={status !== 'granted' || starting}
           className="mt-6 w-full rounded-lg bg-[#2B44D6] py-3.5 text-[15px] font-medium text-white transition hover:bg-[#243AB8] disabled:bg-white/10 disabled:text-white/35"
         >
-          면접 시작하기
+          {starting ? '면접방 연결 중' : '면접 시작하기'}
         </button>
       </div>
     </div>

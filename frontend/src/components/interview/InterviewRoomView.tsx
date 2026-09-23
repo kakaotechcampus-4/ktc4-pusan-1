@@ -16,7 +16,6 @@
  * 덕분에 서버 없이도 이 화면만 따로 띄워 확인할 수 있다.
  */
 
-import { ConnectionState, type LocalAudioTrack, type LocalVideoTrack } from 'livekit-client';
 import { useEffect, useState, type RefObject } from 'react';
 import { fmt } from '../../lib/format';
 import type { Role } from '../../types/interview';
@@ -39,8 +38,8 @@ export interface InterviewRoomViewProps {
   /** 면접관이면 면접 종료, 지원자면 나가기 */
   onEnd: () => void;
   /** 자기 화면(PiP). 둘 다 없으면 PiP 를 그리지 않는다 */
-  localVideoTrack?: LocalVideoTrack | null;
-  localAudioTrack?: LocalAudioTrack | null;
+  localVideoTrack?: MediaStreamTrack | null;
+  localAudioTrack?: MediaStreamTrack | null;
   /**
    * 화면 하단에 띄울 안내. 프로토타입에서 무엇이 실제가 아닌지 밝히는 데 쓴다.
    * 시연 중 질문을 받기 전에 화면이 먼저 답하도록 한다.
@@ -70,7 +69,7 @@ export function InterviewRoomView({
   const live = !error && remoteJoined && connection === ConnectionState.Connected;
 
   useEffect(() => {
-    if (connection !== ConnectionState.Connected) return;
+    if (connection !== 'connected') return;
     const t = setInterval(() => setElapsed((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, [connection]);
@@ -101,7 +100,7 @@ export function InterviewRoomView({
           <p className="text-ink text-xl font-semibold">
             {error
               ? '통화에 연결할 수 없습니다'
-              : connection === ConnectionState.Connected
+              : connection === 'connected'
                 ? // 면접관은 지원자 이름을 알지만, 지원자는 면접관 이름을 모를 수 있다.
                   `${remoteName} 님을 기다리고 있습니다`
                 : '연결 중'}
