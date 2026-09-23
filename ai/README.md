@@ -69,6 +69,12 @@ uv run python -m irya_ai.worker start
 ```
 
 Docker 배포에서는 `infra/docker-compose.yml`의 `ai` 서비스가 같은 작업을 합니다.
+
+FE·BE 없이 확인하려면 `scripts/livekit_e2e.py`를 씁니다. LiveKit 개발 서버(`livekit/livekit-server --dev`)에
+워커를 붙인 뒤, 스크립트가 빈 방을 먼저 만들고 지원자로 WAV(16kHz mono, 실제 한국어 음성)를
+발행하며 면접관으로 text stream을 받아 결과 JSON을 냅니다. 실행 순서는 스크립트 독스트링에 있습니다.
+Elice STT만은 실제 배포가 필요하고, 첫 요청은 배포의 콜드 스타트를 그대로 겪습니다.
+
 `ELICE_STT_BASE_URL`이 비어 있으면 워커는 방에 남지 않고 떠납니다. 작업이 시작되면
 접속과 나란히 무음 프로브로 `warm_up`을 한 번 보내 배포의 콜드 스타트를 첫 발화 앞으로
 당기려 하며, 실패해도 전사는 계속됩니다.
