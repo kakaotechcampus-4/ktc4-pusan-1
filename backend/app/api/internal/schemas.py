@@ -91,3 +91,28 @@ class SuggestionCreate(InternalSchema):
     evidence_utterance_ids: list[str] = Field(
         alias="evidenceUtteranceIds", min_length=1
     )
+
+
+class ReviewUpsert(InternalSchema):
+    """`PUT /internal/v1/sessions/{sessionId}/review` 의 본문 — 최종 리뷰 결과.
+
+    `status` 는 AI 쪽 `AnalysisResult.status` 를 그대로 받는다. 네 값을 화면의 두
+    값(READY · FAILED)으로 줄이는 매핑은 라우터 한 곳에만 둔다 — **Agent 는 무슨
+    일이 있었는지를 말하고, 사용자에게 무엇을 보일지는 우리가 정한다.** Agent 쪽에
+    번역을 시키면 같은 판단이 두 군데로 갈라진다.
+
+    본문은 `AnalysisResult.summary_result` 의 `summary` · `keyPoints` 다. 근거
+    인용(`points[]`)은 `Finding` 쪽이라 여기 범위가 아니다 (#85).
+    """
+
+    status: Literal["completed", "partial", "empty", "failed"]
+    summary: str = ""
+    key_points: list[str] = Field(default_factory=list, alias="keyPoints")
+
+    @model_validator(mode="after")
+    def _done_means_there_is_something_to_show(self) -> "ReviewUpsert":
+        # 본문 없이 READY 로 넘어가면 FE 는 `content` 가 객체라는 이유로 요약
+        # 카드를 그리고, 그 안이 비어 있다. 실패로 두는 편이 맞다.
+        if self.status in ("completed", "partial") and not self.summary.strip():
+            raise ValueError("completed/partial 이면 summary 가 비어 있을 수 없다")
+        return self

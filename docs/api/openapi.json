@@ -534,6 +534,74 @@
         "title": "StartSessionResponse",
         "type": "object"
       },
+      "SummaryContent": {
+        "description": "요약 본문. `status` 가 READY 일 때만 찬다.\n\n모양은 FE 가 화면에 이미 그려 둔 것(`InterviewSummary['content']`)이고,\nAI 쪽 `SummaryResult` 의 `summary` · `keyPoints` 와 그대로 맞는다.",
+        "properties": {
+          "keyPoints": {
+            "description": "지원자 답변에서 뽑은 핵심.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Keypoints",
+            "type": "array"
+          },
+          "overview": {
+            "description": "면접 전체를 한 문단으로.",
+            "title": "Overview",
+            "type": "string"
+          }
+        },
+        "required": [
+          "overview",
+          "keyPoints"
+        ],
+        "title": "SummaryContent",
+        "type": "object"
+      },
+      "SummaryResponse": {
+        "description": "면접 요약 조회 응답. FE 의 `InterviewSummary` 와 같은 모양이다.\n\n`status` 는 지어낸 값이 아니라 저장된 상태다 — 면접이 끝나면 PROCESSING 으로\n태어나고, Agent 가 결과를 써 넣으면 READY, 한도를 넘기면 FAILED 다.\n\n`durationSec` 은 「면접 시작」과 「종료」 사이를 센다. 둘 중 하나가 비어 있으면\n0 이다 — 시작을 안 누르고 끝냈거나 아직 안 끝난 면접이다.",
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryContent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "READY 일 때만 찬다."
+          },
+          "durationSec": {
+            "title": "Durationsec",
+            "type": "integer"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SummaryStatus"
+          }
+        },
+        "required": [
+          "sessionId",
+          "status",
+          "durationSec"
+        ],
+        "title": "SummaryResponse",
+        "type": "object"
+      },
+      "SummaryStatus": {
+        "description": "면접 요약의 상태. FE 의 `SummaryStatus` 와 같은 값이다.\n\nPROCESSING --Agent 가 결과를 써 넣음--> READY\n           --기다리다 한도를 넘김----> FAILED\n\nFE 는 PROCESSING 동안만 다시 조회한다. 그래서 **종료 상태가 반드시 와야\n한다** — 아무도 결과를 안 써 주면 화면이 영원히 돈다. 그 마감을 서버가\n맡는 것이 `SUMMARY_TIMEOUT_SECONDS` 다.",
+        "enum": [
+          "PROCESSING",
+          "READY",
+          "FAILED"
+        ],
+        "title": "SummaryStatus",
+        "type": "string"
+      },
       "UpdateContextRequest": {
         "description": "`PATCH /contexts/{contextId}` — 넣은 항목만 바꾼다.\n\n길이를 막아 둔다. FE 도 입력창에서 거르지만 그건 편의이지 경계가 아니다 —\n업로드에 같은 원칙을 쓰면서 여기만 열어 두면 앞뒤가 안 맞는다.",
         "properties": {
@@ -1440,6 +1508,69 @@
           }
         },
         "summary": "면접 시작",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/summary": {
+      "get": {
+        "description": "면접이 끝난 뒤의 짧은 요약을 조회한다.\n\n**상태는 저장된 값이다.** 면접이 끝나면 `PROCESSING` 으로 자리가 생기고,\nAgent 가 결과를 써 넣으면(`PUT /internal/v1/sessions/{id}/review`) `READY`,\n한도(`SUMMARY_TIMEOUT_SECONDS`, 기본 3분)를 넘기면 `FAILED` 다.\n\n**한도 판정을 여기서 한다.** 스케줄러를 두지 않는 이유는, 아무도 안 보는\n세션의 상태가 제때 안 바뀌어도 해가 없기 때문이다. 보는 순간 맞으면 된다.\n\n요약을 만드는 쪽(#70)이 아직 안 붙어 있어도 이 경로는 그대로 돈다 — 한도까지\n기다렸다 `FAILED` 로 간다. 붙고 나면 같은 코드가 `READY` 를 낸다.",
+        "operationId": "get_summary_api_v1_sessions__sessionId__summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session을 찾을 수 없음"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "아직 종료되지 않은 면접"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "면접 요약 조회",
         "tags": [
           "세션"
         ]

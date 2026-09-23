@@ -13,6 +13,7 @@ PostgreSQL 쪽은 `TEST_DATABASE_URL` 이 있을 때만 돈다. CI 와 로컬은
 
 import os
 from collections.abc import Iterator
+from datetime import timedelta
 
 import pytest
 
@@ -24,6 +25,8 @@ from app.domain.models import (
     Resume,
     Session,
     SessionStatus,
+    SessionSummary,
+    SummaryStatus,
 )
 from app.domain.store import InMemoryStore, Store
 
@@ -296,3 +299,75 @@ def test_resume_is_replaced_not_appended(subject: Store):
 def test_resume_of_an_interview_without_one_is_none(subject: Store):
     session = _seed(subject)
     assert subject.get_resume(session.interview_id) is None
+
+
+# ── 요약 ────────────────────────────────────────────────
+
+
+def test_summary_roundtrip(subject: Store):
+    session = _seed(subject)
+
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+    found = subject.get_summary(session.id)
+
+    assert found is not None
+    assert found.session_id == session.id
+    assert found.status is SummaryStatus.PROCESSING
+    assert found.overview == ""
+    assert found.key_points == []
+    assert found.completed_at is None
+
+
+def test_ensure_summary_keeps_the_first_one(subject: Store):
+    """두 번째 호출은 새로 쓰지 않고 있는 것을 돌려준다.
+
+    `requested_at` 이 밀리면 한도가 계속 연장돼 FAILED 로 못 간다.
+    """
+    session = _seed(subject)
+    first = subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    later = SessionSummary(session_id=session.id)
+    later.requested_at += timedelta(minutes=30)
+    again = subject.ensure_summary(later)
+
+    assert again.requested_at == first.requested_at
+
+
+def test_saving_a_summary_persists_the_content(subject: Store):
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    summary.complete("전체 요약입니다.", ["핵심 하나", "핵심 둘"])
+    subject.save_summary(summary)
+
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert found.status is SummaryStatus.READY
+    assert found.overview == "전체 요약입니다."
+    assert found.key_points == ["핵심 하나", "핵심 둘"]
+    assert found.completed_at is not None
+
+
+def test_saving_a_summary_does_not_move_the_deadline(subject: Store):
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    requested_at = summary.requested_at
+
+    summary.give_up()
+    subject.save_summary(summary)
+
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert found.requested_at == requested_at
+
+
+def test_summary_of_an_unknown_session_is_none(subject: Store):
+    assert subject.get_summary("ses_없는것") is None
+
+
+def test_summaries_do_not_leak_between_sessions(subject: Store):
+    a = _seed(subject)
+    b = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=a.id))
+
+    assert subject.get_summary(b.id) is None

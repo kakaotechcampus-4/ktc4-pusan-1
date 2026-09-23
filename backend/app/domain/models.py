@@ -1,7 +1,7 @@
 """면접·세션 도메인 모델 — Notion `API 기본 명세서` 기준."""
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from uuid import uuid4
 
@@ -205,3 +205,60 @@ class Resume:
     id: str = field(default_factory=lambda: _new_id("doc"))
     status: DocStatus = DocStatus.READY
     created_at: datetime = field(default_factory=_now)
+
+
+class SummaryStatus(StrEnum):
+    """면접 요약의 상태. FE 의 `SummaryStatus` 와 같은 값이다.
+
+    PROCESSING --Agent 가 결과를 써 넣음--> READY
+               --기다리다 한도를 넘김----> FAILED
+
+    FE 는 PROCESSING 동안만 다시 조회한다. 그래서 **종료 상태가 반드시 와야
+    한다** — 아무도 결과를 안 써 주면 화면이 영원히 돈다. 그 마감을 서버가
+    맡는 것이 `SUMMARY_TIMEOUT_SECONDS` 다.
+    """
+
+    PROCESSING = "PROCESSING"
+    READY = "READY"
+    FAILED = "FAILED"
+
+
+@dataclass
+class SessionSummary:
+    """세션 하나의 요약. 면접이 끝나는 순간 PROCESSING 으로 태어난다.
+
+    본문을 만드는 것은 Agent 이고(#70), 여기는 그 결과를 받아 두는 자리다.
+    Agent 가 아직 안 붙어 있어도 상태 기계는 그대로 돈다 — 한도까지 기다렸다
+    FAILED 로 간다. 붙고 나면 같은 코드가 READY 를 낸다.
+    """
+
+    session_id: str
+    status: SummaryStatus = SummaryStatus.PROCESSING
+    overview: str = ""
+    key_points: list[str] = field(default_factory=list)
+    requested_at: datetime = field(default_factory=_now)
+    completed_at: datetime | None = None
+
+    def overdue(self, limit: timedelta, now: datetime | None = None) -> bool:
+        """기다린 시간이 한도를 넘었나. 이미 끝난 요약은 언제 봐도 False 다.
+
+        한도를 인자로 받는다 — 도메인은 설정을 읽지 않는다. 부르는 쪽이
+        `settings.summary_timeout` 을 넘긴다.
+        """
+        if self.status is not SummaryStatus.PROCESSING:
+            return False
+        return (now or _now()) - self.requested_at > limit
+
+    def complete(self, overview: str, key_points: list[str]) -> None:
+        """Agent 가 만든 요약을 받는다."""
+        self.status = SummaryStatus.READY
+        self.overview = overview
+        self.key_points = list(key_points)
+        self.completed_at = _now()
+
+    def give_up(self) -> None:
+        """요약을 못 만들었다고 확정한다. 본문은 비운다."""
+        self.status = SummaryStatus.FAILED
+        self.overview = ""
+        self.key_points = []
+        self.completed_at = _now()

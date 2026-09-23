@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.models import DocKind, DocStatus, Role, SessionStatus
+from app.domain.models import DocKind, DocStatus, Role, SessionStatus, SummaryStatus
 
 
 class Schema(BaseModel):
@@ -180,6 +180,37 @@ class ReviewProcessingResponse(Schema):
         serialization_alias="etaSec",
         description="남은 예상 시간. 추정할 근거가 없으면 비운다.",
     )
+
+
+class SummaryContent(Schema):
+    """요약 본문. `status` 가 READY 일 때만 찬다.
+
+    모양은 FE 가 화면에 이미 그려 둔 것(`InterviewSummary['content']`)이고,
+    AI 쪽 `SummaryResult` 의 `summary` · `keyPoints` 와 그대로 맞는다.
+    """
+
+    overview: str = Field(description="면접 전체를 한 문단으로.")
+    key_points: list[str] = Field(
+        serialization_alias="keyPoints", description="지원자 답변에서 뽑은 핵심."
+    )
+
+
+class SummaryResponse(Schema):
+    """면접 요약 조회 응답. FE 의 `InterviewSummary` 와 같은 모양이다.
+
+    `status` 는 지어낸 값이 아니라 저장된 상태다 — 면접이 끝나면 PROCESSING 으로
+    태어나고, Agent 가 결과를 써 넣으면 READY, 한도를 넘기면 FAILED 다.
+
+    `durationSec` 은 「면접 시작」과 「종료」 사이를 센다. 둘 중 하나가 비어 있으면
+    0 이다 — 시작을 안 누르고 끝냈거나 아직 안 끝난 면접이다.
+    """
+
+    session_id: str = Field(serialization_alias="sessionId")
+    status: SummaryStatus
+    content: SummaryContent | None = Field(
+        default=None, description="READY 일 때만 찬다."
+    )
+    duration_sec: int = Field(serialization_alias="durationSec")
 
 
 # ── 기업 컨텍스트 ────────────────────────────────────────

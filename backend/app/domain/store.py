@@ -10,7 +10,14 @@
 
 from typing import Protocol
 
-from app.domain.models import Context, ContextDoc, Interview, Resume, Session
+from app.domain.models import (
+    Context,
+    ContextDoc,
+    Interview,
+    Resume,
+    Session,
+    SessionSummary,
+)
 
 
 class Store(Protocol):
@@ -62,6 +69,19 @@ class Store(Protocol):
 
     def get_resume(self, interview_id: str) -> Resume | None: ...
 
+    def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
+        """요약 자리를 만들고 돌려준다. 이미 있으면 **있는 것을 돌려준다.**
+
+        면접 종료를 두 번 눌러도, 종료 요청이 겹쳐 들어와도 기다리기 시작한
+        시각이 뒤로 밀리면 안 된다. 밀리면 한도가 계속 연장돼 FAILED 로 가지
+        못한다.
+        """
+        ...
+
+    def get_summary(self, session_id: str) -> SessionSummary | None: ...
+
+    def save_summary(self, summary: SessionSummary) -> None: ...
+
 
 class InMemoryStore:
     def __init__(self) -> None:
@@ -72,6 +92,8 @@ class InMemoryStore:
         self._docs: dict[tuple[str, str], tuple[ContextDoc, bytes]] = {}
         #: interview_id -> (메타데이터, 원본)
         self._resumes: dict[str, tuple[Resume, bytes]] = {}
+
+        self._summaries: dict[str, SessionSummary] = {}
 
     def add_interview(self, interview: Interview) -> None:
         self._interviews[interview.id] = interview
@@ -132,6 +154,15 @@ class InMemoryStore:
         found = self._resumes.get(interview_id)
         return None if found is None else found[0]
 
+    def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
+        return self._summaries.setdefault(summary.session_id, summary)
+
+    def get_summary(self, session_id: str) -> SessionSummary | None:
+        return self._summaries.get(session_id)
+
+    def save_summary(self, summary: SessionSummary) -> None:
+        self._summaries[summary.session_id] = summary
+
     def clear(self) -> None:
         """테스트용."""
         self._interviews.clear()
@@ -139,6 +170,8 @@ class InMemoryStore:
         self._contexts.clear()
         self._docs.clear()
         self._resumes.clear()
+
+        self._summaries.clear()
 
 
 store: Store = InMemoryStore()

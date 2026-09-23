@@ -7,7 +7,12 @@ from fastapi import APIRouter, Path
 from app.api.deps import MediaDep, StoreDep
 from app.core.config import settings
 from app.core.errors import ApiError, ErrorCode, responses
-from app.domain.models import Session, SessionStatus
+from app.domain.models import (
+    Session,
+    SessionStatus,
+    SessionSummary,
+    SummaryStatus,
+)
 from app.domain.store import Store
 from app.schemas import (
     EndSessionResponse,
@@ -15,6 +20,8 @@ from app.schemas import (
     JoinResponse,
     SessionStateResponse,
     StartSessionResponse,
+    SummaryContent,
+    SummaryResponse,
 )
 
 router = APIRouter(prefix="/sessions", tags=["세션"])
@@ -143,8 +150,71 @@ async def end_session(
     # 남아야 한다 — 방이 남는 건 정원 제한에 걸리는 정도지만, 상태가 안 남으면
     # 이미 끝난 면접에 다시 입장할 수 있게 된다.
     store.save_session(session)
+    # 요약을 기다리는 자리를 지금 만든다. 한도 판정의 기준점이 여기서 찍히므로
+    # 조회 시점이 아니라 종료 시점이어야 한다 — 면접이 끝나고 한참 뒤에 화면을
+    # 열었다고 해서 마감이 그때부터 다시 시작되면 안 된다.
+    store.ensure_summary(SessionSummary(session_id=session.id))
     await media.close_room(session.room_name)
     assert session.ended_at is not None
     return EndSessionResponse(
         session_id=session.id, status=session.status, ended_at=session.ended_at
     )
+
+
+@router.get(
+    "/{sessionId}/summary",
+    response_model=SummaryResponse,
+    summary="면접 요약 조회",
+    responses=responses(
+        (404, "Session을 찾을 수 없음"),
+        (409, "아직 종료되지 않은 면접"),
+    ),
+)
+def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
+    """면접이 끝난 뒤의 짧은 요약을 조회한다.
+
+    **상태는 저장된 값이다.** 면접이 끝나면 `PROCESSING` 으로 자리가 생기고,
+    Agent 가 결과를 써 넣으면(`PUT /internal/v1/sessions/{id}/review`) `READY`,
+    한도(`SUMMARY_TIMEOUT_SECONDS`, 기본 3분)를 넘기면 `FAILED` 다.
+
+    **한도 판정을 여기서 한다.** 스케줄러를 두지 않는 이유는, 아무도 안 보는
+    세션의 상태가 제때 안 바뀌어도 해가 없기 때문이다. 보는 순간 맞으면 된다.
+
+    요약을 만드는 쪽(#70)이 아직 안 붙어 있어도 이 경로는 그대로 돈다 — 한도까지
+    기다렸다 `FAILED` 로 간다. 붙고 나면 같은 코드가 `READY` 를 낸다.
+    """
+    session = _load(store, session_id)
+    summary = store.get_summary(session_id)
+
+    if summary is None:
+        if session.status is not SessionStatus.ENDED:
+            raise ApiError(
+                ErrorCode.INVALID_SESSION_STATE,
+                409,
+                "아직 종료되지 않은 면접입니다.",
+            )
+        # 이 기능이 붙기 전에 끝난 세션이다. 지금 자리를 만들어 준다 — 그 면접의
+        # 요약은 어차피 안 오므로 한도를 넘기고 FAILED 가 된다.
+        summary = store.ensure_summary(SessionSummary(session_id=session_id))
+
+    if summary.overdue(settings.summary_timeout):
+        summary.give_up()
+        store.save_summary(summary)
+
+    content = None
+    if summary.status is SummaryStatus.READY:
+        content = SummaryContent(
+            overview=summary.overview, key_points=summary.key_points
+        )
+    return SummaryResponse(
+        session_id=session.id,
+        status=summary.status,
+        content=content,
+        duration_sec=_duration_sec(session),
+    )
+
+
+def _duration_sec(session: Session) -> int:
+    if session.started_at is None or session.ended_at is None:
+        return 0
+    return max(0, int((session.ended_at - session.started_at).total_seconds()))

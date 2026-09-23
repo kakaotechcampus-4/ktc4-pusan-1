@@ -71,6 +71,14 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"sessionId", "status", "startedAt"},
         "statuses": {"200", "404", "409"},
     },
+    # ⚠️ Notion 명세에 아직 없다. FE 가 요약 화면을 만들며 형태를 정했고
+    # (`api/interview.ts` 의 「아직 명세에 없는 엔드포인트다」), BE 가 따라간 것이다.
+    # 409 는 아직 끝나지 않은 면접이다 — 요약할 대상 자체가 없다.
+    ("get", "/api/v1/sessions/{sessionId}/summary"): {
+        "path_params": ["sessionId"],
+        "response": {"sessionId", "status", "content", "durationSec"},
+        "statuses": {"200", "404", "409"},
+    },
     ("post", "/api/v1/sessions/{sessionId}/end"): {
         "path_params": ["sessionId"],
         "response": {"sessionId", "status", "endedAt"},
@@ -121,6 +129,8 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
 # 명세의 상태·역할 값 (대문자)
 SESSION_STATUS = {"WAITING", "INTERVIEWING", "ENDED"}
 ROLE = {"INTERVIEWER", "CANDIDATE"}
+# FE 의 `SummaryStatus` 와 같아야 한다. 화면이 이 셋으로만 분기한다.
+SUMMARY_STATUS = {"PROCESSING", "READY", "FAILED"}
 
 # 클라이언트가 분기에 쓰는 에러 코드. 추가하면 명세도 같이 고쳐야 한다.
 ERROR_CODE = {
@@ -219,4 +229,5 @@ def test_enum_values_match_spec(schema: dict[str, Any]):
 
     assert set(schemas["SessionStatus"]["enum"]) == SESSION_STATUS
     assert set(schemas["Role"]["enum"]) == ROLE
+    assert set(schemas["SummaryStatus"]["enum"]) == SUMMARY_STATUS
     assert set(schemas["ErrorCode"]["enum"]) == ERROR_CODE
