@@ -32,6 +32,29 @@ irya.cloud {
 		reverse_proxy backend:8000
 	}
 
+	# API 문서. FastAPI 는 이 셋을 앱 루트에 붙이는데 /api/* 만 넘기고 있어서,
+	# 잡아 주지 않으면 아래 fallback 이 SPA 의 index.html 을 돌려줍니다.
+	# Swagger UI 가 /openapi.json 을 받아 화면을 그리므로 셋을 같이 엽니다.
+	#
+	# 비밀번호를 걸지 않습니다. docs/api/openapi.json 이 저장소에 커밋돼 있고
+	# 저장소가 public 이며, CI 가 그 파일과 서버가 내보낼 명세를 강제로 같게
+	# 만듭니다(be-ci 의 "Check OpenAPI schema is committed"). 여기만 막아도
+	# 옆문이 열려 있습니다.
+	#
+	# ⚠️ 본격 배포 전까지만 엽니다 (#106). 닫을 때는 이 블록을 지우면 되는데,
+	#    Caddyfile 이 바뀌면 배포가 caddy 를 재시작하므로 통화가 없을 때 하세요.
+	handle /docs* {
+		reverse_proxy backend:8000
+	}
+
+	handle /redoc* {
+		reverse_proxy backend:8000
+	}
+
+	handle /openapi.json {
+		reverse_proxy backend:8000
+	}
+
 	# BE 생존 확인. FastAPI 의 /health 는 /api 밖에 있어 따로 잡아 주지 않으면
 	# 아래 fallback 이 SPA 의 index.html 을 돌려줍니다. compose healthcheck 는
 	# 컨테이너 안에서만 도는 검사라, "Caddy 를 거쳐 BE 까지 살아 있는가" 를
