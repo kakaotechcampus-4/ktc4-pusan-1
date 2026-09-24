@@ -38,12 +38,16 @@ log "레포 갱신 → $REF"
 cd "$REPO"
 git fetch origin "$REF"
 
-# LiveKit 변경을 미리 잡아 둔다. 둘 다 조용히 지나가는 종류라 로그에 드러낸다.
-#   livekit.yaml  단일 파일 바인드 마운트라 up -d 가 반영하지 않는다 (아래 참고)
-#   이미지 태그   up -d 가 자동으로 재생성한다 → 진행 중인 통화가 끊긴다
+# livekit.yaml 변경을 미리 잡아 둔다. 단일 파일 바인드 마운트라 up -d 가
+# 반영하지 않는다 (아래 Caddy 쪽 설명과 같은 이유다).
 LK_CONFIG_CHANGED=$(git diff --name-only HEAD "origin/$REF" -- infra/livekit/ | wc -l)
-LK_IMAGE_CHANGED=$(git diff HEAD "origin/$REF" -- infra/docker-compose.yml \
-	| grep -c '^[+-].*livekit/livekit-server:' || true)
+
+# compose 가 바뀌면 바뀐 서비스를 up -d 가 재생성한다. 어느 서비스인지까지
+# 가리려 했는데 믿을 방법이 없었다 — 이미지 태그 줄만 grep 하면 `logging:` 처럼
+# 다른 키가 바뀐 경우를 놓치고(그 줄은 diff 에서 문맥 줄이다), `--dry-run` 은
+# container_name 이 있으면 "Recreate" 대신 "Creating" 을 찍어 못 잡는다.
+# 그래서 서비스를 안 가리고 경고한다. 덜 정확하지만 놓치지는 않는다.
+COMPOSE_CHANGED=$(git diff --name-only HEAD "origin/$REF" -- infra/docker-compose.yml | wc -l)
 # 로컬 브랜치에 병합하지 않고 detach 로 옮긴다.
 #
 # 전에는 `git merge --ff-only origin/$REF` 였다. develop 이 체크아웃된 서버에서
@@ -69,11 +73,12 @@ GIT_SHA=$(git -C "$REPO" rev-parse --short HEAD)
 export GIT_SHA
 echo "GIT_SHA: $GIT_SHA"
 
-if [ "$LK_IMAGE_CHANGED" -gt 0 ]; then
+if [ "$COMPOSE_CHANGED" -gt 0 ]; then
 	cat <<-'WARN'
 
-		  ⚠️  LiveKit 이미지 태그가 바뀌었습니다.
-		      아래 `up -d` 가 LiveKit 을 재생성하고, 진행 중인 통화가 전부 끊깁니다.
+		  ⚠️  docker-compose.yml 이 바뀌었습니다.
+		      바뀐 서비스는 `up -d` 가 재생성합니다. livekit 이나 caddy 가 거기
+		      들어가면 진행 중인 통화가 끊깁니다 (시그널링 /rtc* 이 caddy 를 지납니다).
 		      통화가 없는 시간대인지 확인하고 배포하세요.
 	WARN
 fi
@@ -121,7 +126,12 @@ docker compose up -d --remove-orphans
 # 마운트가 끊겼으면 읽기가 실패해 해시가 비고, 그래서 안 맞아 재시작한다.
 # 컨테이너가 안 떠 있을 때도 같은 결과다 — 둘 다 안전한 방향이다.
 # 위 `up -d` 가 caddy 를 다시 만들었으면 이미 새 파일이라 해시가 같고 건너뛴다.
-running_config=$(docker compose exec -T caddy sha256sum /etc/caddy/Caddyfile 2>/dev/null | cut -d' ' -f1 || true)
+# `< /dev/null` 은 필수다. `docker compose exec` 는 `-T` 를 줘도 stdin 을 물고
+# 있어서, 이 스크립트가 파이프로 실행되면 남은 줄을 통째로 먹는다. CD 는 파일로
+# 실행하도록 고쳤지만(`.github/workflows/cd.yml`), 손으로 파이프를 태우는 경우가
+# 있으니 여기서도 막는다.
+running_config=$(docker compose exec -T caddy sha256sum /etc/caddy/Caddyfile \
+	< /dev/null 2>/dev/null | cut -d' ' -f1 || true)
 ondisk_config=$(sha256sum Caddyfile | cut -d' ' -f1)
 if [ "$running_config" != "$ondisk_config" ]; then
 	log "Caddy 설정 재적용 (컨테이너가 든 파일이 레포와 다름)"
