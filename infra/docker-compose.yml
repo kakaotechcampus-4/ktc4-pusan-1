@@ -8,11 +8,24 @@
 
 name: irya
 
+# 컨테이너 로그 상한. Docker 기본값(json-file)은 상한이 없어 디스크가 찰 때까지
+# 늡니다. 지금은 네 컨테이너 합쳐 1MB 미만이지만, AI 워커가 들어오면 방마다
+# 프로세스가 뜨고 지연 로그를 남깁니다.
+#
+# ⚠️ 이미 떠 있는 컨테이너에는 적용되지 않습니다. 컨테이너를 다시 만들 때
+#    붙으므로, 배포의 `up -d` 가 바꾸지 않은 서비스는 다음 재생성까지 그대로입니다.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
     image: caddy:2.10
     container_name: irya-caddy
     restart: unless-stopped
+    logging: *logging
     ports:
       - "80:80"
       - "443:443"
@@ -25,9 +38,19 @@ services:
       - caddy_config:/config
 
   backend:
-    build: ../backend
+    build:
+      context: ../backend
+      args:
+        # deploy.sh 가 넘깁니다. 손으로 띄우면 unknown 입니다.
+        GIT_SHA: ${GIT_SHA:-unknown}
+    # 이미지에 어느 커밋인지 남깁니다. Registry 를 쓰지 않아 태그가 없으므로,
+    # `docker inspect irya-backend --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
+    # 로 서버에 뜬 버전을 확인합니다.
+    labels:
+      org.opencontainers.image.revision: ${GIT_SHA:-unknown}
     container_name: irya-backend
     restart: unless-stopped
+    logging: *logging
     # 8000 은 퍼블리싱하지 않습니다. Caddy 가 같은 compose 네트워크에서
     # 서비스 이름으로 부르므로 외부에 열 필요가 없습니다.
     environment:
@@ -86,6 +109,7 @@ services:
     image: postgres:17-alpine
     container_name: irya-db
     restart: unless-stopped
+    logging: *logging
     # 5432 는 퍼블리싱하지 않습니다. backend 만 같은 네트워크에서 부릅니다.
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-irya}
@@ -105,6 +129,7 @@ services:
     image: livekit/livekit-server:v1.13.6
     container_name: irya-livekit
     restart: unless-stopped
+    logging: *logging
     # 이미지에 기본 CMD 가 없어 설정 경로를 직접 넘깁니다.
     command: --config /etc/livekit.yaml
     volumes:
