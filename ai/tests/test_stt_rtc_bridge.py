@@ -275,8 +275,14 @@ async def test_the_end_of_track_summary_reports_release_lag_percentiles() -> Non
     )
 
     summary = lag_summary(stream)
-    assert summary.startswith("lag n=2 p50=")
-    assert "p95=" in summary and summary.endswith("ms")
+    assert summary.startswith("lag n=2 source p50=")
+    assert " speech_end p50=" in summary and summary.endswith("ms")
+    # The N1 figure starts where the speaker stopped, so it is shorter than
+    # the first-sample figure by each segment's own length.
+    for timing in stream.timings:
+        assert timing.speech_end_to_release_ms is not None
+        assert timing.source_to_release_ms is not None
+        assert timing.speech_end_to_release_ms < timing.source_to_release_ms
 
 
 # --- the interviewer boundary -------------------------------------------------

@@ -219,25 +219,36 @@ def _percentile(values: Sequence[int], fraction: float) -> int | None:
 
 
 def lag_summary(stream: TranscriptionStream) -> str:
-    """p50/p95 of first-sample-to-release, for the end-of-track log line.
+    """p50/p95 of two in-process lags, for the end-of-track log line.
 
-    :attr:`~irya_ai.stt.stream.SegmentTiming.source_to_release_ms` assumes
-    real-time capture, which a live track is, and stops at the consumer; the
-    hop to the interviewer's screen is not in this process. It is the figure
-    the team asked to see before deciding whether the Whisper path is fast
-    enough, so it is measured and logged here rather than judged.
+    ``source`` is first-sample-to-release
+    (:attr:`~irya_ai.stt.stream.SegmentTiming.source_to_release_ms`): the
+    whole wait for a segment's first word, segment length included.
+    ``speech_end`` is last-sample-to-release
+    (:attr:`~irya_ai.stt.stream.SegmentTiming.speech_end_to_release_ms`):
+    the wait after the speaker stopped, which is what TechSpec N1 bounds.
+    Both assume real-time capture, which a live track is, and both stop at
+    the consumer; the hop to the interviewer's screen is not in this process.
+    They are the figures the team asked to see before deciding whether the
+    Whisper path is fast enough, so they are measured and logged here rather
+    than judged.
     """
 
-    lags = [
-        lag
-        for t in stream.timings
-        if t.outcome == "RELEASED" and (lag := t.source_to_release_ms) is not None
+    released = [t for t in stream.timings if t.outcome == "RELEASED"]
+    source = [lag for t in released if (lag := t.source_to_release_ms) is not None]
+    speech_end = [
+        lag for t in released if (lag := t.speech_end_to_release_ms) is not None
     ]
-    p50 = _percentile(lags, 0.5)
-    p95 = _percentile(lags, 0.95)
-    if p50 is None or p95 is None:
+    if not source or not speech_end:
         return "lag n=0"
-    return f"lag n={len(lags)} p50={p50}ms p95={p95}ms"
+    return (
+        f"lag n={len(source)} "
+        f"source {_p50_p95(source)} speech_end {_p50_p95(speech_end)}"
+    )
+
+
+def _p50_p95(values: Sequence[int]) -> str:
+    return f"p50={_percentile(values, 0.5)}ms p95={_percentile(values, 0.95)}ms"
 
 
 async def _run_stream_tasks(

@@ -69,7 +69,7 @@ candidate_order = ordering.register("trk_candidate", offset_ms=30_000)
 
 각 청크의 `timings`는 `ready_at → admitted_at → request_started_at → request_ended_at → released_at`을 단조 시계로 기록한다. 큐 대기, 요청, 선두 응답 대기와 전체 패키지 처리 시간을 따로 볼 수 있다.
 
-`source_to_release_ms`는 오디오를 실시간 프레임 속도로 공급했다는 전제의 소스 시작→패키지 전달 계산값이다. 파일을 한꺼번에 넣거나 입력 자체가 지연되면 실제 발화 시각 측정으로 쓸 수 없다. 패키지 이후 BE/FE 전송·브라우저 수신·렌더 시간은 이 값에 없다. 회의 결정에 따라 전사 표시 경로에 LLM 교정 대기는 추가하지 않는다. `proxy_display_lag_ms`는 기존 길이+요청시간 비교용 속성이며 화면 지연을 뜻하지 않는다.
+`source_to_release_ms`는 오디오를 실시간 프레임 속도로 공급했다는 전제의 소스 시작→패키지 전달 계산값이다. 파일을 한꺼번에 넣거나 입력 자체가 지연되면 실제 발화 시각 측정으로 쓸 수 없다. 패키지 이후 BE/FE 전송·브라우저 수신·렌더 시간은 이 값에 없다. 회의 결정에 따라 전사 표시 경로에 LLM 교정 대기는 추가하지 않는다. `speech_end_to_release_ms`는 같은 전제에서 발화 끝→패키지 전달 값으로, `source_to_release_ms`에서 청크 길이만 뺀 것이다. TechSpec N1(STT 결과 표시 < 1500ms)과 견줄 때는 이 값을 쓴다. 워커는 트랙이 끝날 때 두 값의 p50/p95를 한 줄로 남긴다(`lag n=… source p50=… p95=… speech_end p50=… p95=…`). `proxy_display_lag_ms`는 기존 길이+요청시간 비교용 속성이며 화면 지연을 뜻하지 않는다.
 
 화면의 무갱신 간격을 확인하려면 FE에서 연속 렌더 시각 차이를 별도로 기록해야 한다. 첫 샘플→표시 지연, 발화 끝→표시 지연, 화면 갱신 간격은 서로 다른 지표다. 5초 cap만으로 어느 지표의 상한도 보장하지 않는다.
 
