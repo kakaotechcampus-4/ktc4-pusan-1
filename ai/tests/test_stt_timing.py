@@ -196,6 +196,34 @@ async def test_the_published_figure_is_lower_than_the_wait_it_stands_for() -> No
     )
 
 
+async def test_the_n1_figure_starts_where_the_speaker_stopped() -> None:
+    """``speech_end_to_release_ms`` drops the segment's own length, nothing else."""
+
+    clock = FakeClock()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        clock.now += 0.3
+        return ok()
+
+    # One quiet cut and one forced cut, so decision lag is both zero and not.
+    stream = stream_for(handler, clock)
+    stream.push(TURN + tone(6000) + silence(800))
+    stream.close()
+    await asyncio.wait_for(stream.drain(), timeout=5)
+
+    assert {t.cut_reason for t in stream.timings} >= {CutReason.FORCED}
+    for timing in stream.timings:
+        assert timing.speech_end_to_release_ms is not None
+        assert timing.source_to_release_ms is not None
+        assert timing.pipeline_ms is not None
+        assert timing.speech_end_to_release_ms == (
+            timing.source_to_release_ms - timing.duration_ms
+        )
+        assert timing.speech_end_to_release_ms == (
+            timing.decision_lag_ms + timing.pipeline_ms
+        )
+
+
 async def test_a_segment_that_failed_is_timed_too() -> None:
     """A rejection is a released segment; leaving it untimed would flatter the p95."""
 
