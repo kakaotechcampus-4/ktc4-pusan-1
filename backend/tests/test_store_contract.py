@@ -379,6 +379,35 @@ def test_resume_of_an_interview_without_one_is_none(subject: Store):
     assert subject.get_resume(session.interview_id) is None
 
 
+def _waits_for_lock(dsn: str, table: str, *, timeout: float = 5.0) -> bool:
+    """`table` 에 걸린 행 잠금을 기다리는 백엔드가 생길 때까지 본다.
+
+    `pg_stat_activity` 를 별도 연결로 폴링한다. 잠금을 쥔 트랜잭션 안에서 보면
+    자기 자신이 섞여 헷갈리므로 연결을 따로 연다.
+    """
+    import time
+
+    import psycopg
+
+    deadline = time.monotonic() + timeout
+    with psycopg.connect(dsn, autocommit=True) as watcher:
+        while time.monotonic() < deadline:
+            waiting = watcher.execute(
+                """
+                SELECT count(*) FROM pg_stat_activity
+                 WHERE wait_event_type = 'Lock'
+                   AND state = 'active'
+                   AND pid <> pg_backend_pid()
+                   AND query ILIKE %s
+                """,
+                (f"%{table}%",),
+            ).fetchone()
+            if waiting is not None and waiting[0] > 0:
+                return True
+            time.sleep(0.02)
+    return False
+
+
 # ── 요약 ────────────────────────────────────────────────
 
 
@@ -426,6 +455,95 @@ def test_saving_a_summary_persists_the_content(subject: Store):
     assert found.completed_at is not None
 
 
+def test_expiring_a_summary_past_the_limit_marks_it_failed(subject: Store):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    # 한도를 음수로 주면 만들자마자 넘긴 것이다. `requested_at` 을 건드리지 않고
+    # 판정을 시험할 수 있어 두 구현에서 똑같이 돈다.
+    #
+    # 0 이 아니라 −1초인 이유는 시계 해상도다. 0 이면 `requested_at` 과 비교
+    # 시각이 같은 값일 수 있고(인메모리는 그사이가 마이크로초다), 그러면 `<` 가
+    # 거짓이 되어 테스트가 간헐적으로 깨진다.
+    returned = subject.expire_summary(session.id, timedelta(seconds=-1))
+
+    assert returned is not None
+    assert returned.status is SummaryStatus.FAILED
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.FAILED
+
+
+def test_expiring_a_summary_within_the_limit_changes_nothing(subject: Store):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    returned = subject.expire_summary(session.id, timedelta(minutes=10))
+
+    assert returned is not None
+    assert returned.status is SummaryStatus.PROCESSING
+
+
+def test_expiring_does_not_touch_a_summary_the_agent_already_finished(subject: Store):
+    """한도가 지난 뒤 Agent 의 결과가 먼저 들어온 경우.
+
+    조회가 읽고 판정하고 쓰면 방금 들어온 READY 와 본문이 FAILED · 빈 값으로
+    덮인다 (#115). 판정과 갱신이 한 문장 안에 있으면 그 틈이 없다.
+    """
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.complete("살아남아야 하는 요약", ["근거 하나"])
+    subject.save_summary(summary)
+
+    returned = subject.expire_summary(session.id, timedelta(seconds=-1))
+
+    assert returned is not None
+    assert returned.status is SummaryStatus.READY
+    assert returned.overview == "살아남아야 하는 요약"
+    assert returned.key_points == ["근거 하나"]
+
+
+def test_expiring_a_summary_that_does_not_exist(subject: Store):
+    session = _seed(subject)
+
+    assert subject.expire_summary(session.id, timedelta(minutes=1)) is None
+
+
+def test_reading_gives_a_copy_not_the_stored_object(subject: Store):
+    """`get_*` 이 참조를 돌려주면 라우터가 저장을 빼먹어도 인메모리에서는 통과한다.
+
+    DB 에서만 나는 버그를 인메모리 테스트가 못 잡는 원인이라 계약으로 못박는다.
+    """
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    loose = subject.get_summary(session.id)
+    assert loose is not None
+    loose.complete("저장하지 않고 고친 값", [])
+
+    again = subject.get_summary(session.id)
+    assert again is not None
+    assert again.status is SummaryStatus.PROCESSING
+
+
+def test_saving_a_summary_ignores_a_changed_deadline(subject: Store):
+    """호출자가 `requested_at` 을 바꿔 보내도 저장소는 원래 것을 지킨다.
+
+    한도의 기준점이라 밀리면 FAILED 로 영영 못 간다. DB 구현의 UPDATE 가 이
+    컬럼을 빼고 쓰므로, 인메모리도 같아야 계약이 하나가 된다.
+    """
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    original = summary.requested_at
+
+    summary.requested_at -= timedelta(hours=1)
+    subject.save_summary(summary)
+
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert found.requested_at == original
+
+
 def test_saving_a_summary_does_not_move_the_deadline(subject: Store):
     session = _seed(subject)
     summary = subject.ensure_summary(SessionSummary(session_id=session.id))
@@ -437,6 +555,92 @@ def test_saving_a_summary_does_not_move_the_deadline(subject: Store):
     found = subject.get_summary(session.id)
     assert found is not None
     assert found.requested_at == requested_at
+
+
+def test_expiring_loses_to_an_agent_result_that_lands_mid_flight():
+    """#115 를 실제로 재현한다. **PostgreSQL 전용이다.**
+
+    앞의 테스트들은 순서대로 부르기만 해서, 판정과 갱신 사이가 열려 있어도
+    통과한다. 여기서는 그 틈을 강제로 만든다.
+
+    커밋하지 않은 UPDATE 로 행 잠금을 쥔 채 `expire_summary` 를 부른다.
+
+    - 한 문장이면: UPDATE 가 잠금을 기다렸다가 풀린 뒤 `WHERE` 를 **다시**
+      평가한다. 그때는 READY 라 0행이 바뀌고 요약이 산다.
+    - 읽고-고쳐-쓰기면: SELECT 는 잠금을 안 기다리고 옛 PROCESSING 을 읽는다.
+      그 판단으로 만든 FAILED 가 잠금이 풀린 뒤 READY 를 덮는다.
+    """
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL 이 없다")
+
+    import threading
+
+    import psycopg
+    from psycopg.types.json import Jsonb
+
+    from app.infra.postgres import PostgresStore
+
+    subject = PostgresStore(TEST_DATABASE_URL)
+    subject.open()
+    subject.create_schema()
+    try:
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            conn.execute("DELETE FROM interview")
+
+        session = _seed(subject)
+        summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+        # 한도를 이미 넘긴 상태로 만든다.
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            conn.execute(
+                "UPDATE session_summary SET requested_at = requested_at - %s"
+                " WHERE session_id = %s",
+                (timedelta(hours=1), summary.session_id),
+            )
+
+        blocker = psycopg.connect(TEST_DATABASE_URL, autocommit=False)
+        try:
+            # Agent 의 결과. 커밋하지 않아 행 잠금만 쥔다.
+            blocker.execute(
+                "UPDATE session_summary"
+                "   SET status = 'READY', overview = %s, key_points = %s"
+                " WHERE session_id = %s",
+                ("살아남아야 하는 요약", Jsonb(["근거"]), session.id),
+            )
+
+            done = threading.Event()
+
+            def expire() -> None:
+                try:
+                    subject.expire_summary(session.id, timedelta(minutes=1))
+                finally:
+                    done.set()
+
+            worker = threading.Thread(target=expire, daemon=True)
+            worker.start()
+
+            # **잠금을 실제로 기다리는 것을 보고 나서 커밋한다.**
+            #
+            # 그냥 잠깐 자고 커밋하면, 스레드가 그사이 UPDATE 에 못 들어갔을 때
+            # 경합 없이 지나가고 테스트는 통과한다. 실패 쪽으로 흔들리진 않지만
+            # 조용히 아무것도 검증하지 않게 된다. 그래서 기다림을 확인한다.
+            assert _waits_for_lock(TEST_DATABASE_URL, "session_summary"), (
+                "expire_summary 가 행 잠금을 기다리지 않았다 — "
+                "이 테스트가 경합을 재현하지 못했다는 뜻이다"
+            )
+
+            blocker.commit()
+            worker.join(timeout=10)
+            assert not worker.is_alive()
+            assert done.is_set()
+        finally:
+            blocker.close()
+
+        found = subject.get_summary(session.id)
+        assert found is not None
+        assert found.status is SummaryStatus.READY
+        assert found.overview == "살아남아야 하는 요약"
+    finally:
+        subject.close()
 
 
 def test_summary_of_an_unknown_session_is_none(subject: Store):
