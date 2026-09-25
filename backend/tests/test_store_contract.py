@@ -426,6 +426,64 @@ def test_saving_a_summary_persists_the_content(subject: Store):
     assert found.completed_at is not None
 
 
+def test_saving_a_summary_with_the_expected_status_succeeds(subject: Store):
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    summary.give_up()
+    saved = subject.save_summary(summary, expected_status=SummaryStatus.PROCESSING)
+
+    assert saved is True
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert found.status is SummaryStatus.FAILED
+
+
+def test_saving_a_summary_does_nothing_when_the_status_moved(subject: Store):
+    """한도 판정과 저장 사이에 Agent 가 결과를 넣은 경우.
+
+    조건이 안 맞으면 0행이 바뀌고 False 가 나가야 한다. 조건 없이 쓰면 방금
+    들어온 READY 와 본문이 FAILED · 빈 값으로 덮인다 (#115).
+    """
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    # Agent 가 먼저 넣었다.
+    summary.complete("살아남아야 하는 요약", ["근거 하나"])
+    subject.save_summary(summary)
+
+    # 조회 쪽은 아직 PROCESSING 으로 알고 있다.
+    stale = SessionSummary(session_id=session.id)
+    stale.give_up()
+    saved = subject.save_summary(stale, expected_status=SummaryStatus.PROCESSING)
+
+    assert saved is False
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert found.status is SummaryStatus.READY
+    assert found.overview == "살아남아야 하는 요약"
+    assert found.key_points == ["근거 하나"]
+
+
+def test_saving_a_summary_without_a_condition_overwrites(subject: Store):
+    """조건을 안 주면 지금처럼 그냥 쓴다.
+
+    Agent 가 결과를 넣는 경로가 이쪽이다. 거기에 조건을 걸면 결과를 못 넣는다.
+    """
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.complete("먼저 들어간 요약", [])
+    subject.save_summary(summary)
+
+    other = SessionSummary(session_id=session.id)
+    other.complete("나중에 들어간 요약", [])
+
+    assert subject.save_summary(other) is True
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert found.overview == "나중에 들어간 요약"
+
+
 def test_saving_a_summary_does_not_move_the_deadline(subject: Store):
     session = _seed(subject)
     summary = subject.ensure_summary(SessionSummary(session_id=session.id))

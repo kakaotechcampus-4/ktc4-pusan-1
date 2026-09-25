@@ -209,7 +209,11 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
 
     if summary.overdue(settings.summary_timeout):
         summary.give_up()
-        store.save_summary(summary)
+        # 조건을 걸어 쓴다. 읽고 나서 판정하는 사이에 Agent 가 결과를 넣었으면
+        # 0행이 바뀌고 False 가 온다 — 그때는 내가 만든 FAILED 를 버리고 다시
+        # 읽는다. 조건 없이 쓰면 방금 들어온 READY 와 본문을 덮어 지운다 (#115).
+        if not store.save_summary(summary, expected_status=SummaryStatus.PROCESSING):
+            summary = store.get_summary(session_id) or summary
 
     content = None
     if summary.status is SummaryStatus.READY:

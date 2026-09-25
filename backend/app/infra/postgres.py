@@ -211,26 +211,41 @@ class PostgresStore:
             completed_at=row["completed_at"],
         )
 
-    def save_summary(self, summary: SessionSummary) -> None:
-        """`requested_at` 은 바꾸지 않는다 — 한도의 기준점이다."""
+    def save_summary(
+        self, summary: SessionSummary, *, expected_status: SummaryStatus | None = None
+    ) -> bool:
+        """`requested_at` 은 바꾸지 않는다 — 한도의 기준점이다.
+
+        `expected_status` 가 있으면 `WHERE` 에 상태 조건을 얹는다. `save_session`
+        과 같은 방식이고 같은 이유다 — 조건을 보는 것과 쓰는 것이 한 문장 안에서
+        끝나야 그사이에 다른 요청이 끼어들지 못한다.
+
+        조건절을 문자열로 붙이지만 값이 아니라 구조만 고른다. 상태 값 자체는
+        파라미터로 나간다.
+        """
+        clause = "" if expected_status is None else " AND status = %s"
+        params: tuple[Any, ...] = (
+            summary.status.value,
+            summary.overview,
+            Jsonb(summary.key_points),
+            summary.completed_at,
+            summary.session_id,
+        )
+        if expected_status is not None:
+            params += (expected_status.value,)
         with self._pool.connection() as conn:
-            conn.execute(
-                """
+            cursor = conn.execute(
+                f"""
                 UPDATE session_summary
                    SET status = %s,
                        overview = %s,
                        key_points = %s,
                        completed_at = %s
-                 WHERE session_id = %s
+                 WHERE session_id = %s{clause}
                 """,
-                (
-                    summary.status.value,
-                    summary.overview,
-                    Jsonb(summary.key_points),
-                    summary.completed_at,
-                    summary.session_id,
-                ),
+                params,
             )
+            return cursor.rowcount == 1
 
     # ── 내부 ────────────────────────────────────────────────
 

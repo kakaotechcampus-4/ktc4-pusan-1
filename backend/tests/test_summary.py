@@ -175,9 +175,9 @@ def test_giving_up_is_written_down_not_just_returned(
     saved: list[SummaryStatus] = []
     write = store.save_summary
 
-    def spy(summary_to_save) -> None:
+    def spy(summary_to_save, *, expected_status=None) -> bool:
         saved.append(summary_to_save.status)
-        write(summary_to_save)
+        return write(summary_to_save, expected_status=expected_status)
 
     ended(client, session_id)
     age(store, session_id, settings.summary_timeout + timedelta(seconds=1))

@@ -18,6 +18,7 @@ from app.domain.models import (
     Session,
     SessionStatus,
     SessionSummary,
+    SummaryStatus,
 )
 
 
@@ -89,7 +90,19 @@ class Store(Protocol):
 
     def get_summary(self, session_id: str) -> SessionSummary | None: ...
 
-    def save_summary(self, summary: SessionSummary) -> None: ...
+    def save_summary(
+        self, summary: SessionSummary, *, expected_status: SummaryStatus | None = None
+    ) -> bool:
+        """요약을 저장한다. `save_session` 과 같은 규약이다.
+
+        `expected_status` 를 주면 `WHERE` 에 상태 조건이 얹힌다. 조건 평가와
+        갱신이 한 문장 안에서 끝나므로 그사이가 열리지 않는다. 읽고 나서 다른
+        요청이 먼저 상태를 바꿨으면 0행이 바뀌고 False 가 나간다.
+
+        조회 경로가 한도를 넘긴 요약을 FAILED 로 넘길 때 쓴다. Agent 가 결과를
+        넣는 쪽은 조건 없이 쓴다 — 거기에 조건을 걸면 결과를 못 넣는다.
+        """
+        ...
 
 
 class InMemoryStore:
@@ -108,6 +121,9 @@ class InMemoryStore:
         self._resumes: dict[str, tuple[Resume, bytes]] = {}
 
         self._summaries: dict[str, SessionSummary] = {}
+        #: 마지막으로 저장된 요약 상태. `_saved_status` 와 같은 이유다 —
+        #: 요약 객체도 참조로 나가므로 객체만 봐서는 저장소가 알던 상태를 모른다.
+        self._saved_summary_status: dict[str, SummaryStatus] = {}
 
     def add_interview(self, interview: Interview) -> None:
         self._interviews[interview.id] = interview
@@ -182,19 +198,34 @@ class InMemoryStore:
         return None if found is None else found[0]
 
     def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
-        return self._summaries.setdefault(summary.session_id, summary)
+        kept = self._summaries.setdefault(summary.session_id, summary)
+        self._saved_summary_status.setdefault(kept.session_id, kept.status)
+        return kept
 
     def get_summary(self, session_id: str) -> SessionSummary | None:
         return self._summaries.get(session_id)
 
-    def save_summary(self, summary: SessionSummary) -> None:
+    def save_summary(
+        self, summary: SessionSummary, *, expected_status: SummaryStatus | None = None
+    ) -> bool:
+        if summary.session_id not in self._summaries:
+            return False
+        if expected_status is not None:
+            if (
+                self._saved_summary_status.get(summary.session_id)
+                is not expected_status
+            ):
+                return False
         self._summaries[summary.session_id] = summary
+        self._saved_summary_status[summary.session_id] = summary.status
+        return True
 
     def clear(self) -> None:
         """테스트용."""
         self._interviews.clear()
         self._sessions.clear()
         self._saved_status.clear()
+        self._saved_summary_status.clear()
 
         self._contexts.clear()
         self._docs.clear()
