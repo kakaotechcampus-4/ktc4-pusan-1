@@ -543,6 +543,7 @@ def test_expiring_loses_to_an_agent_result_that_lands_mid_flight():
     import threading
 
     import psycopg
+    from psycopg.types.json import Jsonb
 
     from app.infra.postgres import PostgresStore
 
@@ -568,9 +569,9 @@ def test_expiring_loses_to_an_agent_result_that_lands_mid_flight():
             # Agent 의 결과. 커밋하지 않아 행 잠금만 쥔다.
             blocker.execute(
                 "UPDATE session_summary"
-                "   SET status = 'READY', overview = %s, key_points = '[\"근거\"]'::jsonb"
+                "   SET status = 'READY', overview = %s, key_points = %s"
                 " WHERE session_id = %s",
-                ("살아남아야 하는 요약", session.id),
+                ("살아남아야 하는 요약", Jsonb(["근거"]), session.id),
             )
 
             done = threading.Event()
