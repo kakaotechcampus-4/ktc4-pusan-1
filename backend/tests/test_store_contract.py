@@ -426,62 +426,89 @@ def test_saving_a_summary_persists_the_content(subject: Store):
     assert found.completed_at is not None
 
 
-def test_saving_a_summary_with_the_expected_status_succeeds(subject: Store):
+def test_expiring_a_summary_past_the_limit_marks_it_failed(subject: Store):
     session = _seed(subject)
-    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    subject.ensure_summary(SessionSummary(session_id=session.id))
 
-    summary.give_up()
-    saved = subject.save_summary(summary, expected_status=SummaryStatus.PROCESSING)
+    # 한도 0 이면 만들자마자 넘긴 것이다. `requested_at` 을 건드리지 않고
+    # 판정을 시험할 수 있어 두 구현에서 똑같이 돈다.
+    returned = subject.expire_summary(session.id, timedelta(0))
 
-    assert saved is True
-    found = subject.get_summary(session.id)
-    assert found is not None
-    assert found.status is SummaryStatus.FAILED
+    assert returned is not None
+    assert returned.status is SummaryStatus.FAILED
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.FAILED
 
 
-def test_saving_a_summary_does_nothing_when_the_status_moved(subject: Store):
-    """한도 판정과 저장 사이에 Agent 가 결과를 넣은 경우.
+def test_expiring_a_summary_within_the_limit_changes_nothing(subject: Store):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
 
-    조건이 안 맞으면 0행이 바뀌고 False 가 나가야 한다. 조건 없이 쓰면 방금
-    들어온 READY 와 본문이 FAILED · 빈 값으로 덮인다 (#115).
+    returned = subject.expire_summary(session.id, timedelta(minutes=10))
+
+    assert returned is not None
+    assert returned.status is SummaryStatus.PROCESSING
+
+
+def test_expiring_does_not_touch_a_summary_the_agent_already_finished(subject: Store):
+    """한도가 지난 뒤 Agent 의 결과가 먼저 들어온 경우.
+
+    조회가 읽고 판정하고 쓰면 방금 들어온 READY 와 본문이 FAILED · 빈 값으로
+    덮인다 (#115). 판정과 갱신이 한 문장 안에 있으면 그 틈이 없다.
     """
     session = _seed(subject)
     summary = subject.ensure_summary(SessionSummary(session_id=session.id))
-
-    # Agent 가 먼저 넣었다.
     summary.complete("살아남아야 하는 요약", ["근거 하나"])
     subject.save_summary(summary)
 
-    # 조회 쪽은 아직 PROCESSING 으로 알고 있다.
-    stale = SessionSummary(session_id=session.id)
-    stale.give_up()
-    saved = subject.save_summary(stale, expected_status=SummaryStatus.PROCESSING)
+    returned = subject.expire_summary(session.id, timedelta(0))
 
-    assert saved is False
-    found = subject.get_summary(session.id)
-    assert found is not None
-    assert found.status is SummaryStatus.READY
-    assert found.overview == "살아남아야 하는 요약"
-    assert found.key_points == ["근거 하나"]
+    assert returned is not None
+    assert returned.status is SummaryStatus.READY
+    assert returned.overview == "살아남아야 하는 요약"
+    assert returned.key_points == ["근거 하나"]
 
 
-def test_saving_a_summary_without_a_condition_overwrites(subject: Store):
-    """조건을 안 주면 지금처럼 그냥 쓴다.
+def test_expiring_a_summary_that_does_not_exist(subject: Store):
+    session = _seed(subject)
 
-    Agent 가 결과를 넣는 경로가 이쪽이다. 거기에 조건을 걸면 결과를 못 넣는다.
+    assert subject.expire_summary(session.id, timedelta(minutes=1)) is None
+
+
+def test_reading_gives_a_copy_not_the_stored_object(subject: Store):
+    """`get_*` 이 참조를 돌려주면 라우터가 저장을 빼먹어도 인메모리에서는 통과한다.
+
+    DB 에서만 나는 버그를 인메모리 테스트가 못 잡는 원인이라 계약으로 못박는다.
+    """
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    loose = subject.get_summary(session.id)
+    assert loose is not None
+    loose.complete("저장하지 않고 고친 값", [])
+
+    again = subject.get_summary(session.id)
+    assert again is not None
+    assert again.status is SummaryStatus.PROCESSING
+
+
+def test_saving_a_summary_ignores_a_changed_deadline(subject: Store):
+    """호출자가 `requested_at` 을 바꿔 보내도 저장소는 원래 것을 지킨다.
+
+    한도의 기준점이라 밀리면 FAILED 로 영영 못 간다. DB 구현의 UPDATE 가 이
+    컬럼을 빼고 쓰므로, 인메모리도 같아야 계약이 하나가 된다.
     """
     session = _seed(subject)
     summary = subject.ensure_summary(SessionSummary(session_id=session.id))
-    summary.complete("먼저 들어간 요약", [])
+    original = summary.requested_at
+
+    summary.requested_at -= timedelta(hours=1)
     subject.save_summary(summary)
 
-    other = SessionSummary(session_id=session.id)
-    other.complete("나중에 들어간 요약", [])
-
-    assert subject.save_summary(other) is True
     found = subject.get_summary(session.id)
     assert found is not None
-    assert found.overview == "나중에 들어간 요약"
+    assert found.requested_at == original
 
 
 def test_saving_a_summary_does_not_move_the_deadline(subject: Store):

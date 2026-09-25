@@ -34,10 +34,11 @@ def ended(client: TestClient, session_id: str) -> str:
 
 def age(store: InMemoryStore, session_id: str, delta: timedelta) -> None:
     """실제로 기다리지 않고 기다린 것처럼 만든다."""
-    stored = store.get_summary(session_id)
+    # `save_summary` 는 `requested_at` 을 지키므로(한도의 기준점) 저장소가 든
+    # 것을 직접 옮긴다. 인메모리 구현을 아는 테스트 전용 조작이다.
+    stored = store._summaries.get(session_id)  # pyright: ignore[reportPrivateUsage]
     assert stored is not None
     stored.requested_at -= delta
-    store.save_summary(stored)
 
 
 # ── 자리가 생기는 시점 ────────────────────────────────────────
@@ -163,28 +164,21 @@ def test_giving_up_is_written_down_not_just_returned(
     client: TestClient,
     store: InMemoryStore,
     session_id: str,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """판정 결과를 저장한다.
 
-    ⚠️ 인메모리 저장소는 객체를 **참조로** 돌려주므로, 라우터가
-    `save_summary` 를 빠뜨려도 여기서는 티가 안 난다. DB 는 안 그렇다 — 다시
-    조회하면 PROCESSING 이 그대로 나와서, 볼 때마다 FAILED 를 만들었다가 잊는
-    상태가 된다. 그래서 상태가 아니라 **저장을 불렀는지**를 본다.
+    저장을 빼먹으면 볼 때마다 FAILED 를 만들었다가 잊는 상태가 된다. 저장소가
+    복사본을 돌려주므로 여기서 바로 드러난다 — 다시 읽어 PROCESSING 이 나오면
+    안 쓴 것이다.
     """
-    saved: list[SummaryStatus] = []
-    write = store.save_summary
-
-    def spy(summary_to_save, *, expected_status=None) -> bool:
-        saved.append(summary_to_save.status)
-        return write(summary_to_save, expected_status=expected_status)
-
     ended(client, session_id)
     age(store, session_id, settings.summary_timeout + timedelta(seconds=1))
-    monkeypatch.setattr(store, "save_summary", spy)
 
     assert summary(client, session_id).json()["status"] == "FAILED"
-    assert SummaryStatus.FAILED in saved
+
+    stored = store.get_summary(session_id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.FAILED
 
 
 def test_a_ready_summary_does_not_expire(

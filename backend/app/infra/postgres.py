@@ -9,6 +9,7 @@ asyncpg 를 쓰면 Protocol 과 라우터 절반의 시그니처를 함께 바�
 그만한 이득이 없다.
 """
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, LiteralString
 
@@ -28,6 +29,7 @@ from app.domain.models import (
     SessionStatus,
     SessionSummary,
     SummaryStatus,
+    utcnow,
 )
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -200,52 +202,74 @@ class PostgresStore:
             """,
             (session_id,),
         )
-        if row is None:
-            return None
-        return SessionSummary(
-            session_id=row["session_id"],
-            status=SummaryStatus(row["status"]),
-            overview=row["overview"],
-            key_points=list(row["key_points"]),
-            requested_at=row["requested_at"],
-            completed_at=row["completed_at"],
-        )
+        return None if row is None else self._to_summary(row)
 
-    def save_summary(
-        self, summary: SessionSummary, *, expected_status: SummaryStatus | None = None
-    ) -> bool:
-        """`requested_at` 은 바꾸지 않는다 — 한도의 기준점이다.
-
-        `expected_status` 가 있으면 `WHERE` 에 상태 조건을 얹는다. `save_session`
-        과 같은 방식이고 같은 이유다 — 조건을 보는 것과 쓰는 것이 한 문장 안에서
-        끝나야 그사이에 다른 요청이 끼어들지 못한다.
-
-        조건절을 문자열로 붙이지만 값이 아니라 구조만 고른다. 상태 값 자체는
-        파라미터로 나간다.
-        """
-        clause = "" if expected_status is None else " AND status = %s"
-        params: tuple[Any, ...] = (
-            summary.status.value,
-            summary.overview,
-            Jsonb(summary.key_points),
-            summary.completed_at,
-            summary.session_id,
-        )
-        if expected_status is not None:
-            params += (expected_status.value,)
+    def save_summary(self, summary: SessionSummary) -> None:
+        """Agent 가 만든 결과를 받아 둔다. `requested_at` 은 바꾸지 않는다 —
+        한도의 기준점이다."""
         with self._pool.connection() as conn:
-            cursor = conn.execute(
-                f"""
+            conn.execute(
+                """
                 UPDATE session_summary
                    SET status = %s,
                        overview = %s,
                        key_points = %s,
                        completed_at = %s
-                 WHERE session_id = %s{clause}
+                 WHERE session_id = %s
                 """,
-                params,
+                (
+                    summary.status.value,
+                    summary.overview,
+                    Jsonb(summary.key_points),
+                    summary.completed_at,
+                    summary.session_id,
+                ),
             )
-            return cursor.rowcount == 1
+
+    def expire_summary(
+        self, session_id: str, limit: timedelta
+    ) -> SessionSummary | None:
+        """판정·전이·저장을 한 문장으로 끝낸다.
+
+        `WHERE` 가 「아직 PROCESSING 이고 한도를 넘겼는가」를 보고 같은 문장이
+        FAILED 로 넘긴다. 그 사이가 열리지 않으므로, 한도가 막 지나는 순간에
+        Agent 의 결과가 들어와도 덮어 지우지 않는다 (#115).
+
+        **시각은 앱이 만들어 넘긴다.** 한도 기준점(`requested_at`)을 앱이 찍으므로
+        비교도 같은 시계로 해야 한다. DB 의 `now()` 를 쓰면 두 시계 차이만큼
+        한도가 늘거나 줄고, 파이썬 시계만 쓰는 인메모리 구현과 판정이 갈린다.
+        원자성은 조건이 `WHERE` 안에 있는 것으로 지켜지지, 시계가 DB 것이어야
+        지켜지는 게 아니다.
+
+        0행이 바뀌면 한도를 안 넘겼거나 누가 먼저 끝낸 것이다. 그때는 지금 값을
+        읽어 돌려준다.
+        """
+        moment = utcnow()
+        row = self._one(
+            """
+            UPDATE session_summary
+               SET status = %s,
+                   overview = '',
+                   key_points = '[]'::jsonb,
+                   completed_at = %s
+             WHERE session_id = %s
+               AND status = %s
+               AND requested_at < %s
+         RETURNING session_id, status, overview, key_points,
+                   requested_at, completed_at
+            """,
+            (
+                SummaryStatus.FAILED.value,
+                moment,
+                session_id,
+                SummaryStatus.PROCESSING.value,
+                moment - limit,
+            ),
+        )
+        if row is not None:
+            return self._to_summary(row)
+        # 한도를 안 넘겼거나 누가 먼저 끝냈다. 지금 값을 그대로 준다.
+        return self.get_summary(session_id)
 
     # ── 내부 ────────────────────────────────────────────────
 
@@ -280,6 +304,17 @@ class PostgresStore:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(query, params)
                 return cur.fetchall()
+
+    @staticmethod
+    def _to_summary(row: dict[str, Any]) -> SessionSummary:
+        return SessionSummary(
+            session_id=row["session_id"],
+            status=SummaryStatus(row["status"]),
+            overview=row["overview"],
+            key_points=list(row["key_points"]),
+            requested_at=row["requested_at"],
+            completed_at=row["completed_at"],
+        )
 
     def _one(
         self, query: LiteralString, params: tuple[Any, ...]

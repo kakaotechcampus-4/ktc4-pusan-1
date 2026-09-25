@@ -65,7 +65,12 @@ def session_id_from_room(room_name: str) -> str | None:
     return session_id or None
 
 
-def _now() -> datetime:
+def utcnow() -> datetime:
+    """도메인 시계. **앱 안에서 시각을 만드는 곳은 여기 하나다.**
+
+    저장소 구현도 이걸 쓴다. DB 의 `now()` 를 섞으면 두 시계의 차이만큼 한도가
+    늘거나 줄고, 인메모리와 DB 의 판정 기준도 달라진다.
+    """
     return datetime.now(UTC)
 
 
@@ -78,7 +83,7 @@ class Interview:
     interviewer_id: str
     candidate_name: str | None = None
     id: str = field(default_factory=lambda: _new_id("int"))
-    created_at: datetime = field(default_factory=_now)
+    created_at: datetime = field(default_factory=utcnow)
 
 
 @dataclass
@@ -86,7 +91,7 @@ class Session:
     interview_id: str
     id: str = field(default_factory=lambda: _new_id("ses"))
     status: SessionStatus = SessionStatus.WAITING
-    created_at: datetime = field(default_factory=_now)
+    created_at: datetime = field(default_factory=utcnow)
     started_at: datetime | None = None
     ended_at: datetime | None = None
     #: 전사 타임라인의 원점(t=0). 첫 참가자가 LiveKit Room 에 들어온 시각이다.
@@ -112,7 +117,7 @@ class Session:
         if self.status is not SessionStatus.WAITING:
             return False
         self.status = SessionStatus.INTERVIEWING
-        self.started_at = _now()
+        self.started_at = utcnow()
         return True
 
     def mark_origin(self, at: datetime) -> bool:
@@ -135,7 +140,7 @@ class Session:
         if self.status is SessionStatus.ENDED:
             return False
         self.status = SessionStatus.ENDED
-        self.ended_at = _now()
+        self.ended_at = utcnow()
         return True
 
 
@@ -167,7 +172,7 @@ class Context:
     role: str = ""
     #: AI 면접관이 참고할 추가 인재상·평가 포인트 (#81).
     talent_profile: str = ""
-    created_at: datetime = field(default_factory=_now)
+    created_at: datetime = field(default_factory=utcnow)
 
 
 @dataclass
@@ -184,7 +189,7 @@ class ContextDoc:
     size_bytes: int
     id: str = field(default_factory=lambda: _new_id("doc"))
     status: DocStatus = DocStatus.READY
-    created_at: datetime = field(default_factory=_now)
+    created_at: datetime = field(default_factory=utcnow)
 
 
 @dataclass
@@ -204,7 +209,7 @@ class Resume:
     size_bytes: int
     id: str = field(default_factory=lambda: _new_id("doc"))
     status: DocStatus = DocStatus.READY
-    created_at: datetime = field(default_factory=_now)
+    created_at: datetime = field(default_factory=utcnow)
 
 
 class SummaryStatus(StrEnum):
@@ -236,7 +241,7 @@ class SessionSummary:
     status: SummaryStatus = SummaryStatus.PROCESSING
     overview: str = ""
     key_points: list[str] = field(default_factory=list)
-    requested_at: datetime = field(default_factory=_now)
+    requested_at: datetime = field(default_factory=utcnow)
     completed_at: datetime | None = None
 
     def overdue(self, limit: timedelta, now: datetime | None = None) -> bool:
@@ -247,18 +252,18 @@ class SessionSummary:
         """
         if self.status is not SummaryStatus.PROCESSING:
             return False
-        return (now or _now()) - self.requested_at > limit
+        return (now or utcnow()) - self.requested_at > limit
 
     def complete(self, overview: str, key_points: list[str]) -> None:
         """Agent 가 만든 요약을 받는다."""
         self.status = SummaryStatus.READY
         self.overview = overview
         self.key_points = list(key_points)
-        self.completed_at = _now()
+        self.completed_at = utcnow()
 
     def give_up(self) -> None:
         """요약을 못 만들었다고 확정한다. 본문은 비운다."""
         self.status = SummaryStatus.FAILED
         self.overview = ""
         self.key_points = []
-        self.completed_at = _now()
+        self.completed_at = utcnow()

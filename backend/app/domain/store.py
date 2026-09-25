@@ -8,6 +8,8 @@
 응답은 정상인데 재조회하면 이전 상태가 나오는 식으로 조용히 깨진다.
 """
 
+from copy import deepcopy
+from datetime import timedelta
 from typing import Protocol
 
 from app.domain.models import (
@@ -18,7 +20,6 @@ from app.domain.models import (
     Session,
     SessionStatus,
     SessionSummary,
-    SummaryStatus,
 )
 
 
@@ -90,30 +91,38 @@ class Store(Protocol):
 
     def get_summary(self, session_id: str) -> SessionSummary | None: ...
 
-    def save_summary(
-        self, summary: SessionSummary, *, expected_status: SummaryStatus | None = None
-    ) -> bool:
-        """요약을 저장한다. `save_session` 과 같은 규약이다.
+    def save_summary(self, summary: SessionSummary) -> None:
+        """Agent 가 만든 결과를 받아 둔다. 조건 없이 덮어쓴다."""
+        ...
 
-        `expected_status` 를 주면 `WHERE` 에 상태 조건이 얹힌다. 조건 평가와
-        갱신이 한 문장 안에서 끝나므로 그사이가 열리지 않는다. 읽고 나서 다른
-        요청이 먼저 상태를 바꿨으면 0행이 바뀌고 False 가 나간다.
+    def expire_summary(
+        self, session_id: str, limit: timedelta
+    ) -> SessionSummary | None:
+        """한도를 넘긴 요약을 FAILED 로 넘기고 **최종 상태**를 돌려준다.
 
-        조회 경로가 한도를 넘긴 요약을 FAILED 로 넘길 때 쓴다. Agent 가 결과를
-        넣는 쪽은 조건 없이 쓴다 — 거기에 조건을 걸면 결과를 못 넣는다.
+        판정·전이·저장을 한 군데서 끝낸다. 라우터가 읽고 판정하고 쓰면 그 사이가
+        열려서, 한도가 막 지나는 순간에 들어온 Agent 의 결과를 덮어 지운다 (#115).
+
+        한도를 안 넘겼거나 이미 끝난 요약이면 아무것도 바꾸지 않고 지금 값을
+        그대로 돌려준다. 요약 자리가 없으면 None.
+
+        한도를 인자로 받는다 — 저장소는 설정을 읽지 않는다.
         """
         ...
 
 
 class InMemoryStore:
+    """DB 구현과 같은 계약을 주는 인메모리 저장소.
+
+    ⚠️ `get_*` 은 **복사본**을 돌려준다. 참조를 돌려주면 호출자가 손에 든 객체와
+    저장소가 같은 것이 되어, 라우터가 저장을 빼먹어도 여기서는 통과한다. 그러면
+    인메모리로 도는 테스트가 DB 에서만 나는 버그를 못 잡는다 (#115 가 그 경우였다).
+    복사본을 주면 「저장했는가」가 여기서도 드러난다.
+    """
+
     def __init__(self) -> None:
         self._interviews: dict[str, Interview] = {}
         self._sessions: dict[str, Session] = {}
-        # 마지막으로 저장된 상태. 세션 객체를 참조로 돌려주는 탓에 save_session
-        # 시점에는 호출자가 이미 상태를 바꿔 놓아서, 객체만 봐서는 "저장소가
-        # 알던 상태"를 알 수 없다. DB 구현과 같은 계약을 주려면 따로 들고 있어야 한다.
-        self._saved_status: dict[str, SessionStatus] = {}
-
         self._contexts: dict[str, Context] = {}
         #: (context_id, doc_id) -> (메타데이터, 원본)
         self._docs: dict[tuple[str, str], tuple[ContextDoc, bytes]] = {}
@@ -121,39 +130,32 @@ class InMemoryStore:
         self._resumes: dict[str, tuple[Resume, bytes]] = {}
 
         self._summaries: dict[str, SessionSummary] = {}
-        #: 마지막으로 저장된 요약 상태. `_saved_status` 와 같은 이유다 —
-        #: 요약 객체도 참조로 나가므로 객체만 봐서는 저장소가 알던 상태를 모른다.
-        self._saved_summary_status: dict[str, SummaryStatus] = {}
 
     def add_interview(self, interview: Interview) -> None:
         self._interviews[interview.id] = interview
 
     def get_interview(self, interview_id: str) -> Interview | None:
-        return self._interviews.get(interview_id)
+        found = self._interviews.get(interview_id)
+        return None if found is None else deepcopy(found)
 
     def add_session(self, session: Session) -> None:
-        self._sessions[session.id] = session
-        self._saved_status[session.id] = session.status
+        self._sessions[session.id] = deepcopy(session)
 
     def get_session(self, session_id: str) -> Session | None:
-        # 값을 그대로 돌려준다. 라우터가 상태를 바꾸면 저장소에도 반영된다.
-        return self._sessions.get(session_id)
+        found = self._sessions.get(session_id)
+        return None if found is None else deepcopy(found)
 
     def save_session(
         self, session: Session, *, expected_status: SessionStatus | None = None
     ) -> bool:
-        # 객체 저장은 참조가 같아 사실상 no-op 이지만, 라우터가 DB 구현에서도
-        # 똑같이 동작하도록 호출 규약을 맞춰 둔다.
-        #
         # 없는 세션은 쓰지 않는다. DB 구현의 UPDATE 가 0행을 바꾸는 것과 같다 —
         # `save_session` 은 갱신이지 추가가 아니다 (추가는 `add_session`).
-        if session.id not in self._sessions:
+        stored = self._sessions.get(session.id)
+        if stored is None:
             return False
-        if expected_status is not None:
-            if self._saved_status.get(session.id) is not expected_status:
-                return False
-        self._sessions[session.id] = session
-        self._saved_status[session.id] = session.status
+        if expected_status is not None and stored.status is not expected_status:
+            return False
+        self._sessions[session.id] = deepcopy(session)
         return True
 
     # ── 기업 컨텍스트 ───────────────────────────────────
@@ -166,7 +168,8 @@ class InMemoryStore:
         return context
 
     def get_context(self, context_id: str) -> Context | None:
-        return self._contexts.get(context_id)
+        found = self._contexts.get(context_id)
+        return None if found is None else deepcopy(found)
 
     def save_context(self, context: Context) -> None:
         self._contexts[context.id] = context
@@ -183,7 +186,7 @@ class InMemoryStore:
 
     def get_doc(self, context_id: str, doc_id: str) -> ContextDoc | None:
         found = self._docs.get((context_id, doc_id))
-        return None if found is None else found[0]
+        return None if found is None else deepcopy(found[0])
 
     def delete_doc(self, context_id: str, doc_id: str) -> bool:
         return self._docs.pop((context_id, doc_id), None) is not None
@@ -195,37 +198,40 @@ class InMemoryStore:
 
     def get_resume(self, interview_id: str) -> Resume | None:
         found = self._resumes.get(interview_id)
-        return None if found is None else found[0]
+        return None if found is None else deepcopy(found[0])
 
     def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
-        kept = self._summaries.setdefault(summary.session_id, summary)
-        self._saved_summary_status.setdefault(kept.session_id, kept.status)
-        return kept
+        kept = self._summaries.setdefault(summary.session_id, deepcopy(summary))
+        return deepcopy(kept)
 
     def get_summary(self, session_id: str) -> SessionSummary | None:
-        return self._summaries.get(session_id)
+        found = self._summaries.get(session_id)
+        return None if found is None else deepcopy(found)
 
-    def save_summary(
-        self, summary: SessionSummary, *, expected_status: SummaryStatus | None = None
-    ) -> bool:
-        if summary.session_id not in self._summaries:
-            return False
-        if expected_status is not None:
-            if (
-                self._saved_summary_status.get(summary.session_id)
-                is not expected_status
-            ):
-                return False
-        self._summaries[summary.session_id] = summary
-        self._saved_summary_status[summary.session_id] = summary.status
-        return True
+    def save_summary(self, summary: SessionSummary) -> None:
+        stored = self._summaries.get(summary.session_id)
+        if stored is None:
+            return
+        # `requested_at` 은 저장소가 들고 있던 것을 지킨다 — 한도의 기준점이라
+        # 호출자가 덮으면 마감이 밀린다. DB 구현의 UPDATE 도 이 컬럼을 뺀다.
+        fresh = deepcopy(summary)
+        fresh.requested_at = stored.requested_at
+        self._summaries[summary.session_id] = fresh
+
+    def expire_summary(
+        self, session_id: str, limit: timedelta
+    ) -> SessionSummary | None:
+        stored = self._summaries.get(session_id)
+        if stored is None:
+            return None
+        if stored.overdue(limit):
+            stored.give_up()
+        return deepcopy(stored)
 
     def clear(self) -> None:
         """테스트용."""
         self._interviews.clear()
         self._sessions.clear()
-        self._saved_status.clear()
-        self._saved_summary_status.clear()
 
         self._contexts.clear()
         self._docs.clear()

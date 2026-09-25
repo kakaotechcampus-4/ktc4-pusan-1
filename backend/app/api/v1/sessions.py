@@ -207,13 +207,9 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
         # 요약은 어차피 안 오므로 한도를 넘기고 FAILED 가 된다.
         summary = store.ensure_summary(SessionSummary(session_id=session_id))
 
-    if summary.overdue(settings.summary_timeout):
-        summary.give_up()
-        # 조건을 걸어 쓴다. 읽고 나서 판정하는 사이에 Agent 가 결과를 넣었으면
-        # 0행이 바뀌고 False 가 온다 — 그때는 내가 만든 FAILED 를 버리고 다시
-        # 읽는다. 조건 없이 쓰면 방금 들어온 READY 와 본문을 덮어 지운다 (#115).
-        if not store.save_summary(summary, expected_status=SummaryStatus.PROCESSING):
-            summary = store.get_summary(session_id) or summary
+    # 한도 판정은 저장소가 한 문장으로 끝낸다. 여기서 읽고 판정하고 쓰면 그
+    # 사이에 Agent 의 결과가 들어와 덮여 지워진다 (#115).
+    summary = store.expire_summary(session_id, settings.summary_timeout) or summary
 
     content = None
     if summary.status is SummaryStatus.READY:
