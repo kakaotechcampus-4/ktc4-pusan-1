@@ -430,9 +430,13 @@ def test_expiring_a_summary_past_the_limit_marks_it_failed(subject: Store):
     session = _seed(subject)
     subject.ensure_summary(SessionSummary(session_id=session.id))
 
-    # 한도 0 이면 만들자마자 넘긴 것이다. `requested_at` 을 건드리지 않고
+    # 한도를 음수로 주면 만들자마자 넘긴 것이다. `requested_at` 을 건드리지 않고
     # 판정을 시험할 수 있어 두 구현에서 똑같이 돈다.
-    returned = subject.expire_summary(session.id, timedelta(0))
+    #
+    # 0 이 아니라 −1초인 이유는 시계 해상도다. 0 이면 `requested_at` 과 비교
+    # 시각이 같은 값일 수 있고(인메모리는 그사이가 마이크로초다), 그러면 `<` 가
+    # 거짓이 되어 테스트가 간헐적으로 깨진다.
+    returned = subject.expire_summary(session.id, timedelta(seconds=-1))
 
     assert returned is not None
     assert returned.status is SummaryStatus.FAILED
@@ -462,7 +466,7 @@ def test_expiring_does_not_touch_a_summary_the_agent_already_finished(subject: S
     summary.complete("살아남아야 하는 요약", ["근거 하나"])
     subject.save_summary(summary)
 
-    returned = subject.expire_summary(session.id, timedelta(0))
+    returned = subject.expire_summary(session.id, timedelta(seconds=-1))
 
     assert returned is not None
     assert returned.status is SummaryStatus.READY

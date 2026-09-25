@@ -209,7 +209,13 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
 
     # 한도 판정은 저장소가 한 문장으로 끝낸다. 여기서 읽고 판정하고 쓰면 그
     # 사이에 Agent 의 결과가 들어와 덮여 지워진다 (#115).
-    summary = store.expire_summary(session_id, settings.summary_timeout) or summary
+    #
+    # 이미 끝난 요약은 부르지 않는다. 판정 대상이 PROCESSING 뿐이라 결과가 같고,
+    # 조회마다 0행 UPDATE 와 재조회가 공짜로 나가는 것만 준다. 여기서 읽은 값이
+    # 낡았더라도 손해는 없다 — PROCESSING 으로 낡았으면 아래에서 제대로 판정하고,
+    # 종착 상태는 되돌아오지 않는다.
+    if summary.status is SummaryStatus.PROCESSING:
+        summary = store.expire_summary(session_id, settings.summary_timeout) or summary
 
     content = None
     if summary.status is SummaryStatus.READY:
