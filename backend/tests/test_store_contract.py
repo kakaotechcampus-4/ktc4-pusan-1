@@ -379,6 +379,35 @@ def test_resume_of_an_interview_without_one_is_none(subject: Store):
     assert subject.get_resume(session.interview_id) is None
 
 
+def _waits_for_lock(dsn: str, table: str, *, timeout: float = 5.0) -> bool:
+    """`table` 에 걸린 행 잠금을 기다리는 백엔드가 생길 때까지 본다.
+
+    `pg_stat_activity` 를 별도 연결로 폴링한다. 잠금을 쥔 트랜잭션 안에서 보면
+    자기 자신이 섞여 헷갈리므로 연결을 따로 연다.
+    """
+    import time
+
+    import psycopg
+
+    deadline = time.monotonic() + timeout
+    with psycopg.connect(dsn, autocommit=True) as watcher:
+        while time.monotonic() < deadline:
+            waiting = watcher.execute(
+                """
+                SELECT count(*) FROM pg_stat_activity
+                 WHERE wait_event_type = 'Lock'
+                   AND state = 'active'
+                   AND pid <> pg_backend_pid()
+                   AND query ILIKE %s
+                """,
+                (f"%{table}%",),
+            ).fetchone()
+            if waiting is not None and waiting[0] > 0:
+                return True
+            time.sleep(0.02)
+    return False
+
+
 # ── 요약 ────────────────────────────────────────────────
 
 
@@ -588,11 +617,21 @@ def test_expiring_loses_to_an_agent_result_that_lands_mid_flight():
 
             worker = threading.Thread(target=expire, daemon=True)
             worker.start()
-            # 잠금을 잡으러 들어가도록 잠깐 둔다.
-            done.wait(timeout=1.0)
+
+            # **잠금을 실제로 기다리는 것을 보고 나서 커밋한다.**
+            #
+            # 그냥 잠깐 자고 커밋하면, 스레드가 그사이 UPDATE 에 못 들어갔을 때
+            # 경합 없이 지나가고 테스트는 통과한다. 실패 쪽으로 흔들리진 않지만
+            # 조용히 아무것도 검증하지 않게 된다. 그래서 기다림을 확인한다.
+            assert _waits_for_lock(TEST_DATABASE_URL, "session_summary"), (
+                "expire_summary 가 행 잠금을 기다리지 않았다 — "
+                "이 테스트가 경합을 재현하지 못했다는 뜻이다"
+            )
+
             blocker.commit()
             worker.join(timeout=10)
             assert not worker.is_alive()
+            assert done.is_set()
         finally:
             blocker.close()
 
