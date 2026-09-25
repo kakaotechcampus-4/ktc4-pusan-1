@@ -524,6 +524,81 @@ def test_saving_a_summary_does_not_move_the_deadline(subject: Store):
     assert found.requested_at == requested_at
 
 
+def test_expiring_loses_to_an_agent_result_that_lands_mid_flight():
+    """#115 를 실제로 재현한다. **PostgreSQL 전용이다.**
+
+    앞의 테스트들은 순서대로 부르기만 해서, 판정과 갱신 사이가 열려 있어도
+    통과한다. 여기서는 그 틈을 강제로 만든다.
+
+    커밋하지 않은 UPDATE 로 행 잠금을 쥔 채 `expire_summary` 를 부른다.
+
+    - 한 문장이면: UPDATE 가 잠금을 기다렸다가 풀린 뒤 `WHERE` 를 **다시**
+      평가한다. 그때는 READY 라 0행이 바뀌고 요약이 산다.
+    - 읽고-고쳐-쓰기면: SELECT 는 잠금을 안 기다리고 옛 PROCESSING 을 읽는다.
+      그 판단으로 만든 FAILED 가 잠금이 풀린 뒤 READY 를 덮는다.
+    """
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL 이 없다")
+
+    import threading
+
+    import psycopg
+
+    from app.infra.postgres import PostgresStore
+
+    subject = PostgresStore(TEST_DATABASE_URL)
+    subject.open()
+    subject.create_schema()
+    try:
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            conn.execute("DELETE FROM interview")
+
+        session = _seed(subject)
+        summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+        # 한도를 이미 넘긴 상태로 만든다.
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            conn.execute(
+                "UPDATE session_summary SET requested_at = requested_at - %s"
+                " WHERE session_id = %s",
+                (timedelta(hours=1), summary.session_id),
+            )
+
+        blocker = psycopg.connect(TEST_DATABASE_URL, autocommit=False)
+        try:
+            # Agent 의 결과. 커밋하지 않아 행 잠금만 쥔다.
+            blocker.execute(
+                "UPDATE session_summary"
+                "   SET status = 'READY', overview = %s, key_points = '[\"근거\"]'::jsonb"
+                " WHERE session_id = %s",
+                ("살아남아야 하는 요약", session.id),
+            )
+
+            done = threading.Event()
+
+            def expire() -> None:
+                try:
+                    subject.expire_summary(session.id, timedelta(minutes=1))
+                finally:
+                    done.set()
+
+            worker = threading.Thread(target=expire, daemon=True)
+            worker.start()
+            # 잠금을 잡으러 들어가도록 잠깐 둔다.
+            done.wait(timeout=1.0)
+            blocker.commit()
+            worker.join(timeout=10)
+            assert not worker.is_alive()
+        finally:
+            blocker.close()
+
+        found = subject.get_summary(session.id)
+        assert found is not None
+        assert found.status is SummaryStatus.READY
+        assert found.overview == "살아남아야 하는 요약"
+    finally:
+        subject.close()
+
+
 def test_summary_of_an_unknown_session_is_none(subject: Store):
     assert subject.get_summary("ses_없는것") is None
 
