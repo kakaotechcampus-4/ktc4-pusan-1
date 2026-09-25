@@ -16,7 +16,9 @@ EC2 한 대에 컨테이너 넷입니다.
                    └────┬────┘
           ┌─────────────┼─────────────┐
           │             │             │
-    /api/* /health    /rtc*      나머지 전부
+   /api/* /health     /rtc*      나머지 전부
+   /docs* /redoc*       │             │
+   /openapi.json        │             │
           │             │             │
      ┌────┴────┐  ┌─────┴─────┐  /home/ubuntu/fe
      │ backend │  │  livekit  │  (호스트 디렉터리를 읽기 전용 마운트)
@@ -37,21 +39,45 @@ EC2 한 대에 컨테이너 넷입니다.
 push develop
   → .github/workflows/cd.yml
   → aws ssm send-command (22번 포트를 열지 않아 SSH 대신 SSM 입니다)
-  → 서버에서 infra/deploy.sh 실행
+  → 서버가 배포할 ref 에서 deploy.sh 를 꺼내 /tmp 에 쓰고 실행
 ```
 
 `deploy.sh` 가 하는 일은 순서대로 이렇습니다.
 
-1. `git fetch` 후 `origin/<ref>` 로 fast-forward
-2. LiveKit 설정·이미지 태그가 바뀌었는지 미리 확인해 경고를 찍는다
+1. `git fetch` 후 `git checkout --detach origin/<ref>`
+2. LiveKit 설정과 compose 가 바뀌었는지 미리 확인해 경고를 찍는다
 3. `docker compose build` — 먼저 빌드만 한다. 실패해도 돌던 컨테이너는 그대로다
 4. `docker compose up -d --remove-orphans`
-5. `docker compose restart caddy`
+5. Caddy 는 **컨테이너가 든 설정이 레포와 다를 때만** 재시작한다
 6. `docker compose ps` 로 상태를 찍고, `/health` 가 200 을 줄 때까지 최대 60초 기다린다
 
 **배포 절차를 워크플로 YAML 이 아니라 스크립트에 둔 이유**는 손으로 재현할 수 있어야 하기 때문입니다. 실패했을 때 GitHub Actions 로그만 보고 원인을 가릴 수 있는 배포는 많지 않습니다.
 
 `cd.yml` 은 `send-command` 를 던지고 끝내지 않고 상태를 폴링합니다. 비동기 호출이라 폴링을 빼면 **서버가 실패해도 워크플로는 초록불**이 됩니다.
+
+### 서버는 detached HEAD 로 돕니다
+
+`deploy.sh` 가 로컬 브랜치에 병합하지 않고 `origin/<ref>` 로 detach 합니다.
+
+전에는 `git merge --ff-only` 였습니다. `develop` 이 체크아웃된 서버에 기능 브랜치를 한 번 배포했더니 그 커밋이 로컬 `develop` 에 얹혀 `origin/develop` 과 갈라졌고, **그 뒤로는 모든 배포가 「Not possible to fast-forward」에서 멈췄습니다.**
+
+detach 면 로컬 브랜치가 움직이지 않아 어떤 ref 를 배포해도 서버가 원격과 갈라지지 않습니다. 서버에서 손으로 고친 추적 파일이 있으면 `checkout` 이 거부하므로, 「서버의 수정을 조용히 덮어쓰지 않는다」는 성질은 그대로입니다.
+
+### 배포 스크립트는 서버 디스크에서 읽지 않습니다
+
+`cd.yml` 이 배포할 ref 에서 꺼내 `/tmp/irya-deploy.sh` 에 쓰고 그 파일을 돌립니다. 서버에 그 파일이 없으면 CD 가 통째로 죽기 때문입니다 — **첫 실행이 `No such file or directory` 로 끝났습니다.** 스크립트를 서버에 가져다주는 게 그 스크립트 자신이라 서로를 기다리는 꼴이었습니다.
+
+파일로 쓰고 돌리는 것이 중요합니다. **파이프로 넣으면(`| bash -s`) 스크립트가 중간에서 잘립니다.** 안쪽의 `docker compose exec -T` 가 stdin 을 먹어서 나머지를 읽어 가고, bash 는 EOF 를 만나 **0 으로 끝납니다.** 배포가 절반만 돌았는데 CD 는 초록불이 됩니다.
+
+덤으로 배포되는 코드와 배포 절차의 버전이 항상 같이 갑니다.
+
+### 어떤 커밋이 떠 있는지 확인하기
+
+`deploy.sh` 가 `GIT_SHA` 를 내보내고 compose 가 이미지 라벨에 박습니다.
+
+```bash
+docker inspect irya-backend --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+```
 
 ## 손으로 배포하기
 
@@ -104,7 +130,16 @@ cd frontend && npm run build
 cat: can't open '/etc/caddy/Caddyfile': No such file or directory
 ```
 
-그래서 `deploy.sh` 가 매 배포마다 `docker compose restart caddy` 를 돌립니다. 시작 시점에 마운트를 다시 풀어야 해결됩니다.
+그래서 `deploy.sh` 가 **컨테이너 안의 파일과 레포의 파일을 해시로 비교**해서, 다를 때만 재시작합니다. 시작 시점에 마운트를 다시 풀어야 해결되기 때문입니다.
+
+```bash
+running_config=$(docker compose exec -T caddy sha256sum /etc/caddy/Caddyfile < /dev/null ...)
+ondisk_config=$(sha256sum Caddyfile ...)
+```
+
+`git diff` 로 판단하지 않는 이유는 재시도 구멍 때문입니다. 배포가 빌드에서 실패하면 HEAD 는 이미 움직여 있어서, 다시 돌릴 때 `git diff` 가 「안 바뀌었다」고 답합니다. 컨테이너 상태를 직접 보면 몇 번을 다시 돌려도 같은 답이 나옵니다.
+
+`exec` 에 `< /dev/null` 이 붙은 것도 이유가 있습니다. 붙이지 않으면 이 명령이 **스크립트의 남은 줄을 stdin 으로 먹습니다.**
 
 ### LiveKit 은 일부러 자동 재시작하지 않습니다
 
@@ -145,3 +180,15 @@ docker compose ps
 docker compose logs --tail 50 backend
 curl -s https://irya.cloud/health
 ```
+
+로그는 컨테이너마다 **10MB × 3개**로 돌려 씁니다. 기본값은 무제한이라 디스크가 찰 때까지 자랍니다.
+
+배포 서버에서는 Swagger 가 열려 있습니다.
+
+```
+https://irya.cloud/docs
+https://irya.cloud/redoc
+https://irya.cloud/openapi.json
+```
+
+`openapi.json` 은 저장소의 `docs/api/openapi.json` 과 같아야 하고 `be-ci` 가 그것을 강제합니다. 그래서 따로 가리지 않습니다.
