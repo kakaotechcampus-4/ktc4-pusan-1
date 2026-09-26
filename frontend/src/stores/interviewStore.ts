@@ -6,13 +6,12 @@
  * 여기에는 화면이 그리는 것만 둔다.
  */
 
-import { ConnectionState } from 'livekit-client';
 import { create } from 'zustand';
-import type { Speaker, StreamEvent, Utterance } from '../types/interview';
+import type { RoomConnectionState, Speaker, StreamEvent, Utterance } from '../types/interview';
 
 interface InterviewState {
   sessionId: string | null;
-  connection: ConnectionState;
+  connection: RoomConnectionState;
 
   /** 상대 참가 여부 — 미참가 시 대기 화면. 면접관에겐 지원자, 지원자에겐 면접관이다 */
   remoteJoined: boolean;
@@ -27,7 +26,7 @@ interface InterviewState {
   transcriptOpen: boolean;
 
   setSession: (id: string) => void;
-  setConnection: (s: ConnectionState) => void;
+  setConnection: (s: RoomConnectionState) => void;
   setRemoteJoined: (v: boolean) => void;
   setSpeaking: (s: Speaker | null) => void;
   applyStreamEvent: (e: StreamEvent) => void;
@@ -37,7 +36,7 @@ interface InterviewState {
 
 export const useInterviewStore = create<InterviewState>((set) => ({
   sessionId: null,
-  connection: ConnectionState.Disconnected,
+  connection: 'disconnected',
   remoteJoined: false,
   speakingNow: null,
   utterances: [],
@@ -90,7 +89,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
   reset: () =>
     set({
       sessionId: null,
-      connection: ConnectionState.Disconnected,
+      connection: 'disconnected',
       remoteJoined: false,
       speakingNow: null,
       utterances: [],

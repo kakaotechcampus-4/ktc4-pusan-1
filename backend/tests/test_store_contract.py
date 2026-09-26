@@ -13,10 +13,21 @@ PostgreSQL 쪽은 `TEST_DATABASE_URL` 이 있을 때만 돈다. CI 와 로컬은
 
 import os
 from collections.abc import Iterator
+from datetime import timedelta
 
 import pytest
 
-from app.domain.models import Interview, Session, SessionStatus
+from app.domain.models import (
+    Context,
+    ContextDoc,
+    DocKind,
+    Interview,
+    Resume,
+    Session,
+    SessionStatus,
+    SessionSummary,
+    SummaryStatus,
+)
 from app.domain.store import InMemoryStore, Store
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "")
@@ -39,6 +50,7 @@ def subject(request: pytest.FixtureRequest) -> Iterator[Store]:
     # 테스트끼리 섞이지 않게 비운다. interview 를 지우면 session 은 CASCADE 다.
     with postgres._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
         conn.execute("TRUNCATE interview CASCADE")
+        conn.execute("TRUNCATE context CASCADE")
     try:
         yield postgres
     finally:
@@ -137,3 +149,507 @@ def test_transcript_origin_is_persisted(subject: Store):
     assert found.transcript_origin_at == origin
     # 두 번째 참가자·재전송이 원점을 밀면 안 된다.
     assert found.mark_origin(session.created_at) is False
+
+
+def test_conditional_save_rejects_stale_expectation(subject: Store):
+    """기대한 상태가 아니면 쓰지 않고 False 를 준다.
+
+    두 구현이 같아야 하는 지점이다. DB 는 `WHERE` 의 상태 조건으로, 인메모리는
+    마지막으로 저장된 상태를 따로 들고 비교해서 같은 답을 낸다.
+    """
+    session = _seed(subject)
+
+    assert session.start() is True
+    assert subject.save_session(session, expected_status=SessionStatus.WAITING) is True
+
+    # 저장소는 이제 INTERVIEWING 이다. 다시 WAITING 을 기대하면 거절해야 한다.
+    assert subject.save_session(session, expected_status=SessionStatus.WAITING) is False
+
+
+def test_save_does_not_create(subject: Store):
+    """`save_session` 은 갱신이다. 없는 세션은 쓰지 않고 False 를 준다.
+
+    추가는 `add_session` 의 일이다. DB 구현의 `UPDATE` 가 0행을 바꾸는 것과
+    인메모리가 같은 답을 내야 한다.
+    """
+    ghost = Session(interview_id="iv_nope")
+
+    assert subject.save_session(ghost) is False
+    assert subject.save_session(ghost, expected_status=SessionStatus.WAITING) is False
+    assert subject.get_session(ghost.id) is None
+
+
+def test_conditional_save_without_expectation_always_writes(subject: Store):
+    """`expected_status` 가 없으면 조건 없이 쓴다 (Webhook 의 원점 기록)."""
+    session = _seed(subject)
+    session.start()
+
+    assert subject.save_session(session) is True
+    assert subject.save_session(session) is True
+
+
+@pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL 이 없다")
+def test_two_readers_race_on_start():
+    """멘토가 재현한 그 상황. 스레드 없이 조회를 두 번 해서 만든다.
+
+    인메모리에는 이 테스트가 없다. `get_session` 이 같은 객체를 돌려줘서 두
+    번째 `start()` 가 애초에 False 가 난다 — 저장소가 우연히 잠금 역할을 하므로
+    이 경쟁이 구조적으로 생기지 않는다.
+    """
+    from app.infra.postgres import PostgresStore
+
+    postgres = PostgresStore(TEST_DATABASE_URL)
+    postgres.open()
+    postgres.create_schema()
+    with postgres._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+        conn.execute("TRUNCATE interview CASCADE")
+    try:
+        seeded = _seed(postgres)
+
+        first = postgres.get_session(seeded.id)
+        second = postgres.get_session(seeded.id)
+        assert first is not None and second is not None
+        assert first is not second  # DB 는 조회마다 새로 만든다
+
+        assert first.start() is True
+        assert second.start() is True  # 둘 다 WAITING 을 들고 있다
+
+        assert (
+            postgres.save_session(first, expected_status=SessionStatus.WAITING) is True
+        )
+        assert (
+            postgres.save_session(second, expected_status=SessionStatus.WAITING)
+            is False
+        )
+
+        stored = postgres.get_session(seeded.id)
+        assert stored is not None
+        assert stored.started_at == first.started_at  # 뒤 요청이 덮어쓰지 않았다
+    finally:
+        postgres.close()
+
+
+# ── 기업 컨텍스트 ────────────────────────────────────────
+
+
+def _context(subject: Store, owner_id: str = "조직A") -> Context:
+    return subject.ensure_context(Context(owner_id=owner_id))
+
+
+def test_context_roundtrip(subject: Store):
+    context = subject.ensure_context(
+        Context(
+            owner_id="조직A",
+            company="카카오",
+            team="플랫폼",
+            role="백엔드",
+            talent_profile="협업",
+        )
+    )
+
+    found = subject.get_context(context.id)
+    assert found is not None
+    assert found.owner_id == "조직A"
+    assert found.company == "카카오"
+    assert found.team == "플랫폼"
+    assert found.role == "백엔드"
+    assert found.talent_profile == "협업"
+
+
+def test_ensure_is_idempotent_per_owner(subject: Store):
+    """주인당 하나. 두 번 불러 둘이 생기면 어느 쪽에 문서를 올렸는지가 갈린다."""
+    first = _context(subject)
+    second = _context(subject)
+    assert first.id == second.id
+
+
+def test_ensure_keeps_the_stored_one_not_the_new_one(subject: Store):
+    """이미 있으면 새로 만든 쪽을 버린다 — 저장된 내용이 지워지면 안 된다."""
+    stored = _context(subject)
+    stored.company = "카카오"
+    subject.save_context(stored)
+
+    again = subject.ensure_context(Context(owner_id="조직A"))
+    assert again.id == stored.id
+    assert again.company == "카카오"
+
+
+def test_different_owners_get_different_contexts(subject: Store):
+    assert _context(subject, "조직A").id != _context(subject, "조직B").id
+
+
+def test_saving_a_context_persists_the_change(subject: Store):
+    context = _context(subject)
+    context.company = "카카오"
+    context.talent_profile = "끈기"
+    subject.save_context(context)
+
+    found = subject.get_context(context.id)
+    assert found is not None
+    assert found.company == "카카오"
+    assert found.talent_profile == "끈기"
+
+
+def test_unknown_context_is_none(subject: Store):
+    assert subject.get_context("ctx_없는것") is None
+
+
+# ── 문서 ────────────────────────────────────────────────
+
+
+def _doc(context_id: str, name: str = "jd.pdf") -> ContextDoc:
+    return ContextDoc(context_id=context_id, name=name, kind=DocKind.PDF, size_bytes=12)
+
+
+def test_doc_roundtrip(subject: Store):
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"%PDF-1.7\nx\n")
+
+    found = subject.get_doc(context.id, doc.id)
+    assert found is not None
+    assert found.name == "jd.pdf"
+    assert found.kind is DocKind.PDF
+    assert found.size_bytes == 12
+
+
+def test_docs_are_listed_in_upload_order(subject: Store):
+    context = _context(subject)
+    for name in ("first.pdf", "second.pdf", "third.pdf"):
+        subject.add_doc(_doc(context.id, name), b"x")
+
+    listed = [doc.name for doc in subject.list_docs(context.id)]
+    assert listed == ["first.pdf", "second.pdf", "third.pdf"]
+
+
+def test_docs_are_scoped_to_their_context(subject: Store):
+    """id 만 알면 남의 문서를 읽거나 지울 수 있으면 안 된다."""
+    mine = _context(subject, "조직A")
+    yours = _context(subject, "조직B")
+    doc = _doc(yours.id)
+    subject.add_doc(doc, b"x")
+
+    assert subject.get_doc(mine.id, doc.id) is None
+    assert subject.delete_doc(mine.id, doc.id) is False
+    assert subject.list_docs(mine.id) == []
+    assert len(subject.list_docs(yours.id)) == 1
+
+
+def test_deleting_a_doc_reports_whether_it_existed(subject: Store):
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"x")
+
+    assert subject.delete_doc(context.id, doc.id) is True
+    assert subject.delete_doc(context.id, doc.id) is False
+    assert subject.get_doc(context.id, doc.id) is None
+
+
+# ── 지원자 이력서 ────────────────────────────────────────
+
+
+def _resume(interview_id: str, name: str = "이력서.pdf") -> Resume:
+    return Resume(interview_id=interview_id, name=name, kind=DocKind.PDF, size_bytes=9)
+
+
+def test_resume_roundtrip(subject: Store):
+    session = _seed(subject)
+    subject.save_resume(_resume(session.interview_id), b"%PDF-1.7\n")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None
+    assert found.name == "이력서.pdf"
+    assert found.kind is DocKind.PDF
+    assert found.size_bytes == 9
+
+
+def test_resume_is_replaced_not_appended(subject: Store):
+    """면접 한 건에 한 장. 다시 올리면 덮어쓴다."""
+    session = _seed(subject)
+    subject.save_resume(_resume(session.interview_id, "old.pdf"), b"old")
+    subject.save_resume(_resume(session.interview_id, "new.pdf"), b"new")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None
+    assert found.name == "new.pdf"
+
+
+def test_resume_of_an_interview_without_one_is_none(subject: Store):
+    session = _seed(subject)
+    assert subject.get_resume(session.interview_id) is None
+
+
+def _waits_for_lock(dsn: str, table: str, *, timeout: float = 5.0) -> bool:
+    """`table` 에 걸린 행 잠금을 기다리는 백엔드가 생길 때까지 본다.
+
+    `pg_stat_activity` 를 별도 연결로 폴링한다. 잠금을 쥔 트랜잭션 안에서 보면
+    자기 자신이 섞여 헷갈리므로 연결을 따로 연다.
+    """
+    import time
+
+    import psycopg
+
+    deadline = time.monotonic() + timeout
+    with psycopg.connect(dsn, autocommit=True) as watcher:
+        while time.monotonic() < deadline:
+            waiting = watcher.execute(
+                """
+                SELECT count(*) FROM pg_stat_activity
+                 WHERE wait_event_type = 'Lock'
+                   AND state = 'active'
+                   AND pid <> pg_backend_pid()
+                   AND query ILIKE %s
+                """,
+                (f"%{table}%",),
+            ).fetchone()
+            if waiting is not None and waiting[0] > 0:
+                return True
+            time.sleep(0.02)
+    return False
+
+
+# ── 요약 ────────────────────────────────────────────────
+
+
+def test_summary_roundtrip(subject: Store):
+    session = _seed(subject)
+
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+    found = subject.get_summary(session.id)
+
+    assert found is not None
+    assert found.session_id == session.id
+    assert found.status is SummaryStatus.PROCESSING
+    assert found.overview == ""
+    assert found.key_points == []
+    assert found.completed_at is None
+
+
+def test_ensure_summary_keeps_the_first_one(subject: Store):
+    """두 번째 호출은 새로 쓰지 않고 있는 것을 돌려준다.
+
+    `requested_at` 이 밀리면 한도가 계속 연장돼 FAILED 로 못 간다.
+    """
+    session = _seed(subject)
+    first = subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    later = SessionSummary(session_id=session.id)
+    later.requested_at += timedelta(minutes=30)
+    again = subject.ensure_summary(later)
+
+    assert again.requested_at == first.requested_at
+
+
+def test_saving_a_summary_persists_the_content(subject: Store):
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    summary.complete("전체 요약입니다.", ["핵심 하나", "핵심 둘"])
+    subject.save_summary(summary)
+
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert found.status is SummaryStatus.READY
+    assert found.overview == "전체 요약입니다."
+    assert found.key_points == ["핵심 하나", "핵심 둘"]
+    assert found.completed_at is not None
+
+
+def test_expiring_a_summary_past_the_limit_marks_it_failed(subject: Store):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    # 한도를 음수로 주면 만들자마자 넘긴 것이다. `requested_at` 을 건드리지 않고
+    # 판정을 시험할 수 있어 두 구현에서 똑같이 돈다.
+    #
+    # 0 이 아니라 −1초인 이유는 시계 해상도다. 0 이면 `requested_at` 과 비교
+    # 시각이 같은 값일 수 있고(인메모리는 그사이가 마이크로초다), 그러면 `<` 가
+    # 거짓이 되어 테스트가 간헐적으로 깨진다.
+    returned = subject.expire_summary(session.id, timedelta(seconds=-1))
+
+    assert returned is not None
+    assert returned.status is SummaryStatus.FAILED
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.FAILED
+
+
+def test_expiring_a_summary_within_the_limit_changes_nothing(subject: Store):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    returned = subject.expire_summary(session.id, timedelta(minutes=10))
+
+    assert returned is not None
+    assert returned.status is SummaryStatus.PROCESSING
+
+
+def test_expiring_does_not_touch_a_summary_the_agent_already_finished(subject: Store):
+    """한도가 지난 뒤 Agent 의 결과가 먼저 들어온 경우.
+
+    조회가 읽고 판정하고 쓰면 방금 들어온 READY 와 본문이 FAILED · 빈 값으로
+    덮인다 (#115). 판정과 갱신이 한 문장 안에 있으면 그 틈이 없다.
+    """
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.complete("살아남아야 하는 요약", ["근거 하나"])
+    subject.save_summary(summary)
+
+    returned = subject.expire_summary(session.id, timedelta(seconds=-1))
+
+    assert returned is not None
+    assert returned.status is SummaryStatus.READY
+    assert returned.overview == "살아남아야 하는 요약"
+    assert returned.key_points == ["근거 하나"]
+
+
+def test_expiring_a_summary_that_does_not_exist(subject: Store):
+    session = _seed(subject)
+
+    assert subject.expire_summary(session.id, timedelta(minutes=1)) is None
+
+
+def test_reading_gives_a_copy_not_the_stored_object(subject: Store):
+    """`get_*` 이 참조를 돌려주면 라우터가 저장을 빼먹어도 인메모리에서는 통과한다.
+
+    DB 에서만 나는 버그를 인메모리 테스트가 못 잡는 원인이라 계약으로 못박는다.
+    """
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    loose = subject.get_summary(session.id)
+    assert loose is not None
+    loose.complete("저장하지 않고 고친 값", [])
+
+    again = subject.get_summary(session.id)
+    assert again is not None
+    assert again.status is SummaryStatus.PROCESSING
+
+
+def test_saving_a_summary_ignores_a_changed_deadline(subject: Store):
+    """호출자가 `requested_at` 을 바꿔 보내도 저장소는 원래 것을 지킨다.
+
+    한도의 기준점이라 밀리면 FAILED 로 영영 못 간다. DB 구현의 UPDATE 가 이
+    컬럼을 빼고 쓰므로, 인메모리도 같아야 계약이 하나가 된다.
+    """
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    original = summary.requested_at
+
+    summary.requested_at -= timedelta(hours=1)
+    subject.save_summary(summary)
+
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert found.requested_at == original
+
+
+def test_saving_a_summary_does_not_move_the_deadline(subject: Store):
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    requested_at = summary.requested_at
+
+    summary.give_up()
+    subject.save_summary(summary)
+
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert found.requested_at == requested_at
+
+
+def test_expiring_loses_to_an_agent_result_that_lands_mid_flight():
+    """#115 를 실제로 재현한다. **PostgreSQL 전용이다.**
+
+    앞의 테스트들은 순서대로 부르기만 해서, 판정과 갱신 사이가 열려 있어도
+    통과한다. 여기서는 그 틈을 강제로 만든다.
+
+    커밋하지 않은 UPDATE 로 행 잠금을 쥔 채 `expire_summary` 를 부른다.
+
+    - 한 문장이면: UPDATE 가 잠금을 기다렸다가 풀린 뒤 `WHERE` 를 **다시**
+      평가한다. 그때는 READY 라 0행이 바뀌고 요약이 산다.
+    - 읽고-고쳐-쓰기면: SELECT 는 잠금을 안 기다리고 옛 PROCESSING 을 읽는다.
+      그 판단으로 만든 FAILED 가 잠금이 풀린 뒤 READY 를 덮는다.
+    """
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL 이 없다")
+
+    import threading
+
+    import psycopg
+    from psycopg.types.json import Jsonb
+
+    from app.infra.postgres import PostgresStore
+
+    subject = PostgresStore(TEST_DATABASE_URL)
+    subject.open()
+    subject.create_schema()
+    try:
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            conn.execute("DELETE FROM interview")
+
+        session = _seed(subject)
+        summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+        # 한도를 이미 넘긴 상태로 만든다.
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            conn.execute(
+                "UPDATE session_summary SET requested_at = requested_at - %s"
+                " WHERE session_id = %s",
+                (timedelta(hours=1), summary.session_id),
+            )
+
+        blocker = psycopg.connect(TEST_DATABASE_URL, autocommit=False)
+        try:
+            # Agent 의 결과. 커밋하지 않아 행 잠금만 쥔다.
+            blocker.execute(
+                "UPDATE session_summary"
+                "   SET status = 'READY', overview = %s, key_points = %s"
+                " WHERE session_id = %s",
+                ("살아남아야 하는 요약", Jsonb(["근거"]), session.id),
+            )
+
+            done = threading.Event()
+
+            def expire() -> None:
+                try:
+                    subject.expire_summary(session.id, timedelta(minutes=1))
+                finally:
+                    done.set()
+
+            worker = threading.Thread(target=expire, daemon=True)
+            worker.start()
+
+            # **잠금을 실제로 기다리는 것을 보고 나서 커밋한다.**
+            #
+            # 그냥 잠깐 자고 커밋하면, 스레드가 그사이 UPDATE 에 못 들어갔을 때
+            # 경합 없이 지나가고 테스트는 통과한다. 실패 쪽으로 흔들리진 않지만
+            # 조용히 아무것도 검증하지 않게 된다. 그래서 기다림을 확인한다.
+            assert _waits_for_lock(TEST_DATABASE_URL, "session_summary"), (
+                "expire_summary 가 행 잠금을 기다리지 않았다 — "
+                "이 테스트가 경합을 재현하지 못했다는 뜻이다"
+            )
+
+            blocker.commit()
+            worker.join(timeout=10)
+            assert not worker.is_alive()
+            assert done.is_set()
+        finally:
+            blocker.close()
+
+        found = subject.get_summary(session.id)
+        assert found is not None
+        assert found.status is SummaryStatus.READY
+        assert found.overview == "살아남아야 하는 요약"
+    finally:
+        subject.close()
+
+
+def test_summary_of_an_unknown_session_is_none(subject: Store):
+    assert subject.get_summary("ses_없는것") is None
+
+
+def test_summaries_do_not_leak_between_sessions(subject: Store):
+    a = _seed(subject)
+    b = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=a.id))
+
+    assert subject.get_summary(b.id) is None

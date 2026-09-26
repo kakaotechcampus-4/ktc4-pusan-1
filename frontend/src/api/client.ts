@@ -5,10 +5,11 @@
  * 그래서 base 에는 prefix 를 넣지 않고 오리진만 둔다. prefix 는 각 호출 경로에 쓴다.
  */
 import { handleMock, USE_MOCK_API } from '../mocks/mockApi';
+import { readAccessToken } from '../lib/authToken';
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 
-export const authorizationHeader = () => `Bearer ${localStorage.getItem('accessToken') ?? ''}`;
+export const authorizationHeader = () => `Bearer ${readAccessToken() ?? ''}`;
 
 export class ApiError extends Error {
   // 파라미터 프로퍼티는 erasableSyntaxOnly 에서 막히므로 필드를 명시한다.

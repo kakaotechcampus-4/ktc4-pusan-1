@@ -12,9 +12,15 @@ export interface DropZoneProps {
   onFiles: (files: File[]) => void;
   /** 업로드 중에는 받지 않는다 */
   disabled?: boolean;
+  /** 무엇을 놓는 곳인지 화면마다 다르다 (JD·회사 문서 / 이력서) */
+  label?: string;
 }
 
-export function DropZone({ onFiles, disabled }: DropZoneProps) {
+export function DropZone({
+  onFiles,
+  disabled,
+  label = 'JD · 회사 문서를 끌어다 놓으세요',
+}: DropZoneProps) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const depth = useRef(0);
@@ -67,9 +73,7 @@ export function DropZone({ onFiles, disabled }: DropZoneProps) {
             : 'cursor-pointer border-white/20 text-white/50 hover:border-white/35'
       }`}
     >
-      <p className="text-[15px]">
-        {dragging ? '여기에 놓으세요' : 'JD · 회사 문서를 끌어다 놓으세요'}
-      </p>
+      <p className="text-[15px]">{dragging ? '여기에 놓으세요' : label}</p>
       <p className="mt-1.5 text-[13px] text-white/30">PDF · DOCX · 50MB 이하</p>
 
       <input

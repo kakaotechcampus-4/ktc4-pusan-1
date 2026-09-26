@@ -2,13 +2,15 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, File, Path, UploadFile, status
 
 from app.api.deps import MediaDep, StoreDep
 from app.core.config import settings
 from app.core.errors import ApiError, ErrorCode, responses
-from app.domain.models import Interview, Session
+from app.core.uploads import read_upload
+from app.domain.models import Interview, Resume, Session
 from app.schemas import (
+    ContextDocResponse,
     CreateInterviewRequest,
     CreateSessionResponse,
     InterviewResponse,
@@ -137,3 +139,47 @@ def get_review(
         raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
     # etaSec 은 비운다. 추정할 근거가 아직 없는데 숫자를 주면 FE 가 그걸 믿는다.
     return ReviewProcessingResponse()
+
+
+@router.post(
+    "/{interviewId}/resume",
+    response_model=ContextDocResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="지원자 이력서 업로드",
+    responses=responses(
+        (404, "면접을 찾을 수 없음"),
+        (413, "파일이 너무 큼"),
+        (415, "지원하지 않는 형식"),
+    ),
+)
+async def upload_resume(
+    interview_id: InterviewIdPath,
+    store: StoreDep,
+    file: Annotated[UploadFile, File()],
+) -> ContextDocResponse:
+    """지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.
+
+    **면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은
+    것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.
+
+    응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드
+    컴포넌트로 그린다.
+
+    본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로
+    하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.
+    """
+    if store.get_interview(interview_id) is None:
+        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
+
+    name, kind, content = await read_upload(file)
+    resume = Resume(
+        interview_id=interview_id, name=name, kind=kind, size_bytes=len(content)
+    )
+    store.save_resume(resume, content)
+    return ContextDocResponse(
+        id=resume.id,
+        name=resume.name,
+        kind=resume.kind,
+        size_bytes=resume.size_bytes,
+        status=resume.status,
+    )

@@ -9,14 +9,13 @@
  * 면접 녹화는 서버 LiveKit Egress 가 담당한다.
  */
 
-import { createAudioAnalyser, type LocalAudioTrack, type LocalVideoTrack } from 'livekit-client';
 import { useEffect, useRef } from 'react';
 
 export interface LocalPreviewProps {
   /** 자기 영상. null 이면 자리만 잡고 안내를 덮는다 */
-  videoTrack: LocalVideoTrack | null;
+  videoTrack: MediaStreamTrack | null;
   /** 레벨 미터 소스. null 이면 미터를 숨긴다 */
-  audioTrack: LocalAudioTrack | null;
+  audioTrack: MediaStreamTrack | null;
   /**
    * 크기와 테두리 등 겉모습. PiP 와 전체 프리뷰에 같은 컴포넌트를 쓴다.
    *
@@ -30,16 +29,15 @@ export function LocalPreview({ videoTrack, audioTrack, className }: LocalPreview
   const videoElRef = useRef<HTMLVideoElement>(null);
   const barElRef = useRef<HTMLSpanElement>(null);
 
-  /* 영상 — srcObject 를 직접 넣지 않고 attach 를 쓴다.
-     attach 는 요소를 트랙에 등록해두므로 장치 변경이나 mute 로 내부
-     MediaStreamTrack 이 교체될 때 자동으로 다시 붙는다. */
+  /* 영상 — 기기 점검에서는 LiveKit 래퍼 없이 native MediaStreamTrack 을 바로 붙인다. */
   useEffect(() => {
     const el = videoElRef.current;
     if (!videoTrack || !el) return;
 
-    videoTrack.attach(el);
-    // 인자를 주지 않으면 다른 곳의 부착까지 전부 떼어낸다.
-    return () => void videoTrack.detach(el);
+    el.srcObject = new MediaStream([videoTrack]);
+    return () => {
+      el.srcObject = null;
+    };
   }, [videoTrack]);
 
   /* 마이크 레벨 — 값을 상태나 스토어에 넣지 않는다.
@@ -49,25 +47,32 @@ export function LocalPreview({ videoTrack, audioTrack, className }: LocalPreview
     const bar = barElRef.current;
     if (!audioTrack || !bar) return;
 
-    const { calculateVolume, analyser, cleanup } = createAudioAnalyser(audioTrack, {
-      // 클론하면 우리가 stop 책임을 하나 더 지게 된다. 원본을 그대로 읽는다.
-      cloneTrack: false,
-      fftSize: 1024,
-      smoothingTimeConstant: 0.8,
-      // 기본 창(-100 ~ -80dB)은 좁아서 말하면 늘 최대치로 포화된다. 미터용으로 넓힌다.
-      minDecibels: -80,
-      maxDecibels: -20,
-    });
+    const AudioContextConstructor =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) return;
+
+    const ctx = new AudioContextConstructor();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.8;
+    analyser.minDecibels = -80;
+    analyser.maxDecibels = -20;
+    const source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
+    source.connect(analyser);
 
     // 사용자 제스처 없이 만든 컨텍스트는 suspended 로 시작할 수 있다.
-    const ctx = analyser.context;
-    if (ctx.state === 'suspended' && ctx instanceof AudioContext) void ctx.resume();
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
 
     let raf = 0;
     let stopped = false;
+    const levels = new Uint8Array(analyser.frequencyBinCount);
     const loop = () => {
       if (stopped) return;
-      bar.style.transform = `scaleX(${Math.min(1, calculateVolume() * 1.6)})`;
+      analyser.getByteFrequencyData(levels);
+      const sum = levels.reduce((acc, level) => acc + level, 0);
+      const volume = sum / levels.length / 255;
+      bar.style.transform = `scaleX(${Math.min(1, volume * 2.8)})`;
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -75,7 +80,8 @@ export function LocalPreview({ videoTrack, audioTrack, className }: LocalPreview
     return () => {
       stopped = true;
       cancelAnimationFrame(raf);
-      void cleanup();
+      source.disconnect();
+      void ctx.close();
     };
   }, [audioTrack]);
 
@@ -94,15 +100,15 @@ export function LocalPreview({ videoTrack, audioTrack, className }: LocalPreview
 
       {!videoTrack && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <p className="text-[13px] text-white/50">카메라 꺼짐</p>
+          <p className="text-ink-dim text-[13px]">카메라 꺼짐</p>
         </div>
       )}
 
       {audioTrack && (
-        <div aria-hidden className="absolute inset-x-1.5 bottom-1.5 h-1 rounded bg-white/20">
+        <div aria-hidden className="absolute inset-x-1.5 bottom-1.5 h-1 rounded-full bg-white/25">
           <span
             ref={barElRef}
-            className="block h-full origin-left rounded bg-[#5FD6A5]"
+            className="block h-full origin-left rounded-full bg-emerald-400"
             style={{ transform: 'scaleX(0)' }}
           />
         </div>
