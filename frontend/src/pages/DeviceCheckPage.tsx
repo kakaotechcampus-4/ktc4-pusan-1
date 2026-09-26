@@ -9,9 +9,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { LocalPreview } from '../components/interview/LocalPreview';
 import { usePermissionCheck, type PermissionStatus } from '../hooks/usePermissionCheck';
 import { prepareLiveKitConnection, preloadLiveKit } from '../lib/livekit';
+import { DeviceCheckSurface } from './DeviceCheckSurface';
 
 /** 상태별 안내. 사용자가 다음에 뭘 해야 하는지까지 적는다. */
 const GUIDE: Record<Exclude<PermissionStatus, 'granted'>, { title: string; detail: string }> = {
@@ -21,20 +21,19 @@ const GUIDE: Record<Exclude<PermissionStatus, 'granted'>, { title: string; detai
   },
   denied: {
     title: '카메라·마이크 권한이 거부되었습니다',
-    detail:
-      '주소창 왼쪽의 자물쇠 아이콘을 눌러 카메라와 마이크를 허용으로 바꾼 뒤, 이 페이지를 새로고침해주세요.',
+    detail: '주소창 왼쪽의 자물쇠 아이콘에서 카메라와 마이크를 허용한 뒤 기기 재점검을 눌러주세요.',
   },
   'not-found': {
     title: '카메라 또는 마이크를 찾을 수 없습니다',
-    detail: '기기가 연결되어 있는지 확인한 뒤 새로고침해주세요.',
+    detail: '기기를 연결한 뒤 기기 재점검을 눌러주세요.',
   },
   'in-use': {
     title: '다른 프로그램이 카메라를 사용 중입니다',
-    detail: '화상회의 앱이나 다른 탭을 닫은 뒤 새로고침해주세요.',
+    detail: '화상회의 앱이나 다른 탭을 닫은 뒤 기기 재점검을 눌러주세요.',
   },
   failed: {
     title: '기기를 준비하지 못했습니다',
-    detail: '새로고침 후에도 같은 문제가 생기면 다른 브라우저로 시도해주세요.',
+    detail: '기기 재점검 후에도 같은 문제가 생기면 다른 브라우저로 시도해주세요.',
   },
 };
 
@@ -52,8 +51,9 @@ export interface DeviceCheckPageProps {
 }
 
 export default function DeviceCheckPage({ livekitConnection, onReady }: DeviceCheckPageProps) {
-  const { status, videoTrack, audioTrack, errorName, release } = usePermissionCheck();
+  const { status, videoTrack, audioTrack, errorName, release, retry } = usePermissionCheck();
   const [starting, setStarting] = useState(false);
+  const [soundNotice, setSoundNotice] = useState('');
   const guide = status === 'granted' ? null : GUIDE[status];
 
   const warmLiveKit = useCallback(() => {
@@ -75,45 +75,41 @@ export default function DeviceCheckPage({ livekitConnection, onReady }: DeviceCh
     onReady({ videoTrack, audioTrack, release });
   };
 
+  const playSoundTest = async () => {
+    try {
+      const context = new AudioContext();
+      await context.resume();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = 660;
+      gain.gain.value = 0.06;
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.onended = () => void context.close();
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.3);
+      setSoundNotice('소리가 들리면 출력 장치가 연결된 상태입니다.');
+    } catch {
+      setSoundNotice('소리를 재생하지 못했습니다. 브라우저의 출력 장치를 확인해주세요.');
+    }
+  };
+
   return (
-    <div className="flex min-h-full items-center justify-center bg-[#0B0E14] p-8">
-      <div className="w-full max-w-md">
-        <h1 className="text-2xl font-semibold text-white">기기 점검</h1>
-        <p className="mt-2 text-[15px] text-white/60">
-          입장 전에 카메라와 마이크가 정상인지 확인합니다.
-        </p>
-
-        <LocalPreview
-          videoTrack={videoTrack}
-          audioTrack={audioTrack}
-          className="mt-6 aspect-video w-full rounded-xl"
-        />
-
-        {guide && (
-          <div aria-live="polite" className="mt-5">
-            <p className="text-[15px] font-medium text-[#FFC46B]">{guide.title}</p>
-            <p className="mt-1.5 text-sm leading-relaxed text-white/55">{guide.detail}</p>
-            {errorName && <p className="mt-2 font-mono text-[12px] text-white/25">{errorName}</p>}
-          </div>
-        )}
-
-        {status === 'granted' && (
-          <p className="mt-5 text-[15px] text-[#5FD6A5]">
-            카메라와 마이크가 준비되었습니다. 말해보면 아래 막대가 움직입니다.
-          </p>
-        )}
-
-        <button
-          type="button"
-          onMouseEnter={warmLiveKit}
-          onFocus={warmLiveKit}
-          onClick={handleStart}
-          disabled={status !== 'granted' || starting}
-          className="mt-6 w-full rounded-lg bg-[#2B44D6] py-3.5 text-[15px] font-medium text-white transition hover:bg-[#243AB8] disabled:bg-white/10 disabled:text-white/35"
-        >
-          {starting ? '면접방 연결 중' : '면접 시작하기'}
-        </button>
-      </div>
-    </div>
+    <DeviceCheckSurface
+      status={status}
+      videoTrack={videoTrack}
+      audioTrack={audioTrack}
+      errorName={errorName}
+      guide={guide}
+      starting={starting}
+      soundNotice={soundNotice}
+      onSoundTest={() => void playSoundTest()}
+      onRetry={() => {
+        setSoundNotice('');
+        retry();
+      }}
+      onStart={handleStart}
+      onPreload={warmLiveKit}
+    />
   );
 }

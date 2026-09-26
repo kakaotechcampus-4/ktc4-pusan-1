@@ -53,6 +53,7 @@ export interface PermissionCheckResult {
    * 아무도 stop 하지 않아 카메라가 켜진 채로 남는다.
    */
   release: () => void;
+  retry: () => void;
 }
 
 /** DOMException 을 화면이 구분할 수 있는 상태로 바꾼다. */
@@ -85,6 +86,7 @@ export function usePermissionCheck(): PermissionCheckResult {
   // 상태를 한 덩어리로 두고 한 번에 set 한다. 나눠 두면 트랙은 있는데
   // status 는 아직 requesting 인 중간 렌더가 생긴다.
   const [state, setState] = useState(INITIAL);
+  const [attempt, setAttempt] = useState(0);
 
   /** cleanup 이 stop 해야 할 실제 트랙 목록 */
   const tracksRef = useRef<MediaStreamTrack[]>([]);
@@ -132,11 +134,17 @@ export function usePermissionCheck(): PermissionCheckResult {
       if (!releasedRef.current) tracksRef.current.forEach((track) => track.stop());
       tracksRef.current = [];
     };
-  }, []);
+  }, [attempt]);
 
   const release = useCallback(() => {
     releasedRef.current = true;
   }, []);
 
-  return { ...state, release };
+  const retry = useCallback(() => {
+    if (releasedRef.current) return;
+    setState(INITIAL);
+    setAttempt((current) => current + 1);
+  }, []);
+
+  return { ...state, release, retry };
 }

@@ -11,7 +11,7 @@
  */
 
 import { useMutation } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { joinSession, toJoinFailure } from '../api/interview';
 import type { JoinFailure, JoinSessionResponse, Role } from '../types/interview';
 
@@ -62,6 +62,9 @@ export default function JoinPage({ role, onJoined }: JoinPageProps) {
   return (
     <div className="flex min-h-full items-center justify-center bg-[#0B0E14] p-8">
       <div className="w-full max-w-md">
+        <Link to="/" className="mb-6 inline-flex text-sm text-white/55 hover:text-white">
+          ← 처음으로
+        </Link>
         <h1 className="text-2xl font-semibold text-white">면접 입장</h1>
         <p className="mt-2 text-[15px] leading-relaxed text-white/60">
           입장하면 카메라와 마이크 사용 권한을 요청합니다.
