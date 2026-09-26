@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "배포할 ref (브랜치·태그·커밋)"
+        description: "배포할 ref (브랜치·태그)"
         required: false
         default: develop
 
@@ -57,12 +57,29 @@ jobs:
 
           # 22번 포트를 열지 않으므로 SSH 가 아니라 SSM 으로 넣는다.
           # SSM 은 root 로 실행한다. 레포와 docker 는 ubuntu 소유라 넘겨준다.
+          #
+          # 레포 안의 deploy.sh 를 직접 부르지 않고, 배포할 ref 에서 꺼내
+          # /tmp 에 쓴 뒤 그 파일을 돌린다. 이유가 둘이다.
+          #   - 서버에 파일이 없으면 CD 가 통째로 죽는다. 첫 실행이
+          #     `No such file or directory` (exit 127) 로 끝났다. 스크립트를
+          #     서버에 가져다주는 게 그 스크립트 자신이라 서로를 기다렸다.
+          #   - 스크립트 안의 checkout 이 레포의 deploy.sh 를 갈아끼운다.
+          #     실행 중인 파일이 바뀌면 bash 가 남은 줄을 엉뚱하게 읽는다.
+          #
+          # ⚠️ **파이프(`| bash -s`)로 넣으면 안 된다.** 스크립트 안에서
+          #    stdin 을 읽는 명령(`docker compose exec` 등)이 파이프에 남은
+          #    스크립트를 통째로 먹어서, 그 아래 줄이 전부 실행되지 않고 bash 가
+          #    EOF 로 exit 0 을 낸다. 헬스 체크가 건너뛰어진 채 CD 가 성공으로
+          #    보고된다. 재현 확인함.
+          #
+          # /tmp 에 고정 이름을 쓴다. 위 `concurrency: cd-server` 가 배포를
+          # 직렬화하므로 겹치지 않는다.
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "CD ${GITHUB_SHA::7}" \
             --timeout-seconds 600 \
-            --parameters "commands=[\"sudo -u ubuntu bash -lc 'bash ~/ktc4-pusan-1/infra/deploy.sh $REF'\"],executionTimeout=[\"900\"]" \
+            --parameters "commands=[\"sudo -u ubuntu bash -lc 'cd ~/ktc4-pusan-1 && git fetch --quiet origin $REF && git show origin/$REF:infra/deploy.sh > /tmp/irya-deploy.sh && bash /tmp/irya-deploy.sh $REF'\"],executionTimeout=[\"900\"]" \
             --query 'Command.CommandId' --output text)
 
           echo "CommandId: $CMD_ID"
