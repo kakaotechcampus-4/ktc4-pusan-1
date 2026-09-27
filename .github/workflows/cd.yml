@@ -15,10 +15,15 @@ on:
       - "infra/**"
       - ".github/workflows/cd.yml"
   # 첫 실행과 롤백용. 기본 브랜치가 develop 이라 Actions 탭에 버튼이 뜬다.
+  #
+  # 브랜치만 받는다. deploy.sh 가 `origin/<ref>` 로 체크아웃하는데, 원격 추적
+  # ref 는 브랜치에만 생긴다 — 태그는 refs/tags 로, 커밋 SHA 는 FETCH_HEAD 로만
+  # 들어와 `origin/<ref>` 가 풀리지 않는다. 롤백은 되돌릴 커밋을 브랜치로
+  # push 한 뒤 그 이름을 넣는다.
   workflow_dispatch:
     inputs:
       ref:
-        description: "배포할 ref (브랜치·태그)"
+        description: "배포할 ref (브랜치만 — origin/<ref> 로 체크아웃한다)"
         required: false
         default: develop
 

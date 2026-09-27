@@ -3,19 +3,24 @@
 # 서버에서 도는 배포 스크립트.
 #
 #   cd ~/ktc4-pusan-1 && git fetch origin develop \
-#     && git show origin/develop:infra/deploy.sh | bash -s develop
+#     && git show origin/develop:infra/deploy.sh > /tmp/irya-deploy.sh \
+#     && bash /tmp/irya-deploy.sh develop
 #
 # CD 워크플로가 SSM 으로 이 형태를 그대로 부르고, 손으로도 같은 명령을 돌릴 수
 # 있다. 배포 절차를 워크플로 YAML 안에 늘어놓지 않는 이유가 그거다 — 손으로
 # 재현할 수 없는 배포는 실패했을 때 원인을 못 가린다.
 #
 # 디스크의 파일(`bash infra/deploy.sh develop`)이 아니라 배포할 ref 에서 꺼내
-# 파이프로 넣는 이유는 둘이다. 서버에 파일이 없어도 돌아야 하고 (첫 CD 가
-# 그래서 exit 127 로 죽었다), 아래 checkout 이 실행 중인 스크립트 파일을
-# 갈아끼우면 bash 가 남은 줄을 엉뚱하게 읽는다.
+# 쓰는 이유는 둘이다. 서버에 파일이 없어도 돌아야 하고 (첫 CD 가 그래서
+# exit 127 로 죽었다), 아래 checkout 이 실행 중인 스크립트 파일을 갈아끼우면
+# bash 가 남은 줄을 엉뚱하게 읽는다.
+#
+# ⚠️ 파이프(`| bash -s`)로 넣지 않는다. 스크립트 안에서 stdin 을 읽는 명령이
+#    파이프에 남은 줄을 통째로 먹어서, 나머지가 실행되지 않은 채 bash 가
+#    exit 0 을 낸다. 자세한 것은 .github/workflows/cd.yml 주석 참고.
 #
 # ⚠️ SSM 은 root 로 실행한다. 레포와 docker 는 ubuntu 소유라 sudo -u ubuntu 로
-#    넘겨서 부른다 (아래 CD 워크플로 참고).
+#    넘겨서 부른다 (.github/workflows/cd.yml 참고).
 
 set -euo pipefail
 
@@ -92,13 +97,15 @@ if [ "$COMPOSE_CHANGED" -gt 0 ]; then
 fi
 
 if [ "$LK_CONFIG_CHANGED" -gt 0 ]; then
-	cat <<-'WARN'
+	# 따옴표를 뺀 heredoc 이다 — 아래 $INFRA 를 치환하기 위해서다. 경로를 박으면
+	# 레포를 옮겼을 때 안내문만 옛 경로를 가리킨다. 이 블록에 다른 $ 는 없다.
+	cat <<-WARN
 
 		  ⚠️  infra/livekit/ 설정이 바뀌었는데 이 스크립트는 반영하지 않습니다.
 		      LiveKit 재시작은 진행 중인 통화를 끊으므로 일부러 자동화하지 않았습니다.
 		      통화가 없을 때 아래를 직접 실행하세요.
 
-		        cd ~/ktc4-pusan-1/infra && docker compose restart livekit
+		        cd $INFRA && docker compose restart livekit
 	WARN
 fi
 
