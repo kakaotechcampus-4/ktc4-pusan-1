@@ -94,7 +94,14 @@ CD 가 부르는 것과 같은 형태입니다. **`./deploy.sh develop` 으로 �
 
 Actions 탭의 **CD → Run workflow** 에서 `ref` 에 되돌릴 **브랜치 이름**을 넣습니다. 기본 브랜치가 `develop` 이라 버튼이 보입니다.
 
-**커밋 SHA 와 태그는 받지 못합니다.** `deploy.sh` 가 `origin/<ref>` 로 체크아웃하는데 원격 추적 ref 는 브랜치에만 생깁니다 — 태그는 `refs/tags` 로, SHA 는 `FETCH_HEAD` 로만 들어옵니다. 되돌릴 커밋을 브랜치로 push 한 뒤 그 이름을 넣으세요.
+**커밋 SHA 와 태그는 받지 못합니다.** `deploy.sh` 가 `origin/<ref>` 로 체크아웃하는데, 원격 추적 ref(`refs/remotes/origin/*`)는 브랜치를 fetch 할 때만 생깁니다. 태그도 SHA 도 `FETCH_HEAD` 에만 기록됩니다.
+
+```
+$ git fetch origin v1
+ * tag  v1  -> FETCH_HEAD        ← refs/tags 에도 안 들어갑니다
+```
+
+되돌릴 커밋을 브랜치로 push 한 뒤 그 이름을 넣으세요.
 
 ```bash
 git branch rollback-0927 <커밋 SHA>
@@ -111,6 +118,24 @@ git show origin/rollback-0927:infra/deploy.sh > /tmp/irya-deploy.sh
 bash /tmp/irya-deploy.sh rollback-0927
 ```
 
+### ⚠️ 되돌릴 수 있는 범위
+
+**`#102` 이전 커밋으로는 롤백되지 않습니다.** 위 명령이 배포할 ref **에서** `deploy.sh` 를 꺼내 `/tmp` 에서 돌리는데, 그 시점의 스크립트는 경로를 `BASH_SOURCE` 로만 잡습니다. `/tmp` 에서 돌면 `REPO=/` 가 되어 `git fetch` 에서 죽습니다.
+
+```
+REPO=/
+fatal: not a git repository (or any of the parent directories): .git
+```
+
+「배포되는 코드와 배포 절차의 버전이 항상 같이 간다」는 성질의 뒷면입니다. 옛 코드로 돌아가면 옛 절차도 같이 돌아갑니다.
+
+당장 급하면 최신 스크립트에 옛 ref 를 넘기면 됩니다. Actions 버튼으로는 안 되고 서버에서만 됩니다.
+
+```bash
+git show origin/develop:infra/deploy.sh > /tmp/irya-deploy.sh
+bash /tmp/irya-deploy.sh rollback-0927
+```
+
 ## FE 는 CD 밖입니다
 
 `caddy` 가 호스트의 `/home/ubuntu/fe` 를 읽기 전용으로 마운트해 그대로 내보냅니다. **저장소에도 이미지에도 FE 빌드 결과가 들어 있지 않습니다** — 컨테이너가 보는 파일은 호스트 디렉터리입니다.
@@ -122,7 +147,7 @@ cd frontend && npm run build
 # dist/ 를 서버의 /home/ubuntu/fe 로 복사
 ```
 
-⚠️ `cd.yml` 의 `paths` 에 `frontend/**` 가 있어서 **FE 만 바뀐 push 도 CD 를 돌립니다.** 배포되는 것은 backend 쪽뿐이고 `/home/ubuntu/fe` 는 건드리지 않습니다. 초록불을 FE 가 올라갔다는 뜻으로 읽으면 안 됩니다.
+⚠️ `cd.yml` 의 `paths` 에 `frontend/**` 와 `ai/**` 가 있어서 **그쪽만 바뀐 push 도 CD 를 돌립니다.** 그런데 compose 에는 `caddy` · `backend` · `db` · `livekit` 넷뿐이라 FE 도 AI 도 배포되지 않습니다. 초록불을 「올라갔다」로 읽으면 안 됩니다.
 
 ## 비밀
 
