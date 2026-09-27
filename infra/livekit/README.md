@@ -2,7 +2,7 @@
 
 LiveKit Cloud 대신 **기존 AWS EC2 한 대**에 LiveKit Server 를 직접 띄운다.
 이 디렉터리는 **LiveKit Server 자체의 설정과 실행 요구사항**만 담는다.
-Dockerfile / docker-compose.yml / Caddyfile 은 배포 담당자 몫이라 여기 없다.
+compose · Caddy · 배포 절차는 [`../README.md`](../README.md) 에 있다.
 
 ## 1. LiveKit Server 의 역할
 
@@ -36,11 +36,11 @@ SG 도 같은 범위로 맞춘다.
 들어 있지 않은 것과 그 이유:
 
 - **`keys`** — 실제 값을 파일에 적지 않는다. 아래 §3 참고.
-- **`redis`** — 단일 노드는 필요 없다. 노드를 2대 이상으로 늘릴 때 추가한다.
+- **`redis`** — 단일 노드는 필요 없다. 노드를 2대 이상으로 늘릴 때, 그리고 Egress 를 붙일 때 추가한다.
 - **`turn`** — 이번 Issue 범위에서 구현하지 않는다. 아래 "연결 경로와 한계" 참조.
 - **`room`** 기본값 — 정원(`max_participants: 2`)은 BE 가 `CreateRoom` 으로 방마다 지정한다.
   서버 기본값에 중복으로 박으면 두 군데가 갈라진다.
-- **Egress / Recording** — 이번 범위 밖.
+- **Egress / Recording** — 아직 없다. #112 에서 다룬다.
 
 ### 연결 경로와 한계 (TURN 미구성)
 
@@ -134,7 +134,7 @@ docker run --rm livekit/livekit-server generate-keys
 
 Caddy 에 필요한 건 **①뿐**이다. WebSocket 업그레이드는 Caddy 의 `reverse_proxy` 가 기본 처리하므로 별도 지시어가 없다.
 
-## 6. Docker / Caddy 담당자에게 전달할 값
+## 6. 실제 배포 구성
 
 **이미지**
 
@@ -161,45 +161,63 @@ livekit/livekit-server:v1.13.6
 | `7882/UDP` | 외부(클라이언트)에서 인스턴스로 직접 도달 |
 | `7880/TCP` | Caddy 에서만 도달. 외부 노출 불필요 |
 
-- LiveKit **공식 production 문서는 Docker 배포 시 host networking(`network_mode: host`)을 권장**한다.
-  UDP 포트 매핑 오버헤드가 없고, 미디어 포트 범위를 넓힐 때도 설정이 따라오지 않는다.
-- port publishing(`7881:7881/tcp`, `7882:7882/udp`) 방식도 가능하다. 이 경우
-  **호스트/컨테이너 포트 번호를 동일하게** 맞춰야 한다 — LiveKit 이 광고하는 ICE 후보 포트는
-  컨테이너 내부 포트라서, 번호가 다르면 클라이언트가 엉뚱한 포트로 붙는다.
-- host networking 을 쓰면 `7880` 도 호스트에 열리므로, **Security Group 에서 7880 을 막아
-  외부 접근을 차단**한다 (§4). Caddy 는 `localhost:7880` 으로 프록시한다.
-- 어느 쪽이든 위 표의 접근 조건만 만족하면 된다. **이번 Issue 에서는 `docker-compose.yml` 을 직접 만들거나 수정하지 않는다.**
+**port publishing 으로 갔다.** LiveKit 공식 production 문서는 host networking(`network_mode: host`)을
+권장하지만, 우리는 `infra/docker-compose.yml` 에서 포트를 따로 연다.
 
-**Caddy 에 필요한 것**
+```yaml
+ports:
+  - "7881:7881"      # ICE/TCP 폴백
+  - "7882:7882/udp"  # 미디어
+```
 
-- LiveKit 용 도메인(예: `livekit.<도메인>`) 또는 기존 도메인의 경로 하나
-- 해당 도메인 → `reverse_proxy` 로 LiveKit 의 `7880` 에 연결 (bridge 네트워크면 `livekit:7880`, host networking 이면 `localhost:7880`). WebSocket 업그레이드는 기본 동작
-- `POST /twirp/...`(RoomService API)와 `GET /rtc`(signaling)가 같은 7880 으로 간다. **경로를 쪼개지 말 것.**
+- **호스트와 컨테이너의 포트 번호를 같게** 맞춘다. LiveKit 이 광고하는 ICE 후보 포트는
+  컨테이너 내부 포트라서, 번호가 다르면 클라이언트가 엉뚱한 곳으로 붙는다.
+- `7880` 은 퍼블리싱하지 않는다. Caddy 가 같은 compose 네트워크에서 `livekit:7880` 으로
+  부르므로 호스트에 열 이유가 없다. host networking 이었다면 호스트에 열려서 SG 로 막아야 했다.
+
+**Caddy**
+
+서브도메인을 따로 두지 않는다. **기존 도메인의 경로 하나(`/rtc*`)로 간다.**
+
+```caddy
+handle /rtc* {
+	reverse_proxy livekit:7880
+}
+```
+
+- SDK 가 쓰는 경로는 `/rtc/v1` 과 `/rtc/v1/validate` 라 `/rtc` 만 매칭하면 놓친다. `/rtc*` 여야 한다.
+- WebSocket 업그레이드는 `reverse_proxy` 의 기본 동작이라 따로 적을 것이 없다.
+- **`/twirp` 는 일부러 열지 않는다.** RoomService 관리 API 라 프록시하면 방 생성·강제퇴장이
+  인터넷에 노출된다. BE 는 같은 compose 네트워크에서 `LIVEKIT_INTERNAL_URL` 로 직접 부르므로
+  밖으로 낼 이유가 없다.
 - 7881/7882 는 Caddy 설정에 넣지 않는다 (§5 참조)
 
 **DNS**
 
-- `livekit.<도메인>` A 레코드 → EC2 Elastic IP
+- `irya.cloud` A 레코드 → EC2 Elastic IP. LiveKit 전용 레코드는 없다
 
 **BE 컨테이너에 넣을 값** (§7)
 
 ## 7. Backend 가 최종적으로 필요로 하는 값
 
-`backend/app/core/config.py` 의 `Settings` 가 읽는 세 개가 전부다.
-현재 코드와 대조해 확인했고 **추가로 필요한 설정은 없다.**
+`backend/app/core/config.py` 의 `Settings` 가 읽는 네 개다.
 
 ```dotenv
-LIVEKIT_URL=wss://livekit.<도메인>
+LIVEKIT_URL=wss://irya.cloud
 LIVEKIT_API_KEY=<LIVEKIT_KEYS 의 키>
 LIVEKIT_API_SECRET=<LIVEKIT_KEYS 의 시크릿>
+LIVEKIT_INTERNAL_URL=http://livekit:7880
 ```
 
 - **`wss://` 스킴 그대로** 넣는다. BE 는 이 값을 두 군데에 쓴다.
   - FE 응답(`JoinResponse.livekitUrl`) — 브라우저가 붙을 주소라 `wss://` 여야 한다.
   - RoomService 호출 — `media.py` 가 `wss://` → `https://` 로 바꿔서 부른다.
-- 포트를 붙이지 않는다. `wss://livekit.<도메인>:7880` 이 아니라 **443(기본)** 이다.
+- 포트를 붙이지 않는다. `wss://irya.cloud:7880` 이 아니라 **443(기본)** 이다.
 - `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` 은 LiveKit 컨테이너의 `LIVEKIT_KEYS` 와 **같은 쌍**이어야 한다. 다르면 토큰 서명 검증이 깨져 입장이 401 난다.
-- AI 파트도 같은 세 값을 쓴다 (`ai/.env.example`).
+- **`LIVEKIT_INTERNAL_URL` 은 BE 가 RoomService 를 부를 때만 쓴다.** 비우면 `LIVEKIT_URL` 로
+  떨어지는데, 그러면 관리 API 호출이 Caddy 를 한 바퀴 돌고 `/twirp` 가 막혀 있어 실패한다.
+  compose 가 `http://livekit:7880` 을 기본값으로 넣어 준다.
+- AI 파트도 앞의 세 값을 쓴다 (`ai/.env.example`).
 
 ## 8. 로컬 실행 / 검증
 
@@ -256,15 +274,16 @@ LIVEKIT_KEYS="devkey: devsecret_local_only_0123456789abcdef" \
 
 - [ ] Security Group 인바운드에 **7882/UDP** 가 있는가 — 가장 흔한 누락이고, 증상은 "붙긴 붙는데 영상이 안 뜸"이다.
 - [ ] **7881/TCP** 가 열려 있는가 — 없으면 UDP 막힌 망의 사용자만 골라서 실패한다.
-- [ ] **7880 은 SG 에서 닫혀 있는가** — host networking 을 쓰면 호스트에 열리므로 SG 로 막아야 한다. 열려 있으면 평문 ws 로 토큰이 오간다.
-- [ ] `livekit.<도메인>` DNS 가 EIP 를 가리키는가 — Caddy 인증서 발급 선행 조건.
+- [ ] **7880 이 퍼블리싱되지 않았는가** — compose 의 `ports` 에 7880 이 없어야 한다. 열려 있으면 평문 ws 로 토큰이 오간다.
+- [ ] `irya.cloud` DNS 가 EIP 를 가리키는가 — Caddy 인증서 발급 선행 조건.
 - [ ] 서버 로그 기동 라인의 `nodeIP` 가 **EIP(공인)** 인가, 사설 IP(`172.x` / `10.x`)가 아닌가.
       사설이면 `use_external_ip` 가 STUN 탐지에 실패한 것이니 `NODE_IP=<EIP>` 를 주입한다.
 - [ ] BE 의 `LIVEKIT_API_KEY/SECRET` 이 LiveKit 의 `LIVEKIT_KEYS` 와 동일한 쌍인가.
 - [ ] BE 의 `LIVEKIT_URL` 이 `wss://` 이고 포트가 붙어 있지 않은가.
 - [ ] FE `CORS_ORIGINS` 에 실제 서비스 도메인이 들어갔는가 (BE 설정).
-- [ ] docker 를 bridge 네트워크로 쓴다면 포트 매핑이 `7881:7881/tcp`, `7882:7882/udp` 로 **같은 번호**인가.
+- [ ] 포트 매핑이 `7881:7881`, `7882:7882/udp` 로 **같은 번호**인가.
       번호가 다르면 LiveKit 이 광고하는 ICE 후보 포트와 실제 포트가 어긋나 연결이 실패한다.
+- [ ] Caddy 가 `/rtc*` 를 프록시하는가, 그리고 `/twirp` 는 열려 있지 않은가.
 - [ ] EC2 인스턴스 타입 — 미디어 중계는 CPU/네트워크를 먹는다. FE·BE·AI(STT)와 한 대를 공유하므로
       동시 면접 수가 늘면 여기부터 병목이 온다. t3.micro 급이면 2~3 세션에서 한계다.
 
