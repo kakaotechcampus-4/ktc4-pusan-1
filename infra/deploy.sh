@@ -22,12 +22,20 @@ set -euo pipefail
 REF="${1:-develop}"
 # 경로는 스크립트 위치에서 끌어낸다 — 홈 디렉터리 이름을 박아 두면 레포를
 # 옮기거나 다른 사용자로 돌릴 때 조용히 엉뚱한 곳을 본다.
-# stdin 으로 흘려 넣으면(`ssh host bash -s < deploy.sh`) BASH_SOURCE 가 비므로
-# 그때는 REPO_DIR 이나 기본 경로로 떨어진다.
+#
+# 다만 이 스크립트는 **레포 밖에서** 실행된다. CD 가 배포할 ref 에서 꺼내
+# /tmp 에 쓴 뒤 그 파일을 돌리기 때문이다. 그때 위 계산은 INFRA=/tmp,
+# REPO=/ 를 잡고 바로 아래 git fetch 가 "not a git repository" 로 죽는다.
+#
+# 그래서 끌어낸 경로가 정말 레포인지 확인하고, 아니면 REPO_DIR 이나 기본
+# 경로로 떨어진다. stdin 으로 흘려 넣어 BASH_SOURCE 가 빌 때도 같은 자리다.
 if [ -f "${BASH_SOURCE[0]:-}" ]; then
 	INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 	REPO="$(dirname "$INFRA")"
-else
+fi
+# `-d .git` 이 아니라 rev-parse 로 본다 — 워크트리나 submodule 에서는 `.git`
+# 이 디렉터리가 아니라 파일이라, 멀쩡한 레포를 아니라고 판정한다.
+if ! git -C "${REPO:-/nonexistent}" rev-parse --git-dir >/dev/null 2>&1; then
 	REPO="${REPO_DIR:-$HOME/ktc4-pusan-1}"
 	INFRA="$REPO/infra"
 fi
