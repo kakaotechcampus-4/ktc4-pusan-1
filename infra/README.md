@@ -147,7 +147,15 @@ cd frontend && npm run build
 # dist/ 를 서버의 /home/ubuntu/fe 로 복사
 ```
 
-⚠️ `cd.yml` 의 `paths` 에 `frontend/**` 와 `ai/**` 가 있어서 **그쪽만 바뀐 push 도 CD 를 돌립니다.** 그런데 compose 에는 `caddy` · `backend` · `db` · `livekit` 넷뿐이라 FE 도 AI 도 배포되지 않습니다. 초록불을 「올라갔다」로 읽으면 안 됩니다.
+⚠️ `cd.yml` 의 `paths` 에 `frontend/**` 와 `ai/**` 가 있어서 **그쪽만 바뀐 push 도 CD 를 돌립니다.** 그런데 둘 다 올라가지 않습니다 — 이유는 서로 다릅니다.
+
+```
+FE   caddy 가 서빙하지만 내용물이 /home/ubuntu/fe 라는 호스트 디렉터리에 있고,
+     deploy.sh 는 거기를 건드리지 않습니다.
+AI   compose 에 ai 서비스가 아직 없습니다 (#84).
+```
+
+초록불을 「올라갔다」로 읽으면 안 됩니다.
 
 ## 비밀
 
