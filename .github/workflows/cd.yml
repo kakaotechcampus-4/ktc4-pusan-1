@@ -17,9 +17,13 @@ on:
   # 첫 실행과 롤백용. 기본 브랜치가 develop 이라 Actions 탭에 버튼이 뜬다.
   #
   # 브랜치만 받는다. deploy.sh 가 `origin/<ref>` 로 체크아웃하는데, 원격 추적
-  # ref 는 브랜치에만 생긴다 — 태그는 refs/tags 로, 커밋 SHA 는 FETCH_HEAD 로만
-  # 들어와 `origin/<ref>` 가 풀리지 않는다. 롤백은 되돌릴 커밋을 브랜치로
-  # push 한 뒤 그 이름을 넣는다.
+  # ref(`refs/remotes/origin/*`)는 브랜치를 fetch 할 때만 생긴다. 태그도 커밋
+  # SHA 도 FETCH_HEAD 에만 기록되므로 `origin/<ref>` 가 풀리지 않는다.
+  # 롤백은 되돌릴 커밋을 브랜치로 push 한 뒤 그 이름을 넣는다.
+  #
+  # ⚠️ 이 PR 이전 커밋으로는 롤백이 되지 않는다. 아래 SSM 명령이 **배포할 ref
+  #    에서** deploy.sh 를 꺼내 /tmp 에서 돌리는데, 옛 스크립트는 경로를
+  #    BASH_SOURCE 로만 잡아 REPO=/ 가 되고 git fetch 에서 죽는다.
   workflow_dispatch:
     inputs:
       ref:
