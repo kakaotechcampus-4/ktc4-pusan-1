@@ -29,7 +29,7 @@ EC2 한 대에 컨테이너 넷입니다.
      └─────────┘
 ```
 
-밖에서 닿는 포트는 `80` · `443` · `7881/tcp` · `7882/udp` 뿐입니다. `backend:8000` · `livekit:7880` · `db:5432` 는 퍼블리싱하지 않고 compose 네트워크 안에서 서비스 이름으로만 부릅니다.
+밖에서 닿는 포트는 `80` · `443/tcp` · `443/udp`(HTTP/3) · `7881/tcp` · `7882/udp` 뿐입니다. `backend:8000` · `livekit:7880` · `db:5432` 는 퍼블리싱하지 않고 compose 네트워크 안에서 서비스 이름으로만 부릅니다.
 
 ## 배포가 도는 방식
 
@@ -82,26 +82,38 @@ docker inspect irya-backend --format '{{index .Config.Labels "org.opencontainers
 ## 손으로 배포하기
 
 ```bash
-cd ~/ktc4-pusan-1/infra
-./deploy.sh develop
+cd ~/ktc4-pusan-1
+git fetch origin develop
+git show origin/develop:infra/deploy.sh > /tmp/irya-deploy.sh
+bash /tmp/irya-deploy.sh develop
 ```
 
-CD 가 부르는 것과 같은 명령입니다.
+CD 가 부르는 것과 같은 형태입니다. **`./deploy.sh develop` 으로 디스크의 파일을 직접 돌리지 마세요.** 스크립트 안의 `checkout` 이 실행 중인 그 파일을 갈아끼웁니다. 파이프(`| bash -s`)도 안 됩니다 — 안쪽에서 stdin 을 읽는 명령이 남은 줄을 먹어서, 뒷부분이 실행되지 않은 채 종료 코드 0 이 나갑니다.
 
 ## 롤백
 
-Actions 탭의 **CD → Run workflow** 에서 `ref` 에 되돌릴 커밋이나 태그를 넣습니다. 기본 브랜치가 `develop` 이라 버튼이 보입니다.
+Actions 탭의 **CD → Run workflow** 에서 `ref` 에 되돌릴 **브랜치 이름**을 넣습니다. 기본 브랜치가 `develop` 이라 버튼이 보입니다.
+
+**커밋 SHA 와 태그는 받지 못합니다.** `deploy.sh` 가 `origin/<ref>` 로 체크아웃하는데 원격 추적 ref 는 브랜치에만 생깁니다 — 태그는 `refs/tags` 로, SHA 는 `FETCH_HEAD` 로만 들어옵니다. 되돌릴 커밋을 브랜치로 push 한 뒤 그 이름을 넣으세요.
+
+```bash
+git branch rollback-0927 <커밋 SHA>
+git push origin rollback-0927
+# → Actions 탭에서 ref 에 rollback-0927
+```
 
 서버에서 직접 할 수도 있습니다.
 
 ```bash
-cd ~/ktc4-pusan-1/infra
-./deploy.sh <커밋 SHA>
+cd ~/ktc4-pusan-1
+git fetch origin rollback-0927
+git show origin/rollback-0927:infra/deploy.sh > /tmp/irya-deploy.sh
+bash /tmp/irya-deploy.sh rollback-0927
 ```
 
 ## FE 는 CD 밖입니다
 
-`caddy` 가 호스트의 `/home/ubuntu/fe` 를 읽기 전용으로 마운트해 그대로 내보냅니다. **저장소에도 컨테이너에도 FE 빌드 결과가 들어 있지 않습니다.**
+`caddy` 가 호스트의 `/home/ubuntu/fe` 를 읽기 전용으로 마운트해 그대로 내보냅니다. **저장소에도 이미지에도 FE 빌드 결과가 들어 있지 않습니다** — 컨테이너가 보는 파일은 호스트 디렉터리입니다.
 
 그래서 FE 를 고치면 손으로 올려야 합니다. 자동화는 #103 에서 다룹니다.
 
@@ -109,6 +121,8 @@ cd ~/ktc4-pusan-1/infra
 cd frontend && npm run build
 # dist/ 를 서버의 /home/ubuntu/fe 로 복사
 ```
+
+⚠️ `cd.yml` 의 `paths` 에 `frontend/**` 가 있어서 **FE 만 바뀐 push 도 CD 를 돌립니다.** 배포되는 것은 backend 쪽뿐이고 `/home/ubuntu/fe` 는 건드리지 않습니다. 초록불을 FE 가 올라갔다는 뜻으로 읽으면 안 됩니다.
 
 ## 비밀
 
@@ -122,9 +136,9 @@ cd frontend && npm run build
 
 ### Caddyfile 은 `up -d` 로 반영되지 않습니다
 
-단일 파일 바인드 마운트라, git 이 파일을 갈아끼우면 **inode 가 바뀌어 컨테이너의 마운트가 옛 파일에 남습니다.** compose 는 스펙이 안 바뀌었다고 판단해 컨테이너를 건드리지 않고, `caddy reload` 도 소용없습니다 — 컨테이너가 보는 파일 자체가 옛것입니다.
+단일 파일 바인드 마운트라, git 이 파일을 갈아끼우면 **inode 가 바뀌어 컨테이너의 마운트가 끊깁니다.** compose 는 스펙이 안 바뀌었다고 판단해 컨테이너를 건드리지 않고, `caddy reload` 도 소용없습니다 — 컨테이너가 보는 파일이 더 이상 디스크의 그 파일이 아닙니다.
 
-더 나쁜 경우는 파일이 아예 사라지는 것입니다.
+실제로 확인해 보면 컨테이너 안에서 파일이 아예 사라져 있습니다.
 
 ```
 cat: can't open '/etc/caddy/Caddyfile': No such file or directory
@@ -139,7 +153,7 @@ ondisk_config=$(sha256sum Caddyfile ...)
 
 `git diff` 로 판단하지 않는 이유는 재시도 구멍 때문입니다. 배포가 빌드에서 실패하면 HEAD 는 이미 움직여 있어서, 다시 돌릴 때 `git diff` 가 「안 바뀌었다」고 답합니다. 컨테이너 상태를 직접 보면 몇 번을 다시 돌려도 같은 답이 나옵니다.
 
-`exec` 에 `< /dev/null` 이 붙은 것도 이유가 있습니다. 붙이지 않으면 이 명령이 **스크립트의 남은 줄을 stdin 으로 먹습니다.**
+`exec` 에 `< /dev/null` 이 붙은 것도 이유가 있습니다. 이 스크립트를 **파이프로 실행하면** 붙이지 않은 `exec` 가 **남은 줄을 stdin 으로 먹습니다.** CD 는 파일로 실행하므로 해당하지 않지만, 손으로 파이프를 태우는 경우가 있어 여기서도 막아 둡니다.
 
 ### LiveKit 은 일부러 자동 재시작하지 않습니다
 
@@ -149,7 +163,7 @@ ondisk_config=$(sha256sum Caddyfile ...)
 cd ~/ktc4-pusan-1/infra && docker compose restart livekit
 ```
 
-`docker-compose.yml` 의 LiveKit **이미지 태그**가 바뀌면 이야기가 다릅니다. 그때는 `up -d` 가 자동으로 재생성하므로 통화가 끊깁니다. 이쪽도 `deploy.sh` 가 미리 경고합니다.
+`docker-compose.yml` 이 **어디든** 바뀌면 이야기가 다릅니다. `up -d` 가 바뀐 서비스를 재생성하므로, 거기에 livekit 이나 caddy 가 들어가면 통화가 끊깁니다. `deploy.sh` 는 이미지 태그만 보는 게 아니라 **파일이 바뀌었는지**만 보고 경고합니다.
 
 공인 IP 가 바뀐 뒤에도 재시작이 필요합니다. `use_external_ip` 는 **기동 때 한 번만** STUN 으로 탐지해서, 재시작 전까지 옛 IP 를 계속 광고합니다. 화면은 뜨는데 미디어만 안 붙는 증상이 납니다.
 
@@ -166,7 +180,7 @@ cd ~/ktc4-pusan-1/infra && docker compose restart livekit
 
 ### `/internal/v1` 은 Caddy 가 프록시하지 않습니다
 
-`Caddyfile` 이 여는 것은 `/rtc*` · `/api/*` · `/health` 뿐이고 나머지는 전부 FE 로 떨어집니다. 그래서 밖에서 `/internal/v1` 을 부르면 401 이 아니라 **FE 페이지가 돌아옵니다.**
+`Caddyfile` 이 여는 것은 `/rtc*` · `/api/*` · `/health` · `/docs*` · `/redoc*` · `/openapi.json` 뿐이고 나머지는 전부 FE 로 떨어집니다. 그래서 밖에서 `/internal/v1` 을 부르면 401 이 아니라 **FE 페이지가 돌아옵니다.**
 
 인터넷에 노출되지 않는다는 점에서는 의도한 그대로지만, 밖에서 인증을 확인할 수 없다는 뜻이기도 합니다. 같은 compose 네트워크 안에서만 검증됩니다.
 
