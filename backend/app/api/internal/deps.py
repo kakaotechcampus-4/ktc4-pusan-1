@@ -21,7 +21,7 @@ import secrets
 from fastapi import Header, WebSocket, status
 
 from app.core.config import settings
-from app.core.errors import ApiError
+from app.core.errors import ApiError, ErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,9 @@ def require_internal_auth(authorization: str = Header(default="")) -> None:
     # 무엇이 왔는지는 남기지 않는다 — 우리가 발급한 값이 아니라 신뢰할 수 없고,
     # 로그에 남기면 비밀이 로그로 새는 경로가 된다.
     logger.warning("internal API 인증 실패")
-    # `ErrorCode` 에는 인증용 값이 없다. 클라이언트용 API 가 아니라 공개 명세의
-    # 에러 코드 집합을 넓힐 이유가 없어, 여기서만 쓰는 문자열로 둔다.
-    raise ApiError("UNAUTHORIZED", status.HTTP_401_UNAUTHORIZED, "인증이 필요합니다.")
+    raise ApiError(
+        ErrorCode.UNAUTHORIZED, status.HTTP_401_UNAUTHORIZED, "인증이 필요합니다."
+    )
 
 
 async def websocket_authorized(websocket: WebSocket) -> bool:

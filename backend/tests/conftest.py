@@ -9,10 +9,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_media, get_store
+from app.api.deps import get_kakao, get_media, get_store
+from app.core.errors import ApiError
 from app.domain.models import Role
 from app.domain.store import InMemoryStore
 from app.main import app
+from app.services.kakao import KakaoProfile
 from app.services.media import IssuedToken
 
 
@@ -51,6 +53,32 @@ class FakeMedia:
         )
 
 
+class FakeKakao:
+    """카카오 대역. code 하나에 프로필 하나를 돌려준다.
+
+    `error` 를 채우면 그걸 던진다 — 실제 클라이언트가 카카오 실패를 바꿔 던지는
+    `ApiError` 와 같은 것을 넣는다.
+    """
+
+    def __init__(self) -> None:
+        self.profile = KakaoProfile(
+            kakao_id=4242, nickname="김면접", profile_image_url="https://k.kakao/p.jpg"
+        )
+        self.error: ApiError | None = None
+        self.codes: list[str] = []
+
+    def login(self, code: str) -> KakaoProfile:
+        self.codes.append(code)
+        if self.error is not None:
+            raise self.error
+        return self.profile
+
+
+@pytest.fixture
+def kakao() -> FakeKakao:
+    return FakeKakao()
+
+
 @pytest.fixture
 def media() -> FakeMedia:
     return FakeMedia()
@@ -63,9 +91,12 @@ def store() -> InMemoryStore:
 
 
 @pytest.fixture
-def client(media: FakeMedia, store: InMemoryStore) -> Iterator[TestClient]:
+def client(
+    media: FakeMedia, store: InMemoryStore, kakao: FakeKakao
+) -> Iterator[TestClient]:
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_media] = lambda: media
+    app.dependency_overrides[get_kakao] = lambda: kakao
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

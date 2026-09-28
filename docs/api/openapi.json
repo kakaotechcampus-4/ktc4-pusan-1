@@ -235,7 +235,10 @@
           "SESSION_NOT_FOUND",
           "SESSION_ENDED",
           "INVALID_SESSION_STATE",
-          "ROOM_FULL"
+          "ROOM_FULL",
+          "UNAUTHORIZED",
+          "KAKAO_AUTH_FAILED",
+          "KAKAO_UNAVAILABLE"
         ],
         "title": "ErrorCode",
         "type": "string"
@@ -389,6 +392,40 @@
           "roomName"
         ],
         "title": "JoinResponse",
+        "type": "object"
+      },
+      "KakaoLoginRequest": {
+        "properties": {
+          "code": {
+            "description": "카카오가 FE 콜백으로 넘겨 준 `code`. 한 번만 쓸 수 있다.",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "KakaoLoginRequest",
+        "type": "object"
+      },
+      "LoginResponse": {
+        "properties": {
+          "accessToken": {
+            "description": "이후 요청의 `Authorization: Bearer` 에 싣는다.",
+            "title": "Accesstoken",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserResponse"
+          }
+        },
+        "required": [
+          "accessToken",
+          "user"
+        ],
+        "title": "LoginResponse",
         "type": "object"
       },
       "ReviewProcessingResponse": {
@@ -657,6 +694,37 @@
         "title": "UpdateContextRequest",
         "type": "object"
       },
+      "UserResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "nickname": {
+            "description": "카카오 닉네임. 동의를 안 했으면 빈 문자열이다.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "profileImageUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profileimageurl"
+          }
+        },
+        "required": [
+          "id",
+          "nickname",
+          "profileImageUrl"
+        ],
+        "title": "UserResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -705,6 +773,121 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/kakao": {
+      "post": {
+        "description": "처음이면 가입, 이미 있으면 닉네임·프로필을 갱신하고 로그인한다.",
+        "operationId": "kakao_login_api_v1_auth_kakao_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KakaoLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "카카오가 code 를 거절함 (만료·재사용)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "카카오 서버에 닿지 못함. 재시도 가능"
+          }
+        },
+        "summary": "카카오 로그인",
+        "tags": [
+          "인증"
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "me_api_v1_auth_me_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "토큰이 없거나 만료·위조됨. 다시 로그인한다"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "내 정보",
+        "tags": [
+          "인증"
+        ]
+      }
+    },
     "/api/v1/contexts/current": {
       "get": {
         "description": "지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.\n\nFE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수\n있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어\ncontextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.\n\n**주인은 지금 하나뿐이다.** 조직도 로그인도 없어서 조직을 가릴 방법이 없다.\n로그인이 들어오면 토큰에서 주인을 정하게 되고, 이 라우트의 겉모습은 그대로다.\n\n없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가\n구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.",

@@ -33,6 +33,11 @@ class ErrorCode(StrEnum):
     INVALID_SESSION_STATE = "INVALID_SESSION_STATE"
     ROOM_FULL = "ROOM_FULL"
 
+    # 인증
+    UNAUTHORIZED = "UNAUTHORIZED"
+    KAKAO_AUTH_FAILED = "KAKAO_AUTH_FAILED"
+    KAKAO_UNAVAILABLE = "KAKAO_UNAVAILABLE"
+
 
 class ApiError(Exception):
     """도메인 실패. 라우터에서 raise 하면 아래 핸들러가 규격 응답으로 바꾼다."""
