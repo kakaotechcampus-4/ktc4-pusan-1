@@ -103,3 +103,18 @@ CREATE TABLE IF NOT EXISTS session_summary (
     requested_at TIMESTAMPTZ NOT NULL,
     completed_at TIMESTAMPTZ
 );
+
+-- ── 사용자 ──────────────────────────────────────────────
+--
+-- 카카오 로그인으로 들어온 면접관 (#118). `user` 는 예약어라 app_user 다.
+-- kakao_id 가 유일하다 — 재로그인할 때 같은 사람을 이걸로 찾는다. 카카오 회원번호는
+-- 64비트 정수라 BIGINT 다.
+--
+-- 카카오 access 토큰은 저장하지 않는다. 사용자 정보를 한 번 읽는 데만 쓴다.
+CREATE TABLE IF NOT EXISTS app_user (
+    id                 TEXT        PRIMARY KEY,
+    kakao_id           BIGINT      NOT NULL UNIQUE,
+    nickname           TEXT        NOT NULL,
+    profile_image_url  TEXT,
+    created_at         TIMESTAMPTZ NOT NULL
+);
