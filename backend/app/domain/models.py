@@ -79,6 +79,17 @@ def _new_id(prefix: str) -> str:
 
 
 @dataclass
+class User:
+    """로그인한 면접관. 지금은 카카오 계정 하나에 하나다."""
+
+    kakao_id: int
+    nickname: str
+    profile_image_url: str | None = None
+    id: str = field(default_factory=lambda: _new_id("usr"))
+    created_at: datetime = field(default_factory=utcnow)
+
+
+@dataclass
 class Interview:
     interviewer_id: str
     candidate_name: str | None = None

@@ -51,6 +51,20 @@ class Settings(BaseSettings):
     # 비워 두면 /internal/v1 이 누구에게나 열린다.
     internal_api_key: str = ""
 
+    # 카카오 로그인 (#118). 카카오 개발자 콘솔의 앱 키·보안 설정에서 가져온다.
+    #
+    # `kakao_redirect_uri` 는 FE 콜백 주소다. 토큰 교환 때 인가 요청에 쓴 값과
+    # 글자까지 같아야 해서 클라이언트가 보낸 값을 쓰지 않고 여기 하나로 둔다.
+    # 콘솔에 등록된 Redirect URI 목록에도 들어 있어야 한다.
+    kakao_client_id: str = ""
+    kakao_client_secret: str = ""
+    kakao_redirect_uri: str = "http://localhost:5173/oauth/kakao/callback"
+
+    # 우리가 발급하는 access 토큰의 서명 키. refresh 토큰이 없어 만료되면 다시
+    # 카카오로 로그인한다 — 그래서 짧게 두지 않는다.
+    jwt_secret: str = ""
+    jwt_ttl_days: int = Field(default=7, gt=0)
+
     # 면접이 끝난 뒤 요약을 기다리는 한도. 넘기면 FAILED 로 넘긴다.
     #
     # FE 는 PROCESSING 동안만 다시 조회하므로 **종료 상태가 반드시 와야 한다.**

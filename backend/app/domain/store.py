@@ -20,6 +20,7 @@ from app.domain.models import (
     Session,
     SessionStatus,
     SessionSummary,
+    User,
 )
 
 
@@ -110,6 +111,19 @@ class Store(Protocol):
         """
         ...
 
+    # ── 사용자 ──────────────────────────────────────────
+
+    def upsert_user(self, user: User) -> User:
+        """카카오 계정으로 찾아 넣거나 갱신하고 **저장된 사용자**를 돌려준다.
+
+        이미 있으면 닉네임·프로필만 새 값으로 바꾸고 id 는 처음 것을 지킨다 —
+        id 가 바뀌면 그 사람이 만든 면접을 잃는다. 첫 로그인이 동시에 두 번
+        들어와도 한 명만 생겨야 해서 한 문장으로 끝낸다.
+        """
+        ...
+
+    def get_user(self, user_id: str) -> User | None: ...
+
 
 class InMemoryStore:
     """DB 구현과 같은 계약을 주는 인메모리 저장소.
@@ -130,6 +144,7 @@ class InMemoryStore:
         self._resumes: dict[str, tuple[Resume, bytes]] = {}
 
         self._summaries: dict[str, SessionSummary] = {}
+        self._users: dict[str, User] = {}
 
     def add_interview(self, interview: Interview) -> None:
         self._interviews[interview.id] = interview
@@ -228,6 +243,21 @@ class InMemoryStore:
             stored.give_up()
         return deepcopy(stored)
 
+    # ── 사용자 ──────────────────────────────────────────
+
+    def upsert_user(self, user: User) -> User:
+        for stored in self._users.values():
+            if stored.kakao_id == user.kakao_id:
+                stored.nickname = user.nickname
+                stored.profile_image_url = user.profile_image_url
+                return deepcopy(stored)
+        self._users[user.id] = deepcopy(user)
+        return deepcopy(user)
+
+    def get_user(self, user_id: str) -> User | None:
+        found = self._users.get(user_id)
+        return None if found is None else deepcopy(found)
+
     def clear(self) -> None:
         """테스트용."""
         self._interviews.clear()
@@ -238,6 +268,7 @@ class InMemoryStore:
         self._resumes.clear()
 
         self._summaries.clear()
+        self._users.clear()
 
 
 store: Store = InMemoryStore()

@@ -27,6 +27,7 @@ from app.domain.models import (
     SessionStatus,
     SessionSummary,
     SummaryStatus,
+    User,
 )
 from app.domain.store import InMemoryStore, Store
 
@@ -51,6 +52,7 @@ def subject(request: pytest.FixtureRequest) -> Iterator[Store]:
     with postgres._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
         conn.execute("TRUNCATE interview CASCADE")
         conn.execute("TRUNCATE context CASCADE")
+        conn.execute("TRUNCATE app_user")
     try:
         yield postgres
     finally:
@@ -653,3 +655,21 @@ def test_summaries_do_not_leak_between_sessions(subject: Store):
     subject.ensure_summary(SessionSummary(session_id=a.id))
 
     assert subject.get_summary(b.id) is None
+
+
+# ── 사용자 ──────────────────────────────────────────────
+
+
+def test_upsert_user_keeps_first_id_and_updates_profile(subject: Store):
+    first = subject.upsert_user(User(99, "처음", "a"))
+    again = subject.upsert_user(User(kakao_id=99, nickname="바뀜"))
+
+    assert again.id == first.id
+    assert again.created_at == first.created_at
+    found = subject.get_user(first.id)
+    assert found is not None
+    assert (found.nickname, found.profile_image_url) == ("바뀜", None)
+
+
+def test_unknown_user_is_none(subject: Store):
+    assert subject.get_user("usr_none") is None

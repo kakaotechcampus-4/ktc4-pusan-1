@@ -8,6 +8,7 @@ from app.api.health import router as health_router
 from app.api.internal import router as internal_router
 from app.api.internal.deps import check_key_at_startup
 from app.api.v1 import router as v1_router
+from app.core.auth import check_secret_at_startup
 from app.core.body_limit import BodySizeLimitMiddleware
 from app.core.config import settings
 from app.core.errors import register_error_handlers
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     오면 Alembic 을 넣고 이 호출을 걷어낸다.
     """
     check_key_at_startup()
+    check_secret_at_startup()
 
     if not settings.database_url:
         yield
