@@ -272,7 +272,7 @@ class KakaoLoginRequest(Schema):
 
 class UserResponse(Schema):
     id: str
-    nickname: str = Field(description="카카오 닉네임. 동의를 안 했으면 빈 문자열이다.")
+    nickname: str = Field(description="카카오 닉네임. 콘솔에서 필수 동의 항목이다.")
     profile_image_url: str | None = Field(serialization_alias="profileImageUrl")
 
 

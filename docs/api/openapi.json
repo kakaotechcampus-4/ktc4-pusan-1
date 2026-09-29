@@ -701,7 +701,7 @@
             "type": "string"
           },
           "nickname": {
-            "description": "카카오 닉네임. 동의를 안 했으면 빈 문자열이다.",
+            "description": "카카오 닉네임. 콘솔에서 필수 동의 항목이다.",
             "title": "Nickname",
             "type": "string"
           },
