@@ -116,8 +116,8 @@ def test_token_for_unknown_user_is_401(client: TestClient):
 # ── 실제 클라이언트의 실패 분류 ─────────────────────────
 
 
-def _http_error(code: int) -> HTTPError:
-    body = io.BytesIO(json.dumps({"error_code": "KOE320"}).encode())
+def _http_error(code: int, payload: dict | None = None) -> HTTPError:
+    body = io.BytesIO(json.dumps(payload or {"error_code": "KOE320"}).encode())
     return HTTPError("https://kauth.kakao.com", code, "x", {}, body)  # pyright: ignore[reportArgumentType]
 
 
@@ -164,3 +164,24 @@ def test_client_reads_profile(monkeypatch: pytest.MonkeyPatch):
 
     assert profile == KakaoProfile(kakao_id=123, nickname="김", profile_image_url=None)
     assert sent[1].get_header("Authorization") == "Bearer kakao_tok"
+
+
+def test_user_me_failure_logs_kapi_code(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    """kapi 는 에러 형식이 `{code, msg}` 라 kauth 와 필드가 겹치지 않는다."""
+    replies = iter([io.BytesIO(json.dumps({"access_token": "t"}).encode())])
+
+    def fake_urlopen(request, timeout):
+        reply = next(replies, None)
+        if reply is None:
+            raise _http_error(401, {"code": -401, "msg": "InvalidTokenException"})
+        return reply
+
+    monkeypatch.setattr(kakao_module, "urlopen", fake_urlopen)
+
+    with pytest.raises(ApiError) as caught:
+        KakaoClient().login("code")
+
+    assert caught.value.code == ErrorCode.KAKAO_AUTH_FAILED
+    assert "-401" in caplog.text

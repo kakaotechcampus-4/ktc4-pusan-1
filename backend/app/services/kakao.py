@@ -77,10 +77,11 @@ def _call(request: Request) -> dict[str, Any]:
         with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
             return json.loads(response.read())
     except HTTPError as exc:
-        # 본문의 `error_code`(KOE320 등)만 남긴다. 토큰·code 가 섞일 수 있어 통째로
-        # 로그에 쓰지 않는다.
+        # 분류값만 남긴다. 토큰·code 가 섞일 수 있어 본문을 통째로 쓰지 않는다.
+        # 호스트마다 필드가 다르다 — kauth 는 `error`(·`error_code`), kapi 는 `code`.
         try:
-            detail = json.loads(exc.read()).get("error_code", "")
+            body = json.loads(exc.read())
+            detail = body.get("error_code") or body.get("error") or body.get("code", "")
         except ValueError:
             detail = ""
         logger.warning("카카오 %s 응답 %s %s", request.full_url, exc.code, detail)
