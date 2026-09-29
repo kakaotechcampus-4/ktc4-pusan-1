@@ -147,15 +147,9 @@ cd frontend && npm run build
 # dist/ 를 서버의 /home/ubuntu/fe 로 복사
 ```
 
-⚠️ `cd.yml` 의 `paths` 에 `frontend/**` 와 `ai/**` 가 있어서 **그쪽만 바뀐 push 도 CD 를 돌립니다.** 그런데 둘 다 올라가지 않습니다 — 이유는 서로 다릅니다.
+⚠️ `cd.yml` 의 `paths` 에 `frontend/**` 가 있어서 **FE 만 바뀐 push 도 CD 를 돌립니다.** 그런데 FE 는 올라가지 않습니다 — caddy 가 서빙하지만 내용물이 `/home/ubuntu/fe` 라는 호스트 디렉터리에 있고, `deploy.sh` 는 거기를 건드리지 않습니다. 초록불을 「올라갔다」로 읽으면 안 됩니다.
 
-```
-FE   caddy 가 서빙하지만 내용물이 /home/ubuntu/fe 라는 호스트 디렉터리에 있고,
-     deploy.sh 는 거기를 건드리지 않습니다.
-AI   compose 에 ai 서비스가 아직 없습니다 (#84).
-```
-
-초록불을 「올라갔다」로 읽으면 안 됩니다.
+AI 워커는 다릅니다. compose 의 `ai` 서비스(#84)가 `backend` 와 같이 서버에서 빌드되어 `up -d` 로 올라갑니다. 워커는 LiveKit 컨테이너에 등록만 하고 공개 포트가 없어서, 올라갔는지는 `docker compose logs ai` 의 `joined room=` · `microphone subscribed` 로그로 봅니다.
 
 ## 비밀
 

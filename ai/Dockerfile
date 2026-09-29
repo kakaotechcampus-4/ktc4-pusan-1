@@ -20,6 +20,12 @@ RUN uv sync --locked --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
 
+# Which commit built this image. There is no registry and so no tag; the
+# label is how the deployed version is read back. After the source COPY so
+# a new SHA does not rebuild the dependency layers.
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=$GIT_SHA
+
 RUN useradd --create-home --uid 1000 app
 USER app
 
