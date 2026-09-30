@@ -11,6 +11,7 @@ from livekit import rtc
 
 from audio import RATE, silence, tone
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
+from irya_ai.sinks import FanOutSink
 from irya_ai.stt.elice import EliceSttClient
 from irya_ai.stt.rtc_bridge import (
     DEGRADED_REASON,
@@ -218,6 +219,30 @@ async def test_a_failing_sink_ends_the_track_the_same_way() -> None:
         )
 
     assert stream.abandoned
+
+
+async def test_behind_a_fan_out_a_failing_sink_costs_only_its_own_delivery() -> None:
+    """The isolation the class above delegates to :class:`FanOutSink`, end to end."""
+
+    stream = FakeStream([utterance(), utterance(utterance_id="utt_track_0001")])
+    received: list[str] = []
+
+    async def broken(_value: Utterance) -> None:
+        raise ConnectionError("room went away")
+
+    async def keeps_going(value: Utterance) -> None:
+        received.append(value.utterance_id)
+
+    fan_out = FanOutSink([broken, keeps_going])
+    result = await transcribe_audio_frames(
+        frames=frames(frame(b"\x00\x00" * 160)),
+        stream_factory=lambda: stream,
+        sinks=[fan_out],
+    )
+
+    assert result is stream, "the track ran to its end"
+    assert received == ["utt_track_0000", "utt_track_0001"]
+    assert fan_out.failures == {"broken": 2}
 
 
 def test_frames_in_the_wrong_shape_are_refused_not_transcribed() -> None:
