@@ -25,6 +25,7 @@ from irya_ai.stt.elice import (
 from irya_ai.stt.http_logging import (
     REDACTED_HOST,
     clear_protected_hosts,
+    protect_base_url,
     protect_host,
     protected_hosts,
 )
@@ -76,6 +77,7 @@ __all__ = [
     "frame_rms",
     "is_hallucinated",
     "parse_response",
+    "protect_base_url",
     "protect_host",
     "protected_hosts",
     "silent_probe",

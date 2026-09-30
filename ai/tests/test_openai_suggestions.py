@@ -131,6 +131,16 @@ def client_for(handler) -> AsyncOpenAI:
     )
 
 
+def test_the_generator_hides_its_gateway_from_the_http_log() -> None:
+    """The deployment id sits in the path; a worker at INFO must not print it."""
+
+    from irya_ai.stt.http_logging import protected_hosts
+
+    OpenAISuggestionGenerator(client_for(lambda request: httpx.Response(500)))
+
+    assert "gateway.test/v1" in protected_hosts()
+
+
 def good_suggestion(pair: QAPair, sources: dict[str, Utterance]) -> dict:
     uid = pair.answer_utterance_ids[0]
     return {

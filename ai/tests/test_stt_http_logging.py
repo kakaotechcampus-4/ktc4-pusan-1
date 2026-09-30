@@ -28,6 +28,7 @@ from irya_ai.stt.http_logging import (
     HTTP_CLIENT_LOGGERS,
     REDACTED_HOST,
     clear_protected_hosts,
+    protect_base_url,
     protect_host,
     protected_hosts,
 )
@@ -332,6 +333,35 @@ def test_the_supported_entry_path_registers_the_configured_deployment() -> None:
 
 def test_a_bare_host_string_is_accepted() -> None:
     assert protect_host("deployment.invalid:8000") == "deployment.invalid"
+
+
+SHARED_HOST = "shared-gateway.invalid"
+DEPLOYMENT_PATH = "/deployment-286e9158-secret"
+
+
+def test_a_deployment_told_apart_by_its_path_is_hidden_with_the_path() -> None:
+    """The project LLM gateway: public host, secret path. The host alone is no cover."""
+
+    assert protect_base_url(f"https://{SHARED_HOST}{DEPLOYMENT_PATH}/v1") == (
+        f"{SHARED_HOST}{DEPLOYMENT_PATH}/v1"
+    )
+
+    with Captured(logging.INFO) as log:
+        logging.getLogger("httpx").info(
+            'HTTP Request: POST https://%s%s/v1/chat/completions "HTTP/1.1 200 OK"',
+            SHARED_HOST,
+            DEPLOYMENT_PATH,
+        )
+
+    assert DEPLOYMENT_PATH not in log.text
+    assert f"https://{REDACTED_HOST}/chat/completions" in log.text
+    assert "200 OK" in log.text
+
+
+def test_a_base_url_without_a_path_registers_the_host_alone() -> None:
+    assert protect_base_url(f"https://{HOST}/") == HOST
+    assert protect_base_url(httpx.URL(f"https://{HOST}")) == HOST
+    assert protected_hosts() == {HOST}
 
 
 def _declared_logger_names(package: object) -> set[str]:
