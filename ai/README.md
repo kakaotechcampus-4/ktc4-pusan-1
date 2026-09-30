@@ -70,6 +70,17 @@ uv run python -m irya_ai.worker start
 
 Docker 배포에서는 `infra/docker-compose.yml`의 `ai` 서비스가 같은 작업을 합니다.
 
+릴리스된 발화는 `irya_ai.sinks.FanOutSink`를 거쳐 면접관 자막과 꼬리질문 루프에
+차례로 전달됩니다. 한 소비자가 실패하면 로그만 남고 다른 소비자와 트랙은 계속 갑니다.
+꼬리질문 루프(`suggestion_runner.py`)는 `BACKEND_BASE_URL`이 있을 때만 켜지며, 세션당
+큐 하나·태스크 하나가 발화를 `LiveSuggestionAgent`에 넣고 채택된 제안을
+`POST /internal/v1/sessions/{sessionId}/suggestions`로 보냅니다. `BACKEND_API_KEY`는 BE의
+`INTERNAL_API_KEY`와 같은 값이어야 합니다. 생성기는 `LLM_BASE_URL`·`LLM_API_KEY`가 모두
+있으면 프로젝트 LLM, 아니면 추출형이고, 라운드 상한은 10초이며 전송 실패는 재전송하지
+않습니다. LLM·BE 호출은 이 태스크 안에서만 일어나므로 오디오 경로는 모델을 기다리지
+않습니다. BE는 아직 받은 제안을 저장하지 않고 로그만 남깁니다(#85). 전사 WebSocket
+채널(`transcripts.py`)은 아직 워커에 붙지 않았습니다.
+
 FE·BE 없이 확인하려면 `scripts/livekit_e2e.py`를 씁니다. LiveKit 개발 서버(`livekit/livekit-server --dev`)에
 워커를 붙인 뒤, 스크립트가 빈 방을 먼저 만들고 지원자로 WAV(16kHz mono, 실제 한국어 음성)를
 발행하며 면접관으로 text stream을 받아 결과 JSON을 냅니다. 실행 순서는 스크립트 독스트링에 있습니다.
