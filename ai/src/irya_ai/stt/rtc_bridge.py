@@ -522,8 +522,8 @@ class RoomTranscriber:
     ``sinks`` receive every utterance in order, one after the other; the
     default is the interviewer's live caption alone. A sink that raises ends
     that track's transcription and sends ``stream.degraded`` - isolating one
-    sink's failure from the others is the fan-out's job (#83), not this
-    class's.
+    sink's failure from the others is :class:`~irya_ai.sinks.FanOutSink`'s
+    job, not this class's.
 
     One :class:`~irya_ai.stt.stream.TranscriptionStream` is opened per
     microphone track, all of them sharing ``client``. With the stream's
