@@ -25,11 +25,16 @@ from app.domain.models import (
     DocStatus,
     Interview,
     Resume,
+    Role,
     Session,
     SessionStatus,
     SessionSummary,
+    Suggestion,
+    SuggestionStatus,
     SummaryStatus,
+    TranscriptStage,
     User,
+    Utterance,
     utcnow,
 )
 
@@ -37,7 +42,8 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 
 class PostgresStore:
-    """`interview` · `session` · `session_summary` 를 읽고 쓴다.
+    """`schema.sql` 의 테이블을 읽고 쓴다 — 면접·세션·요약·기업 컨텍스트·이력서·
+    사용자·전사·꼬리질문.
 
     커넥션 풀을 하나 들고 있다가 호출마다 빌려 쓴다. 매번 새로 연결하면
     면접 입장처럼 짧은 요청이 몰릴 때 연결 비용이 응답 시간을 지배한다.
@@ -550,3 +556,128 @@ class PostgresStore:
             (user_id,),
         )
         return None if row is None else User(**row)
+
+    # ── 전사·꼬리질문 (#85) ─────────────────────────────────
+
+    def upsert_utterance(self, utterance: Utterance) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO utterance (
+                    session_id, stage, utterance_id,
+                    speaker, text, started_at_ms, ended_at_ms
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (session_id, stage, utterance_id) DO UPDATE SET
+                    speaker = EXCLUDED.speaker,
+                    text = EXCLUDED.text,
+                    started_at_ms = EXCLUDED.started_at_ms,
+                    ended_at_ms = EXCLUDED.ended_at_ms
+                """,
+                (
+                    utterance.session_id,
+                    utterance.stage.value,
+                    utterance.utterance_id,
+                    utterance.speaker.value,
+                    utterance.text,
+                    utterance.started_at_ms,
+                    utterance.ended_at_ms,
+                ),
+            )
+
+    def list_utterances(
+        self, session_id: str, stage: TranscriptStage = TranscriptStage.LIVE
+    ) -> list[Utterance]:
+        rows = self._all(
+            """
+            SELECT session_id, stage, utterance_id,
+                   speaker, text, started_at_ms, ended_at_ms
+            FROM utterance
+            WHERE session_id = %s AND stage = %s
+            ORDER BY started_at_ms,
+                     CASE speaker WHEN 'INTERVIEWER' THEN 0 ELSE 1 END,
+                     utterance_id
+            """,
+            (session_id, stage.value),
+        )
+        return [
+            Utterance(
+                session_id=row["session_id"],
+                utterance_id=row["utterance_id"],
+                speaker=Role(row["speaker"]),
+                text=row["text"],
+                started_at_ms=row["started_at_ms"],
+                ended_at_ms=row["ended_at_ms"],
+                stage=TranscriptStage(row["stage"]),
+            )
+            for row in rows
+        ]
+
+    def add_suggestion(self, suggestion: Suggestion) -> None:
+        # 꼬리질문과 근거를 한 트랜잭션으로 넣는다 — 풀에서 빌린 연결은 블록을
+        # 나갈 때 커밋한다. 재시도라 꼬리질문이 이미 있으면 근거도 다시 넣지 않는다.
+        with self._pool.connection() as conn:
+            inserted = conn.execute(
+                """
+                INSERT INTO suggestion (
+                    session_id, suggestion_id, type, content, status, created_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (session_id, suggestion_id) DO NOTHING
+                RETURNING 1
+                """,
+                (
+                    suggestion.session_id,
+                    suggestion.suggestion_id,
+                    suggestion.type,
+                    suggestion.content,
+                    suggestion.status.value,
+                    suggestion.created_at,
+                ),
+            ).fetchone()
+            if inserted is None:
+                return
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO suggestion_evidence (
+                        session_id, suggestion_id, position, utterance_id
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    [
+                        (suggestion.session_id, suggestion.suggestion_id, i, uid)
+                        for i, uid in enumerate(suggestion.evidence_utterance_ids)
+                    ],
+                )
+
+    def list_suggestions(self, session_id: str) -> list[Suggestion]:
+        rows = self._all(
+            """
+            SELECT s.session_id, s.suggestion_id, s.type, s.content,
+                   s.status, s.created_at,
+                   COALESCE(
+                       (SELECT array_agg(e.utterance_id ORDER BY e.position)
+                        FROM suggestion_evidence e
+                        WHERE e.session_id = s.session_id
+                          AND e.suggestion_id = s.suggestion_id),
+                       '{}'
+                   ) AS evidence_utterance_ids
+            FROM suggestion s
+            WHERE s.session_id = %s
+            ORDER BY s.created_at, s.suggestion_id
+            """,
+            (session_id,),
+        )
+        return [
+            Suggestion(
+                session_id=row["session_id"],
+                suggestion_id=row["suggestion_id"],
+                content=row["content"],
+                evidence_utterance_ids=list(row["evidence_utterance_ids"]),
+                type=row["type"],
+                status=SuggestionStatus(row["status"]),
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
