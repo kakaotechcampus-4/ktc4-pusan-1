@@ -1,7 +1,7 @@
 """`/internal/v1` — Agent 가 붙는 경로.
 
-세 가지를 본다. **인증**이 실제로 막는지, **프레임 계약**이 Agent 가 보내는 모양
-그대로인지, 그리고 **ACK** 가 돌아오는지.
+네 가지를 본다. **인증**이 실제로 막는지, **프레임 계약**이 Agent 가 보내는 모양
+그대로인지, **ACK** 가 돌아오는지, 그리고 받은 것이 **저장**되는지 (#85).
 
 프레임 예시는 #76 본문의 것을 그대로 쓴다. 우리가 편한 모양으로 바꿔 쓰면 계약이
 맞는지를 보는 의미가 없다.
@@ -13,6 +13,8 @@ from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from app.api.internal import transcripts
 from app.core.config import settings
+from app.domain.models import Role, TranscriptStage
+from app.domain.store import InMemoryStore
 
 UPSERT = {
     "type": "transcript.upsert",
@@ -132,6 +134,10 @@ def test_unknown_session_is_refused_before_accept(client: TestClient, key: str) 
         {**UPSERT, "endedAtMs": 1000},  # 끝이 시작보다 앞
         {**UPSERT, "text": ""},  # 빈 발화
         {**UPSERT, "speaker": "OBSERVER"},  # 모르는 화자
+        # 저장할 수 없는 값. 통과시키면 저장 실패 → 재연결 → 같은 프레임 재전송이
+        # 끝나지 않는다 (schemas.py 머리말).
+        {**UPSERT, "text": "안녕\x00하세요"},  # TEXT 에 NUL
+        {**UPSERT, "endedAtMs": 2**63},  # BIGINT 초과
     ],
 )
 def test_broken_frame_is_nacked(
@@ -285,6 +291,26 @@ def test_suggestion_without_evidence_is_rejected(
     assert got.status_code == 422
 
 
+@pytest.mark.parametrize(
+    "broken",
+    [
+        {**SUGGESTION, "content": "어려웠던\x00부분"},
+        {**SUGGESTION, "evidenceUtteranceIds": ["utt_\x00001"]},
+        {**SUGGESTION, "evidenceUtteranceIds": [""]},
+    ],
+)
+def test_unstorable_suggestion_is_rejected(
+    client: TestClient, session_id: str, key: str, broken: dict
+) -> None:
+    """DB 에 못 넣는 값은 경계에서 422 다. 4xx 라 Agent 가 다시 보내지 않는다."""
+    got = client.post(
+        f"/internal/v1/sessions/{session_id}/suggestions",
+        json=broken,
+        headers=auth(key),
+    )
+    assert got.status_code == 422
+
+
 def test_suggestion_for_unknown_session_is_404(client: TestClient, key: str) -> None:
     got = client.post(
         "/internal/v1/sessions/ses_없는것/suggestions",
@@ -329,3 +355,119 @@ def test_internal_routes_are_not_in_the_public_schema(client: TestClient) -> Non
     """FE 가 부를 것처럼 읽히면 안 된다."""
     paths = client.get("/openapi.json").json()["paths"]
     assert not [p for p in paths if p.startswith("/internal")]
+
+
+# ── 저장 (#85) ──────────────────────────────────────────
+
+
+def test_acked_utterance_is_stored(
+    client: TestClient, session_id: str, key: str, store: InMemoryStore
+) -> None:
+    with client.websocket_connect(
+        f"/internal/v1/sessions/{session_id}/transcripts", headers=auth(key)
+    ) as ws:
+        ws.send_json(UPSERT)
+        ws.receive_json()
+
+    [found] = store.list_utterances(session_id)
+    assert (found.utterance_id, found.speaker, found.text) == (
+        "utt_001",
+        Role.CANDIDATE,
+        "안녕하세요, 잘 부탁드립니다.",
+    )
+    assert (found.started_at_ms, found.ended_at_ms) == (15200, 23800)
+    # 실시간 경로로 들어온 것은 전부 초벌이다. 재전사는 다른 길로 온다.
+    assert found.stage is TranscriptStage.LIVE
+
+
+def test_corrected_utterance_replaces_the_first(
+    client: TestClient, session_id: str, key: str, store: InMemoryStore
+) -> None:
+    """교정본은 같은 id 로 온다 (#76). 한 줄로 남고 마지막 것이 이긴다."""
+    with client.websocket_connect(
+        f"/internal/v1/sessions/{session_id}/transcripts", headers=auth(key)
+    ) as ws:
+        ws.send_json(UPSERT)
+        ws.receive_json()
+        ws.send_json({**UPSERT, "text": "안녕하세요, 잘 부탁드립니다!"})
+        ws.receive_json()
+
+    [found] = store.list_utterances(session_id)
+    assert found.text == "안녕하세요, 잘 부탁드립니다!"
+
+
+def test_failed_save_is_not_acked(
+    client: TestClient,
+    session_id: str,
+    key: str,
+    store: InMemoryStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """저장이 실패하면 ACK 가 나가면 안 된다 — Agent 가 그 발화를 버퍼에서 지운다.
+
+    NACK 도 안 된다. NACK 은 「다시 보내지 마라」라서 발화가 사라진다. 연결이
+    끊겨야 Agent 가 ACK 못 받은 것을 재접속 후 다시 보낸다.
+    """
+
+    def boom(_utterance: object) -> None:
+        raise RuntimeError("DB 가 죽었다")
+
+    monkeypatch.setattr(store, "upsert_utterance", boom)
+
+    received: list[object] = []
+    with pytest.raises(RuntimeError, match="DB 가 죽었다"):
+        with client.websocket_connect(
+            f"/internal/v1/sessions/{session_id}/transcripts", headers=auth(key)
+        ) as ws:
+            ws.send_json(UPSERT)
+            received.append(ws.receive_json())
+
+    # 컨텍스트 안에서 실패시키면 빠져나가며 다시 올라오는 서버 예외에 덮인다.
+    # 그래서 받은 것을 바깥에 모아 두고 여기서 본다.
+    assert received == [], f"저장이 실패했는데 응답이 나갔다: {received}"
+
+
+def test_accepted_suggestion_is_stored(
+    client: TestClient, session_id: str, key: str, store: InMemoryStore
+) -> None:
+    client.post(
+        f"/internal/v1/sessions/{session_id}/suggestions",
+        json=SUGGESTION,
+        headers=auth(key),
+    )
+
+    [found] = store.list_suggestions(session_id)
+    assert (found.suggestion_id, found.type, found.content) == (
+        "sug_001",
+        "FOLLOW_UP",
+        "그 경험에서 가장 어려웠던 부분은 무엇이었나요?",
+    )
+    assert found.evidence_utterance_ids == ["utt_001"]
+
+
+def test_retried_suggestion_is_stored_once(
+    client: TestClient, session_id: str, key: str, store: InMemoryStore
+) -> None:
+    for _ in range(2):
+        got = client.post(
+            f"/internal/v1/sessions/{session_id}/suggestions",
+            json=SUGGESTION,
+            headers=auth(key),
+        )
+        assert got.status_code == 204
+
+    assert len(store.list_suggestions(session_id)) == 1
+
+
+def test_repeated_evidence_is_stored_once_in_order(
+    client: TestClient, session_id: str, key: str, store: InMemoryStore
+) -> None:
+    """근거는 위치로 저장한다. 같은 발화가 두 번 와도 처음 자리에 한 번만 남는다."""
+    client.post(
+        f"/internal/v1/sessions/{session_id}/suggestions",
+        json={**SUGGESTION, "evidenceUtteranceIds": ["utt_002", "utt_001", "utt_002"]},
+        headers=auth(key),
+    )
+
+    [found] = store.list_suggestions(session_id)
+    assert found.evidence_utterance_ids == ["utt_002", "utt_001"]
