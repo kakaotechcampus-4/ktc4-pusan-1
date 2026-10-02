@@ -94,7 +94,7 @@ export default function InterviewSummaryPage() {
 
         <div className="mt-7 flex flex-wrap gap-2.5">
           {/* 요약이 실패해도 녹화와 기록은 따로 만들어지므로 기록으로 가는 길은 열어 둔다. */}
-          {reviewPath && !processing && (
+          {reviewPath && (
             <Link
               to={reviewPath}
               className="rounded-lg bg-[#2B44D6] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-[#243AB8]"

@@ -76,6 +76,7 @@ export default function ReviewTimelinePage() {
             <div className="bg-brand h-full w-1/3 animate-[indeterminate_1.4s_ease-in-out_infinite] rounded-full" />
           </div>
         </div>
+        <HomeLink />
       </Centered>
     );
   }

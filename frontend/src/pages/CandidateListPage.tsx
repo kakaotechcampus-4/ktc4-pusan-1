@@ -129,7 +129,6 @@ export default function CandidateListPage({ demo = false }: { demo?: boolean }) 
   if (!demo) {
     return (
       <div className="min-h-full bg-[#121316] text-[#eaecef]">
-        <InterviewerHeader />
         <main className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
           <p className="font-mono text-xs text-[#686c7b]">지원자 검토</p>
           <h1 className="mt-2 text-2xl font-bold">지원자 목록</h1>

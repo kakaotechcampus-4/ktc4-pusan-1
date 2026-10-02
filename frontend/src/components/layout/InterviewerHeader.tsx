@@ -1,7 +1,8 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { USE_MOCK_API } from '../../mocks/mockApi';
 
 export function InterviewerHeader({ demo = false }: { demo?: boolean }) {
+  const { pathname } = useLocation();
   const candidatePath = demo ? '/demo/candidates' : '/candidates';
 
   return (
@@ -22,13 +23,31 @@ export function InterviewerHeader({ demo = false }: { demo?: boolean }) {
             홈
           </Link>
           <Link
-            aria-current="page"
+            aria-current={pathname.includes('candidates') ? 'page' : undefined}
             className="rounded border border-[#2e323c] bg-[#202229] px-3 py-2 font-semibold text-white"
             to={candidatePath}
           >
             지원자 검토
           </Link>
-          {demo && USE_MOCK_API && (
+          <Link
+            className="rounded px-3 py-2 text-[#c4c7c9] hover:bg-[#22242c]"
+            to="/settings/context"
+          >
+            기업 설정
+          </Link>
+          <Link
+            className="rounded px-3 py-2 text-[#c4c7c9] hover:bg-[#22242c]"
+            to="/interviews/new"
+          >
+            면접 만들기
+          </Link>
+          <Link
+            className="rounded px-3 py-2 text-[#c4c7c9] hover:bg-[#22242c]"
+            to={demo ? '/candidates' : '/demo/candidates'}
+          >
+            {demo ? '실제 지원자 목록' : '샘플 검토'}
+          </Link>
+          {USE_MOCK_API && (
             <>
               <Link
                 className="rounded px-3 py-2 text-[#c4c7c9] hover:bg-[#22242c] hover:text-white"
