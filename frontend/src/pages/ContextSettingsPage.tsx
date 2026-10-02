@@ -4,7 +4,6 @@
  * 조직 하나가 공유하는 면접 기준을 모아 둔다 — 회사 이름, 기본 직무, JD·사내 문서,
  * 추가 인재상. AI 면접관이 질문과 평가를 만들 때 근거로 쓴다.
  *
- * ⚠️ BE 에 이 엔드포인트들이 없어 목으로 동작한다.
  * 시안의 상단 내비게이션·프로필, 엔진 준비도·동기화 면접방 수, 실시간 적용 프리뷰(질문
  * 가중치)는 우리 서버에 그 데이터가 없어 넣지 않았다.
  */
@@ -20,10 +19,6 @@ import { DropZone } from '../components/context/DropZone';
 import { checkFile } from '../lib/docFile';
 import type { CompanyContext, ContextDoc, UploadRejection } from '../types/interview';
 
-/**
- * ⚠️ 설정은 조직당 하나인데 조직 컨텍스트를 알려주는 API 가 없다.
- * 조회 API 가 생기면 이 상수를 없애고 그 값을 쓴다.
- */
 /** 파싱 중인 문서가 있을 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 2000;
 
@@ -71,12 +66,12 @@ export default function ContextSettingsPage() {
    * 문서 분류.
    *
    * ⚠️ 업로드 API 에 문서 종류 필드가 없어 분류를 화면에만 들고 있다. 새로고침하면
-   * 분류가 사라지는데, 목 서버도 문서 목록을 메모리에만 두므로 같이 사라진다.
+   * 분류가 사라지므로 서버에 남은 문서는 아래 미분류 목록에서 보여준다.
    * BE 에 종류 필드가 생기면 이 상태를 없앤다.
    */
   const [categories, setCategories] = useState<Record<string, DocCategory>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey,
     queryFn: getCurrentContext,
     // 읽는 중인 문서가 하나라도 있으면 완료될 때까지 다시 묻는다.
@@ -94,8 +89,7 @@ export default function ContextSettingsPage() {
 
   // 서버 값 위에 고친 칸을 얹은 것이 지금 화면의 값이다.
   //
-  // ⚠️ 조회 응답에 인재상 필드가 없어 그 칸은 늘 빈 값에서 시작한다 (api/contextSettings.ts 참고).
-  // 최신 응답에 talentProfile 이 있으면 저장된 값을 표시하고, 이전 응답은 빈 값으로 처리한다.
+  // 저장된 인재상도 서버 응답에서 읽는다. 폴링은 입력 중인 draft를 덮지 않는다.
   const form: SettingsForm | null = data
     ? {
         company: draft.company ?? data.company,
@@ -242,6 +236,20 @@ export default function ContextSettingsPage() {
 
         {isLoading && <p className="text-ink-muted text-[15px]">불러오는 중…</p>}
 
+        {isError && (
+          <div role="alert" className="text-[15px] text-[#FFC46B]">
+            <p>기업 설정을 불러오지 못했습니다.</p>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="mt-2 underline disabled:opacity-50"
+            >
+              다시 확인
+            </button>
+          </div>
+        )}
+
         {form && (
           <>
             <Section
@@ -265,7 +273,7 @@ export default function ContextSettingsPage() {
                   value={form.role}
                   onChange={(v) => update({ role: v })}
                   placeholder="예: 백엔드 엔지니어"
-                  hint="면접마다 바꿀 수 있습니다."
+                  hint="면접에서 참고할 기본 직무입니다."
                 />
               </div>
             </Section>
@@ -464,6 +472,7 @@ function TextField({
       <input
         id={id}
         type="text"
+        maxLength={100}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
