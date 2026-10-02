@@ -14,7 +14,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
 import { endSession, getSessionState, joinSession, startSession } from '../api/interview';
 import { loadLiveKit } from '../lib/livekit';
-import { parseStreamEvent, TRANSCRIPT_TOPIC } from '../lib/transcriptStream';
+import { createTranscriptStreamHandler, TRANSCRIPT_TOPIC } from '../lib/transcriptStream';
 import { useInterviewStore } from '../stores/interviewStore';
 import type { Role, RoomConnectionState, Speaker } from '../types/interview';
 
@@ -142,18 +142,10 @@ export function useInterviewRoom({
 
         // 워커가 접속 직후 보낼 수 있어 connect 전에 등록한다. 역할 분기는 하지 않는다 —
         // AI가 destination_identities로 면접관만 지정하므로 지원자에게는 전달되지 않는다.
-        room.registerTextStreamHandler(TRANSCRIPT_TOPIC, async (reader) => {
-          try {
-            const event = parseStreamEvent(await reader.readAll());
-            // readAll 중 이탈했으면 이전 방의 자막을 새 세션에 섞지 않는다.
-            if (!cancelled && event) applyStreamEvent(event);
-          } catch {
-            // 스트림 읽기 실패도 통화와 분리한다. 다음 프레임은 계속 받을 수 있다.
-            if (!cancelled) {
-              applyStreamEvent({ type: 'stream.degraded', reason: '전사를 받지 못했습니다.' });
-            }
-          }
-        });
+        room.registerTextStreamHandler(
+          TRANSCRIPT_TOPIC,
+          createTranscriptStreamHandler(applyStreamEvent, () => cancelled),
+        );
 
         // join 이 입장 권한 확인과 LiveKit 접속 정보 발급을 함께 한다.
         // start 는 상태 전이 전용이라 여기서 부르지 않는다.
