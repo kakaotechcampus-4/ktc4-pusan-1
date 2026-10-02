@@ -17,6 +17,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { getMe } from '../api/auth';
+import { useAccessToken } from '../hooks/useAccessToken';
 import { getCurrentContext } from '../api/context';
 import { createInterview, createSession } from '../api/interview';
 import { uploadResume } from '../api/resume';
@@ -26,14 +28,14 @@ import { normalizeCandidateName } from '../lib/candidateName';
 import { checkFile } from '../lib/docFile';
 import type { ContextDoc, UploadRejection } from '../types/interview';
 
-/** ⚠️ 인증이 없어 면접관 ID 를 클라이언트가 정한다. 로그인 도입 시 사라진다. */
-const MOCK_INTERVIEWER_ID = 'user_demo';
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
   'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
   'too-large': '50MB 이하 파일만 올릴 수 있습니다.',
 };
 
 export default function InterviewCreatePage() {
+  const token = useAccessToken();
+  const { data: me } = useQuery({ queryKey: ['me', token], queryFn: getMe });
   const [candidateName, setCandidateName] = useState('');
   const {
     data: context,
@@ -67,11 +69,9 @@ export default function InterviewCreatePage() {
   // 세 요청이 이어지지만 사용자에게는 한 번의 동작이므로 하나의 뮤테이션으로 묶는다.
   const create = useMutation({
     mutationFn: async () => {
-      // 이름은 서버 계약으로 전달한다 (#39). 브라우저에 따로 보관하지 않는다.
-      const interview = await createInterview(
-        MOCK_INTERVIEWER_ID,
-        normalizeCandidateName(candidateName),
-      );
+      if (!me) throw new Error('로그인 상태를 확인해주세요.');
+      // 로그인한 면접관과 지원자 이름을 서버 계약으로 전달한다.
+      const interview = await createInterview(me.id, normalizeCandidateName(candidateName));
 
       if (resume) {
         setDoc((prev) => prev && { ...prev, status: 'uploading', progress: 0 });
@@ -95,7 +95,7 @@ export default function InterviewCreatePage() {
   // 생성 실패가 나머지보다 중요하다. 겹치면 생성 쪽을 보여준다.
   const error = create.isError ? '면접을 만들지 못했습니다. 잠시 후 다시 시도해주세요.' : copyError;
   const uploading = doc?.status === 'uploading';
-  const canCreate = candidateName.trim().length > 0 && !create.isPending;
+  const canCreate = Boolean(me) && candidateName.trim().length > 0 && !create.isPending;
 
   const handleFiles = (files: File[]) => {
     setNotice(null);

@@ -169,6 +169,7 @@ export default function ContextSettingsPage() {
   const save = useMutation({
     mutationFn: (values: SettingsForm) => updateContextSettings(contextId, values),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey });
       setNotice(null);
       setSaved(true);
       if (leaveAfterSave) void navigate('/');
