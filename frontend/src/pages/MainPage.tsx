@@ -155,7 +155,8 @@ export default function MainPage() {
           {context && (
             <>
               <p className="text-ink-muted mt-3 text-[14px]">
-                {context.company} · {context.role}
+                {[context.company, context.team, context.role].filter(Boolean).join(' · ') ||
+                  '기본 정보 미등록'}
               </p>
               <p className="text-ink-dim mt-1.5 font-mono text-[13px]">
                 문서 {context.docs.length}개{!ready && ' · 등록 완료된 문서가 없습니다'}

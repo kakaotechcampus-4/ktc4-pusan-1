@@ -12,6 +12,7 @@ const V1 = '/api/v1';
 /** PATCH /api/v1/contexts/{contextId} 요청 본문 */
 export interface ContextSettingsPatch {
   company: string;
+  team: string;
   /** 기본 직무 — 면접을 만들 때 초깃값으로 쓴다 */
   role: string;
   /** AI 면접관이 참고할 추가 인재상·평가 포인트 */

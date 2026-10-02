@@ -26,6 +26,7 @@ export async function handleContextSettingsMock(
 
     // 보관소에 반영한다. 조회(GET /contexts/{id})가 같은 값을 보므로 저장이 유지된다.
     if (patch.company !== undefined) contextProfile.company = patch.company;
+    if (patch.team !== undefined) contextProfile.team = patch.team;
     if (patch.role !== undefined) contextProfile.role = patch.role;
     if (patch.talentProfile !== undefined) contextProfile.talentProfile = patch.talentProfile;
     saveContextProfile();
@@ -33,6 +34,7 @@ export async function handleContextSettingsMock(
     return {
       id: contextId,
       company: contextProfile.company,
+      team: contextProfile.team,
       role: contextProfile.role,
       talentProfile: contextProfile.talentProfile,
     } satisfies ContextSettings;

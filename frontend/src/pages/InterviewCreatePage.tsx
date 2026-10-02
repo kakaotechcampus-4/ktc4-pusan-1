@@ -188,7 +188,9 @@ export default function InterviewCreatePage() {
                     {contextLoading
                       ? '불러오는 중…'
                       : context
-                        ? `${context.company} · ${context.role}`
+                        ? [context.company, context.team, context.role]
+                            .filter(Boolean)
+                            .join(' · ') || '기본 정보 미등록'
                         : contextError
                           ? '설정을 불러오지 못했습니다.'
                           : '아직 등록된 설정이 없습니다.'}

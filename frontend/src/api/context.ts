@@ -14,6 +14,10 @@ const V1 = '/api/v1';
 /** GET /api/v1/contexts/current — 로그인한 사람의 조직 컨텍스트 */
 export const getCurrentContext = () => request<CompanyContext>(`${V1}/contexts/current`);
 
+/** 이미 확인한 컨텍스트의 문서·저장 결과를 다시 조회한다. */
+export const getContext = (contextId: string) =>
+  request<CompanyContext>(`${V1}/contexts/${contextId}`);
+
 export const deleteDoc = (contextId: string, docId: string) =>
   request<void>(`${V1}/contexts/${contextId}/docs/${docId}`, { method: 'DELETE' });
 

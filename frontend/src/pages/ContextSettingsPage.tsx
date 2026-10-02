@@ -11,8 +11,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { deleteDoc, getCurrentContext, uploadDoc } from '../api/context';
-import { uploadErrorMessage } from '../api/client';
+import { deleteDoc, getContext, getCurrentContext, uploadDoc } from '../api/context';
+import { ApiError, uploadErrorMessage } from '../api/client';
 import { updateContextSettings } from '../api/contextSettings';
 import { DocCard } from '../components/context/DocCard';
 import { DropZone } from '../components/context/DropZone';
@@ -41,6 +41,7 @@ interface PendingDoc extends ContextDoc {
 
 interface SettingsForm {
   company: string;
+  team: string;
   role: string;
   talentProfile: string;
 }
@@ -73,7 +74,18 @@ export default function ContextSettingsPage() {
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey,
-    queryFn: getCurrentContext,
+    queryFn: async () => {
+      // 처음에는 현재 조직을 찾고, 이후에는 확인된 id의 저장·문서 상태를 조회한다.
+      const id = qc.getQueryData<CompanyContext>(queryKey)?.id;
+      if (!id) return getCurrentContext();
+      try {
+        return await getContext(id);
+      } catch (error) {
+        // 로컬 BE가 재시작해 id가 없어졌으면 현재 컨텍스트부터 다시 찾는다.
+        if (error instanceof ApiError && error.status === 404) return getCurrentContext();
+        throw error;
+      }
+    },
     // 읽는 중인 문서가 하나라도 있으면 완료될 때까지 다시 묻는다.
     refetchInterval: (q) =>
       q.state.data?.docs.some((d) => d.status === 'parsing') ? POLL_INTERVAL_MS : false,
@@ -93,6 +105,7 @@ export default function ContextSettingsPage() {
   const form: SettingsForm | null = data
     ? {
         company: draft.company ?? data.company,
+        team: draft.team ?? data.team,
         role: draft.role ?? data.role,
         talentProfile: draft.talentProfile ?? data.talentProfile ?? '',
       }
@@ -217,7 +230,12 @@ export default function ContextSettingsPage() {
   // 대신 무엇이 비었는지는 아래 안내로 알려 준다.
   const canSave = !save.isPending && !uploading;
   const empty = Boolean(
-    form && !form.company.trim() && !form.role.trim() && !form.talentProfile.trim() && !docs.length,
+    form &&
+    !form.company.trim() &&
+    !form.team.trim() &&
+    !form.role.trim() &&
+    !form.talentProfile.trim() &&
+    !docs.length,
   );
 
   return (
@@ -258,7 +276,7 @@ export default function ContextSettingsPage() {
               title="기본 정보"
               desc="면접을 만들 때 초깃값으로 쓰입니다."
             >
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <TextField
                   id="company"
                   label="회사 이름"
@@ -266,6 +284,14 @@ export default function ContextSettingsPage() {
                   onChange={(v) => update({ company: v })}
                   placeholder="예: 엘리스"
                   hint="AI 면접관이 인사할 때 이 이름을 부릅니다."
+                />
+                <TextField
+                  id="team"
+                  label="팀"
+                  value={form.team}
+                  onChange={(v) => update({ team: v })}
+                  placeholder="예: 플랫폼 팀"
+                  hint="면접을 진행하는 팀입니다. 비워 두어도 됩니다."
                 />
                 <TextField
                   id="role"
