@@ -50,6 +50,12 @@ export function InterviewerHeader({ demo = false }: { demo?: boolean }) {
           {USE_MOCK_API && (
             <>
               <Link
+                className="rounded px-3 py-2 text-[#c4c7c9] hover:bg-[#22242c]"
+                to="/mock/interview"
+              >
+                면접 미리보기
+              </Link>
+              <Link
                 className="rounded px-3 py-2 text-[#c4c7c9] hover:bg-[#22242c] hover:text-white"
                 to="/interview/ses_demo?role=interviewer"
               >

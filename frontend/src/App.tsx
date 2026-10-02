@@ -9,7 +9,7 @@
  *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
  *   /interview/:sessionId/summary  면접 종료 후 요약
  *   /review/:interviewId    면접 기록 — 녹화 · 타임라인 · AI 평가
- *   /mock/interview         면접 화면만 바로 보기 — 임시, 전사 연동 시 제거
+ *   /mock/interview         개발용 목 면접 미리보기
  *
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
  */
@@ -224,6 +224,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  const navigate = useNavigate();
   useAccessToken();
   return (
     <Routes>
@@ -313,6 +314,7 @@ export default function App() {
                 <InterviewRoomPreview
                   localVideoTrack={tracks.videoTrack}
                   localAudioTrack={tracks.audioTrack}
+                  onLeave={() => void navigate('/')}
                 />
               </Suspense>
             )}
