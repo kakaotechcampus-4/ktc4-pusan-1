@@ -14,6 +14,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
 import { endSession, joinSession } from '../api/interview';
 import { loadLiveKit } from '../lib/livekit';
+import { parseStreamEvent, TRANSCRIPT_TOPIC } from '../lib/transcriptStream';
 import { useInterviewStore } from '../stores/interviewStore';
 import type { Role, RoomConnectionState, Speaker } from '../types/interview';
 
@@ -72,7 +73,7 @@ export function useInterviewRoom({
 
     // 액션은 참조가 고정되어 있다. 구독하면 전사 델타마다 화면 전체가 리렌더되므로
     // 훅에서는 getState() 로 꺼내 쓰고 스토어를 구독하지 않는다.
-    const { setSession, setConnection, setRemoteJoined, setSpeaking, reset } =
+    const { setSession, setConnection, setRemoteJoined, setSpeaking, applyStreamEvent, reset } =
       useInterviewStore.getState();
 
     // 1:1 이므로 참가자는 둘뿐이다. 내 역할이 정해지면 상대 역할도 정해진다.
@@ -132,6 +133,21 @@ export function useInterviewRoom({
           })
           .on(RoomEvent.Disconnected, () => setRemoteJoined(false));
 
+        // 워커가 접속 직후 보낼 수 있어 connect 전에 등록한다. 역할 분기는 하지 않는다 —
+        // AI가 destination_identities로 면접관만 지정하므로 지원자에게는 전달되지 않는다.
+        room.registerTextStreamHandler(TRANSCRIPT_TOPIC, async (reader) => {
+          try {
+            const event = parseStreamEvent(await reader.readAll());
+            // readAll 중 이탈했으면 이전 방의 자막을 새 세션에 섞지 않는다.
+            if (!cancelled && event) applyStreamEvent(event);
+          } catch {
+            // 스트림 읽기 실패도 통화와 분리한다. 다음 프레임은 계속 받을 수 있다.
+            if (!cancelled) {
+              applyStreamEvent({ type: 'stream.degraded', reason: '전사를 받지 못했습니다.' });
+            }
+          }
+        });
+
         // join 이 입장 권한 확인과 LiveKit 접속 정보 발급을 함께 한다.
         // start 는 상태 전이 전용이라 여기서 부르지 않는다.
         const { livekitUrl, token } = await joinSession(sessionId, role);
@@ -182,10 +198,6 @@ export function useInterviewRoom({
             if (pub.track) attach(pub.track);
           });
         });
-
-        /* --- 전사·추천 질문 연결 ---
-           BE API 명세에 WebSocket 경로가 없어 아직 연결하지 않는다 (AI #7).
-           경로가 생기면 여기서 붙인다 — 통화와 분리해 두어 전사가 죽어도 통화는 유지된다. */
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof ApiError ? e.code : 'CONNECT_FAILED');
@@ -195,6 +207,7 @@ export function useInterviewRoom({
 
     return () => {
       cancelled = true;
+      room?.unregisterTextStreamHandler(TRANSCRIPT_TOPIC);
       room?.removeAllListeners();
       void room?.disconnect();
       reset();
