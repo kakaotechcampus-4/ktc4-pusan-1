@@ -4,7 +4,7 @@
  * 기획의 1·2·3 단계를 한 화면에서 끝낸다. 서버 쪽은 세 번의 호출이다.
  *
  *   POST /api/v1/interviews                  면접 정보 생성
- *   POST /api/v1/interviews/{id}/resume      이력서 업로드 (⚠️ 명세에 없음 · 목)
+ *   POST /api/v1/interviews/{id}/resume      이력서 업로드
  *   POST /api/v1/interviews/{id}/sessions    Session 생성 + 초대 링크 발급
  *
  * 사용자에게는 버튼 하나다. 이력서는 interviewId 가 있어야 올릴 수 있어서
@@ -18,6 +18,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { getMe } from '../api/auth';
+import { uploadErrorMessage } from '../api/client';
 import { useAccessToken } from '../hooks/useAccessToken';
 import { getCurrentContext } from '../api/context';
 import { createInterview, createSession } from '../api/interview';
@@ -29,6 +30,7 @@ import { checkFile } from '../lib/docFile';
 import type { ContextDoc, UploadRejection } from '../types/interview';
 
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
+  'empty-file': '내용이 있는 파일을 선택해주세요.',
   'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
   'too-large': '50MB 이하 파일만 올릴 수 있습니다.',
 };
@@ -80,10 +82,10 @@ export default function InterviewCreatePage() {
             setDoc((prev) => prev && { ...prev, progress: ratio }),
           );
           setDoc((prev) => prev && { ...prev, status: 'ready', progress: undefined });
-        } catch {
+        } catch (error) {
           // 이력서 하나 때문에 링크 발급까지 막지 않는다. 면접은 그대로 만들고 실패만 알린다.
           setDoc((prev) => prev && { ...prev, status: 'failed', progress: undefined });
-          setNotice('이력서를 올리지 못했습니다. 면접은 그대로 만들었습니다.');
+          setNotice(`${uploadErrorMessage(error)} 면접은 그대로 만들었습니다.`);
         }
       }
 

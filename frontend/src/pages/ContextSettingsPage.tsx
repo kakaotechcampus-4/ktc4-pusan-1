@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { deleteDoc, getCurrentContext, uploadDoc } from '../api/context';
+import { uploadErrorMessage } from '../api/client';
 import { updateContextSettings } from '../api/contextSettings';
 import { DocCard } from '../components/context/DocCard';
 import { DropZone } from '../components/context/DropZone';
@@ -30,6 +31,7 @@ const POLL_INTERVAL_MS = 2000;
 const TALENT_MAX = 2000;
 
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
+  'empty-file': '내용이 있는 파일을 선택해주세요.',
   'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
   'too-large': '50MB 이하 파일만 올릴 수 있습니다.',
 };
@@ -129,7 +131,7 @@ export default function ContextSettingsPage() {
       setPending((prev) => prev.filter((d) => d.id !== tempId));
       void qc.invalidateQueries({ queryKey });
     },
-    onError: (_e, { tempId }) => {
+    onError: (error, { tempId }) => {
       // 서버에 올라가지 않았으므로 목록에서 지운다. 임시 id 로 달아 둔 분류도 함께 버린다.
       setPending((prev) => prev.filter((d) => d.id !== tempId));
       setCategories((prev) => {
@@ -137,7 +139,7 @@ export default function ContextSettingsPage() {
         delete next[tempId];
         return next;
       });
-      setNotice('올리지 못했습니다. 잠시 후 다시 시도해주세요.');
+      setNotice(uploadErrorMessage(error));
     },
   });
 

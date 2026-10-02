@@ -140,7 +140,7 @@ export interface CompanyContext {
 }
 
 /** 업로드 거부 사유. 서버에 보내기 전에 FE 가 먼저 거른다. */
-export type UploadRejection = 'unsupported-type' | 'too-large';
+export type UploadRejection = 'unsupported-type' | 'too-large' | 'empty-file';
 
 /* ---------------------------------------------------------------- *
  * 면접 기록 (S3)

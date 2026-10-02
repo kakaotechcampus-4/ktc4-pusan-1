@@ -7,7 +7,7 @@
 
 import type { CompanyContext, ContextDoc } from '../types/interview';
 import { handleMockUpload, USE_MOCK_API } from '../mocks/mockApi';
-import { API_BASE, ApiError, authorizationHeader, request } from './client';
+import { request, uploadFile } from './client';
 
 const V1 = '/api/v1';
 
@@ -31,24 +31,5 @@ export function uploadDoc(
   // ⚠️ 프로토타입 임시 분기. XHR 은 request() 를 거치지 않으므로 여기서 따로 가른다.
   if (USE_MOCK_API) return handleMockUpload(file, onProgress);
 
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const form = new FormData();
-    form.append('file', file);
-
-    xhr.open('POST', `${API_BASE}${V1}/contexts/${contextId}/docs`);
-    xhr.setRequestHeader('Authorization', authorizationHeader());
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(e.loaded / e.total);
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(JSON.parse(xhr.responseText) as ContextDoc);
-        return;
-      }
-      reject(new ApiError('UPLOAD_FAILED', xhr.status));
-    };
-    xhr.onerror = () => reject(new ApiError('NETWORK', 0));
-    xhr.send(form);
-  });
+  return uploadFile(`${V1}/contexts/${contextId}/docs`, file, onProgress);
 }

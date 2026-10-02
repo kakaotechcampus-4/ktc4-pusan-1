@@ -6,6 +6,8 @@
  */
 import { handleMock, USE_MOCK_API } from '../mocks/mockApi';
 import { clearAccessToken, readAccessToken } from '../lib/authToken';
+import { parseContextDoc } from '../lib/docFile';
+import type { ContextDoc } from '../types/interview';
 
 export const API_BASE =
   import.meta.env.VITE_API_BASE?.trim() || (import.meta.env.DEV ? 'http://localhost:8000' : '');
@@ -52,4 +54,55 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(body?.error?.code ?? 'UNKNOWN', res.status);
   }
   return res.status === 204 ? (undefined as T) : res.json();
+}
+
+/** 문서와 이력서가 같은 업로드 계약을 쓴다. 오류·인증 처리가 갈라지지 않게 둔다. */
+export function uploadFile(
+  path: string,
+  file: File,
+  onProgress: (ratio: number) => void,
+): Promise<ContextDoc> {
+  const accessToken = readAccessToken();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const form = new FormData();
+    form.append('file', file);
+    xhr.open('POST', `${API_BASE}${path}`);
+    xhr.setRequestHeader('Authorization', `Bearer ${accessToken ?? ''}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const doc = parseContextDoc(xhr.responseText);
+        if (doc) resolve(doc);
+        else reject(new ApiError('INVALID_RESPONSE', xhr.status));
+        return;
+      }
+      // 이전 업로드의 늦은 401로 새 로그인까지 지우지 않는다.
+      if (xhr.status === 401 && accessToken && readAccessToken() === accessToken)
+        clearAccessToken();
+      let code = 'UPLOAD_FAILED';
+      try {
+        const body = JSON.parse(xhr.responseText);
+        if (typeof body?.error?.code === 'string') code = body.error.code;
+      } catch {
+        // 프록시가 HTML 오류를 줘도 요청은 실패로 끝낸다.
+      }
+      reject(new ApiError(code, xhr.status));
+    };
+    xhr.onerror = () => reject(new ApiError('NETWORK', 0));
+    xhr.onabort = () => reject(new ApiError('ABORTED', 0));
+    xhr.send(form);
+  });
+}
+
+export function uploadErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 413) return '50MB 이하 파일만 올릴 수 있습니다.';
+    if (error.status === 415) return 'PDF 와 DOCX 만 올릴 수 있습니다.';
+    if (error.status === 422) return '빈 파일인지, 파일 이름이 올바른지 확인해주세요.';
+    if (error.status === 401) return '로그인 상태를 다시 확인해주세요.';
+  }
+  return '올리지 못했습니다. 잠시 후 다시 시도해주세요.';
 }
