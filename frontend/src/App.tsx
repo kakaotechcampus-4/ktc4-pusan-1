@@ -24,16 +24,21 @@ import JoinPage from './pages/JoinPage';
 import KakaoCallbackPage from './pages/KakaoCallbackPage';
 import LoginPage from './pages/LoginPage';
 import MainPage from './pages/MainPage';
-import { clearAccessToken } from './lib/authToken';
 import { getMe } from './api/auth';
 import { ApiError } from './api/client';
 import { useAccessToken } from './hooks/useAccessToken';
+import { USE_MOCK_API } from './mocks/mockApi';
+import { InterviewerHeader } from './components/layout/InterviewerHeader';
 import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from './lib/candidateName';
 import type { JoinSessionResponse, Role } from './types/interview';
 
 /* 카메라·마이크를 쓰는 화면만 따로 내려받는다.
    livekit-client 가 번들의 대부분을 차지하는데, 진입·요약 화면에는 필요 없다.
    이렇게 나누면 링크를 연 사람이 첫 화면을 보기까지 받는 양이 줄어든다. */
+const InterviewRoom = lazy(() => import('./pages/InterviewRoom'));
+const CandidateListPage = lazy(() => import('./pages/CandidateListPage'));
+const CandidateDetailPage = lazy(() => import('./pages/CandidateDetailPage'));
+const CandidateMemoPage = lazy(() => import('./pages/CandidateMemoPage'));
 const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
 // hls.js 도 크다. 면접 기록을 여는 사람만 받는다.
 const ReviewTimelinePage = lazy(() => import('./pages/ReviewTimelinePage'));
@@ -55,8 +60,8 @@ interface LocalTracks {
  * 기기 점검을 통과할 때까지 자식을 그리지 않는다.
  *
  * 트랙 소유권 처리를 여기 한 곳에 모은다. usePermissionCheck 는 release() 를 부른 쪽에
- * 소유권을 넘기고 그 뒤로는 스스로 stop 하지 않는다. 프로토타입에는 publishTrack 이 없어
- * Room 이 대신 정리해 주지도 않으므로, 이 컴포넌트가 정리까지 책임진다.
+ * 소유권을 넘기고 그 뒤로는 스스로 stop 하지 않는다. Room은 disconnect(false)로
+ * 원본 트랙을 유지하고, 최종 정리는 이 컴포넌트가 책임진다.
  */
 function DeviceGate({
   children,
@@ -116,30 +121,66 @@ function InterviewFlow() {
   const remoteName =
     role === 'INTERVIEWER' ? (session?.candidateName ?? FALLBACK_CANDIDATE) : INTERVIEWER_LABEL;
 
+  if (!sessionId) return <Navigate to="/" replace />;
+
   if (!session) {
     return <JoinPage role={role} onJoined={setSession} />;
   }
 
-  // ⚠️ 프로토타입 — 전사·추천 질문은 목 데이터다 (WebSocket 경로가 명세에 없음).
-  //    자기 화면(PiP)과 상대 영상 자리는 기기 점검에서 얻은 실제 트랙을 쓴다.
+  const onEnded = () => {
+    // 지원자는 계정이 없어 로그인 화면 대신 같은 초대 링크로 돌아가 재입장할 수 있다.
+    void navigate(
+      role === 'INTERVIEWER' ? `/interview/${sessionId}/summary` : `/interview/${sessionId}`,
+      { replace: true },
+    );
+    setSession(null);
+  };
+
   return (
-    <DeviceGate livekitConnection={session}>
+    <DeviceGate livekitConnection={USE_MOCK_API ? undefined : session}>
       {(tracks) => (
         <Suspense fallback={<ChunkFallback />}>
-          <InterviewRoomPreview
-            role={role}
-            sessionId={sessionId}
-            remoteName={remoteName}
-            localVideoTrack={tracks.videoTrack}
-            localAudioTrack={tracks.audioTrack}
-            onLeave={() => {
-              // 면접관은 요약을 본다. 지원자는 요약 열람 권한이 없으므로 처음으로 돌아간다.
-              void navigate(role === 'INTERVIEWER' ? `/interview/${sessionId}/summary` : '/');
-            }}
-          />
+          {USE_MOCK_API ? (
+            <InterviewRoomPreview
+              role={role}
+              sessionId={sessionId}
+              remoteName={remoteName}
+              localVideoTrack={tracks.videoTrack}
+              localAudioTrack={tracks.audioTrack}
+              onLeave={onEnded}
+            />
+          ) : (
+            <InterviewRoom
+              sessionId={sessionId}
+              role={role}
+              remoteName={remoteName}
+              videoTrack={tracks.videoTrack}
+              audioTrack={tracks.audioTrack}
+              onEnded={onEnded}
+            />
+          )}
         </Suspense>
       )}
     </DeviceGate>
+  );
+}
+
+/** 지원자 초대 링크는 공개하고 면접관 입장만 인증한다. */
+function InterviewEntry() {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const [params] = useSearchParams();
+  const interviewer = params.get('role') === 'interviewer';
+  const flow = <InterviewFlow key={`${sessionId}/${interviewer}`} />;
+  return interviewer ? <RequireAuth>{flow}</RequireAuth> : flow;
+}
+
+/** 업무 화면에서 어디서든 목록·설정·새 면접으로 이동할 수 있다. */
+function InterviewerPage({ children }: { children: ReactNode }) {
+  return (
+    <RequireAuth>
+      <InterviewerHeader />
+      <Suspense fallback={<ChunkFallback />}>{children}</Suspense>
+    </RequireAuth>
   );
 }
 
@@ -164,9 +205,6 @@ function RequireAuth({ children }: { children: ReactNode }) {
   });
 
   const expired = isError && error instanceof ApiError && error.status === 401;
-  useEffect(() => {
-    if (expired) clearAccessToken();
-  }, [expired]);
 
   if (!hasToken || expired) return <Navigate to="/login" replace />;
   // 확인이 끝나기 전에 화면을 그리면 로그인 화면이 깜빡였다가 사라진다.
@@ -194,44 +232,76 @@ export default function App() {
       <Route
         path="/"
         element={
-          <RequireAuth>
+          <InterviewerPage>
             <MainPage />
-          </RequireAuth>
+          </InterviewerPage>
         }
       />
       <Route
         path="/settings/context"
         element={
-          <RequireAuth>
+          <InterviewerPage>
             <ContextSettingsPage />
-          </RequireAuth>
+          </InterviewerPage>
         }
       />
       <Route
         path="/interviews/new"
         element={
-          <RequireAuth>
+          <InterviewerPage>
             <InterviewCreatePage />
-          </RequireAuth>
+          </InterviewerPage>
         }
       />
-      <Route path="/interview/:sessionId" element={<InterviewFlow />} />
+      <Route path="/interview/:sessionId" element={<InterviewEntry />} />
       <Route
         path="/interview/:sessionId/summary"
         element={
-          <RequireAuth>
+          <InterviewerPage>
             <InterviewSummaryPage />
-          </RequireAuth>
+          </InterviewerPage>
         }
       />
       <Route
         path="/review/:interviewId"
         element={
-          <RequireAuth>
+          <InterviewerPage>
             <Suspense fallback={<ChunkFallback />}>
               <ReviewTimelinePage />
             </Suspense>
-          </RequireAuth>
+          </InterviewerPage>
+        }
+      />
+      <Route
+        path="/candidates"
+        element={
+          <InterviewerPage>
+            <CandidateListPage />
+          </InterviewerPage>
+        }
+      />
+      <Route
+        path="/demo/candidates"
+        element={
+          <Suspense fallback={<ChunkFallback />}>
+            <CandidateListPage demo />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/demo/candidates/:candidateId"
+        element={
+          <Suspense fallback={<ChunkFallback />}>
+            <CandidateDetailPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/demo/candidates/:candidateId/memo"
+        element={
+          <Suspense fallback={<ChunkFallback />}>
+            <CandidateMemoPage />
+          </Suspense>
         }
       />
       <Route

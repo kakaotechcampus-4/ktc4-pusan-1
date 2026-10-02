@@ -5,9 +5,10 @@
  * 그래서 base 에는 prefix 를 넣지 않고 오리진만 둔다. prefix 는 각 호출 경로에 쓴다.
  */
 import { handleMock, USE_MOCK_API } from '../mocks/mockApi';
-import { readAccessToken } from '../lib/authToken';
+import { clearAccessToken, readAccessToken } from '../lib/authToken';
 
-export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
+export const API_BASE =
+  import.meta.env.VITE_API_BASE?.trim() || (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
 export const authorizationHeader = () => `Bearer ${readAccessToken() ?? ''}`;
 
@@ -36,15 +37,17 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
 
+  const accessToken = readAccessToken();
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: authorizationHeader(),
+      Authorization: `Bearer ${accessToken ?? ''}`,
       ...init?.headers,
     },
   });
   if (!res.ok) {
+    if (res.status === 401 && accessToken && readAccessToken() === accessToken) clearAccessToken();
     const body = await res.json().catch(() => null);
     throw new ApiError(body?.error?.code ?? 'UNKNOWN', res.status);
   }

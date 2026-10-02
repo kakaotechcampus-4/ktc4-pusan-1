@@ -24,19 +24,8 @@ import type {
 import { contextProfile } from './contextStore';
 import { handleContextSettingsMock } from './contextSettingsMock';
 
-/**
- * 목이 켜져 있는가.
- *
- * `DEV` 에 묶으면 안 된다. 배포 빌드에서 목만 조용히 꺼지는데 화면(InterviewFlow)은
- * 여전히 InterviewRoomPreview 라서, API 만 실서버를 치고 화면은 목인 엇갈린 상태가 된다.
- * 화면이 목으로 고정된 동안에는 API 도 같이 목이어야 한다.
- *
- * REST 만 실제 BE 로 확인하려면 VITE_USE_MOCK_API=false 로 끈다. 전사·통화는 여전히
- * 목이라는 것을 알고 꺼야 한다.
- *
- * 화면이 실제 연결로 바뀔 때 이 플래그와 InterviewFlow 를 함께 내린다.
- */
-export const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API !== 'false';
+/** 목은 화면 시연 때만 명시적으로 켠다. 배포 기본값은 실제 API다. */
+export const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === 'true';
 
 /** 실제 서버처럼 보이도록 약간의 지연을 준다. 로딩 상태가 화면에 드러나야 한다. */
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
