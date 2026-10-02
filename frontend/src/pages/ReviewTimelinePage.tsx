@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getReview } from '../api/review';
+import { getInterview } from '../api/interview';
 import { AiReview } from '../components/review/AiReview';
 import { QaList } from '../components/review/QaList';
 import { ReviewPlayer } from '../components/review/ReviewPlayer';
@@ -31,6 +32,13 @@ export default function ReviewTimelinePage() {
     queryFn: () => getReview(interviewId!),
     enabled: Boolean(interviewId),
     refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? POLL_INTERVAL_MS : false),
+  });
+
+  // 기록이 준비 중이어도 어떤 지원자의 면접인지 실제 면접 조회로 확인한다.
+  const { data: interview, refetch: refetchInterview } = useQuery({
+    queryKey: ['interview', interviewId],
+    queryFn: () => getInterview(interviewId!),
+    enabled: Boolean(interviewId),
   });
 
   const review = data?.status === 'READY' ? data : undefined;
@@ -52,11 +60,19 @@ export default function ReviewTimelinePage() {
   if (isError) {
     return (
       <Centered>
+        {interview?.candidateName && (
+          <h1 className="text-ink mb-4 text-xl font-semibold">
+            {interview.candidateName} · 면접 기록
+          </h1>
+        )}
         <p className="text-[15px] text-[#FFC46B]">면접 기록을 불러오지 못했습니다.</p>
         <p className="text-ink-muted mt-1.5 text-sm">잠시 후 다시 확인해주세요.</p>
         <button
           type="button"
-          onClick={() => void refetch()}
+          onClick={() => {
+            void refetch();
+            void refetchInterview();
+          }}
           disabled={isFetching}
           className="mt-4 text-sm text-white underline disabled:opacity-50"
         >
@@ -71,6 +87,11 @@ export default function ReviewTimelinePage() {
     const etaSec = data?.status === 'PROCESSING' ? data.etaSec : undefined;
     return (
       <Centered>
+        {interview?.candidateName && (
+          <h1 className="text-ink mb-4 text-xl font-semibold">
+            {interview.candidateName} · 면접 기록
+          </h1>
+        )}
         <div
           aria-live="polite"
           className="border-border-base bg-surface-panel rounded-2xl border p-6"
@@ -86,7 +107,10 @@ export default function ReviewTimelinePage() {
         </div>
         <button
           type="button"
-          onClick={() => void refetch()}
+          onClick={() => {
+            void refetch();
+            void refetchInterview();
+          }}
           disabled={isFetching}
           className="mt-4 text-sm text-white underline disabled:opacity-50"
         >
