@@ -13,9 +13,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { getMe } from '../api/auth';
 import { getCurrentContext } from '../api/context';
 import { clearAccessToken } from '../lib/authToken';
+import { useAccessToken } from '../hooks/useAccessToken';
 
 export default function MainPage() {
   const navigate = useNavigate();
+  const token = useAccessToken();
   const qc = useQueryClient();
 
   const { data: context, isLoading } = useQuery({
@@ -24,7 +26,7 @@ export default function MainPage() {
   });
 
   // RequireAuth 가 이미 불러 둔 값을 그대로 쓴다 — 같은 키라 요청이 더 나가지 않는다.
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe });
+  const { data: me } = useQuery({ queryKey: ['me', token], queryFn: getMe });
 
   const logout = () => {
     clearAccessToken();
