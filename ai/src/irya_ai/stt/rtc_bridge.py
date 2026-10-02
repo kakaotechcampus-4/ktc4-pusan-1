@@ -30,8 +30,10 @@ from collections.abc import (
     Awaitable,
     Callable,
     Iterable,
+    Iterator,
     Sequence,
 )
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from functools import partial
 from typing import Protocol
@@ -80,6 +82,28 @@ class TranscribingStream(Protocol):
 
 
 StreamFactory = Callable[[], TranscribingStream]
+
+
+class TrackAudio(Protocol):
+    """What this module needs of ``rtc.AudioStream``: frames, and a way to stop.
+
+    ``aclose`` must end the iteration - after whatever frames were already
+    received - and must be safe to call twice.
+    """
+
+    def __aiter__(self) -> AsyncIterator[rtc.AudioFrameEvent]: ...
+
+    async def aclose(self) -> None: ...
+
+
+def open_track_audio(track: rtc.Track) -> TrackAudio:
+    """The track's audio as the segmenter wants it: 16 kHz mono."""
+
+    return rtc.AudioStream.from_track(
+        track=track,
+        sample_rate=SAMPLE_RATE,
+        num_channels=NUM_CHANNELS,
+    )
 
 
 def session_id_from_room(room_name: str) -> str | None:
@@ -322,6 +346,17 @@ async def transcribe_audio_frames(
     return stream
 
 
+def _in_room(room: rtc.Room, participant: rtc.RemoteParticipant) -> bool:
+    """Whether the room still holds *this* participant, not just their identity.
+
+    The backend issues the role as the identity, so someone who leaves and
+    comes back is the same identity on a new participant object. Asking by
+    identity alone would take the one who left for present.
+    """
+
+    return room.remote_participants.get(participant.identity) is participant
+
+
 def _matching_microphone(
     publication: rtc.RemoteTrackPublication,
     *,
@@ -374,6 +409,10 @@ async def wait_for_microphone(
     room.on("participant_disconnected", on_participant_disconnected)
     room.on("connection_state_changed", on_connection_state_changed)
     try:
+        # A participant who left before this call will never fire the event
+        # above, so waiting on it would keep their task for the whole room.
+        if not _in_room(room, participant):
+            raise RuntimeError("participant disconnected")
         for publication in participant.track_publications.values():
             if _matching_microphone(publication, seen=seen):
                 return publication
@@ -384,7 +423,91 @@ async def wait_for_microphone(
         room.off("connection_state_changed", on_connection_state_changed)
 
 
-async def _audio_frames(stream: rtc.AudioStream) -> AsyncIterator[rtc.AudioFrame]:
+@contextmanager
+def track_over(
+    room: rtc.Room,
+    participant: rtc.RemoteParticipant,
+    publication: rtc.RemoteTrackPublication,
+) -> Iterator[asyncio.Future[str]]:
+    """A future that resolves, with the reason, once this track is over.
+
+    The SDK's audio stream cannot be relied on for this. It does not end when
+    the subscription does, and when the same identity comes back it starts
+    receiving the *new* track's audio as well - so a stream left open after
+    its participant has gone transcribes the returning one a second time,
+    under the old track id (#123). The room's events are the signal instead:
+    the track was unsubscribed or unpublished, its participant left, or the
+    room itself went away.
+
+    Events that fired before the handlers were attached are covered by one
+    look at the current state, so the caller can enter this right after
+    :func:`wait_for_microphone` without a gap.
+    """
+
+    over: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+
+    def end(reason: str) -> None:
+        if not over.done():
+            over.set_result(reason)
+
+    def on_track_unsubscribed(
+        _track: rtc.Track,
+        gone: rtc.RemoteTrackPublication,
+        publisher: rtc.RemoteParticipant,
+    ) -> None:
+        if publisher is participant and gone.sid == publication.sid:
+            end("unsubscribed")
+
+    def on_track_unpublished(
+        gone: rtc.RemoteTrackPublication, publisher: rtc.RemoteParticipant
+    ) -> None:
+        if publisher is participant and gone.sid == publication.sid:
+            end("unpublished")
+
+    def on_participant_disconnected(publisher: rtc.RemoteParticipant) -> None:
+        if publisher is participant:
+            end("participant left")
+
+    def on_connection_state_changed(state: int) -> None:
+        if state == rtc.ConnectionState.CONN_DISCONNECTED:
+            end("room disconnected")
+
+    room.on("track_unsubscribed", on_track_unsubscribed)
+    room.on("track_unpublished", on_track_unpublished)
+    room.on("participant_disconnected", on_participant_disconnected)
+    room.on("connection_state_changed", on_connection_state_changed)
+    try:
+        if not room.isconnected():
+            end("room disconnected")
+        elif not _in_room(room, participant):
+            end("participant left")
+        elif not publication.subscribed or publication.track is None:
+            end("unsubscribed")
+        yield over
+    finally:
+        room.off("track_unsubscribed", on_track_unsubscribed)
+        room.off("track_unpublished", on_track_unpublished)
+        room.off("participant_disconnected", on_participant_disconnected)
+        room.off("connection_state_changed", on_connection_state_changed)
+        over.cancel()
+
+
+async def _close_when_over(
+    over: asyncio.Future[str], audio: TrackAudio, *, track_id: str
+) -> None:
+    """Close the track's audio once the room says the track is over.
+
+    Closing ends the frame iterator after the frames already received, which
+    is the ordinary end of a track for everything downstream: the pump closes
+    the STT stream, the tail segment is sent, and the receiver drains.
+    """
+
+    reason = await over
+    logger.info("microphone track over track=%s reason=%s", track_id, reason)
+    await audio.aclose()
+
+
+async def _audio_frames(stream: TrackAudio) -> AsyncIterator[rtc.AudioFrame]:
     async for event in stream:
         yield event.frame
 
@@ -414,6 +537,7 @@ class RoomTranscriber:
         segmentation: SegmentationConfig | None = None,
         wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         monotonic_clock: Callable[[], float] = time.monotonic,
+        open_audio: Callable[[rtc.Track], TrackAudio] = open_track_audio,
     ) -> None:
         self.room = room
         self.session_id = session_id
@@ -426,6 +550,7 @@ class RoomTranscriber:
         )
         self._wall_clock = wall_clock
         self._monotonic_clock = monotonic_clock
+        self._open_audio = open_audio
         self._origin_at: datetime | None = None
         self._initial_scan_complete = asyncio.Event()
         self._origin_ready = asyncio.Event()
@@ -481,7 +606,15 @@ class RoomTranscriber:
         )
 
     async def transcribe_participant(self, participant: rtc.RemoteParticipant) -> None:
-        """Transcribe this human's microphone, including a later republish."""
+        """Transcribe this human's microphone, including a later republish.
+
+        Returns when the participant leaves or the room disconnects. Someone
+        who leaves and comes back arrives as a new participant and gets a new
+        call; this one must have let go of its audio by then, or both would
+        transcribe the same voice (#123). Each track therefore ends on the
+        room's word that it is over (:func:`track_over`), not on its audio
+        running dry.
+        """
 
         speaker = speaker_from_identity(participant.identity)
         if speaker is None:
@@ -519,46 +652,64 @@ class RoomTranscriber:
                 speaker.value,
                 self.session_id,
             )
-            audio_stream = rtc.AudioStream.from_track(
-                track=track,
-                sample_rate=SAMPLE_RATE,
-                num_channels=NUM_CHANNELS,
-            )
-
-            try:
-                stream = await transcribe_audio_frames(
-                    frames=_audio_frames(audio_stream),
-                    stream_factory=partial(self.stream_for, track_id, speaker),
-                    sinks=self.sinks,
-                )
-                if isinstance(stream, TranscriptionStream):
-                    logger.info(
-                        "microphone transcription ended track=%s speaker=%s "
-                        "segments=%d rejected=%d dropped=%d %s",
-                        publication.sid,
-                        speaker.value,
-                        len(stream.timings),
-                        len(stream.rejected),
-                        len(stream.dropped_spans),
-                        lag_summary(stream),
-                    )
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # The participant callback is isolated from the room job. An
-                # STT or delivery failure changes only transcript state; the
-                # call and the recording go on. A single failed request is not
-                # this - the stream absorbs those per segment - so reaching
-                # here means the track's transcription is over.
-                logger.exception(
-                    "microphone transcription failed track=%s speaker=%s",
-                    publication.sid,
-                    speaker.value,
+            with track_over(self.room, participant, publication) as over:
+                audio = self._open_audio(track)
+                closer = asyncio.create_task(
+                    _close_when_over(over, audio, track_id=track_id),
+                    name="stt-track-over",
                 )
                 try:
-                    await self.caption.degraded()
-                except Exception:
-                    logger.exception("failed to publish transcript degraded event")
+                    delivered = await self._transcribe_track(
+                        audio, track_id=track_id, speaker=speaker
+                    )
+                finally:
+                    # Stop watching before the last close, so the stream is
+                    # never closed from two places at once. ``aclose`` is safe
+                    # to repeat when the watcher already got there.
+                    closer.cancel()
+                    await asyncio.gather(closer, return_exceptions=True)
+                    await audio.aclose()
+            if not delivered:
                 return
-            finally:
-                await audio_stream.aclose()
+
+    async def _transcribe_track(
+        self, audio: TrackAudio, *, track_id: str, speaker: SpeakerRole
+    ) -> bool:
+        """Run one track until its audio ends. ``False`` if transcription failed."""
+
+        try:
+            stream = await transcribe_audio_frames(
+                frames=_audio_frames(audio),
+                stream_factory=partial(self.stream_for, track_id, speaker),
+                sinks=self.sinks,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # The participant callback is isolated from the room job. An STT
+            # or delivery failure changes only transcript state; the call and
+            # the recording go on. A single failed request is not this - the
+            # stream absorbs those per segment - so reaching here means the
+            # track's transcription is over.
+            logger.exception(
+                "microphone transcription failed track=%s speaker=%s",
+                track_id,
+                speaker.value,
+            )
+            try:
+                await self.caption.degraded()
+            except Exception:
+                logger.exception("failed to publish transcript degraded event")
+            return False
+        if isinstance(stream, TranscriptionStream):
+            logger.info(
+                "microphone transcription ended track=%s speaker=%s "
+                "segments=%d rejected=%d dropped=%d %s",
+                track_id,
+                speaker.value,
+                len(stream.timings),
+                len(stream.rejected),
+                len(stream.dropped_spans),
+                lag_summary(stream),
+            )
+        return True

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -24,8 +25,10 @@ from irya_ai.stt.rtc_bridge import (
     lag_summary,
     session_id_from_room,
     speaker_from_identity,
+    track_over,
     transcribe_audio_frames,
     transcript_event_json,
+    wait_for_microphone,
 )
 from irya_ai.stt.stream import TranscriptionStream
 
@@ -399,3 +402,296 @@ def test_room_transcriber_can_be_created_before_room_connects() -> None:
             raise AssertionError("local participant accessed before connect")
 
     transcriber(room=DisconnectedRoom())
+
+
+# --- the participant loop -----------------------------------------------------
+
+TURN = tone(1500) + silence(800)  # one spoken turn: one segment, one caption
+JOINED_AT = datetime(2026, 9, 18, 7, 0, tzinfo=UTC)
+
+
+class FakeAudio:
+    """Stands in for ``rtc.AudioStream``: fed by the test, ended only by ``aclose``.
+
+    Like the SDK's it does not end when its participant leaves. Audio fed
+    after the close is refused and counted, which is how a test sees that a
+    stale stream could no longer have transcribed anyone.
+    """
+
+    def __init__(self) -> None:
+        self._queue: asyncio.Queue[rtc.AudioFrame | None] = asyncio.Queue()
+        self.closed = False
+        self.refused = 0
+
+    def feed(self, pcm: bytes) -> None:
+        for value in chunked(pcm):
+            if self.closed:
+                self.refused += 1
+            else:
+                self._queue.put_nowait(value)
+
+    @property
+    def taken(self) -> bool:
+        """Whether everything fed so far has been read by the bridge."""
+
+        return self._queue.empty()
+
+    async def aclose(self) -> None:
+        if not self.closed:
+            self.closed = True
+            self._queue.put_nowait(None)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        value = await self._queue.get()
+        if value is None:
+            raise StopAsyncIteration
+        return SimpleNamespace(frame=value)
+
+
+class FakeRoom(rtc.EventEmitter[str]):
+    """The slice of ``rtc.Room`` the participant loop touches, with its events."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.local_participant = FakeLocalParticipant()
+        self.remote_participants: dict[str, SimpleNamespace] = {}
+        self.connected = True
+        self._audio: dict[int, FakeAudio] = {}
+
+    def isconnected(self) -> bool:
+        return self.connected
+
+    def open_audio(self, track: rtc.Track) -> FakeAudio:
+        return self._audio[id(track)]
+
+    def join(self, identity: str = "CANDIDATE") -> SimpleNamespace:
+        participant = SimpleNamespace(
+            identity=identity, joined_at=JOINED_AT, track_publications={}
+        )
+        self.remote_participants[identity] = participant
+        return participant
+
+    def publish(self, participant: SimpleNamespace, sid: str) -> FakeAudio:
+        # An instance without the FFI behind it: enough for ``isinstance``.
+        track = object.__new__(rtc.RemoteAudioTrack)
+        publication = SimpleNamespace(
+            sid=sid,
+            kind=rtc.TrackKind.KIND_AUDIO,
+            source=rtc.TrackSource.SOURCE_MICROPHONE,
+            subscribed=True,
+            track=track,
+        )
+        participant.track_publications[sid] = publication
+        audio = self._audio[id(track)] = FakeAudio()
+        self.emit("track_subscribed", track, publication, participant)
+        return audio
+
+    def unpublish(self, participant: SimpleNamespace, sid: str) -> None:
+        publication = participant.track_publications.pop(sid)
+        track, publication.track, publication.subscribed = (
+            publication.track,
+            None,
+            False,
+        )
+        self.emit("track_unsubscribed", track, publication, participant)
+        self.emit("track_unpublished", publication, participant)
+
+    def leave(self, participant: SimpleNamespace) -> None:
+        # Only the disconnect, the way the SDK reports it when the unsubscribe
+        # loses the race: the publications are still marked subscribed.
+        if self.remote_participants.get(participant.identity) is participant:
+            del self.remote_participants[participant.identity]
+        self.emit("participant_disconnected", participant)
+
+    def disconnect(self) -> None:
+        self.connected = False
+        self.emit("connection_state_changed", rtc.ConnectionState.CONN_DISCONNECTED)
+
+
+def live_room() -> tuple[FakeRoom, RoomTranscriber, list[Utterance]]:
+    room = FakeRoom()
+    received: list[Utterance] = []
+
+    async def sink(value: Utterance) -> None:
+        received.append(value)
+
+    subject = transcriber(
+        room=room,
+        client=stt_client(lambda request: ok("네")),
+        sinks=[sink],
+        open_audio=room.open_audio,
+        wall_clock=lambda: JOINED_AT,
+    )
+    return room, subject, received
+
+
+async def until(condition, *, timeout: float = 5.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not condition():
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError("the condition was never reached")
+        await asyncio.sleep(0.005)
+
+
+def tracks(received: list[Utterance]) -> list[str]:
+    return [value.track_id for value in received]
+
+
+async def test_a_participant_leaving_ends_their_track_and_their_task(caplog) -> None:
+    room, subject, received = live_room()
+    candidate = room.join()
+    audio = room.publish(candidate, "TR_first")
+    subject.initialize_origin([candidate])
+    task = asyncio.create_task(subject.transcribe_participant(candidate))
+
+    audio.feed(TURN)
+    await until(lambda: len(received) == 1)
+    assert not task.done(), "the SDK stream does not end by itself"
+
+    with caplog.at_level(logging.INFO, logger="irya_ai.stt.rtc_bridge"):
+        room.leave(candidate)
+        await asyncio.wait_for(task, timeout=5)
+
+    assert audio.closed
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(
+        m.startswith("microphone track over track=TR_first reason=participant left")
+        for m in messages
+    )
+    # The figures the team reads N1 from are logged when the person leaves,
+    # not when the room happens to end.
+    assert any(
+        m.startswith("microphone transcription ended track=TR_first") and "lag n=1" in m
+        for m in messages
+    )
+
+
+async def test_speech_still_in_the_segmenter_is_captioned_when_they_leave() -> None:
+    room, subject, received = live_room()
+    candidate = room.join()
+    audio = room.publish(candidate, "TR_first")
+    subject.initialize_origin([candidate])
+    task = asyncio.create_task(subject.transcribe_participant(candidate))
+
+    audio.feed(tone(1500))  # no pause yet: nothing has been cut
+    await until(lambda: audio.taken)
+    assert received == []
+    room.leave(candidate)
+    await asyncio.wait_for(task, timeout=5)
+
+    assert tracks(received) == ["TR_first"], "the tail was sent, not thrown away"
+
+
+async def test_someone_who_comes_back_is_captioned_once() -> None:
+    room, subject, received = live_room()
+    first = room.join()
+    old_audio = room.publish(first, "TR_first")
+    subject.initialize_origin([first])
+    old_task = asyncio.create_task(subject.transcribe_participant(first))
+    old_audio.feed(TURN)
+    await until(lambda: len(received) == 1)
+
+    room.leave(first)
+    await asyncio.wait_for(old_task, timeout=5)
+
+    # Same identity, new participant, new track - and, as the SDK does it,
+    # the new track's audio is offered to the old stream as well.
+    second = room.join()
+    new_audio = room.publish(second, "TR_second")
+    new_task = asyncio.create_task(subject.transcribe_participant(second))
+    old_audio.feed(TURN)
+    new_audio.feed(TURN)
+    await until(lambda: len(received) == 2)
+    room.leave(second)
+    await asyncio.wait_for(new_task, timeout=5)
+
+    assert tracks(received) == ["TR_first", "TR_second"], "one caption per turn"
+    assert old_audio.refused > 0, "the stale stream was closed before it could hear"
+
+
+async def test_a_republished_microphone_is_picked_up_by_the_same_task() -> None:
+    room, subject, received = live_room()
+    candidate = room.join()
+    first_audio = room.publish(candidate, "TR_first")
+    subject.initialize_origin([candidate])
+    task = asyncio.create_task(subject.transcribe_participant(candidate))
+    first_audio.feed(TURN)
+    await until(lambda: len(received) == 1)
+
+    room.unpublish(candidate, "TR_first")
+    await until(lambda: first_audio.closed)
+    assert not task.done(), "the person is still here; only the track ended"
+
+    second_audio = room.publish(candidate, "TR_second")
+    second_audio.feed(TURN)
+    await until(lambda: len(received) == 2)
+    room.leave(candidate)
+    await asyncio.wait_for(task, timeout=5)
+
+    assert tracks(received) == ["TR_first", "TR_second"]
+
+
+async def test_other_people_and_other_tracks_do_not_end_this_one() -> None:
+    room, subject, received = live_room()
+    candidate = room.join()
+    audio = room.publish(candidate, "TR_first")
+    interviewer = room.join("INTERVIEWER")
+    subject.initialize_origin([candidate, interviewer])
+    task = asyncio.create_task(subject.transcribe_participant(candidate))
+    audio.feed(TURN)
+    await until(lambda: len(received) == 1)
+
+    room.leave(interviewer)
+    other = SimpleNamespace(sid="TR_camera", track=None, subscribed=False)
+    room.emit("track_unsubscribed", None, other, candidate)
+    room.emit("track_unpublished", other, candidate)
+    audio.feed(TURN)
+    await until(lambda: len(received) == 2)
+
+    assert not audio.closed and not task.done()
+    room.leave(candidate)
+    await asyncio.wait_for(task, timeout=5)
+
+
+async def test_the_room_going_away_ends_every_track() -> None:
+    room, subject, _received = live_room()
+    candidate = room.join()
+    audio = room.publish(candidate, "TR_first")
+    subject.initialize_origin([candidate])
+    task = asyncio.create_task(subject.transcribe_participant(candidate))
+    audio.feed(TURN)
+    await until(lambda: audio.taken)
+
+    room.disconnect()
+    await asyncio.wait_for(task, timeout=5)
+
+    assert audio.closed
+
+
+async def test_a_track_that_ended_before_anyone_watched_is_seen_as_over() -> None:
+    room = FakeRoom()
+    candidate = room.join()
+    room.publish(candidate, "TR_first")
+    publication = candidate.track_publications["TR_first"]
+
+    with track_over(room, candidate, publication) as over:  # type: ignore[arg-type]
+        assert not over.done()
+    room.leave(candidate)
+    with track_over(room, candidate, publication) as over:  # type: ignore[arg-type]
+        assert over.result() == "participant left"
+
+
+async def test_nobody_waits_for_the_microphone_of_someone_who_left() -> None:
+    room = FakeRoom()
+    candidate = room.join()
+    room.leave(candidate)
+    room.join()  # the same identity is back, as someone else
+
+    with pytest.raises(RuntimeError, match="participant disconnected"):
+        await asyncio.wait_for(
+            wait_for_microphone(room, candidate, seen=set()),  # type: ignore[arg-type]
+            timeout=1,
+        )
