@@ -3,6 +3,7 @@ import type { PermissionStatus } from '../hooks/usePermissionCheck';
 import { Link } from 'react-router-dom';
 
 interface DeviceCheckSurfaceProps {
+  onBack?: () => void;
   status: PermissionStatus;
   videoTrack: MediaStreamTrack | null;
   audioTrack: MediaStreamTrack | null;
@@ -17,6 +18,7 @@ interface DeviceCheckSurfaceProps {
 }
 
 export function DeviceCheckSurface({
+  onBack,
   status,
   videoTrack,
   audioTrack,
@@ -35,9 +37,19 @@ export function DeviceCheckSurface({
     <div className="min-h-full bg-[#121316] px-4 py-7 text-[#eaecef] sm:px-6 lg:px-8">
       <main className="mx-auto max-w-[1400px]">
         <header className="rounded-lg border border-[#272a33] bg-[#18191f] p-5 sm:p-6">
-          <Link to="/" className="mb-4 inline-flex text-xs text-[#9498a4] hover:text-white">
-            ← 처음으로
-          </Link>
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="mb-4 inline-flex text-xs text-[#9498a4] hover:text-white"
+            >
+              ← 입장 화면으로
+            </button>
+          ) : (
+            <Link to="/" className="mb-4 inline-flex text-xs text-[#9498a4] hover:text-white">
+              ← 처음으로
+            </Link>
+          )}
           <p className="font-mono text-xs text-[#9498a4]">면접 입장 · 기기 점검</p>
           <h1 className="mt-2 text-xl font-bold sm:text-2xl">실시간 화상 면접 준비</h1>
           <p className="mt-2 text-sm text-[#9498a4]">

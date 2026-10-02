@@ -8,6 +8,7 @@
  */
 
 import { queryClient } from './queryClient';
+import { clearLoginReturnTo } from './loginReturnTo';
 
 const KEY = 'accessToken';
 const TOKEN_CHANGED = 'irya:token-changed';
@@ -29,6 +30,7 @@ export const readAccessToken = () => sessionStorage.getItem(KEY) ?? localStorage
 
 /** 토큰이 더 이상 쓸 수 없을 때(401) 양쪽에서 지운다. */
 export function clearAccessToken() {
+  clearLoginReturnTo();
   queryClient.clear();
   sessionStorage.removeItem(KEY);
   localStorage.removeItem(KEY);

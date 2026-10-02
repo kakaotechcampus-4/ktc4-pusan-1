@@ -16,7 +16,15 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
-import { Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import ContextSettingsPage from './pages/ContextSettingsPage';
 import InterviewCreatePage from './pages/InterviewCreatePage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
@@ -66,9 +74,11 @@ interface LocalTracks {
 function DeviceGate({
   children,
   livekitConnection,
+  onBack,
 }: {
   children: (tracks: LocalTracks) => ReactNode;
   livekitConnection?: Pick<JoinSessionResponse, 'livekitUrl' | 'token'>;
+  onBack?: () => void;
 }) {
   const [tracks, setTracks] = useState<LocalTracks | null>(null);
 
@@ -85,6 +95,7 @@ function DeviceGate({
       <Suspense fallback={<ChunkFallback />}>
         <DeviceCheckPage
           livekitConnection={livekitConnection}
+          onBack={onBack}
           onReady={({ videoTrack, audioTrack, release }) => {
             // release() 를 부르지 않으면 DeviceCheckPage 가 언마운트되면서
             // usePermissionCheck 의 정리가 트랙을 stop 한다 — 다음 화면에 죽은 트랙이 넘어간다.
@@ -137,7 +148,11 @@ function InterviewFlow() {
   };
 
   return (
-    <DeviceGate livekitConnection={USE_MOCK_API ? undefined : session}>
+    <DeviceGate
+      livekitConnection={USE_MOCK_API ? undefined : session}
+      // 지원자는 계정이 없으므로 점검을 취소해도 초대 링크 안에서 다시 입장한다.
+      onBack={role === 'CANDIDATE' ? () => setSession(null) : undefined}
+    >
       {(tracks) => (
         <Suspense fallback={<ChunkFallback />}>
           {USE_MOCK_API ? (
@@ -190,6 +205,7 @@ function InterviewerPage({ children }: { children: ReactNode }) {
  * 지원자 경로(초대 링크)는 감싸지 않는다 — 지원자는 회사 사람이 아니라 계정이 없다.
  */
 function RequireAuth({ children }: { children: ReactNode }) {
+  const location = useLocation();
   const token = useAccessToken();
   const hasToken = Boolean(token);
 
@@ -206,7 +222,14 @@ function RequireAuth({ children }: { children: ReactNode }) {
 
   const expired = isError && error instanceof ApiError && error.status === 401;
 
-  if (!hasToken || expired) return <Navigate to="/login" replace />;
+  if (!hasToken || expired)
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ returnTo: `${location.pathname}${location.search}${location.hash}` }}
+      />
+    );
   // 확인이 끝나기 전에 화면을 그리면 로그인 화면이 깜빡였다가 사라진다.
   if (isLoading) return <ChunkFallback />;
   if (isError) {

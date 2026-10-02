@@ -38,6 +38,8 @@ const GUIDE: Record<Exclude<PermissionStatus, 'granted'>, { title: string; detai
 };
 
 export interface DeviceCheckPageProps {
+  /** 지원자는 기기 점검을 취소하면 같은 초대 링크로 돌아간다. */
+  onBack?: () => void;
   livekitConnection?: {
     livekitUrl: string;
     token: string;
@@ -50,7 +52,11 @@ export interface DeviceCheckPageProps {
   }) => void;
 }
 
-export default function DeviceCheckPage({ livekitConnection, onReady }: DeviceCheckPageProps) {
+export default function DeviceCheckPage({
+  livekitConnection,
+  onReady,
+  onBack,
+}: DeviceCheckPageProps) {
   const { status, videoTrack, audioTrack, errorName, release, retry } = usePermissionCheck();
   const [starting, setStarting] = useState(false);
   const [soundNotice, setSoundNotice] = useState('');
@@ -96,6 +102,7 @@ export default function DeviceCheckPage({ livekitConnection, onReady }: DeviceCh
 
   return (
     <DeviceCheckSurface
+      onBack={onBack}
       status={status}
       videoTrack={videoTrack}
       audioTrack={audioTrack}
