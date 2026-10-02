@@ -9,15 +9,12 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { getContext } from '../api/context';
-
-/** ⚠️ 조직당 컨텍스트 하나. 실제 API 가 생기면 세션에서 가져온다. */
-const CONTEXT_ID = 'ctx_demo';
+import { getCurrentContext } from '../api/context';
 
 export default function MainPage() {
   const { data: context, isLoading } = useQuery({
-    queryKey: ['context', CONTEXT_ID],
-    queryFn: () => getContext(CONTEXT_ID),
+    queryKey: ['context'],
+    queryFn: getCurrentContext,
   });
 
   // 읽기가 끝난 문서가 하나도 없으면 아직 면접을 만들 준비가 안 된 것으로 본다.
