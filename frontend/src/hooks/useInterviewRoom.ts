@@ -148,7 +148,7 @@ export function useInterviewRoom({
         );
 
         // join 이 입장 권한 확인과 LiveKit 접속 정보 발급을 함께 한다.
-        // start 는 상태 전이 전용이라 여기서 부르지 않는다.
+        // 접속 뒤 상태를 확인하고 새 면접의 시작만 별도로 요청한다.
         const { livekitUrl, token } = await joinSession(sessionId, role);
         if (cancelled) return;
         setSession(sessionId);
