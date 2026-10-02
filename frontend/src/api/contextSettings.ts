@@ -3,12 +3,7 @@
  *
  * 문서 업로드(api/context.ts)와 달리 회사·직무·인재상 같은 텍스트 항목을 고친다.
  *
- * ⚠️ BE 명세에 없는 엔드포인트다. 목으로만 동작한다 (mocks/contextSettingsMock.ts).
- * 조회(GET /contexts/{id})는 아직 talentProfile 을 돌려주지 않는다 — 저장한 인재상을
- * 다시 읽어 올 곳이 없어, 화면은 새로 고치면 빈 칸에서 시작한다.
  */
-
-// 목 조회는 talentProfile 을 돌려준다. 실제 API 응답은 병합 후 계약을 확인한다.
 
 import { request } from './client';
 

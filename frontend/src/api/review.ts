@@ -1,7 +1,7 @@
 /**
  * 면접 기록 API (S3).
  *
- * ⚠️ BE 명세에 없는 엔드포인트다. 목으로만 동작한다.
+ * 실제 BE는 현재 PROCESSING을 반환한다. READY는 기존 시연 화면의 모델이다.
  */
 
 import type { ReviewResponse } from '../types/interview';
