@@ -86,6 +86,8 @@ class User:
     nickname: str
     profile_image_url: str | None = None
     id: str = field(default_factory=lambda: _new_id("usr"))
+    #: access 토큰의 `ver` 클레임과 맞아야 한다. 올리면 발급된 토큰이 전부 끊긴다.
+    token_version: int = 0
     created_at: datetime = field(default_factory=utcnow)
 
 
@@ -155,28 +157,18 @@ class Session:
         return True
 
 
-#: 컨텍스트의 기본 주인.
-#:
-#: FE 는 이 설정을 「조직당 하나」로 그린다 — 「조직 하나가 공유하는 면접 기준」
-#: (`ContextSettingsPage.tsx`). 그런데 조직도 로그인도 아직 없어서 조직을 가릴 방법이
-#: 없다. FE 도 같은 이유로 `contextId` 를 상수로 두고 있다 (「조직 컨텍스트를
-#: 알려주는 API 가 없어 contextId 를 상수로 둔다」).
-#:
-#: 그래서 지금은 주인이 하나뿐이고, 컨텍스트도 하나다. 로그인이 들어오면 토큰에서
-#: 주인을 정하게 되고 그때 이 상수가 사라진다 — 컬럼은 `owner_id` 로 두었으니
-#: 스키마는 그대로 쓴다.
-DEFAULT_CONTEXT_OWNER = "__default__"
-
-
 @dataclass
 class Context:
     """기업 컨텍스트 — 회사·직무·인재상과 올려 둔 문서.
 
     **면접이 아니라 조직에 딸린다.** 회사 정보와 JD 는 면접마다 바뀌지 않으므로
-    설정에 한 번 넣고 계속 쓴다 (#79). 주인당 하나다.
+    설정에 한 번 넣고 계속 쓴다 (#79). 주인당 하나고, 주인은 로그인한 면접관이다.
+
+    FE 는 이 설정을 「조직당 하나」로 그리지만 조직 모델이 아직 없다. 조직이 생기면
+    `owner_id` 에 조직 id 를 넣으면 된다 — 컬럼 이름은 그때도 그대로 쓴다.
     """
 
-    owner_id: str = DEFAULT_CONTEXT_OWNER
+    owner_id: str
     id: str = field(default_factory=lambda: _new_id("ctx"))
     company: str = ""
     team: str = ""

@@ -20,7 +20,7 @@ PDF = b"%PDF-1.7\nresume\n"
 
 @pytest.fixture
 def interview_id(client: TestClient) -> str:
-    made = client.post(f"{V1}/interviews", json={"interviewerId": "user_123"})
+    made = client.post(f"{V1}/interviews", json={})
     return made.json()["interviewId"]
 
 
@@ -102,11 +102,7 @@ def test_upload_to_unknown_interview_is_404(client: TestClient) -> None:
 def test_resumes_do_not_leak_between_interviews(
     client: TestClient, store: InMemoryStore
 ) -> None:
-    a = client.post(f"{V1}/interviews", json={"interviewerId": "user_a"}).json()[
-        "interviewId"
-    ]
-    b = client.post(f"{V1}/interviews", json={"interviewerId": "user_b"}).json()[
-        "interviewId"
-    ]
+    a = client.post(f"{V1}/interviews", json={}).json()["interviewId"]
+    b = client.post(f"{V1}/interviews", json={}).json()["interviewId"]
     upload(client, a, "a.pdf")
     assert store.get_resume(b) is None

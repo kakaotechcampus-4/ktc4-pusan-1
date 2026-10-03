@@ -1,17 +1,26 @@
-"""세션 상태·입장 — 명세 `면접`·`진입` 카테고리."""
+"""세션 상태·입장 — 명세 `면접`·`진입` 카테고리.
+
+면접관만 쓰는 경로(start · end · summary, 면접관 join)는 로그인한 면접 소유자만
+부른다 (#144). 남의 세션은 404 다.
+
+지원자가 부르는 경로(지원자 join · 상태 조회)는 로그인 없이 연다. 지원자는 계정이
+없고, 초대 링크의 sessionId 가 곧 입장 권한이다.
+"""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Header, Path
 
-from app.api.deps import MediaDep, StoreDep
+from app.api.deps import CurrentUserDep, MediaDep, StoreDep, get_current_user
 from app.core.config import settings
 from app.core.errors import ApiError, ErrorCode, responses
 from app.domain.models import (
+    Role,
     Session,
     SessionStatus,
     SessionSummary,
     SummaryStatus,
+    User,
 )
 from app.domain.store import Store
 from app.schemas import (
@@ -38,6 +47,19 @@ def _load(store: Store, session_id: str) -> Session:
     return session
 
 
+def _load_owned(store: Store, session_id: str, user: User) -> Session:
+    """`_load` 에 더해 면접 소유자인지 본다. 남의 세션도 똑같이 404 다."""
+    session = _load(store, session_id)
+    interview = store.get_interview(session.interview_id)
+    if interview is None or interview.interviewer_id != user.id:
+        raise ApiError(ErrorCode.SESSION_NOT_FOUND, 404, "Session 을 찾을 수 없습니다.")
+    return session
+
+
+_UNAUTHORIZED = (401, "로그인이 필요함")
+_NOT_FOUND = (404, "Session을 찾을 수 없음 (남의 Session 포함)")
+
+
 @router.get(
     "/{sessionId}",
     response_model=SessionStateResponse,
@@ -47,7 +69,9 @@ def _load(store: Store, session_id: str) -> Session:
 def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateResponse:
     """현재 화상면접 Session 의 진행 상태를 조회한다.
 
-    새로고침·재접속 시 상태 복구 용도다.
+    새로고침·재접속 시 상태 복구 용도다. **로그인 없이 연다** — 지원자 화면도 입장
+    직후 종료 여부를 여기서 확인한다. 응답은 지원자가 join 으로 이미 받는 수준이고,
+    여기 실린 interviewId 로 갈 수 있는 API 는 전부 소유자만 연다.
     """
     session = _load(store, session_id)
     interview = store.get_interview(session.interview_id)
@@ -67,21 +91,34 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
     response_model=JoinResponse,
     summary="면접 입장",
     responses=responses(
-        (404, "Session을 찾을 수 없음"),
+        (401, "INTERVIEWER 인데 로그인하지 않음"),
+        (404, "Session을 찾을 수 없음 (INTERVIEWER 는 남의 Session 포함)"),
         (409, "이미 종료된 Session 등 현재 상태에서 입장할 수 없음"),
     ),
 )
 async def join_session(
-    session_id: SessionIdPath, body: JoinRequest, store: StoreDep, media: MediaDep
+    session_id: SessionIdPath,
+    body: JoinRequest,
+    store: StoreDep,
+    media: MediaDep,
+    authorization: str = Header(default=""),
 ) -> JoinResponse:
     """Session 입장 권한을 확인하고 LiveKit 접속 정보를 발급한다.
 
-    지원자는 초대 링크에서 sessionId 를 전달받는다.
+    지원자는 초대 링크에서 sessionId 를 전달받고 로그인 없이 들어온다. 면접관은
+    로그인한 면접 소유자여야 한다 — 아니면 누구든 `role=INTERVIEWER` 로 면접관
+    자리를 차지해 전사를 받아 갈 수 있다.
+
+    LiveKit identity 는 그대로 역할 문자열이다 (`media.issue_token`). AI 가 identity
+    로 화자를 가르고 전사를 `INTERVIEWER` 에게 보내기 때문이다.
 
     토큰만 발급할 뿐 실제 입장은 클라이언트가 `livekitUrl` + `token` 으로
     LiveKit 에 직접 붙으면서 이뤄진다. 여러 번 불러도 되며 그때마다 새 토큰이 나온다.
     """
-    session = _load(store, session_id)
+    if body.role is Role.INTERVIEWER:
+        session = _load_owned(store, session_id, get_current_user(store, authorization))
+    else:
+        session = _load(store, session_id)
     interview = store.get_interview(session.interview_id)
     if session.status is SessionStatus.ENDED:
         raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
@@ -107,16 +144,18 @@ async def join_session(
     response_model=StartSessionResponse,
     summary="면접 시작",
     responses=responses(
-        (404, "Session을 찾을 수 없음"), (409, "현재 상태에서 시작할 수 없음")
+        _UNAUTHORIZED, _NOT_FOUND, (409, "현재 상태에서 시작할 수 없음")
     ),
 )
-def start_session(session_id: SessionIdPath, store: StoreDep) -> StartSessionResponse:
+def start_session(
+    session_id: SessionIdPath, store: StoreDep, user: CurrentUserDep
+) -> StartSessionResponse:
     """Session 을 면접 진행 상태로 변경하고 시작 시각을 기록한다.
 
     동시에 여러 번 불려도 **하나만 200 을 받고 나머지는 409** 다. 버튼을 두 번
     눌렀거나 응답이 늦어 클라이언트가 재시도한 경우에 닿는다.
     """
-    session = _load(store, session_id)
+    session = _load_owned(store, session_id, user)
     # 애초에 시작할 수 없는 상태(이미 끝난 면접 등)를 DB 를 건드리기 전에 거른다.
     if not session.start():
         raise ApiError(
@@ -139,11 +178,11 @@ def start_session(session_id: SessionIdPath, store: StoreDep) -> StartSessionRes
     response_model=EndSessionResponse,
     summary="면접 종료",
     responses=responses(
-        (404, "Session을 찾을 수 없음"), (409, "현재 상태에서 종료할 수 없음")
+        _UNAUTHORIZED, _NOT_FOUND, (409, "현재 상태에서 종료할 수 없음")
     ),
 )
 async def end_session(
-    session_id: SessionIdPath, store: StoreDep, media: MediaDep
+    session_id: SessionIdPath, store: StoreDep, media: MediaDep, user: CurrentUserDep
 ) -> EndSessionResponse:
     """Session 을 종료 상태로 변경하고 종료 시각을 기록한다.
 
@@ -151,7 +190,7 @@ async def end_session(
     이 API 를 불러야 종료된다. 반대로 여기서는 LiveKit Room 을 닫아
     남아 있는 참가자를 끊는다.
     """
-    session = _load(store, session_id)
+    session = _load_owned(store, session_id, user)
     if not session.end():
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 종료할 수 없습니다."
@@ -176,11 +215,14 @@ async def end_session(
     response_model=SummaryResponse,
     summary="면접 요약 조회",
     responses=responses(
-        (404, "Session을 찾을 수 없음"),
+        _UNAUTHORIZED,
+        _NOT_FOUND,
         (409, "아직 종료되지 않은 면접"),
     ),
 )
-def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
+def get_summary(
+    session_id: SessionIdPath, store: StoreDep, user: CurrentUserDep
+) -> SummaryResponse:
     """면접이 끝난 뒤의 짧은 요약을 조회한다.
 
     **상태는 저장된 값이다.** 면접이 끝나면 `PROCESSING` 으로 자리가 생기고,
@@ -193,7 +235,7 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
     요약을 만드는 쪽(#70)이 아직 안 붙어 있어도 이 경로는 그대로 돈다 — 한도까지
     기다렸다 `FAILED` 로 간다. 붙고 나면 같은 코드가 `READY` 를 낸다.
     """
-    session = _load(store, session_id)
+    session = _load_owned(store, session_id, user)
     summary = store.get_summary(session_id)
 
     if summary is None:

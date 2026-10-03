@@ -19,9 +19,12 @@ class Schema(BaseModel):
 
 
 class CreateInterviewRequest(Schema):
-    interviewer_id: str = Field(
-        alias="interviewerId", min_length=1, max_length=64, examples=["user_123"]
-    )
+    """면접관은 토큰에서 정한다 (#144).
+
+    예전 본문의 `interviewerId` 는 받지 않는다. 모르는 필드는 무시되므로 FE 가 아직
+    보내고 있어도 422 가 나지 않는다.
+    """
+
     candidate_name: str | None = Field(
         default=None,
         alias="candidateName",
@@ -36,6 +39,25 @@ class InterviewResponse(Schema):
     interviewer_id: str = Field(serialization_alias="interviewerId")
     candidate_name: str | None = Field(serialization_alias="candidateName")
     created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class LatestSession(Schema):
+    session_id: str = Field(serialization_alias="sessionId")
+    status: SessionStatus
+    started_at: datetime | None = Field(serialization_alias="startedAt")
+    ended_at: datetime | None = Field(serialization_alias="endedAt")
+
+
+class InterviewListItem(Schema):
+    """`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다."""
+
+    interview_id: str = Field(serialization_alias="interviewId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    latest_session: LatestSession | None = Field(
+        serialization_alias="latestSession",
+        description="가장 최근에 만든 Session. 아직 없으면 null.",
+    )
 
 
 # ── 세션 ────────────────────────────────────────────────
@@ -93,8 +115,8 @@ class JoinRequest(Schema):
     role: Role = Field(
         default=Role.CANDIDATE,
         description=(
-            "현재 로그인·인증 제외 기준이라 요청값으로 받는다. "
-            "인증 도입 후에는 서버가 참가자 역할을 판단한다."
+            "CANDIDATE 는 초대 링크만으로 입장한다. "
+            "INTERVIEWER 는 로그인한 면접 소유자여야 한다 (아니면 401·404)."
         ),
     )
 

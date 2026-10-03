@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import Depends, Header, status
 
-from app.core.auth import verified_user_id
+from app.core.auth import verified_claims
 from app.core.errors import ApiError, ErrorCode
 from app.domain import store as store_module
 from app.domain.models import User
@@ -41,14 +41,17 @@ _BEARER = "Bearer "
 def get_current_user(store: StoreDep, authorization: str = Header(default="")) -> User:
     """`Authorization: Bearer <accessToken>` 의 주인. 아니면 401 `UNAUTHORIZED`.
 
-    헤더 없음·서명 불일치·만료·탈퇴한 사용자를 구분하지 않는다. FE 는 어느 쪽이든
-    다시 로그인시키면 되고, 구분해 주면 토큰을 떠보는 쪽에만 도움이 된다.
+    헤더 없음·서명 불일치·만료·탈퇴한 사용자·버전 불일치를 구분하지 않는다. FE 는
+    어느 쪽이든 다시 로그인시키면 되고, 구분해 주면 토큰을 떠보는 쪽에만 도움이 된다.
+
+    버전은 `app_user.token_version` 과 맞아야 한다. 값을 올리면 그 사람이 받은 토큰이
+    전부 끊긴다 (#127 리뷰 4번). 올리는 API 는 아직 없다.
     """
-    user_id = None
+    claims = None
     if authorization.startswith(_BEARER):
-        user_id = verified_user_id(authorization[len(_BEARER) :])
-    user = None if user_id is None else store.get_user(user_id)
-    if user is None:
+        claims = verified_claims(authorization[len(_BEARER) :])
+    user = None if claims is None else store.get_user(claims[0])
+    if user is None or claims is None or user.token_version != claims[1]:
         raise ApiError(
             ErrorCode.UNAUTHORIZED, status.HTTP_401_UNAUTHORIZED, "로그인이 필요합니다."
         )

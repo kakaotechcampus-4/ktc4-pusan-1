@@ -15,6 +15,10 @@ CREATE TABLE IF NOT EXISTS interview (
     created_at     TIMESTAMPTZ NOT NULL
 );
 
+-- 내 면접 목록 (`GET /interviews`) 이 면접관별 최신순으로 읽는다.
+CREATE INDEX IF NOT EXISTS interview_interviewer_id_idx
+    ON interview (interviewer_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS session (
     id           TEXT        PRIMARY KEY,
     interview_id TEXT        NOT NULL REFERENCES interview (id) ON DELETE CASCADE,
@@ -42,8 +46,9 @@ ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_origin_at TIMESTAMPTZ;
 -- 면접이 아니라 조직에 딸린다. 회사 정보와 JD 는 면접마다 바뀌지 않으므로 설정에
 -- 한 번 넣고 계속 쓴다 (#79). 주인당 하나라 owner_id 가 유일하다.
 --
--- 조직도 로그인도 아직 없어서 주인은 지금 하나뿐이다. 로그인이 들어오면 토큰에서
--- 정하게 되고, 컬럼 이름은 그때도 그대로 쓴다.
+-- 주인은 로그인한 면접관(app_user.id)이다 (#144). 조직 모델이 생기면 조직 id 를
+-- 넣으면 되므로 FK 는 걸지 않는다. #144 이전의 '__default__' 행은 주인이 없어 아무도
+-- 읽지 못한다.
 
 CREATE TABLE IF NOT EXISTS context (
     id              TEXT        PRIMARY KEY,
@@ -118,3 +123,7 @@ CREATE TABLE IF NOT EXISTS app_user (
     profile_image_url  TEXT,
     created_at         TIMESTAMPTZ NOT NULL
 );
+
+-- access 토큰의 `ver` 클레임과 맞아야 한다. 올리면 그 사람의 토큰이 전부 끊긴다
+-- (#127 리뷰 4번). 이미 만들어진 테이블에도 붙도록 ALTER 로 둔다.
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;

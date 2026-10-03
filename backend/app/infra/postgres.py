@@ -96,6 +96,51 @@ class PostgresStore:
             created_at=row["created_at"],
         )
 
+    def list_interviews(
+        self, interviewer_id: str
+    ) -> list[tuple[Interview, Session | None]]:
+        """최신 세션은 `LATERAL` 로 면접마다 하나씩 붙인다. 한 문장이다."""
+        rows = self._all(
+            """
+            SELECT i.id, i.interviewer_id, i.candidate_name, i.created_at,
+                   s.id AS s_id, s.status AS s_status, s.created_at AS s_created_at,
+                   s.started_at AS s_started_at, s.ended_at AS s_ended_at,
+                   s.transcript_origin_at AS s_transcript_origin_at
+            FROM interview i
+            LEFT JOIN LATERAL (
+                SELECT * FROM session
+                WHERE session.interview_id = i.id
+                ORDER BY session.created_at DESC
+                LIMIT 1
+            ) s ON TRUE
+            WHERE i.interviewer_id = %s
+            ORDER BY i.created_at DESC
+            """,
+            (interviewer_id,),
+        )
+        return [
+            (
+                Interview(
+                    id=row["id"],
+                    interviewer_id=row["interviewer_id"],
+                    candidate_name=row["candidate_name"],
+                    created_at=row["created_at"],
+                ),
+                None
+                if row["s_id"] is None
+                else Session(
+                    id=row["s_id"],
+                    interview_id=row["id"],
+                    status=SessionStatus(row["s_status"]),
+                    created_at=row["s_created_at"],
+                    started_at=row["s_started_at"],
+                    ended_at=row["s_ended_at"],
+                    transcript_origin_at=row["s_transcript_origin_at"],
+                ),
+            )
+            for row in rows
+        ]
+
     # ── 세션 ────────────────────────────────────────────────
 
     def add_session(self, session: Session) -> None:
@@ -530,7 +575,8 @@ class PostgresStore:
             ON CONFLICT (kakao_id) DO UPDATE SET
                 nickname = EXCLUDED.nickname,
                 profile_image_url = EXCLUDED.profile_image_url
-            RETURNING id, kakao_id, nickname, profile_image_url, created_at
+            RETURNING id, kakao_id, nickname, profile_image_url, created_at,
+                      token_version
             """,
             (
                 user.id,
@@ -545,8 +591,8 @@ class PostgresStore:
 
     def get_user(self, user_id: str) -> User | None:
         row = self._one(
-            "SELECT id, kakao_id, nickname, profile_image_url, created_at"
-            " FROM app_user WHERE id = %s",
+            "SELECT id, kakao_id, nickname, profile_image_url, created_at,"
+            " token_version FROM app_user WHERE id = %s",
             (user_id,),
         )
         return None if row is None else User(**row)

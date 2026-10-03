@@ -29,6 +29,15 @@ class Store(Protocol):
 
     def get_interview(self, interview_id: str) -> Interview | None: ...
 
+    def list_interviews(
+        self, interviewer_id: str
+    ) -> list[tuple[Interview, Session | None]]:
+        """그 면접관의 면접을 최신순으로, 각 면접의 가장 최근 세션과 함께.
+
+        세션을 아직 안 만든 면접은 None 이다.
+        """
+        ...
+
     def add_session(self, session: Session) -> None: ...
 
     def get_session(self, session_id: str) -> Session | None: ...
@@ -152,6 +161,27 @@ class InMemoryStore:
     def get_interview(self, interview_id: str) -> Interview | None:
         found = self._interviews.get(interview_id)
         return None if found is None else deepcopy(found)
+
+    def list_interviews(
+        self, interviewer_id: str
+    ) -> list[tuple[Interview, Session | None]]:
+        mine = sorted(
+            (
+                i
+                for i in self._interviews.values()
+                if i.interviewer_id == interviewer_id
+            ),
+            key=lambda i: i.created_at,
+            reverse=True,
+        )
+        return [(deepcopy(i), self._latest_session(i.id)) for i in mine]
+
+    def _latest_session(self, interview_id: str) -> Session | None:
+        sessions = [
+            s for s in self._sessions.values() if s.interview_id == interview_id
+        ]
+        latest = max(sessions, key=lambda s: s.created_at, default=None)
+        return None if latest is None else deepcopy(latest)
 
     def add_session(self, session: Session) -> None:
         self._sessions[session.id] = deepcopy(session)

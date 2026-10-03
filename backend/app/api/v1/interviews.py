@@ -1,25 +1,42 @@
-"""면접 · 세션 생성 — 명세 `면접` 카테고리."""
+"""면접 · 세션 생성 — 명세 `면접` 카테고리.
+
+전부 로그인한 면접관의 것이다 (#144). 남의 면접은 없는 것과 똑같이 404 로 답한다 —
+403 을 주면 그 id 가 있다는 것이 새어 나간다.
+"""
 
 from typing import Annotated
 
 from fastapi import APIRouter, File, Path, UploadFile, status
 
-from app.api.deps import MediaDep, StoreDep
+from app.api.deps import CurrentUserDep, MediaDep, StoreDep
 from app.core.config import settings
 from app.core.errors import ApiError, ErrorCode, responses
 from app.core.uploads import read_upload
-from app.domain.models import Interview, Resume, Session
+from app.domain.models import Interview, Resume, Session, User
+from app.domain.store import Store
 from app.schemas import (
     ContextDocResponse,
     CreateInterviewRequest,
     CreateSessionResponse,
+    InterviewListItem,
     InterviewResponse,
+    LatestSession,
     ReviewProcessingResponse,
 )
 
 router = APIRouter(prefix="/interviews", tags=["면접"])
 
 InterviewIdPath = Annotated[str, Path(alias="interviewId")]
+
+_UNAUTHORIZED = (401, "로그인이 필요함")
+_NOT_FOUND = (404, "면접을 찾을 수 없음 (남의 면접 포함)")
+
+
+def _owned(store: Store, interview_id: str, user: User) -> Interview:
+    interview = store.get_interview(interview_id)
+    if interview is None or interview.interviewer_id != user.id:
+        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
+    return interview
 
 
 def _to_response(interview: Interview) -> InterviewResponse:
@@ -43,10 +60,10 @@ def _clean_candidate_name(name: str | None) -> str | None:
     response_model=InterviewResponse,
     status_code=201,
     summary="면접 생성",
-    responses=responses((422, "요청값 검증 실패")),
+    responses=responses(_UNAUTHORIZED, (422, "요청값 검증 실패")),
 )
 def create_interview(
-    body: CreateInterviewRequest, store: StoreDep
+    body: CreateInterviewRequest, store: StoreDep, user: CurrentUserDep
 ) -> InterviewResponse:
     """면접관이 새로운 면접 정보를 생성한다.
 
@@ -54,7 +71,7 @@ def create_interview(
     `POST /interviews/{interviewId}/sessions` 가 담당한다.
     """
     interview = Interview(
-        interviewer_id=body.interviewer_id,
+        interviewer_id=user.id,
         candidate_name=_clean_candidate_name(body.candidate_name),
     )
     store.add_interview(interview)
@@ -62,17 +79,48 @@ def create_interview(
 
 
 @router.get(
+    "",
+    response_model=list[InterviewListItem],
+    summary="내 면접 목록",
+    responses=responses(_UNAUTHORIZED),
+)
+def list_interviews(store: StoreDep, user: CurrentUserDep) -> list[InterviewListItem]:
+    """내가 만든 면접을 최신순으로, 각 면접의 가장 최근 Session 과 함께 준다.
+
+    지원자 목록 화면이 이름 · 면접 일시 · 길이 · 요약/기록 링크를 여기서 그린다.
+    직무 · 검토 상태 · 확인 항목은 서버에 아직 없는 값이라 싣지 않는다.
+    """
+    # ponytail: 페이지네이션 없음. 면접관 한 명의 면접이 수백 건을 넘으면
+    # cursor 를 붙인다.
+    return [
+        InterviewListItem(
+            interview_id=interview.id,
+            candidate_name=interview.candidate_name,
+            created_at=interview.created_at,
+            latest_session=None
+            if session is None
+            else LatestSession(
+                session_id=session.id,
+                status=session.status,
+                started_at=session.started_at,
+                ended_at=session.ended_at,
+            ),
+        )
+        for interview, session in store.list_interviews(user.id)
+    ]
+
+
+@router.get(
     "/{interviewId}",
     response_model=InterviewResponse,
     summary="면접 조회",
-    responses=responses((404, "면접을 찾을 수 없음")),
+    responses=responses(_UNAUTHORIZED, _NOT_FOUND),
 )
-def get_interview(interview_id: InterviewIdPath, store: StoreDep) -> InterviewResponse:
+def get_interview(
+    interview_id: InterviewIdPath, store: StoreDep, user: CurrentUserDep
+) -> InterviewResponse:
     """생성된 면접의 기본 정보를 조회한다."""
-    interview = store.get_interview(interview_id)
-    if interview is None:
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
-    return _to_response(interview)
+    return _to_response(_owned(store, interview_id, user))
 
 
 @router.post(
@@ -80,19 +128,20 @@ def get_interview(interview_id: InterviewIdPath, store: StoreDep) -> InterviewRe
     response_model=CreateSessionResponse,
     status_code=201,
     summary="면접 Session 생성",
-    responses=responses((404, "면접을 찾을 수 없음")),
+    responses=responses(_UNAUTHORIZED, _NOT_FOUND),
 )
 async def create_session(
-    interview_id: InterviewIdPath, store: StoreDep, media: MediaDep
+    interview_id: InterviewIdPath,
+    store: StoreDep,
+    media: MediaDep,
+    user: CurrentUserDep,
 ) -> CreateSessionResponse:
     """생성된 면접에 실제 화상면접 Session 을 만들고 지원자 초대 링크를 발급한다.
 
     LiveKit Room 을 미리 만든다. 입장 시 자동 생성되기는 하지만
     `max_participants` 같은 설정을 적용하려면 사전 생성이 필요하다.
     """
-    interview = store.get_interview(interview_id)
-    if interview is None:
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
+    interview = _owned(store, interview_id, user)
 
     session = Session(interview_id=interview_id)
     await media.ensure_room(session.room_name)
@@ -116,10 +165,10 @@ async def create_session(
     response_model=ReviewProcessingResponse,
     status_code=202,
     summary="면접 기록 조회",
-    responses=responses((404, "면접을 찾을 수 없음")),
+    responses=responses(_UNAUTHORIZED, _NOT_FOUND),
 )
 def get_review(
-    interview_id: InterviewIdPath, store: StoreDep
+    interview_id: InterviewIdPath, store: StoreDep, user: CurrentUserDep
 ) -> ReviewProcessingResponse:
     """면접이 끝난 뒤의 기록(녹화 · 타임라인 · AI 서술)을 조회한다.
 
@@ -135,8 +184,7 @@ def get_review(
     202 로 두는 건 FE 가 그렇게 읽기 때문이다 — "준비 전에는 202 와 PROCESSING".
     준비가 끝나면 200 + READY 로 바뀐다.
     """
-    if store.get_interview(interview_id) is None:
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
+    _owned(store, interview_id, user)
     # etaSec 은 비운다. 추정할 근거가 아직 없는데 숫자를 주면 FE 가 그걸 믿는다.
     return ReviewProcessingResponse()
 
@@ -147,7 +195,8 @@ def get_review(
     status_code=status.HTTP_201_CREATED,
     summary="지원자 이력서 업로드",
     responses=responses(
-        (404, "면접을 찾을 수 없음"),
+        _UNAUTHORIZED,
+        _NOT_FOUND,
         (413, "파일이 너무 큼"),
         (415, "지원하지 않는 형식"),
     ),
@@ -155,6 +204,7 @@ def get_review(
 async def upload_resume(
     interview_id: InterviewIdPath,
     store: StoreDep,
+    user: CurrentUserDep,
     file: Annotated[UploadFile, File()],
 ) -> ContextDocResponse:
     """지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.
@@ -168,8 +218,7 @@ async def upload_resume(
     본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로
     하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.
     """
-    if store.get_interview(interview_id) is None:
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
+    _owned(store, interview_id, user)
 
     name, kind, content = await read_upload(file)
     resume = Resume(

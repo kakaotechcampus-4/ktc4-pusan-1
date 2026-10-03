@@ -46,7 +46,9 @@ def kakao_login(
             profile_image_url=profile.profile_image_url,
         )
     )
-    return LoginResponse(access_token=issue_token(user.id), user=_user_response(user))
+    return LoginResponse(
+        access_token=issue_token(user.id, user.token_version), user=_user_response(user)
+    )
 
 
 @router.get(
