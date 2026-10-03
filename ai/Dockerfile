@@ -1,7 +1,9 @@
 # LiveKit STT agent server. It registers with the LiveKit container over a
 # WebSocket and needs no public application port; 8081 is its private health
 # endpoint.
-FROM python:3.12-slim
+#
+# Base pinned by digest; Dependabot bumps it (#134).
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /usr/local/bin/uv
 
