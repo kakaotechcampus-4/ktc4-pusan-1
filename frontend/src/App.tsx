@@ -1,7 +1,8 @@
 /**
  * 라우팅.
  *
- *   /login                  면접관 로그인
+ *   /login                  면접관 로그인 (카카오)
+ *   /oauth/kakao/callback   카카오 콜백 — code 를 토큰으로 바꾼다
  *   /                       메인 — 면접 만들기 입구
  *   /settings/context       기업 컨텍스트 설정 — 조직당 하나, 모든 면접에 적용
  *   /interviews/new         면접 만들기 — 지원자 정보 · 이력서 · 초대 링크
@@ -13,15 +14,19 @@
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
  */
 
+import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import ContextSettingsPage from './pages/ContextSettingsPage';
 import InterviewCreatePage from './pages/InterviewCreatePage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
+import KakaoCallbackPage from './pages/KakaoCallbackPage';
 import LoginPage from './pages/LoginPage';
 import MainPage from './pages/MainPage';
-import { readAccessToken } from './lib/authToken';
+import { clearAccessToken, readAccessToken } from './lib/authToken';
+import { getMe } from './api/auth';
+import { ApiError } from './api/client';
 import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from './lib/candidateName';
 import type { JoinSessionResponse, Role } from './types/interview';
 
@@ -143,7 +148,27 @@ function InterviewFlow() {
  * 지원자 경로(초대 링크)는 감싸지 않는다 — 지원자는 회사 사람이 아니라 계정이 없다.
  */
 function RequireAuth({ children }: { children: ReactNode }) {
-  if (!readAccessToken()) return <Navigate to="/login" replace />;
+  const hasToken = Boolean(readAccessToken());
+
+  // 토큰이 있어도 쓸 수 있는지는 서버만 안다. 만료·위조면 401 이 오고, 그때 버린다.
+  // 이 확인 없이 들여보내면 화면마다 따로 401 을 만나 어디서 튕겼는지 알 수 없다.
+  const { isLoading, isError, error } = useQuery({
+    queryKey: ['me'],
+    queryFn: getMe,
+    enabled: hasToken,
+    retry: false,
+    // 한 번 확인했으면 화면을 옮길 때마다 다시 묻지 않는다.
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const expired = isError && error instanceof ApiError && error.status === 401;
+  useEffect(() => {
+    if (expired) clearAccessToken();
+  }, [expired]);
+
+  if (!hasToken || expired) return <Navigate to="/login" replace />;
+  // 확인이 끝나기 전에 화면을 그리면 로그인 화면이 깜빡였다가 사라진다.
+  if (isLoading) return <ChunkFallback />;
   return <>{children}</>;
 }
 
@@ -151,6 +176,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/oauth/kakao/callback" element={<KakaoCallbackPage />} />
       <Route
         path="/"
         element={

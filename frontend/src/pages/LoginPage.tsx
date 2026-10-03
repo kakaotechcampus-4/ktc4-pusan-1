@@ -1,45 +1,40 @@
 /**
  * 면접관 로그인 (S0)
  *
- * 아이디·비밀번호로 토큰을 받아 저장하고 첫 화면으로 보낸다.
+ * 카카오 인가 화면으로 보내는 것까지가 이 화면의 일이다. 돌아온 뒤 처리는
+ * KakaoCallbackPage 가 맡는다.
  *
- * ⚠️ BE 에 인증 API 가 없다. 경로(POST /api/v1/auth/login)만 정해 두고 목으로 동작한다.
- * 시안의 소셜 로그인·엔진 상태 배너·보안 인증 문구·비밀번호 찾기는 뒷단이 없어 넣지 않았다.
+ * 비밀번호를 받지 않는다 — 우리가 저장하지 않으면 유출할 것도 없다.
  */
 
 import { useMutation } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login } from '../api/auth';
-import { ApiError } from '../api/client';
+import { kakaoLogin } from '../api/auth';
 import { saveAccessToken } from '../lib/authToken';
+import { buildKakaoAuthorizeUrl, kakaoConfigured } from '../lib/kakao';
+import { USE_MOCK_API } from '../mocks/mockApi';
 
 export default function LoginPage() {
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  // 비밀번호를 가려 두면 오타를 찾을 수 없다. 눈으로 확인할 길을 열어 둔다.
-  const [revealed, setRevealed] = useState(false);
-  const [keepSignedIn, setKeepSignedIn] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = useMutation({
-    mutationFn: () => login({ email: email.trim(), password }),
+  /**
+   * ⚠️ 목 로그인. 카카오 없이 화면을 둘러보기 위한 임시 입구다.
+   *
+   * 실제 로그인은 카카오 인가 화면을 거쳐야 하는데, 앱 키가 없거나 BE 가 떠 있지 않으면
+   * 그 길이 막힌다. 목이 켜져 있을 때만 보인다 — BE 연동 시 이 블록과 목 핸들러를 함께 지운다.
+   */
+  const mockLogin = useMutation({
+    mutationFn: () => kakaoLogin('mock-code'),
     onSuccess: ({ accessToken }) => {
-      saveAccessToken(accessToken, keepSignedIn);
-      // 뒤로 가기로 로그인 화면에 돌아오지 않게 한다 — 이미 들어온 뒤에는 볼 일이 없다.
+      saveAccessToken(accessToken, true);
       void navigate('/', { replace: true });
     },
-    onError: (e) =>
-      setError(
-        e instanceof ApiError && e.status === 401
-          ? '아이디 또는 비밀번호가 올바르지 않습니다.'
-          : '로그인하지 못했습니다. 잠시 후 다시 시도해주세요.',
-      ),
   });
 
-  const pending = submit.isPending;
+  const start = () => {
+    // 같은 탭에서 떠난다. 새 창이면 팝업 차단에 걸리고, 돌아올 창을 찾기도 번거롭다.
+    window.location.href = buildKakaoAuthorizeUrl();
+  };
 
   return (
     <div className="bg-surface relative flex min-h-full items-center justify-center overflow-hidden p-4 md:p-8">
@@ -70,119 +65,49 @@ export default function LoginPage() {
             </span>
             <span className="text-ink text-lg font-bold tracking-tight">IRYA</span>
             <h1 className="text-ink pt-2 text-2xl font-bold tracking-tight">면접관 로그인</h1>
-            <p className="text-ink-muted mt-2 text-sm">
+            <p className="text-ink-muted mt-2 text-sm leading-relaxed">
               AI 면접 진행과 기록 열람을 위한 계정입니다.
+              <br />
+              지원자는 받은 초대 링크로 바로 입장합니다.
             </p>
           </div>
 
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setError(null);
-              if (!email.trim() || !password) {
-                setError('아이디와 비밀번호를 모두 입력해주세요.');
-                return;
-              }
-              submit.mutate();
-            }}
+          <button
+            type="button"
+            onClick={start}
+            disabled={!kakaoConfigured}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FEE500] py-3.5 text-sm font-semibold text-[#191600] transition-colors hover:bg-[#F2D900] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
           >
-            <Field htmlFor="email" label="아이디 (이메일)" icon="mail">
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="username"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="recruiter@company.com"
-                disabled={pending}
-                className="border-border-input bg-surface-input text-ink placeholder:text-ink-dim hover:border-ink-dim focus:border-brand focus:ring-brand/40 w-full rounded-xl border py-2.5 pr-4 pl-10 text-sm transition-colors outline-none focus:ring-2 disabled:opacity-60"
-              />
-            </Field>
-
-            <Field htmlFor="password" label="비밀번호" icon="lock">
-              <input
-                id="password"
-                name="password"
-                type={revealed ? 'text' : 'password'}
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                disabled={pending}
-                className="border-border-input bg-surface-input text-ink placeholder:text-ink-dim hover:border-ink-dim focus:border-brand focus:ring-brand/40 w-full rounded-xl border py-2.5 pr-11 pl-10 text-sm transition-colors outline-none focus:ring-2 disabled:opacity-60"
-              />
-              <button
-                type="button"
-                onClick={() => setRevealed((v) => !v)}
-                aria-label={revealed ? '비밀번호 숨기기' : '비밀번호 표시'}
-                className="text-ink-dim hover:text-ink-muted absolute inset-y-0 right-0 flex items-center pr-3.5 transition-colors"
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  {revealed ? 'visibility_off' : 'visibility'}
-                </span>
-              </button>
-            </Field>
-
-            <label className="flex cursor-pointer items-center gap-2 select-none">
-              <input
-                type="checkbox"
-                checked={keepSignedIn}
-                onChange={(e) => setKeepSignedIn(e.target.checked)}
-                className="border-border-input bg-surface-input checked:border-brand checked:bg-brand h-4 w-4 shrink-0 appearance-none rounded border transition-colors"
-              />
-              <span className="text-ink-muted text-xs">로그인 상태 유지</span>
-            </label>
-
-            <button
-              type="submit"
-              disabled={pending}
-              className="border-brand-soft/20 bg-brand shadow-brand/20 disabled:bg-surface-bright disabled:text-ink-dim mt-1 flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold text-white shadow-lg transition-colors hover:bg-[#1d4ed8] disabled:shadow-none"
-            >
-              <span>{pending ? '로그인 중…' : '로그인'}</span>
-              {!pending && <span className="material-symbols-outlined text-[18px]">east</span>}
-            </button>
-          </form>
+            <span aria-hidden className="material-symbols-outlined text-[20px]">
+              chat_bubble
+            </span>
+            카카오 계정으로 로그인
+          </button>
 
           {/* 자리를 미리 잡아 둔다. 문구가 뜰 때 버튼이 밀려 내려가면 두 번 누르게 된다. */}
           <div aria-live="polite" className="mt-3 min-h-[20px]">
-            {error && <p className="text-center text-[13px] text-[#FFC46B]">{error}</p>}
+            {!kakaoConfigured && (
+              <p className="text-center text-[13px] text-[#FFC46B]">
+                카카오 앱 키가 설정되지 않았습니다. <code>VITE_KAKAO_CLIENT_ID</code> 를 넣어주세요.
+              </p>
+            )}
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-/** 라벨 + 아이콘이 붙은 입력 한 칸. 아이콘은 입력칸 안쪽 왼쪽에 겹쳐 놓는다. */
-function Field({
-  htmlFor,
-  label,
-  icon,
-  children,
-}: {
-  htmlFor: string;
-  label: string;
-  /** Material Symbols 이름 */
-  icon: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={htmlFor} className="text-ink-muted text-xs font-semibold">
-        {label}
-      </label>
-      <div className="relative">
-        <span
-          aria-hidden
-          className="text-ink-dim pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5"
-        >
-          <span className="material-symbols-outlined text-[18px]">{icon}</span>
-        </span>
-        {children}
+          <p className="text-ink-dim mt-6 text-center text-[12px] leading-relaxed">
+            로그인하면 카카오 닉네임과 프로필 사진을 받아옵니다.
+          </p>
+
+          {USE_MOCK_API && (
+            <button
+              type="button"
+              onClick={() => mockLogin.mutate()}
+              disabled={mockLogin.isPending}
+              className="border-border-base text-ink-muted hover:bg-surface-bright mt-4 w-full rounded-xl border border-dashed py-2.5 text-[13px] transition"
+            >
+              {mockLogin.isPending ? '들어가는 중…' : '목 데이터로 둘러보기 (개발용)'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

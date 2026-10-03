@@ -21,7 +21,6 @@ import type {
   SessionState,
   StartSessionResponse,
 } from '../types/interview';
-import { handleAuthMock } from './authMock';
 import { contextProfile } from './contextStore';
 import { handleContextSettingsMock } from './contextSettingsMock';
 
@@ -55,6 +54,9 @@ const sessionInterviewIds = new Map<string, string>();
 
 /** 요약 조회 횟수. 생성 중 상태를 몇 번 보여줄지 세는 데 쓴다. */
 const summaryPolls = new Map<string, number>();
+
+/** 목 로그인으로 들어온 사람. 카카오 닉네임 자리에 알아볼 수 있는 값을 둔다. */
+const MOCK_USER = { id: 'user_mock', nickname: '목 면접관', profileImageUrl: null };
 
 /** 면접 기록 조회 횟수. 준비 중 상태를 몇 번 보여줄지 센다. */
 const reviewPolls = new Map<string, number>();
@@ -114,9 +116,33 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
 
   // 화면별로 나눠 둔 목 핸들러를 먼저 태운다. 맞는 경로가 없으면 null 을 돌려주므로
   // 아래 기본 경로 매칭으로 그대로 내려간다.
-  for (const handle of [handleAuthMock, handleContextSettingsMock]) {
-    const handled = await handle(path, init);
-    if (handled !== null) return handled;
+  // 화면별로 나눠 둔 목 핸들러를 먼저 태운다. 맞는 경로가 없으면 null 을 돌려주므로
+  // 아래 기본 경로 매칭으로 그대로 내려간다.
+  const handled = await handleContextSettingsMock(path, init);
+  if (handled !== null) return handled;
+
+  /* 인증 — 카카오 없이 화면을 돌려보기 위한 목이다.
+     실제 로그인은 카카오 인가 화면을 거쳐야 하므로 여기서는 code 를 확인하지 않는다. */
+  if (path === '/api/v1/auth/kakao' && method === 'POST') {
+    await delay(300);
+    return { accessToken: 'mock-access-token', user: MOCK_USER };
+  }
+  if (path === '/api/v1/auth/me' && method === 'GET') {
+    await delay(150);
+    return MOCK_USER;
+  }
+
+  // 조직 컨텍스트. 실제 서버도 없으면 만들어서 돌려준다.
+  if (path === '/api/v1/contexts/current' && method === 'GET') {
+    await delay(200);
+    return {
+      id: 'ctx_demo',
+      company: contextProfile.company,
+      team: contextProfile.team,
+      role: contextProfile.role,
+      talentProfile: contextProfile.talentProfile,
+      docs: viewDocs(),
+    } satisfies CompanyContext;
   }
 
   const context = /^\/api\/v1\/contexts\/([^/]+)$/.exec(path);

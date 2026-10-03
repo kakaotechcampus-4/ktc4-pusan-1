@@ -128,13 +128,14 @@ export interface ContextDoc {
   progress?: number;
 }
 
-/** GET /contexts/{contextId} */
+/** GET /api/v1/contexts/current */
 export interface CompanyContext {
   id: string;
   company: string;
   team: string;
   role: string;
-  talentProfile?: string;
+  /** AI 면접관이 참고할 추가 인재상. 명세상 항상 온다 (빈 문자열일 수 있다) */
+  talentProfile: string;
   docs: ContextDoc[];
 }
 

@@ -17,7 +17,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { getContext } from '../api/context';
+import { getCurrentContext } from '../api/context';
 import { createInterview, createSession } from '../api/interview';
 import { uploadResume } from '../api/resume';
 import { DocCard } from '../components/context/DocCard';
@@ -28,8 +28,6 @@ import type { ContextDoc, UploadRejection } from '../types/interview';
 
 /** ⚠️ 인증이 없어 면접관 ID 를 클라이언트가 정한다. 로그인 도입 시 사라진다. */
 const MOCK_INTERVIEWER_ID = 'user_demo';
-const CONTEXT_ID = 'ctx_demo';
-
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
   'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
   'too-large': '50MB 이하 파일만 올릴 수 있습니다.',
@@ -42,8 +40,8 @@ export default function InterviewCreatePage() {
     isError: contextError,
     isLoading: contextLoading,
   } = useQuery({
-    queryKey: ['context', CONTEXT_ID],
-    queryFn: () => getContext(CONTEXT_ID),
+    queryKey: ['context'],
+    queryFn: getCurrentContext,
   });
 
   // 고른 파일과 화면에 보여줄 상태를 나눠 둔다 — 파일은 업로드에, 상태는 카드 표시에 쓴다.

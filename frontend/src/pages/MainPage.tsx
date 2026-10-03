@@ -4,21 +4,34 @@
  * 면접을 만들러 가는 입구다. 기업 컨텍스트가 비어 있으면 면접을 만들어도 AI 가 근거로 쓸
  * 자료가 없으므로, 설정 화면으로 먼저 보낸다.
  *
- * ⚠️ 조직 컨텍스트 조회 API 가 없어 contextId 를 상수로 둔다. 목으로 동작한다.
+ * 로그아웃은 저장된 토큰을 지우는 것이 전부다 — BE 에 로그아웃 API 가 없다(#119).
+ * 토큰은 7일이면 만료되고 갱신 수단도 없어, 만료되면 다시 카카오 로그인을 거친다.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
-import { getContext } from '../api/context';
-
-/** ⚠️ 조직당 컨텍스트 하나. 실제 API 가 생기면 세션에서 가져온다. */
-const CONTEXT_ID = 'ctx_demo';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import { getMe } from '../api/auth';
+import { getCurrentContext } from '../api/context';
+import { clearAccessToken } from '../lib/authToken';
 
 export default function MainPage() {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+
   const { data: context, isLoading } = useQuery({
-    queryKey: ['context', CONTEXT_ID],
-    queryFn: () => getContext(CONTEXT_ID),
+    queryKey: ['context'],
+    queryFn: getCurrentContext,
   });
+
+  // RequireAuth 가 이미 불러 둔 값을 그대로 쓴다 — 같은 키라 요청이 더 나가지 않는다.
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe });
+
+  const logout = () => {
+    clearAccessToken();
+    // 남은 응답을 지운다. 안 그러면 다음 사람이 로그인했을 때 이전 사람의 화면이 잠깐 보인다.
+    qc.clear();
+    void navigate('/login', { replace: true });
+  };
 
   // 읽기가 끝난 문서가 하나도 없으면 아직 면접을 만들 준비가 안 된 것으로 본다.
   const ready = Boolean(context?.docs.some((d) => d.status === 'ready'));
@@ -32,6 +45,27 @@ export default function MainPage() {
             <h1 className="text-ink mt-1 text-2xl font-bold tracking-tight">대시보드</h1>
           </div>
           <span className="flex-1" />
+
+          {me && (
+            <span className="text-ink-muted inline-flex items-center gap-2 text-[14px]">
+              {me.profileImageUrl ? (
+                <img
+                  src={me.profileImageUrl}
+                  alt=""
+                  className="h-7 w-7 rounded-full object-cover"
+                />
+              ) : (
+                <span
+                  aria-hidden
+                  className="bg-surface-bright text-ink-dim flex h-7 w-7 items-center justify-center rounded-full"
+                >
+                  <span className="material-symbols-outlined text-[18px]">person</span>
+                </span>
+              )}
+              {me.nickname}
+            </span>
+          )}
+
           <Link
             to="/settings/context"
             className="border-border-base bg-surface-panel text-ink hover:bg-surface-bright inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[14px] font-medium transition"
@@ -41,6 +75,17 @@ export default function MainPage() {
             </span>
             기업 컨텍스트 설정
           </Link>
+
+          <button
+            type="button"
+            onClick={logout}
+            className="border-border-base text-ink-muted hover:bg-surface-bright hover:text-ink inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[14px] font-medium transition"
+          >
+            <span aria-hidden className="material-symbols-outlined text-[18px]">
+              logout
+            </span>
+            로그아웃
+          </button>
         </header>
 
         <section className="border-border-base bg-surface-panel mt-8 rounded-2xl border p-6 md:p-8">

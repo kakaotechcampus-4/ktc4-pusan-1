@@ -12,7 +12,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { deleteDoc, getContext, uploadDoc } from '../api/context';
+import { deleteDoc, getCurrentContext, uploadDoc } from '../api/context';
 import { updateContextSettings } from '../api/contextSettings';
 import { DocCard } from '../components/context/DocCard';
 import { DropZone } from '../components/context/DropZone';
@@ -23,8 +23,6 @@ import type { CompanyContext, ContextDoc, UploadRejection } from '../types/inter
  * ⚠️ 설정은 조직당 하나인데 조직 컨텍스트를 알려주는 API 가 없다.
  * 조회 API 가 생기면 이 상수를 없애고 그 값을 쓴다.
  */
-const CONTEXT_ID = 'ctx_demo';
-
 /** 파싱 중인 문서가 있을 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 2000;
 
@@ -53,7 +51,7 @@ interface SettingsForm {
 export default function ContextSettingsPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const queryKey = ['context', CONTEXT_ID];
+  const queryKey = ['context'];
 
   const [pending, setPending] = useState<PendingDoc[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -78,11 +76,19 @@ export default function ContextSettingsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey,
-    queryFn: () => getContext(CONTEXT_ID),
+    queryFn: getCurrentContext,
     // 읽는 중인 문서가 하나라도 있으면 완료될 때까지 다시 묻는다.
     refetchInterval: (q) =>
       q.state.data?.docs.some((d) => d.status === 'parsing') ? POLL_INTERVAL_MS : false,
   });
+
+  /**
+   * 문서 업로드·삭제·저장은 실제 컨텍스트 id 가 필요하다.
+   *
+   * 조회가 끝나기 전에는 빈 문자열이지만, 그 사이에는 화면이 "불러오는 중" 이라
+   * 누를 수 있는 버튼이 없다.
+   */
+  const contextId = data?.id ?? '';
 
   // 서버 값 위에 고친 칸을 얹은 것이 지금 화면의 값이다.
   //
@@ -110,7 +116,7 @@ export default function ContextSettingsPage() {
 
   const upload = useMutation({
     mutationFn: async ({ file, tempId }: { file: File; tempId: string; category: DocCategory }) =>
-      uploadDoc(CONTEXT_ID, file, (ratio) =>
+      uploadDoc(contextId, file, (ratio) =>
         setPending((prev) => prev.map((d) => (d.id === tempId ? { ...d, progress: ratio } : d))),
       ),
     onSuccess: (doc, { tempId, category }) => {
@@ -137,7 +143,7 @@ export default function ContextSettingsPage() {
 
   // 낙관적 삭제 — 화면에서 먼저 지우고, 실패하면 되돌린다.
   const remove = useMutation({
-    mutationFn: (docId: string) => deleteDoc(CONTEXT_ID, docId),
+    mutationFn: (docId: string) => deleteDoc(contextId, docId),
     onMutate: async (docId) => {
       // 진행 중인 조회를 멈춘다. 안 그러면 지운 문서가 폴링 응답으로 되살아난다.
       await qc.cancelQueries({ queryKey });
@@ -161,7 +167,7 @@ export default function ContextSettingsPage() {
   const [leaveAfterSave, setLeaveAfterSave] = useState(false);
 
   const save = useMutation({
-    mutationFn: (values: SettingsForm) => updateContextSettings(CONTEXT_ID, values),
+    mutationFn: (values: SettingsForm) => updateContextSettings(contextId, values),
     onSuccess: () => {
       setNotice(null);
       setSaved(true);

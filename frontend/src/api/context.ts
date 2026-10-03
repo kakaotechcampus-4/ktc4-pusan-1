@@ -1,7 +1,8 @@
 /**
  * 기업 컨텍스트 API (S1).
  *
- * ⚠️ BE 명세에 없는 엔드포인트다. 목으로만 동작한다.
+ * 조회는 `current` 하나로 한다 — 설정 화면에 들어올 때 FE 는 contextId 를 모른다.
+ * 서버가 없으면 만들어서 돌려주므로, FE 는 "아직 안 만들었다" 와 "비어 있다" 를 구분하지 않는다.
  */
 
 import type { CompanyContext, ContextDoc } from '../types/interview';
@@ -10,8 +11,8 @@ import { API_BASE, ApiError, authorizationHeader, request } from './client';
 
 const V1 = '/api/v1';
 
-export const getContext = (contextId: string) =>
-  request<CompanyContext>(`${V1}/contexts/${contextId}`);
+/** GET /api/v1/contexts/current — 로그인한 사람의 조직 컨텍스트 */
+export const getCurrentContext = () => request<CompanyContext>(`${V1}/contexts/current`);
 
 export const deleteDoc = (contextId: string, docId: string) =>
   request<void>(`${V1}/contexts/${contextId}/docs/${docId}`, { method: 'DELETE' });

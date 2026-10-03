@@ -25,3 +25,9 @@ export function saveAccessToken(token: string, keepSignedIn: boolean) {
 
 /** 탭 한정 토큰을 먼저 본다. 방금 한 로그인이 이쪽이다. */
 export const readAccessToken = () => sessionStorage.getItem(KEY) ?? localStorage.getItem(KEY);
+
+/** 토큰이 더 이상 쓸 수 없을 때(401) 양쪽에서 지운다. */
+export function clearAccessToken() {
+  sessionStorage.removeItem(KEY);
+  localStorage.removeItem(KEY);
+}
