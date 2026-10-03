@@ -133,18 +133,6 @@ def test_signature_failure_is_logged(client, media, store, session, caplog):
     assert "webhook.api_key" in caplog.text
 
 
-def test_unknown_session_is_logged(client, media, store, session, caplog):
-    """방 이름은 우리 규칙인데 세션이 없는 경우. 짚어볼 값이 있다."""
-    media.webhook_event = FakeEvent(
-        "participant_joined", "interview_ses_nope", int(JOINED_AT.timestamp())
-    )
-
-    with caplog.at_level(logging.WARNING, logger="app.api.v1.webhooks"):
-        assert _post(client) == 204
-
-    assert "세션을 찾을 수 없음" in caplog.text
-
-
 def test_ignored_event_is_not_a_warning(client, media, store, session, caplog):
     """관심 없는 이벤트는 정상이다. warning 으로 남기면 로그가 쓸모없어진다."""
     media.webhook_event = FakeEvent(

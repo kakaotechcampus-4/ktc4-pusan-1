@@ -9,7 +9,7 @@
 """
 
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from app.domain.models import (
@@ -42,6 +42,18 @@ class Store(Protocol):
         아니면 아무것도 안 쓰고 False 를 돌려준다. 부른 쪽이 409 로 바꾼다.
 
         `None` 이면 조건 없이 쓴다. 경쟁이 없는 자리에만 쓴다.
+
+        전사 원점(`transcript_origin_at`)은 쓰지 않는다 — `mark_origin` 만 쓴다.
+        """
+        ...
+
+    def mark_origin(self, session_id: str, at: datetime) -> bool:
+        """전사 원점(t=0)을 기록한다. 이미 있으면 더 이른 쪽만 남긴다 (#86).
+
+        읽고-고쳐-쓰기가 아니라 저장소가 한 번에 판단한다. 그래서 webhook 이
+        재전송되거나 순서가 뒤바뀌어 와도, 시작 · 종료 저장과 겹쳐도 서로를
+        덮어쓰지 않는다. 값이 바뀌었으면 True, 세션이 없거나 더 이른 값이
+        이미 있으면 False.
         """
         ...
 
@@ -170,7 +182,20 @@ class InMemoryStore:
             return False
         if expected_status is not None and stored.status is not expected_status:
             return False
-        self._sessions[session.id] = deepcopy(session)
+        saved = deepcopy(session)
+        # 원점은 mark_origin 만 쓴다. 들고 온 객체의 값이 낡았어도 덮어쓰지 않는다.
+        saved.transcript_origin_at = stored.transcript_origin_at
+        self._sessions[session.id] = saved
+        return True
+
+    def mark_origin(self, session_id: str, at: datetime) -> bool:
+        stored = self._sessions.get(session_id)
+        if stored is None:
+            return False
+        origin = stored.transcript_origin_at
+        if origin is not None and origin <= at:
+            return False
+        stored.transcript_origin_at = at
         return True
 
     # ── 기업 컨텍스트 ───────────────────────────────────

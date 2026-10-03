@@ -84,22 +84,15 @@ async def receive_webhook(
         logger.debug("LiveKit webhook 무시: 우리 방이 아님 room=%s", event.room.name)
         return
 
-    session = store.get_session(session_id)
-    if session is None:
-        # 방 이름은 우리 규칙인데 세션이 없다. 저장소가 비었거나(인메모리 재시작)
-        # 세션이 지워진 경우라 짚어볼 값이 있다.
-        logger.warning("LiveKit webhook: 세션을 찾을 수 없음 session_id=%s", session_id)
-        return
-
     joined_at = _event_time(event)
     if joined_at is None:
         logger.warning("LiveKit webhook: createdAt 이 비어 원점을 정할 수 없음")
         return
 
-    # mark_origin 이 처음 한 번만 참을 준다. 두 참가자가 각각 이벤트를 만들고
-    # 재전송까지 겹치므로, 저장도 값이 실제로 바뀐 경우에만 한다.
-    if session.mark_origin(joined_at):
-        store.save_session(session)
+    # 저장소가 한 문장으로 가장 이른 값만 남긴다 (#86). 두 참가자가 각각 이벤트를
+    # 만들고 재전송 · 순서 뒤바뀜이 겹쳐도, 시작 · 종료 저장과 동시에 와도 서로를
+    # 덮어쓰지 않는다. 세션이 없으면 False 라 따로 읽지 않는다.
+    if store.mark_origin(session_id, joined_at):
         logger.info("전사 원점 기록 session_id=%s t0=%s", session_id, joined_at)
 
 
