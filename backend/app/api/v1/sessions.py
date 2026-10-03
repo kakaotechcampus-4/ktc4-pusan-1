@@ -8,10 +8,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Path
 
-from app.api.deps import MediaDep, OwnedSessionDep, StoreDep
+from app.api.deps import (
+    MediaDep,
+    OptionalUserDep,
+    OwnedSessionDep,
+    StoreDep,
+    get_current_user,
+)
 from app.core.config import settings
 from app.core.errors import LOGIN_REQUIRED, ApiError, ErrorCode, responses
 from app.domain.models import (
+    Role,
     Session,
     SessionStatus,
     SessionSummary,
@@ -73,12 +80,18 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
     response_model=JoinResponse,
     summary="면접 입장",
     responses=responses(
+        (401, "면접관으로 입장하는데 로그인이 안 됨"),
+        (403, "면접관으로 입장하는데 이 면접의 주인이 아님"),
         (404, "Session을 찾을 수 없음"),
         (409, "이미 종료된 Session 등 현재 상태에서 입장할 수 없음"),
     ),
 )
 async def join_session(
-    session_id: SessionIdPath, body: JoinRequest, store: StoreDep, media: MediaDep
+    session_id: SessionIdPath,
+    body: JoinRequest,
+    user: OptionalUserDep,
+    store: StoreDep,
+    media: MediaDep,
 ) -> JoinResponse:
     """Session 입장 권한을 확인하고 LiveKit 접속 정보를 발급한다.
 
@@ -89,6 +102,21 @@ async def join_session(
     """
     session = _load(store, session_id)
     interview = store.get_interview(session.interview_id)
+
+    # ponytail: 역할은 클라이언트가 고르고 서버는 INTERVIEWER 만 검증한다 (#130).
+    #   면접관이 여럿이 되거나 역할이 셋 이상이면 서버가 역할을 정하는 쪽으로 옮긴다.
+    # 상태 · 정원보다 먼저 본다 — 권한 없는 요청마다 LiveKit 을 부르지 않게.
+    if body.role is Role.INTERVIEWER:
+        # 토큰이 없거나 무효면 401 이다. FE 는 401 에만 토큰을 지우고 로그인으로
+        # 보내므로, 403 을 주면 만료된 토큰을 쥔 면접관이 빠져나갈 길이 없다.
+        owner = get_current_user(user)
+        if interview is None or interview.interviewer_id != owner.id:
+            raise ApiError(
+                ErrorCode.ROLE_NOT_ALLOWED,
+                403,
+                "이 면접의 면접관만 면접관으로 입장할 수 있습니다.",
+            )
+
     if session.status is SessionStatus.ENDED:
         raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
 

@@ -1,4 +1,4 @@
-"""면접관 API 의 로그인 · 주인 검사 (#130).
+"""면접관 API 의 로그인 · 주인 검사와 입장 역할 검증 (#130).
 
 `client` 는 `owner` 로 로그인해 있다. 요청에 `ANON` 을 실으면 로그인하지 않은 요청,
 `other` 를 실으면 다른 면접관의 요청이 된다.
@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.errors import ErrorCode
-from tests.conftest import ANON
+from tests.conftest import ANON, FakeMedia
 
 V1 = "/api/v1"
 
@@ -89,3 +89,63 @@ def test_resume_upload_is_owner_only(
 
     assert client.post(url, files=files, headers=ANON).status_code == 401
     assert client.post(url, files=files, headers=other).status_code == 404
+
+
+# ── 입장 역할 ───────────────────────────────────────────
+
+
+def _join(client: TestClient, session_id: str, role: str, headers: dict[str, str]):
+    return client.post(
+        f"{V1}/sessions/{session_id}/join", json={"role": role}, headers=headers
+    )
+
+
+@pytest.mark.parametrize(
+    ("who", "role", "status"),
+    [
+        ("anon", "CANDIDATE", 200),
+        ("other", "CANDIDATE", 200),
+        ("owner", "CANDIDATE", 200),
+        ("owner", "INTERVIEWER", 200),
+        ("anon", "INTERVIEWER", 401),
+        ("other", "INTERVIEWER", 403),
+    ],
+)
+def test_join_role_matrix(
+    client: TestClient,
+    session_id: str,
+    other: dict[str, str],
+    who: str,
+    role: str,
+    status: int,
+) -> None:
+    headers = {"anon": ANON, "other": other, "owner": {}}[who]
+
+    got = _join(client, session_id, role, headers)
+
+    assert got.status_code == status
+    if status == 403:
+        assert got.json()["error"]["code"] == ErrorCode.ROLE_NOT_ALLOWED
+
+
+@pytest.mark.parametrize("token", ["Bearer garbage", "Bearer "])
+def test_bad_token_still_joins_as_candidate(
+    client: TestClient, session_id: str, token: str
+) -> None:
+    """만료 · 위조 토큰을 쥐고 초대 링크를 연 사람도 지원자로는 들어온다."""
+    headers = {"Authorization": token}
+
+    assert _join(client, session_id, "CANDIDATE", headers).status_code == 200
+    assert _join(client, session_id, "INTERVIEWER", headers).status_code == 401
+
+
+def test_role_is_checked_before_room_state(
+    client: TestClient, session_id: str, other: dict[str, str], media: FakeMedia
+) -> None:
+    """정원 · 종료보다 역할을 먼저 본다 — 권한 없는 요청이 LiveKit 까지 가지 않게."""
+    media.participants = 99
+
+    assert _join(client, session_id, "INTERVIEWER", other).status_code == 403
+
+    client.post(f"{V1}/sessions/{session_id}/end")
+    assert _join(client, session_id, "INTERVIEWER", other).status_code == 403

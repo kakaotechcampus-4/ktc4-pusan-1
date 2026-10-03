@@ -78,7 +78,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "path_params": ["sessionId"],
         "request": {"role"},
         "response": {"sessionId", "candidateName", "livekitUrl", "token", "roomName"},
-        "statuses": {"200", "404", "409"},
+        "statuses": {"200", "401", "403", "404", "409"},
     },
     ("post", "/api/v1/sessions/{sessionId}/start"): {
         "path_params": ["sessionId"],
@@ -157,6 +157,7 @@ ERROR_CODE = {
     "INVALID_SESSION_STATE",
     "ROOM_FULL",
     "UNAUTHORIZED",
+    "ROLE_NOT_ALLOWED",
     "KAKAO_AUTH_FAILED",
     "KAKAO_UNAVAILABLE",
 }

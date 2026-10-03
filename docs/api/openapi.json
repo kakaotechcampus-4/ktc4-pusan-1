@@ -225,6 +225,7 @@
           "INVALID_SESSION_STATE",
           "ROOM_FULL",
           "UNAUTHORIZED",
+          "ROLE_NOT_ALLOWED",
           "KAKAO_AUTH_FAILED",
           "KAKAO_UNAVAILABLE"
         ],
@@ -333,7 +334,7 @@
           "role": {
             "$ref": "#/components/schemas/Role",
             "default": "CANDIDATE",
-            "description": "현재 로그인·인증 제외 기준이라 요청값으로 받는다. 인증 도입 후에는 서버가 참가자 역할을 판단한다."
+            "description": "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 `ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다."
           }
         },
         "title": "JoinRequest",
@@ -1683,6 +1684,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1705,6 +1716,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접관으로 입장하는데 로그인이 안 됨"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접관으로 입장하는데 이 면접의 주인이 아님"
           },
           "404": {
             "content": {
