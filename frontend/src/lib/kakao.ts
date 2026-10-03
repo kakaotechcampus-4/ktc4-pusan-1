@@ -20,7 +20,8 @@ export const KAKAO_CLIENT_ID = import.meta.env.VITE_KAKAO_CLIENT_ID ?? '';
  * BE 의 토큰 교환도 같은 값을 쓴다 (`kakao_redirect_uri`).
  */
 export const KAKAO_REDIRECT_URI =
-  import.meta.env.VITE_KAKAO_REDIRECT_URI ?? `${window.location.origin}/oauth/kakao/callback`;
+  import.meta.env.VITE_KAKAO_REDIRECT_URI?.trim() ||
+  `${window.location.origin}/oauth/kakao/callback`;
 
 /** 키가 없으면 인가 URL 을 만들 수 없다. 화면이 미리 알려 주기 위해 노출한다. */
 export const kakaoConfigured = Boolean(KAKAO_CLIENT_ID);

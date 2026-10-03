@@ -6,8 +6,7 @@
  * LLM 요약은 즉시 나오지 않으므로 생성 중 상태를 거친다.
  * 서버가 PROCESSING 을 돌려주는 동안 화면이 주기적으로 다시 조회한다.
  *
- * ⚠️ 이 엔드포인트는 아직 명세에 없다. 출력 형식도 #6 에서 정의될 예정이라
- * 지금 구조(overview + keyPoints)는 FE 제안이다.
+ * 상태와 내용은 GET /sessions/{sessionId}/summary의 서버 응답을 그대로 따른다.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -20,7 +19,12 @@ const POLL_INTERVAL_MS = 2000;
 
 export default function InterviewSummaryPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const { data: summary, isError } = useQuery({
+  const {
+    data: summary,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ['summary', sessionId],
     queryFn: () => getSummary(sessionId!),
     // sessionId 가 없으면 조회할 대상이 없다.
@@ -30,7 +34,12 @@ export default function InterviewSummaryPage() {
   });
 
   // 면접 기록은 면접(interview) 단위라 세션에서 interviewId 를 얻어 온다.
-  const { data: session } = useQuery({
+  const {
+    data: session,
+    isError: sessionError,
+    isFetching: sessionFetching,
+    refetch: refetchSession,
+  } = useQuery({
     queryKey: ['session', sessionId],
     queryFn: () => getSessionState(sessionId!),
     enabled: Boolean(sessionId),
@@ -49,7 +58,7 @@ export default function InterviewSummaryPage() {
           <div aria-live="polite" className="mt-7 rounded-xl bg-white/[0.06] p-6">
             <p className="text-[15px] text-white">요약을 만들고 있습니다</p>
             <p className="mt-1.5 text-sm text-white/50">
-              잠시만 기다려주세요. 이 화면을 벗어나도 요약은 계속 생성됩니다.
+              잠시만 기다려주세요. 이 화면을 벗어나도 나중에 결과를 다시 확인할 수 있습니다.
             </p>
             {/* 진행 표시 — 완료 시점을 알 수 없으므로 좌우로 오가는 막대로 둔다 */}
             <div className="mt-4 h-1 overflow-hidden rounded-full bg-white/10">
@@ -64,6 +73,15 @@ export default function InterviewSummaryPage() {
             <p className="mt-1.5 text-sm leading-relaxed text-white/55">
               면접 기록은 남아 있습니다. 잠시 후 다시 확인해주세요.
             </p>
+            {/* 다시 생성하는 API는 없다. 결과 조회만 다시 시도한다. */}
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="mt-3 text-sm text-white underline disabled:opacity-50"
+            >
+              다시 확인
+            </button>
           </div>
         )}
 
@@ -93,8 +111,18 @@ export default function InterviewSummaryPage() {
         )}
 
         <div className="mt-7 flex flex-wrap gap-2.5">
+          {sessionError && (
+            <button
+              type="button"
+              onClick={() => void refetchSession()}
+              disabled={sessionFetching}
+              className="rounded-lg bg-white/[0.08] px-5 py-3 text-[15px] text-white disabled:opacity-50"
+            >
+              기록 링크 다시 확인
+            </button>
+          )}
           {/* 요약이 실패해도 녹화와 기록은 따로 만들어지므로 기록으로 가는 길은 열어 둔다. */}
-          {reviewPath && !processing && (
+          {reviewPath && (
             <Link
               to={reviewPath}
               className="rounded-lg bg-[#2B44D6] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-[#243AB8]"

@@ -13,18 +13,26 @@ import { Link, useNavigate } from 'react-router-dom';
 import { getMe } from '../api/auth';
 import { getCurrentContext } from '../api/context';
 import { clearAccessToken } from '../lib/authToken';
+import { useAccessToken } from '../hooks/useAccessToken';
 
 export default function MainPage() {
   const navigate = useNavigate();
+  const token = useAccessToken();
   const qc = useQueryClient();
 
-  const { data: context, isLoading } = useQuery({
+  const {
+    data: context,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ['context'],
     queryFn: getCurrentContext,
   });
 
   // RequireAuth 가 이미 불러 둔 값을 그대로 쓴다 — 같은 키라 요청이 더 나가지 않는다.
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe });
+  const { data: me } = useQuery({ queryKey: ['me', token], queryFn: getMe });
 
   const logout = () => {
     clearAccessToken();
@@ -33,7 +41,7 @@ export default function MainPage() {
     void navigate('/login', { replace: true });
   };
 
-  // 읽기가 끝난 문서가 하나도 없으면 아직 면접을 만들 준비가 안 된 것으로 본다.
+  // ready는 서버에 등록된 문서다. 본문 추출 완료 여부는 이 응답으로 알 수 없다.
   const ready = Boolean(context?.docs.some((d) => d.status === 'ready'));
 
   return (
@@ -130,13 +138,28 @@ export default function MainPage() {
 
           {isLoading && <p className="text-ink-dim mt-3 text-[14px]">불러오는 중…</p>}
 
+          {isError && (
+            <div role="alert" className="mt-3 text-[14px] text-[#FFC46B]">
+              <p>기업 설정을 불러오지 못했습니다.</p>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                disabled={isFetching}
+                className="mt-2 underline disabled:opacity-50"
+              >
+                다시 확인
+              </button>
+            </div>
+          )}
+
           {context && (
             <>
               <p className="text-ink-muted mt-3 text-[14px]">
-                {context.company} · {context.role}
+                {[context.company, context.team, context.role].filter(Boolean).join(' · ') ||
+                  '기본 정보 미등록'}
               </p>
               <p className="text-ink-dim mt-1.5 font-mono text-[13px]">
-                문서 {context.docs.length}개{!ready && ' · 읽기가 끝난 문서가 없습니다'}
+                문서 {context.docs.length}개{!ready && ' · 등록 완료된 문서가 없습니다'}
               </p>
               {!ready && (
                 <p className="text-ink-dim mt-3 text-[13px]">

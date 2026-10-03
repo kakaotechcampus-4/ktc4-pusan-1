@@ -20,6 +20,7 @@ import { kakaoLogin } from '../api/auth';
 import { ApiError } from '../api/client';
 import { saveAccessToken } from '../lib/authToken';
 import { consumeKakaoState } from '../lib/kakao';
+import { consumeLoginReturnTo } from '../lib/loginReturnTo';
 
 type FailureKind = 'state' | 'denied' | 'expired' | 'kakao' | 'unknown';
 
@@ -85,7 +86,7 @@ export default function KakaoCallbackPage() {
       // 카카오 로그인은 매번 인가 화면을 거치므로 "로그인 유지" 를 따로 묻지 않는다.
       saveAccessToken(accessToken, true);
       // replace 로 보낸다 — 뒤로 가기로 이 주소에 돌아오면 쓴 code 로 다시 시도하게 된다.
-      void navigate('/', { replace: true });
+      void navigate(consumeLoginReturnTo(), { replace: true });
     },
   });
 

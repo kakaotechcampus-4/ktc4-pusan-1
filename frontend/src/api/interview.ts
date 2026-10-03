@@ -58,7 +58,7 @@ export const endSession = (sessionId: string) =>
 /**
  * 면접 요약을 조회한다 (이슈 #6).
  *
- * ⚠️ 아직 명세에 없는 엔드포인트다. 생성 중이면 status 가 PROCESSING 으로 오므로
+ * 생성 중이면 status 가 PROCESSING 으로 오므로
  * 화면이 잠시 뒤 다시 부른다.
  */
 export const getSummary = (sessionId: string) =>

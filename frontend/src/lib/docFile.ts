@@ -5,15 +5,9 @@
  * 사용자가 그 시간을 통째로 낭비한다.
  */
 
-import type { DocKind, UploadRejection } from '../types/interview';
+import type { ContextDoc, DocKind, UploadRejection } from '../types/interview';
 
-/** MIME 타입 → 문서 종류 */
-const BY_MIME: Record<string, DocKind> = {
-  'application/pdf': 'pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-};
-
-/** 확장자 → 문서 종류. 일부 환경에서 MIME 이 비어 오는 경우를 위한 보조 수단이다. */
+/** BE도 파일 확장자로 판별한다. MIME만 믿으면 .txt가 업로드 단계에서 거절된다. */
 const BY_EXTENSION: Record<string, DocKind> = {
   pdf: 'pdf',
   docx: 'docx',
@@ -28,11 +22,39 @@ export type DocCheck = { ok: true; kind: DocKind } | { ok: false; reason: Upload
 
 export function checkFile(file: File): DocCheck {
   const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-  const kind = BY_MIME[file.type] ?? BY_EXTENSION[extension];
+  const kind = file.name.includes('.') ? BY_EXTENSION[extension] : undefined;
 
   if (!kind) return { ok: false, reason: 'unsupported-type' };
+  if (file.size === 0) return { ok: false, reason: 'empty-file' };
   if (file.size > MAX_BYTES) return { ok: false, reason: 'too-large' };
   return { ok: true, kind };
+}
+
+/** 잘못된 응답이 업로드 진행 상태나 문서 목록을 깨뜨리지 않게 경계에서 확인한다. */
+export function parseContextDoc(raw: string): ContextDoc | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const doc = value as Record<string, unknown>;
+    if (typeof doc.id !== 'string' || !doc.id || typeof doc.name !== 'string') return null;
+    if (doc.kind !== 'pdf' && doc.kind !== 'docx') return null;
+    if (
+      typeof doc.sizeBytes !== 'number' ||
+      !Number.isSafeInteger(doc.sizeBytes) ||
+      doc.sizeBytes < 0
+    )
+      return null;
+    if (doc.status !== 'ready' && doc.status !== 'parsing' && doc.status !== 'failed') return null;
+    return {
+      id: doc.id,
+      name: doc.name,
+      kind: doc.kind,
+      sizeBytes: doc.sizeBytes,
+      status: doc.status,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** 사람이 읽는 크기 */

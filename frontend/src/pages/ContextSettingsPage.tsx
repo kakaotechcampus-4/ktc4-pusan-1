@@ -4,7 +4,6 @@
  * 조직 하나가 공유하는 면접 기준을 모아 둔다 — 회사 이름, 기본 직무, JD·사내 문서,
  * 추가 인재상. AI 면접관이 질문과 평가를 만들 때 근거로 쓴다.
  *
- * ⚠️ BE 에 이 엔드포인트들이 없어 목으로 동작한다.
  * 시안의 상단 내비게이션·프로필, 엔진 준비도·동기화 면접방 수, 실시간 적용 프리뷰(질문
  * 가중치)는 우리 서버에 그 데이터가 없어 넣지 않았다.
  */
@@ -12,17 +11,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { deleteDoc, getCurrentContext, uploadDoc } from '../api/context';
+import { deleteDoc, getContext, getCurrentContext, uploadDoc } from '../api/context';
+import { ApiError, uploadErrorMessage } from '../api/client';
 import { updateContextSettings } from '../api/contextSettings';
 import { DocCard } from '../components/context/DocCard';
 import { DropZone } from '../components/context/DropZone';
 import { checkFile } from '../lib/docFile';
 import type { CompanyContext, ContextDoc, UploadRejection } from '../types/interview';
 
-/**
- * ⚠️ 설정은 조직당 하나인데 조직 컨텍스트를 알려주는 API 가 없다.
- * 조회 API 가 생기면 이 상수를 없애고 그 값을 쓴다.
- */
 /** 파싱 중인 문서가 있을 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 2000;
 
@@ -30,6 +26,7 @@ const POLL_INTERVAL_MS = 2000;
 const TALENT_MAX = 2000;
 
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
+  'empty-file': '내용이 있는 파일을 선택해주세요.',
   'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
   'too-large': '50MB 이하 파일만 올릴 수 있습니다.',
 };
@@ -44,6 +41,7 @@ interface PendingDoc extends ContextDoc {
 
 interface SettingsForm {
   company: string;
+  team: string;
   role: string;
   talentProfile: string;
 }
@@ -69,14 +67,25 @@ export default function ContextSettingsPage() {
    * 문서 분류.
    *
    * ⚠️ 업로드 API 에 문서 종류 필드가 없어 분류를 화면에만 들고 있다. 새로고침하면
-   * 분류가 사라지는데, 목 서버도 문서 목록을 메모리에만 두므로 같이 사라진다.
+   * 분류가 사라지므로 서버에 남은 문서는 아래 미분류 목록에서 보여준다.
    * BE 에 종류 필드가 생기면 이 상태를 없앤다.
    */
   const [categories, setCategories] = useState<Record<string, DocCategory>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey,
-    queryFn: getCurrentContext,
+    queryFn: async () => {
+      // 처음에는 현재 조직을 찾고, 이후에는 확인된 id의 저장·문서 상태를 조회한다.
+      const id = qc.getQueryData<CompanyContext>(queryKey)?.id;
+      if (!id) return getCurrentContext();
+      try {
+        return await getContext(id);
+      } catch (error) {
+        // 로컬 BE가 재시작해 id가 없어졌으면 현재 컨텍스트부터 다시 찾는다.
+        if (error instanceof ApiError && error.status === 404) return getCurrentContext();
+        throw error;
+      }
+    },
     // 읽는 중인 문서가 하나라도 있으면 완료될 때까지 다시 묻는다.
     refetchInterval: (q) =>
       q.state.data?.docs.some((d) => d.status === 'parsing') ? POLL_INTERVAL_MS : false,
@@ -92,11 +101,11 @@ export default function ContextSettingsPage() {
 
   // 서버 값 위에 고친 칸을 얹은 것이 지금 화면의 값이다.
   //
-  // ⚠️ 조회 응답에 인재상 필드가 없어 그 칸은 늘 빈 값에서 시작한다 (api/contextSettings.ts 참고).
-  // 최신 응답에 talentProfile 이 있으면 저장된 값을 표시하고, 이전 응답은 빈 값으로 처리한다.
+  // 저장된 인재상도 서버 응답에서 읽는다. 폴링은 입력 중인 draft를 덮지 않는다.
   const form: SettingsForm | null = data
     ? {
         company: draft.company ?? data.company,
+        team: draft.team ?? data.team,
         role: draft.role ?? data.role,
         talentProfile: draft.talentProfile ?? data.talentProfile ?? '',
       }
@@ -129,7 +138,7 @@ export default function ContextSettingsPage() {
       setPending((prev) => prev.filter((d) => d.id !== tempId));
       void qc.invalidateQueries({ queryKey });
     },
-    onError: (_e, { tempId }) => {
+    onError: (error, { tempId }) => {
       // 서버에 올라가지 않았으므로 목록에서 지운다. 임시 id 로 달아 둔 분류도 함께 버린다.
       setPending((prev) => prev.filter((d) => d.id !== tempId));
       setCategories((prev) => {
@@ -137,7 +146,7 @@ export default function ContextSettingsPage() {
         delete next[tempId];
         return next;
       });
-      setNotice('올리지 못했습니다. 잠시 후 다시 시도해주세요.');
+      setNotice(uploadErrorMessage(error));
     },
   });
 
@@ -169,6 +178,7 @@ export default function ContextSettingsPage() {
   const save = useMutation({
     mutationFn: (values: SettingsForm) => updateContextSettings(contextId, values),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey });
       setNotice(null);
       setSaved(true);
       if (leaveAfterSave) void navigate('/');
@@ -220,7 +230,12 @@ export default function ContextSettingsPage() {
   // 대신 무엇이 비었는지는 아래 안내로 알려 준다.
   const canSave = !save.isPending && !uploading;
   const empty = Boolean(
-    form && !form.company.trim() && !form.role.trim() && !form.talentProfile.trim() && !docs.length,
+    form &&
+    !form.company.trim() &&
+    !form.team.trim() &&
+    !form.role.trim() &&
+    !form.talentProfile.trim() &&
+    !docs.length,
   );
 
   return (
@@ -239,6 +254,20 @@ export default function ContextSettingsPage() {
 
         {isLoading && <p className="text-ink-muted text-[15px]">불러오는 중…</p>}
 
+        {isError && (
+          <div role="alert" className="text-[15px] text-[#FFC46B]">
+            <p>기업 설정을 불러오지 못했습니다.</p>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="mt-2 underline disabled:opacity-50"
+            >
+              다시 확인
+            </button>
+          </div>
+        )}
+
         {form && (
           <>
             <Section
@@ -247,7 +276,7 @@ export default function ContextSettingsPage() {
               title="기본 정보"
               desc="면접을 만들 때 초깃값으로 쓰입니다."
             >
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <TextField
                   id="company"
                   label="회사 이름"
@@ -257,12 +286,20 @@ export default function ContextSettingsPage() {
                   hint="AI 면접관이 인사할 때 이 이름을 부릅니다."
                 />
                 <TextField
+                  id="team"
+                  label="팀"
+                  value={form.team}
+                  onChange={(v) => update({ team: v })}
+                  placeholder="예: 플랫폼 팀"
+                  hint="면접을 진행하는 팀입니다. 비워 두어도 됩니다."
+                />
+                <TextField
                   id="role"
                   label="기본 직무"
                   value={form.role}
                   onChange={(v) => update({ role: v })}
                   placeholder="예: 백엔드 엔지니어"
-                  hint="면접마다 바꿀 수 있습니다."
+                  hint="면접에서 참고할 기본 직무입니다."
                 />
               </div>
             </Section>
@@ -461,6 +498,7 @@ function TextField({
       <input
         id={id}
         type="text"
+        maxLength={100}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

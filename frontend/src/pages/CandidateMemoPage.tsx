@@ -127,7 +127,7 @@ export default function CandidateMemoPage() {
           <div className="flex flex-col gap-4">
             <section
               id="memo-summary"
-              className="scroll-mt-20 rounded-lg border border-[#272a33] bg-[#18191f] p-5"
+              className="scroll-mt-[calc(var(--interviewer-header-height,57px)+16px)] rounded-lg border border-[#272a33] bg-[#18191f] p-5"
             >
               <header className="flex items-center justify-between gap-3 border-b border-[#22242c] pb-3">
                 <h2 className="text-sm font-bold">발언 요약</h2>
@@ -147,7 +147,7 @@ export default function CandidateMemoPage() {
 
             <section
               id="memo-quotes"
-              className="scroll-mt-20 rounded-lg border border-[#272a33] bg-[#18191f] p-5"
+              className="scroll-mt-[calc(var(--interviewer-header-height,57px)+16px)] rounded-lg border border-[#272a33] bg-[#18191f] p-5"
             >
               <header className="flex items-center justify-between gap-3 border-b border-[#22242c] pb-3">
                 <h2 className="text-sm font-bold">직접 인용</h2>
@@ -181,7 +181,7 @@ export default function CandidateMemoPage() {
 
             <section
               id="memo-notes"
-              className="scroll-mt-20 rounded-lg border border-[#272a33] bg-[#18191f] p-5"
+              className="scroll-mt-[calc(var(--interviewer-header-height,57px)+16px)] rounded-lg border border-[#272a33] bg-[#18191f] p-5"
             >
               <header className="flex items-center justify-between gap-3 border-b border-[#22242c] pb-3">
                 <h2 className="text-sm font-bold">내 메모</h2>
@@ -207,7 +207,7 @@ export default function CandidateMemoPage() {
           <aside className="flex flex-col gap-4">
             <section
               id="memo-balance"
-              className="scroll-mt-20 rounded-lg border border-[#272a33] bg-[#18191f] p-5"
+              className="scroll-mt-[calc(var(--interviewer-header-height,57px)+16px)] rounded-lg border border-[#272a33] bg-[#18191f] p-5"
             >
               <header className="border-b border-[#22242c] pb-3">
                 <h2 className="text-sm font-bold">질문 균형</h2>
@@ -241,7 +241,7 @@ export default function CandidateMemoPage() {
 
             <section
               id="memo-followup"
-              className="scroll-mt-20 rounded-lg border border-[#272a33] bg-[#18191f] p-5"
+              className="scroll-mt-[calc(var(--interviewer-header-height,57px)+16px)] rounded-lg border border-[#272a33] bg-[#18191f] p-5"
             >
               <header className="border-b border-[#22242c] pb-3">
                 <h2 className="text-sm font-bold">다음에 확인할 내용</h2>
@@ -265,7 +265,7 @@ export default function CandidateMemoPage() {
 
             <section
               id="memo-unconfirmed"
-              className="scroll-mt-20 rounded-lg border border-[#272a33] bg-[#18191f] p-5"
+              className="scroll-mt-[calc(var(--interviewer-header-height,57px)+16px)] rounded-lg border border-[#272a33] bg-[#18191f] p-5"
             >
               <header className="border-b border-[#22242c] pb-3">
                 <h2 className="text-sm font-bold">확인하지 못한 항목</h2>
@@ -287,7 +287,7 @@ export default function CandidateMemoPage() {
 
             <section
               id="memo-bookmarks"
-              className="scroll-mt-20 rounded-lg border border-[#272a33] bg-[#18191f] p-5"
+              className="scroll-mt-[calc(var(--interviewer-header-height,57px)+16px)] rounded-lg border border-[#272a33] bg-[#18191f] p-5"
             >
               <header className="border-b border-[#22242c] pb-3">
                 <h2 className="text-sm font-bold">북마크 {bookmarks.length}건</h2>

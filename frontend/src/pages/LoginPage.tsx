@@ -8,14 +8,22 @@
  */
 
 import { useMutation } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { kakaoLogin } from '../api/auth';
 import { saveAccessToken } from '../lib/authToken';
 import { buildKakaoAuthorizeUrl, kakaoConfigured } from '../lib/kakao';
 import { USE_MOCK_API } from '../mocks/mockApi';
+import {
+  consumeLoginReturnTo,
+  readLoginReturnTo,
+  rememberLoginReturnTo,
+} from '../lib/loginReturnTo';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const rememberDestination = () =>
+    rememberLoginReturnTo(location.state?.returnTo ?? readLoginReturnTo());
 
   /**
    * ⚠️ 목 로그인. 카카오 없이 화면을 둘러보기 위한 임시 입구다.
@@ -24,14 +32,18 @@ export default function LoginPage() {
    * 그 길이 막힌다. 목이 켜져 있을 때만 보인다 — BE 연동 시 이 블록과 목 핸들러를 함께 지운다.
    */
   const mockLogin = useMutation({
-    mutationFn: () => kakaoLogin('mock-code'),
+    mutationFn: () => {
+      rememberDestination();
+      return kakaoLogin('mock-code');
+    },
     onSuccess: ({ accessToken }) => {
       saveAccessToken(accessToken, true);
-      void navigate('/', { replace: true });
+      void navigate(consumeLoginReturnTo(), { replace: true });
     },
   });
 
   const start = () => {
+    rememberDestination();
     // 같은 탭에서 떠난다. 새 창이면 팝업 차단에 걸리고, 돌아올 창을 찾기도 번거롭다.
     window.location.href = buildKakaoAuthorizeUrl();
   };

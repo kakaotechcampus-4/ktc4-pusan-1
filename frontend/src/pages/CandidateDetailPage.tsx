@@ -37,7 +37,7 @@ function Panel({
   return (
     <section
       id={id}
-      className="scroll-mt-20 rounded-lg border border-[#272a33] bg-[#18191f] p-4 sm:p-5"
+      className="scroll-mt-[calc(var(--interviewer-header-height,57px)+64px)] rounded-lg border border-[#272a33] bg-[#18191f] p-4 sm:p-5"
     >
       <header className="flex flex-wrap items-start justify-between gap-2 border-b border-[#22242c] pb-3">
         <h2 className="text-sm font-bold">{title}</h2>
@@ -230,7 +230,8 @@ export default function CandidateDetailPage() {
 
         <nav
           aria-label="지원자 기록 구간"
-          className="sticky top-14 z-20 mt-4 flex gap-1 overflow-x-auto border-b border-[#272a33] bg-[#121316]/95 py-2 backdrop-blur"
+          style={{ top: 'var(--interviewer-header-height, 57px)' }}
+          className="sticky z-20 mt-4 flex gap-1 overflow-x-auto border-b border-[#272a33] bg-[#121316]/95 py-2 backdrop-blur"
         >
           {[
             ['section-a', 'A 개요'],
@@ -251,7 +252,10 @@ export default function CandidateDetailPage() {
         </nav>
 
         <div className="mt-4 grid items-start gap-4 lg:grid-cols-[190px_minmax(0,1fr)]">
-          <aside className="hidden lg:sticky lg:top-28 lg:block">
+          <aside
+            style={{ top: 'calc(var(--interviewer-header-height, 57px) + 64px)' }}
+            className="hidden lg:sticky lg:block"
+          >
             <p className="mb-2 font-mono text-[10px] text-[#686c7b]">검토 목차</p>
             <div className="flex flex-col gap-1">
               {[

@@ -12,8 +12,9 @@
 import type { RemoteTrack, RemoteTrackPublication } from 'livekit-client';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
-import { endSession, joinSession } from '../api/interview';
+import { endSession, getSessionState, joinSession, startSession } from '../api/interview';
 import { loadLiveKit } from '../lib/livekit';
+import { createTranscriptStreamHandler, TRANSCRIPT_TOPIC } from '../lib/transcriptStream';
 import { useInterviewStore } from '../stores/interviewStore';
 import type { Role, RoomConnectionState, Speaker } from '../types/interview';
 
@@ -72,7 +73,7 @@ export function useInterviewRoom({
 
     // 액션은 참조가 고정되어 있다. 구독하면 전사 델타마다 화면 전체가 리렌더되므로
     // 훅에서는 getState() 로 꺼내 쓰고 스토어를 구독하지 않는다.
-    const { setSession, setConnection, setRemoteJoined, setSpeaking, reset } =
+    const { setSession, setConnection, setRemoteJoined, setSpeaking, applyStreamEvent, reset } =
       useInterviewStore.getState();
 
     // 1:1 이므로 참가자는 둘뿐이다. 내 역할이 정해지면 상대 역할도 정해진다.
@@ -97,7 +98,7 @@ export function useInterviewRoom({
         });
         roomRef.current = room;
 
-        /* 지원자 트랙 붙이기 — participant는 2명뿐이므로 원격 참가자는 항상 지원자다 */
+        /* 상대 참가자의 트랙만 붙인다. AI 워커·녹화 참가자는 제외한다. */
         const attach = (track: RemoteTrack) => {
           if (track.kind === Track.Kind.Video && videoRef.current) {
             track.attach(videoRef.current);
@@ -111,10 +112,16 @@ export function useInterviewRoom({
           .on(RoomEvent.ConnectionStateChanged, (state) =>
             setConnection(String(state) as RoomConnectionState),
           )
-          .on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => attach(track))
+          .on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+            if (participant.identity === remoteSpeaker) attach(track);
+          })
           .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => track.detach())
-          .on(RoomEvent.ParticipantConnected, () => setRemoteJoined(true))
-          .on(RoomEvent.ParticipantDisconnected, () => {
+          .on(RoomEvent.ParticipantConnected, (participant) => {
+            // 같은 방의 AI 워커는 통화 상대가 아니다. BE가 역할을 identity로 발급한다.
+            if (participant.identity === remoteSpeaker) setRemoteJoined(true);
+          })
+          .on(RoomEvent.ParticipantDisconnected, (participant) => {
+            if (participant.identity !== remoteSpeaker) return;
             setRemoteJoined(false);
             setSpeaking(null);
           })
@@ -127,20 +134,50 @@ export function useInterviewRoom({
               setSpeaking(null);
               return;
             }
-            const isRemote = speakers.some((p) => p !== room?.localParticipant);
-            setSpeaking(isRemote ? remoteSpeaker : localSpeaker);
+            const isRemote = speakers.some((p) => p.identity === remoteSpeaker);
+            const isLocal = speakers.some((p) => p === room?.localParticipant);
+            setSpeaking(isRemote ? remoteSpeaker : isLocal ? localSpeaker : null);
           })
           .on(RoomEvent.Disconnected, () => setRemoteJoined(false));
 
+        // 워커가 접속 직후 보낼 수 있어 connect 전에 등록한다. 역할 분기는 하지 않는다 —
+        // AI가 destination_identities로 면접관만 지정하므로 지원자에게는 전달되지 않는다.
+        room.registerTextStreamHandler(
+          TRANSCRIPT_TOPIC,
+          createTranscriptStreamHandler(applyStreamEvent, () => cancelled),
+        );
+
         // join 이 입장 권한 확인과 LiveKit 접속 정보 발급을 함께 한다.
-        // start 는 상태 전이 전용이라 여기서 부르지 않는다.
+        // 접속 뒤 상태를 확인하고 새 면접의 시작만 별도로 요청한다.
         const { livekitUrl, token } = await joinSession(sessionId, role);
         if (cancelled) return;
         setSession(sessionId);
 
         /* --- 방 접속 --- */
         await room.connect(livekitUrl, token);
+        if (cancelled) {
+          await room.disconnect(false);
+          return;
+        }
+
+        // 새 면접만 시작한다. 재입장은 INTERVIEWING을 유지하며 시작 시각을 덮지 않는다.
+        const state = await getSessionState(sessionId);
         if (cancelled) return;
+        // join 토큰을 받은 뒤 종료된 방에 늦게 붙었으면 다시 트랙을 발행하지 않는다.
+        if (state.status === 'ENDED') throw new ApiError('SESSION_ENDED', 409);
+        if (role === 'INTERVIEWER') {
+          if (state.status === 'WAITING') {
+            try {
+              await startSession(sessionId);
+            } catch (e) {
+              // 다른 탭이 먼저 시작한 409만 허용한다. 종료·통신 실패는 숨기지 않는다.
+              if (!(e instanceof ApiError) || e.code !== 'INVALID_SESSION_STATE') throw e;
+              const current = await getSessionState(sessionId);
+              if (current.status !== 'INTERVIEWING') throw e;
+            }
+          }
+          if (cancelled) return;
+        }
 
         /* 면접관 트랙 발행 — 프리뷰에서 이미 얻은 트랙을 재사용한다.
            enableCameraAndMicrophone() 을 쓰면 getUserMedia 가 다시 불려
@@ -162,12 +199,11 @@ export function useInterviewRoom({
 
           if (cancelled) {
             // cleanup 의 disconnect() 가 발행 완료보다 먼저 지나갔을 수 있다. 직접 회수한다.
-            audioTrack?.stop();
-            videoTrack?.stop();
+            await room.disconnect(false);
             return;
           }
 
-          // 여기서만 소유권이 넘어간다. 이후 트랙 stop 은 room.disconnect() 가 한다.
+          // 발행 성공을 알린다. DeviceGate가 원본 트랙을 소유한 경로에서는 계속 그쪽이 정리한다.
           onTracksPublished?.();
         } catch (e) {
           // 발행 실패가 통화를 막지는 않는다 — 지원자 영상과 전사는 계속 본다.
@@ -177,17 +213,15 @@ export function useInterviewRoom({
 
         /* 이미 들어와 있는 지원자 트랙 구독 */
         room.remoteParticipants.forEach((p) => {
+          if (p.identity !== remoteSpeaker) return;
           setRemoteJoined(true);
           p.trackPublications.forEach((pub: RemoteTrackPublication) => {
             if (pub.track) attach(pub.track);
           });
         });
-
-        /* --- 전사·추천 질문 연결 ---
-           BE API 명세에 WebSocket 경로가 없어 아직 연결하지 않는다 (AI #7).
-           경로가 생기면 여기서 붙인다 — 통화와 분리해 두어 전사가 죽어도 통화는 유지된다. */
       } catch (e) {
         if (!cancelled) {
+          void room?.disconnect(false);
           setError(e instanceof ApiError ? e.code : 'CONNECT_FAILED');
         }
       }
@@ -195,8 +229,12 @@ export function useInterviewRoom({
 
     return () => {
       cancelled = true;
+      room?.unregisterTextStreamHandler(TRANSCRIPT_TOPIC);
       room?.removeAllListeners();
-      void room?.disconnect();
+      // 원본 트랙은 DeviceGate 소유다. StrictMode 재접속 때 먼저 stop하면
+      // 다음 Room에 끝난 트랙이 전달되므로 최종 이탈 때만 DeviceGate가 회수한다.
+      void room?.disconnect(false);
+      if (roomRef.current === room) roomRef.current = null;
       reset();
     };
   }, [sessionId, role, videoRef, audioRef, ready]);
@@ -209,11 +247,20 @@ export function useInterviewRoom({
    * 면접관이 아직 방에 남아 있는데 세션이 ENDED 가 되어 재입장이 막힌다.
    */
   const leave = async () => {
-    const { sessionId } = useInterviewStore.getState();
-    await roomRef.current?.disconnect();
-    if (role !== 'INTERVIEWER') return null;
-    if (sessionId) return endSession(sessionId);
-    return null;
+    let result = null;
+    if (role === 'INTERVIEWER') {
+      try {
+        // 서버 종료가 실패했으면 방에 남아 재시도할 수 있어야 한다.
+        result = await endSession(sessionId);
+      } catch (e) {
+        // BE는 방 정리 전에 ENDED를 저장한다. 방 정리만 실패했다면 종료는 완료된 것이다.
+        const state = await getSessionState(sessionId);
+        if (state.status !== 'ENDED' || !state.endedAt) throw e;
+        result = { sessionId, status: state.status, endedAt: state.endedAt };
+      }
+    }
+    await roomRef.current?.disconnect(false);
+    return result;
   };
 
   // roomRef.current 를 렌더 중에 읽으면 연결 이후 값이 갱신되지 않는다.

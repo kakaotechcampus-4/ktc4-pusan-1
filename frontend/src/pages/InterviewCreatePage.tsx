@@ -4,7 +4,7 @@
  * 기획의 1·2·3 단계를 한 화면에서 끝낸다. 서버 쪽은 세 번의 호출이다.
  *
  *   POST /api/v1/interviews                  면접 정보 생성
- *   POST /api/v1/interviews/{id}/resume      이력서 업로드 (⚠️ 명세에 없음 · 목)
+ *   POST /api/v1/interviews/{id}/resume      이력서 업로드
  *   POST /api/v1/interviews/{id}/sessions    Session 생성 + 초대 링크 발급
  *
  * 사용자에게는 버튼 하나다. 이력서는 interviewId 가 있어야 올릴 수 있어서
@@ -17,6 +17,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { getMe } from '../api/auth';
+import { uploadErrorMessage } from '../api/client';
+import { useAccessToken } from '../hooks/useAccessToken';
 import { getCurrentContext } from '../api/context';
 import { createInterview, createSession } from '../api/interview';
 import { uploadResume } from '../api/resume';
@@ -26,14 +29,15 @@ import { normalizeCandidateName } from '../lib/candidateName';
 import { checkFile } from '../lib/docFile';
 import type { ContextDoc, UploadRejection } from '../types/interview';
 
-/** ⚠️ 인증이 없어 면접관 ID 를 클라이언트가 정한다. 로그인 도입 시 사라진다. */
-const MOCK_INTERVIEWER_ID = 'user_demo';
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
+  'empty-file': '내용이 있는 파일을 선택해주세요.',
   'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
   'too-large': '50MB 이하 파일만 올릴 수 있습니다.',
 };
 
 export default function InterviewCreatePage() {
+  const token = useAccessToken();
+  const { data: me } = useQuery({ queryKey: ['me', token], queryFn: getMe });
   const [candidateName, setCandidateName] = useState('');
   const {
     data: context,
@@ -67,11 +71,9 @@ export default function InterviewCreatePage() {
   // 세 요청이 이어지지만 사용자에게는 한 번의 동작이므로 하나의 뮤테이션으로 묶는다.
   const create = useMutation({
     mutationFn: async () => {
-      // 이름은 서버 계약으로 전달한다 (#39). 브라우저에 따로 보관하지 않는다.
-      const interview = await createInterview(
-        MOCK_INTERVIEWER_ID,
-        normalizeCandidateName(candidateName),
-      );
+      if (!me) throw new Error('로그인 상태를 확인해주세요.');
+      // 로그인한 면접관과 지원자 이름을 서버 계약으로 전달한다.
+      const interview = await createInterview(me.id, normalizeCandidateName(candidateName));
 
       if (resume) {
         setDoc((prev) => prev && { ...prev, status: 'uploading', progress: 0 });
@@ -80,10 +82,10 @@ export default function InterviewCreatePage() {
             setDoc((prev) => prev && { ...prev, progress: ratio }),
           );
           setDoc((prev) => prev && { ...prev, status: 'ready', progress: undefined });
-        } catch {
+        } catch (error) {
           // 이력서 하나 때문에 링크 발급까지 막지 않는다. 면접은 그대로 만들고 실패만 알린다.
           setDoc((prev) => prev && { ...prev, status: 'failed', progress: undefined });
-          setNotice('이력서를 올리지 못했습니다. 면접은 그대로 만들었습니다.');
+          setNotice(`${uploadErrorMessage(error)} 면접은 그대로 만들었습니다.`);
         }
       }
 
@@ -95,7 +97,7 @@ export default function InterviewCreatePage() {
   // 생성 실패가 나머지보다 중요하다. 겹치면 생성 쪽을 보여준다.
   const error = create.isError ? '면접을 만들지 못했습니다. 잠시 후 다시 시도해주세요.' : copyError;
   const uploading = doc?.status === 'uploading';
-  const canCreate = candidateName.trim().length > 0 && !create.isPending;
+  const canCreate = Boolean(me) && candidateName.trim().length > 0 && !create.isPending;
 
   const handleFiles = (files: File[]) => {
     setNotice(null);
@@ -186,7 +188,9 @@ export default function InterviewCreatePage() {
                     {contextLoading
                       ? '불러오는 중…'
                       : context
-                        ? `${context.company} · ${context.role}`
+                        ? [context.company, context.team, context.role]
+                            .filter(Boolean)
+                            .join(' · ') || '기본 정보 미등록'
                         : contextError
                           ? '설정을 불러오지 못했습니다.'
                           : '아직 등록된 설정이 없습니다.'}
