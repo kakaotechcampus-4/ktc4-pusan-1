@@ -41,9 +41,8 @@ def create_suggestion(
 
     # TODO(#85): (session_id, suggestion_id) 로 저장한다.
     logger.info(
-        "꼬리질문 수신 session_id=%s suggestion_id=%s type=%s 근거=%d개",
+        "꼬리질문 수신 session_id=%s suggestion_id=%s 근거=%d개",
         session_id,
         body.suggestion_id,
-        body.type,
         len(body.evidence_utterance_ids),
     )
