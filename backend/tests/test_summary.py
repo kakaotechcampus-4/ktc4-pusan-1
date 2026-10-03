@@ -262,6 +262,22 @@ def test_agent_failure_becomes_failed(
     assert body["content"] is None
 
 
+@pytest.mark.parametrize("agent_status", ["empty", "failed"])
+def test_a_failure_after_success_keeps_the_summary(
+    client: TestClient, session_id: str, key: str, agent_status: str
+) -> None:
+    """Agent 의 재시도 · 재실행에서 실패 한 번이 성공한 요약을 지우면 안 된다 (#132)."""
+    ended(client, session_id)
+    put_review(client, session_id, key)
+
+    got = put_review(client, session_id, key, status=agent_status, summary_text="")
+
+    assert got.status_code == 204
+    body = summary(client, session_id).json()
+    assert body["status"] == "READY"
+    assert body["content"] is not None
+
+
 def test_a_done_status_without_a_body_is_refused(
     client: TestClient, session_id: str, key: str
 ) -> None:

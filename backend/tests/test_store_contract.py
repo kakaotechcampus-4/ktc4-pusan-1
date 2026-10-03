@@ -13,7 +13,8 @@ PostgreSQL 쪽은 `TEST_DATABASE_URL` 이 있을 때만 돈다. CI 와 로컬은
 
 import os
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -23,11 +24,15 @@ from app.domain.models import (
     DocKind,
     Interview,
     Resume,
+    Role,
     Session,
     SessionStatus,
     SessionSummary,
+    Suggestion,
     SummaryStatus,
+    TranscriptStage,
     User,
+    Utterance,
 )
 from app.domain.store import InMemoryStore, Store
 
@@ -511,6 +516,40 @@ def test_expiring_a_summary_that_does_not_exist(subject: Store):
     assert subject.expire_summary(session.id, timedelta(minutes=1)) is None
 
 
+def test_a_failure_report_marks_a_waiting_summary_failed(subject: Store):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    assert subject.fail_summary(session.id) is True
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.FAILED
+    assert stored.completed_at is not None
+
+
+def test_a_failure_report_does_not_erase_a_ready_summary(subject: Store):
+    """Agent 의 재시도 · 재실행에서 실패 한 번이 성공한 요약을 지우면 안 된다 (#132)."""
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.complete("살아남아야 하는 요약", ["근거 하나"])
+    subject.save_summary(summary)
+
+    assert subject.fail_summary(session.id) is False
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.READY
+    assert stored.overview == "살아남아야 하는 요약"
+    assert stored.key_points == ["근거 하나"]
+
+
+def test_a_failure_report_without_a_summary_slot(subject: Store):
+    session = _seed(subject)
+
+    assert subject.fail_summary(session.id) is False
+
+
 def test_reading_gives_a_copy_not_the_stored_object(subject: Store):
     """`get_*` 이 참조를 돌려주면 라우터가 저장을 빼먹어도 인메모리에서는 통과한다.
 
@@ -673,3 +712,242 @@ def test_upsert_user_keeps_first_id_and_updates_profile(subject: Store):
 
 def test_unknown_user_is_none(subject: Store):
     assert subject.get_user("usr_none") is None
+
+
+# ── 전사 (#85) ──────────────────────────────────────────
+
+
+def _utterance(session: Session, utterance_id: str = "utt_001", **overrides: Any):
+    fields: dict[str, Any] = {
+        "session_id": session.id,
+        "utterance_id": utterance_id,
+        "speaker": Role.CANDIDATE,
+        "text": "캐시는 Redis 로 붙였습니다.",
+        "started_at_ms": 15200,
+        "ended_at_ms": 23800,
+    }
+    return Utterance(**(fields | overrides))
+
+
+def test_utterance_roundtrip(subject: Store):
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session))
+
+    assert subject.list_utterances(session.id) == [_utterance(session)]
+
+
+def test_upserting_the_same_utterance_twice_replaces_it(subject: Store):
+    """교정본이 같은 id 로 다시 온다 (#76). 행이 늘지 않고 내용만 바뀐다."""
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, text="캐시는"))
+    subject.upsert_utterance(
+        _utterance(session, text="캐시는 Redis", ended_at_ms=24100)
+    )
+
+    [found] = subject.list_utterances(session.id)
+
+    assert (found.text, found.ended_at_ms) == ("캐시는 Redis", 24100)
+
+
+def test_utterances_come_back_in_speaking_order(subject: Store):
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, "utt_b", started_at_ms=3000))
+    subject.upsert_utterance(_utterance(session, "utt_a", started_at_ms=1000))
+    subject.upsert_utterance(_utterance(session, "utt_c", started_at_ms=2000))
+
+    ids = [u.utterance_id for u in subject.list_utterances(session.id)]
+
+    assert ids == ["utt_a", "utt_c", "utt_b"]
+
+
+def test_at_the_same_ms_the_interviewer_comes_first(subject: Store):
+    """두 사람이 같은 ms 에 말을 시작하면 면접관이 먼저다.
+
+    질문이 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. id 로 자르면 트랙 ID
+    순이 되는데 트랙 ID 는 무작위라 의미가 없다. `seq` 가 페이로드에 없어서
+    (#76 ①) 저장소가 정한다.
+    """
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, "utt_a", started_at_ms=1000))
+    subject.upsert_utterance(
+        _utterance(session, "utt_z", speaker=Role.INTERVIEWER, started_at_ms=1000)
+    )
+
+    ids = [u.utterance_id for u in subject.list_utterances(session.id)]
+
+    assert ids == ["utt_z", "utt_a"]
+
+
+def test_same_speaker_at_the_same_ms_falls_back_to_id(subject: Store):
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, "utt_b", started_at_ms=1000))
+    subject.upsert_utterance(_utterance(session, "utt_a", started_at_ms=1000))
+
+    ids = [u.utterance_id for u in subject.list_utterances(session.id)]
+
+    assert ids == ["utt_a", "utt_b"]
+
+
+def test_a_realigned_utterance_does_not_overwrite_the_live_one(subject: Store):
+    """재전사가 같은 id 를 다시 써도 초벌이 남는다 — 기본키에 stage 가 있다.
+
+    재전사 id 를 새로 낼지 재사용할지는 아직 답이 없다 (#76 A). 어느 쪽이든
+    이 테스트가 통과하도록 키를 잡았다.
+    """
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, text="초벌"))
+    subject.upsert_utterance(
+        _utterance(session, text="재전사", stage=TranscriptStage.REALIGNED)
+    )
+
+    [live] = subject.list_utterances(session.id)
+    [realigned] = subject.list_utterances(session.id, stage=TranscriptStage.REALIGNED)
+
+    assert (live.text, realigned.text) == ("초벌", "재전사")
+
+
+def test_utterances_do_not_leak_between_sessions(subject: Store):
+    one = _seed(subject)
+    two = _seed(subject)
+    subject.upsert_utterance(_utterance(one))
+
+    assert subject.list_utterances(two.id) == []
+
+
+# ── 꼬리질문 (#85) ──────────────────────────────────────
+
+
+def _suggestion(session: Session, suggestion_id: str = "sug_001", **overrides: Any):
+    fields: dict[str, Any] = {
+        "session_id": session.id,
+        "suggestion_id": suggestion_id,
+        "content": "캐시 적중률은 얼마였나요?",
+        "evidence_utterance_ids": ["utt_001", "utt_002"],
+    }
+    return Suggestion(**(fields | overrides))
+
+
+def test_suggestion_roundtrip(subject: Store):
+    session = _seed(subject)
+    suggestion = _suggestion(session)
+    subject.add_suggestion(suggestion)
+
+    assert subject.list_suggestions(session.id) == [suggestion]
+
+
+def test_adding_the_same_suggestion_twice_keeps_the_first(subject: Store):
+    """Agent 가 전송을 재시도해도 한 건이다.
+
+    처음 것을 남긴다 — `status` 와 `created_at` 은 BE 가 매기는 값이라 재시도가
+    덮으면 도착 순서가 흔들린다.
+    """
+    session = _seed(subject)
+    first = _suggestion(session, created_at=datetime(2026, 9, 29, 1, tzinfo=UTC))
+    subject.add_suggestion(first)
+    subject.add_suggestion(
+        _suggestion(session, created_at=datetime(2026, 9, 29, 2, tzinfo=UTC))
+    )
+
+    assert subject.list_suggestions(session.id) == [first]
+
+
+def test_suggestions_come_back_in_the_order_they_arrived(subject: Store):
+    session = _seed(subject)
+    for suggestion_id, hour in [("sug_b", 3), ("sug_a", 1), ("sug_c", 2)]:
+        subject.add_suggestion(
+            _suggestion(
+                session,
+                suggestion_id,
+                created_at=datetime(2026, 9, 29, hour, tzinfo=UTC),
+            )
+        )
+
+    ids = [s.suggestion_id for s in subject.list_suggestions(session.id)]
+
+    assert ids == ["sug_a", "sug_c", "sug_b"]
+
+
+def test_suggestion_evidence_is_a_copy(subject: Store):
+    """돌려받은 근거 목록을 고쳐도 저장된 값은 그대로다."""
+    session = _seed(subject)
+    subject.add_suggestion(_suggestion(session))
+
+    subject.list_suggestions(session.id)[0].evidence_utterance_ids.append("utt_999")
+
+    [found] = subject.list_suggestions(session.id)
+    assert found.evidence_utterance_ids == ["utt_001", "utt_002"]
+
+
+def test_suggestion_evidence_keeps_the_order_it_was_sent(subject: Store):
+    """근거는 위치로 저장된다. 어느 발화를 먼저 들었는지가 Agent 의 판단이다."""
+    session = _seed(subject)
+    order = ["utt_009", "utt_001", "utt_005"]
+    subject.add_suggestion(_suggestion(session, evidence_utterance_ids=order))
+
+    [found] = subject.list_suggestions(session.id)
+    assert found.evidence_utterance_ids == order
+
+
+def test_retried_suggestion_does_not_add_its_evidence_again(subject: Store):
+    """재시도는 꼬리질문만이 아니라 근거도 다시 쌓지 않는다."""
+    session = _seed(subject)
+    subject.add_suggestion(_suggestion(session))
+    subject.add_suggestion(_suggestion(session))
+
+    [found] = subject.list_suggestions(session.id)
+    assert found.evidence_utterance_ids == ["utt_001", "utt_002"]
+
+
+def test_a_suggestion_can_arrive_before_its_evidence(subject: Store):
+    """근거 발화가 아직 없어도 받는다. 전사와 통로가 달라 먼저 올 수 있다.
+
+    잇는 것은 타임라인을 읽을 때다 — 그때는 면접이 끝나 전사가 다 와 있다.
+    """
+    session = _seed(subject)
+    subject.add_suggestion(_suggestion(session))
+
+    assert subject.list_utterances(session.id) == []
+    [found] = subject.list_suggestions(session.id)
+    assert found.evidence_utterance_ids == ["utt_001", "utt_002"]
+
+
+def test_suggestions_do_not_leak_between_sessions(subject: Store):
+    one = _seed(subject)
+    two = _seed(subject)
+    subject.add_suggestion(_suggestion(one))
+
+    assert subject.list_suggestions(two.id) == []
+
+
+def test_deleting_the_interview_takes_its_transcript_and_suggestions():
+    """세션이 지워지면 전사·꼬리질문·근거가 같이 지워진다. **PostgreSQL 전용이다.**
+
+    인메모리에는 삭제 경로가 없고, 이 보장은 외래키의 `ON DELETE CASCADE` 가
+    한다. 면접 전사는 지원자의 말이라, 지울 수 있는 길이 있어야 한다.
+    """
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL 이 없다")
+
+    from app.infra.postgres import PostgresStore
+
+    subject = PostgresStore(TEST_DATABASE_URL)
+    subject.open()
+    subject.create_schema()
+    try:
+        session = _seed(subject)
+        subject.upsert_utterance(_utterance(session))
+        subject.add_suggestion(_suggestion(session))
+
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            conn.execute("DELETE FROM interview WHERE id = %s", (session.interview_id,))
+
+        assert subject.list_utterances(session.id) == []
+        assert subject.list_suggestions(session.id) == []
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            left = conn.execute(
+                "SELECT count(*) FROM suggestion_evidence WHERE session_id = %s",
+                (session.id,),
+            ).fetchone()
+        assert left == (0,)
+    finally:
+        subject.close()

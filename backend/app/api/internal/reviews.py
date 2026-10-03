@@ -49,10 +49,12 @@ def put_review(session_id: SessionIdPath, body: ReviewUpsert, store: StoreDep) -
     # 세션이라도, 결과가 왔는데 버리는 것보다 받는 편이 낫다.
     summary = store.ensure_summary(SessionSummary(session_id=session_id))
     if body.status in SHOWABLE:
+        # 성공은 덮어쓴다 — 다시 돌린 분석이 반영되고, 늦게 온 결과가 FAILED 를 살린다.
         summary.complete(body.summary, body.key_points)
-    else:
+        store.save_summary(summary)
+    elif store.fail_summary(session_id):
         summary.give_up()
-    store.save_summary(summary)
+    # 그 밖은 이미 READY 다. 실패 한 번으로 성공한 요약을 지우지 않는다 (#132).
 
     # 요약 본문은 남기지 않는다. 면접 내용이 그대로 로그에 쌓인다.
     logger.info(
