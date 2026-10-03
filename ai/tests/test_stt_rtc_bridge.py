@@ -288,6 +288,27 @@ async def test_the_end_of_track_summary_reports_release_lag_percentiles() -> Non
         assert timing.speech_end_to_release_ms < timing.source_to_release_ms
 
 
+@pytest.mark.parametrize(
+    ("n", "p50", "p95"),
+    [(5, 3, 5), (11, 6, 11), (12, 6, 12), (13, 7, 13), (30, 15, 29)],
+)
+def test_lag_percentiles_are_nearest_rank(n: int, p50: int, p95: int) -> None:
+    # Lags 1..n, so a percentile's value is its rank. Nearest-rank rounds the
+    # rank up; round() put p95 a place low at n=11-13 and 30, and p50 at n=5.
+    stream = SimpleNamespace(
+        timings=[
+            SimpleNamespace(
+                outcome="RELEASED", source_to_release_ms=v, speech_end_to_release_ms=v
+            )
+            for v in range(1, n + 1)
+        ]
+    )
+
+    assert lag_summary(stream) == (
+        f"lag n={n} source p50={p50}ms p95={p95}ms speech_end p50={p50}ms p95={p95}ms"
+    )
+
+
 # --- the interviewer boundary -------------------------------------------------
 
 
