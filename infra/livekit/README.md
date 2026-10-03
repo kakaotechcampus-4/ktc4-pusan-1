@@ -66,6 +66,7 @@ TURN/TLS(443)는 이런 망에서 시그널링과 구분되지 않는 트래픽�
 | 변수 | 필수 | 형식 | 설명 |
 | --- | --- | --- | --- |
 | `LIVEKIT_KEYS` | ✅ | `"<api-key>: <api-secret>"` | **콜론 뒤 공백 필수.** 없으면 파싱 실패. 여러 쌍이면 개행으로 구분한다. |
+| `LIVEKIT_WEBHOOK_API_KEY` | ✅ | `<api-key>` | `livekit.yaml` 의 `webhook` 이 서명에 쓸 키 이름. `LIVEKIT_KEYS` 의 키와 같아야 하고, 없으면 `api_key is required to use webhooks` 로 기동을 거부한다 (#86). |
 | `LIVEKIT_CONFIG` | — | YAML 본문 | `--config` 파일 대신 YAML 을 통째로 넘기는 방식. 우리는 파일 마운트를 쓰므로 안 쓴다. |
 | `NODE_IP` | — | IP | `use_external_ip` 의 STUN 탐지가 실패할 때만. EC2 에서는 보통 불필요. |
 | `UDP_PORT` | — | `7882` | yaml 값을 덮어쓸 때만. yaml 에 이미 있으므로 안 쓴다. |
@@ -280,6 +281,7 @@ LIVEKIT_KEYS="devkey: devsecret_local_only_0123456789abcdef" \
       사설이면 `use_external_ip` 가 STUN 탐지에 실패한 것이니 `NODE_IP=<EIP>` 를 주입한다.
 - [ ] BE 의 `LIVEKIT_API_KEY/SECRET` 이 LiveKit 의 `LIVEKIT_KEYS` 와 동일한 쌍인가.
 - [ ] BE 의 `LIVEKIT_URL` 이 `wss://` 이고 포트가 붙어 있지 않은가.
+- [ ] 첫 입장 뒤 `GET /api/v1/sessions/{id}` 의 `transcriptOriginAt` 이 채워지는가 — 비어 있으면 webhook 이 안 오는 것이다. BE 는 아무것도 못 받으니 BE 로그로는 원인이 안 보이고, LiveKit 로그를 본다.
 - [ ] FE `CORS_ORIGINS` 에 실제 서비스 도메인이 들어갔는가 (BE 설정).
 - [ ] 포트 매핑이 `7881:7881`, `7882:7882/udp` 로 **같은 번호**인가.
       번호가 다르면 LiveKit 이 광고하는 ICE 후보 포트와 실제 포트가 어긋나 연결이 실패한다.

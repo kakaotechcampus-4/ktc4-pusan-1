@@ -30,6 +30,14 @@ rtc:
   # 로컬에서 이 파일로 띄울 때는 LIVEKIT_RTC_USE_EXTERNAL_IP=false 로 끈다 (README §8).
   use_external_ip: true
 
+# 참가자 입장을 BE 에 알린다 — 전사 원점(t=0) 기록 (#86).
+# compose 네트워크 안의 주소라 Caddy 를 거치지 않는다.
+# 서명 키(api_key)는 여기 적지 않고 compose 가 LIVEKIT_WEBHOOK_API_KEY 로 넣는다.
+# 그 키가 LIVEKIT_KEYS 에 없으면 서버가 기동하지 않는다.
+webhook:
+  urls:
+    - http://backend:8000/api/v1/livekit/webhook
+
 logging:
   level: info
   # 컨테이너 로그 수집을 전제로 JSON 으로 뽑는다.
