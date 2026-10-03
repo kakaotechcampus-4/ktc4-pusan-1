@@ -94,6 +94,29 @@ def test_unknown_ids_return_none(subject: Store):
     assert subject.get_session("ses_nope") is None
 
 
+def test_list_interviews_is_mine_newest_first_with_latest_session(subject: Store):
+    old = Interview(interviewer_id="usr_a", candidate_name="가")
+    new = Interview(interviewer_id="usr_a", created_at=old.created_at + timedelta(1))
+    for interview in (old, new, Interview(interviewer_id="usr_b")):
+        subject.add_interview(interview)
+    subject.add_session(Session(interview_id=old.id))
+    latest = Session(
+        interview_id=old.id,
+        status=SessionStatus.ENDED,
+        created_at=old.created_at + timedelta(minutes=1),
+    )
+    subject.add_session(latest)
+
+    listed = subject.list_interviews("usr_a")
+
+    assert [(i.id, s) for i, s in listed][0] == (new.id, None)
+    interview, session = listed[1]
+    assert (interview.id, interview.candidate_name) == (old.id, "가")
+    assert session is not None
+    assert (session.id, session.status) == (latest.id, SessionStatus.ENDED)
+    assert len(listed) == 2
+
+
 def test_session_roundtrip(subject: Store):
     session = _seed(subject)
 
@@ -669,6 +692,16 @@ def test_upsert_user_keeps_first_id_and_updates_profile(subject: Store):
     found = subject.get_user(first.id)
     assert found is not None
     assert (found.nickname, found.profile_image_url) == ("바뀜", None)
+
+
+def test_new_user_starts_at_token_version_zero(subject: Store):
+    """access 토큰의 `ver` 가 이 값과 맞아야 한다. 재로그인해도 바뀌지 않는다."""
+    first = subject.upsert_user(User(kakao_id=7, nickname="a"))
+    again = subject.upsert_user(User(kakao_id=7, nickname="b"))
+    found = subject.get_user(first.id)
+
+    assert found is not None
+    assert first.token_version == again.token_version == found.token_version == 0
 
 
 def test_unknown_user_is_none(subject: Store):
