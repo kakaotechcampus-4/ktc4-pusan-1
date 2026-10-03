@@ -8,11 +8,28 @@
 
 name: irya
 
+# 컨테이너 로그 상한. Docker 기본값(json-file)은 상한이 없어 디스크가 찰 때까지
+# 늡니다. 지금은 네 컨테이너 합쳐 1MB 미만이지만, AI 워커가 들어오면 방마다
+# 프로세스가 뜨고 지연 로그를 남깁니다.
+#
+# ⚠️ 이미 떠 있는 컨테이너에는 적용되지 않습니다. 컨테이너를 다시 만들 때
+#    붙으므로, 배포의 `up -d` 가 바꾸지 않은 서비스는 다음 재생성까지 그대로입니다.
+#
+# ⚠️ **서비스를 새로 추가하면 여기에도 `logging: *logging` 을 붙이세요.**
+#    안 붙이면 그 서비스만 상한 없이 늡니다. (#84 의 `ai` 서비스가 그렇습니다 —
+#    이 설정을 넣는 이유가 바로 그 워커인데, 나중에 머지되는 쪽이 챙겨야 합니다.)
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
     image: caddy:2.10
     container_name: irya-caddy
     restart: unless-stopped
+    logging: *logging
     ports:
       - "80:80"
       - "443:443"
@@ -25,9 +42,19 @@ services:
       - caddy_config:/config
 
   backend:
-    build: ../backend
+    build:
+      context: ../backend
+      args:
+        # deploy.sh 가 넘깁니다. 손으로 띄우면 unknown 입니다.
+        GIT_SHA: ${GIT_SHA:-unknown}
+    # 이미지에 어느 커밋인지 남깁니다. Registry 를 쓰지 않아 태그가 없으므로,
+    # `docker inspect irya-backend --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
+    # 로 서버에 뜬 버전을 확인합니다.
+    labels:
+      org.opencontainers.image.revision: ${GIT_SHA:-unknown}
     container_name: irya-backend
     restart: unless-stopped
+    logging: *logging
     # 8000 은 퍼블리싱하지 않습니다. Caddy 가 같은 compose 네트워크에서
     # 서비스 이름으로 부르므로 외부에 열 필요가 없습니다.
     environment:
@@ -57,6 +84,14 @@ services:
       # ⚠️ ai 서비스가 들어오면 같은 값을 BACKEND_API_KEY 로도 줘야 합니다.
       #    다르면 Agent 가 BACKEND_AUTH_FAILED 로 붙지 못합니다.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      # 카카오 로그인입니다. Redirect URI 는 FE 콜백이라 도메인에 묶여 여기 고정합니다 —
+      # 카카오 콘솔에 등록한 값과 글자까지 같아야 토큰 교환이 됩니다.
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
+      KAKAO_REDIRECT_URI: https://irya.cloud/oauth/kakao/callback
+      # 로그인 토큰 서명 키입니다. INTERNAL_API_KEY 와 같은 이유로 `:?` 를 쓰지 않고,
+      # 비어 있으면 BE 가 기동을 거부합니다 (`app/core/auth.py`).
+      JWT_SECRET: ${JWT_SECRET:-}
       # 면접이 끝난 뒤 요약을 기다리는 한도(초)입니다. 넘기면 FAILED 로 넘어가
       # 화면이 멈춥니다. 비워 두면 3분입니다 — 요약 파이프라인이 붙은 뒤
       # 실제로 얼마나 걸리는지 보고 조정하라고 밖으로 빼 두었습니다.
@@ -82,10 +117,58 @@ services:
       retries: 3
       start_period: 10s
 
+  ai:
+    build:
+      context: ../ai
+      args:
+        # deploy.sh 가 넘깁니다. 손으로 띄우면 unknown 입니다.
+        GIT_SHA: ${GIT_SHA:-unknown}
+    # backend 와 같은 방식으로 이미지에 커밋을 남깁니다.
+    # `docker inspect irya-ai --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
+    labels:
+      org.opencontainers.image.revision: ${GIT_SHA:-unknown}
+    container_name: irya-ai
+    restart: unless-stopped
+    # 방마다 작업 프로세스가 뜨고 지연 로그를 남기므로 상한이 특히 필요합니다.
+    logging: *logging
+    # LiveKit AgentServer 가 방마다 별도 작업 프로세스를 만들고, 각 작업이
+    # 사람의 마이크 트랙을 직접 구독해 Elice Whisper 로 전사한다. BE 는 음성을
+    # 중계하지 않는다. 전사는 LiveKit text stream 으로 면접관에게만 간다.
+    environment:
+      APP_ENV: production
+      LOG_LEVEL: INFO
+      # 에이전트는 같은 compose 네트워크 안에서 시그널링 서버에 등록한다.
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+      # Elice STT 배포 주소와 키. 이름만 AI 쪽 Settings 에 맞춘다.
+      #
+      # `:?` 로 강제하지 않는다 — 보간은 compose 파일을 읽는 모든 서브커맨드에서
+      # 일어나서, 서버 `.env` 에 값이 없으면 `ps`·`logs`·`down` 까지 막힌다.
+      # 비어 있으면 워커가 STT 미설정으로 방을 떠나므로 기동 자체는 막지 않는다.
+      ELICE_STT_BASE_URL: ${STT_API_BASE_URL:-}
+      ELICE_API_KEY: ${STT_API_KEY:-}
+    depends_on:
+      livekit:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/').read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   db:
     image: postgres:17-alpine
     container_name: irya-db
     restart: unless-stopped
+    logging: *logging
     # 5432 는 퍼블리싱하지 않습니다. backend 만 같은 네트워크에서 부릅니다.
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-irya}
@@ -105,6 +188,7 @@ services:
     image: livekit/livekit-server:v1.13.6
     container_name: irya-livekit
     restart: unless-stopped
+    logging: *logging
     # 이미지에 기본 CMD 가 없어 설정 경로를 직접 넘깁니다.
     command: --config /etc/livekit.yaml
     volumes:

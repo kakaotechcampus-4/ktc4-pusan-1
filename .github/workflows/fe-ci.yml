@@ -51,6 +51,9 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      - name: Test transcript frames
+        run: npm test
+
       - name: Type check
         run: npm run typecheck
 

@@ -51,12 +51,16 @@ export default function InterviewRoom({
     videoTrack,
     audioTrack,
   });
+  const [endError, setEndError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
 
   const handleEnd = async () => {
     setEnding(true);
+    setEndError(null);
     try {
       onEnded(await leave());
+    } catch {
+      setEndError('면접을 종료하지 못했습니다. 다시 눌러주세요.');
     } finally {
       setEnding(false);
     }
@@ -70,6 +74,7 @@ export default function InterviewRoom({
       audioRef={audioRef}
       error={error}
       ending={ending}
+      notice={endError ?? undefined}
       onEnd={() => void handleEnd()}
       localVideoTrack={videoTrack}
       localAudioTrack={audioTrack}

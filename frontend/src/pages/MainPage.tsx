@@ -4,23 +4,44 @@
  * 면접을 만들러 가는 입구다. 기업 컨텍스트가 비어 있으면 면접을 만들어도 AI 가 근거로 쓸
  * 자료가 없으므로, 설정 화면으로 먼저 보낸다.
  *
- * ⚠️ 조직 컨텍스트 조회 API 가 없어 contextId 를 상수로 둔다. 목으로 동작한다.
+ * 로그아웃은 저장된 토큰을 지우는 것이 전부다 — BE 에 로그아웃 API 가 없다(#119).
+ * 토큰은 7일이면 만료되고 갱신 수단도 없어, 만료되면 다시 카카오 로그인을 거친다.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
-import { getContext } from '../api/context';
-
-/** ⚠️ 조직당 컨텍스트 하나. 실제 API 가 생기면 세션에서 가져온다. */
-const CONTEXT_ID = 'ctx_demo';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import { getMe } from '../api/auth';
+import { getCurrentContext } from '../api/context';
+import { clearAccessToken } from '../lib/authToken';
+import { useAccessToken } from '../hooks/useAccessToken';
 
 export default function MainPage() {
-  const { data: context, isLoading } = useQuery({
-    queryKey: ['context', CONTEXT_ID],
-    queryFn: () => getContext(CONTEXT_ID),
+  const navigate = useNavigate();
+  const token = useAccessToken();
+  const qc = useQueryClient();
+
+  const {
+    data: context,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: ['context'],
+    queryFn: getCurrentContext,
   });
 
-  // 읽기가 끝난 문서가 하나도 없으면 아직 면접을 만들 준비가 안 된 것으로 본다.
+  // RequireAuth 가 이미 불러 둔 값을 그대로 쓴다 — 같은 키라 요청이 더 나가지 않는다.
+  const { data: me } = useQuery({ queryKey: ['me', token], queryFn: getMe });
+
+  const logout = () => {
+    clearAccessToken();
+    // 남은 응답을 지운다. 안 그러면 다음 사람이 로그인했을 때 이전 사람의 화면이 잠깐 보인다.
+    qc.clear();
+    void navigate('/login', { replace: true });
+  };
+
+  // ready는 서버에 등록된 문서다. 본문 추출 완료 여부는 이 응답으로 알 수 없다.
   const ready = Boolean(context?.docs.some((d) => d.status === 'ready'));
 
   return (
@@ -32,6 +53,27 @@ export default function MainPage() {
             <h1 className="text-ink mt-1 text-2xl font-bold tracking-tight">대시보드</h1>
           </div>
           <span className="flex-1" />
+
+          {me && (
+            <span className="text-ink-muted inline-flex items-center gap-2 text-[14px]">
+              {me.profileImageUrl ? (
+                <img
+                  src={me.profileImageUrl}
+                  alt=""
+                  className="h-7 w-7 rounded-full object-cover"
+                />
+              ) : (
+                <span
+                  aria-hidden
+                  className="bg-surface-bright text-ink-dim flex h-7 w-7 items-center justify-center rounded-full"
+                >
+                  <span className="material-symbols-outlined text-[18px]">person</span>
+                </span>
+              )}
+              {me.nickname}
+            </span>
+          )}
+
           <Link
             to="/settings/context"
             className="border-border-base bg-surface-panel text-ink hover:bg-surface-bright inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[14px] font-medium transition"
@@ -41,6 +83,17 @@ export default function MainPage() {
             </span>
             기업 컨텍스트 설정
           </Link>
+
+          <button
+            type="button"
+            onClick={logout}
+            className="border-border-base text-ink-muted hover:bg-surface-bright hover:text-ink inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-[14px] font-medium transition"
+          >
+            <span aria-hidden className="material-symbols-outlined text-[18px]">
+              logout
+            </span>
+            로그아웃
+          </button>
         </header>
 
         <section className="border-border-base bg-surface-panel mt-8 rounded-2xl border p-6 md:p-8">
@@ -85,13 +138,28 @@ export default function MainPage() {
 
           {isLoading && <p className="text-ink-dim mt-3 text-[14px]">불러오는 중…</p>}
 
+          {isError && (
+            <div role="alert" className="mt-3 text-[14px] text-[#FFC46B]">
+              <p>기업 설정을 불러오지 못했습니다.</p>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                disabled={isFetching}
+                className="mt-2 underline disabled:opacity-50"
+              >
+                다시 확인
+              </button>
+            </div>
+          )}
+
           {context && (
             <>
               <p className="text-ink-muted mt-3 text-[14px]">
-                {context.company} · {context.role}
+                {[context.company, context.team, context.role].filter(Boolean).join(' · ') ||
+                  '기본 정보 미등록'}
               </p>
               <p className="text-ink-dim mt-1.5 font-mono text-[13px]">
-                문서 {context.docs.length}개{!ready && ' · 읽기가 끝난 문서가 없습니다'}
+                문서 {context.docs.length}개{!ready && ' · 등록 완료된 문서가 없습니다'}
               </p>
               {!ready && (
                 <p className="text-ink-dim mt-3 text-[13px]">

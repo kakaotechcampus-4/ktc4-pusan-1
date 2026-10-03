@@ -19,6 +19,28 @@ from app.domain.models import Role
 
 __all__ = ["IssuedToken", "MediaGateway", "LiveKitGateway", "WebhookEvent", "media"]
 
+#: 정원에서 빼는 참가자 종류.
+#:
+#: LiveKit 의 규칙을 그대로 옮긴 것이다. `rtc.Room.Join` 이 `max_participants` 를
+#: 볼 때 `IsDependent()` 인 참가자를 빼고 세는데, 그 판정이 AGENT 와 EGRESS 다.
+#:
+#:     case livekit.ParticipantInfo_AGENT, livekit.ParticipantInfo_EGRESS:
+#:         return true
+#:
+#: **SIP·INGRESS 는 빼지 않는다.** LiveKit 이 그것들은 사람처럼 세기 때문이다.
+#: 여기서 더 많이 빼면 우리 쪽은 자리가 있다고 보는데 LiveKit 이 입장을
+#: 거절하게 된다 — 지금 반대 방향으로 나 있는 것과 같은 종류의 어긋남이다.
+_NOT_IN_CAPACITY = frozenset(
+    {
+        api.ParticipantInfo.Kind.AGENT,
+        api.ParticipantInfo.Kind.EGRESS,
+    }
+)
+
+
+def _counts_toward_capacity(participant: api.ParticipantInfo) -> bool:
+    return participant.kind not in _NOT_IN_CAPACITY
+
 
 @dataclass(frozen=True)
 class IssuedToken:
@@ -111,16 +133,23 @@ class LiveKitGateway:
             await client.aclose()
 
     async def participant_count(self, room: str) -> int:
-        """사람 수.
+        """정원 계산에 들어가는 참가자 수.
 
-        Agent·Egress 는 LiveKit 이 정원 계산에서 제외하므로 여기에도 안 잡힌다.
+        ⚠️ `ListParticipants` 는 **Agent 도 돌려준다.** 전에 이 자리에 「Agent 는
+        LiveKit 이 정원 계산에서 제외하므로 여기에도 안 잡힌다」고 적어 뒀는데,
+        앞 절반만 맞았다. LiveKit 의 `max_participants` 는 Agent 를 빼고 세는 게
+        맞지만, 목록 API 는 빼지 않고 다 준다.
+
+        그래서 전부 세면 정원 2 인 방에 워커가 들어온 뒤 두 번째 사람이 우리
+        쪽 사전 검사에서 `ROOM_FULL` 을 받는다. LiveKit 은 자리를 내주는데 그
+        앞에서 우리가 막는 것이다 (#84 · #99).
         """
         client = self._client()
         try:
             result = await client.room.list_participants(
                 api.ListParticipantsRequest(room=room)
             )
-            return len(result.participants)
+            return sum(1 for p in result.participants if _counts_toward_capacity(p))
         finally:
             await client.aclose()
 

@@ -22,6 +22,17 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
         "statuses": {"201", "422"},
     },
+    # ⚠️ Notion 명세에 없다 (#118). FE 의 `api/auth.ts` 가 `{accessToken}` 을 기대하고
+    # 있어 그 위에 `user` 만 더했다.
+    ("post", "/api/v1/auth/kakao"): {
+        "request": {"code"},
+        "response": {"accessToken", "user"},
+        "statuses": {"200", "401", "422", "502"},
+    },
+    ("get", "/api/v1/auth/me"): {
+        "response": {"id", "nickname", "profileImageUrl"},
+        "statuses": {"200", "401"},
+    },
     ("get", "/api/v1/interviews/{interviewId}"): {
         "path_params": ["interviewId"],
         "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
@@ -142,6 +153,9 @@ ERROR_CODE = {
     "SESSION_ENDED",
     "INVALID_SESSION_STATE",
     "ROOM_FULL",
+    "UNAUTHORIZED",
+    "KAKAO_AUTH_FAILED",
+    "KAKAO_UNAVAILABLE",
 }
 
 

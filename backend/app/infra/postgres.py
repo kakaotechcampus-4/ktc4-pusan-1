@@ -29,6 +29,7 @@ from app.domain.models import (
     SessionStatus,
     SessionSummary,
     SummaryStatus,
+    User,
     utcnow,
 )
 
@@ -513,3 +514,39 @@ class PostgresStore:
             status=DocStatus(row["status"]),
             created_at=row["created_at"],
         )
+
+    # ── 사용자 ──────────────────────────────────────────────
+
+    def upsert_user(self, user: User) -> User:
+        """`ON CONFLICT DO UPDATE ... RETURNING` 한 문장이다.
+
+        충돌하면 기존 행이 갱신되어 나오므로 id·created_at 은 처음 것이 돌아온다.
+        """
+        row = self._one(
+            """
+            INSERT INTO app_user
+                (id, kakao_id, nickname, profile_image_url, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (kakao_id) DO UPDATE SET
+                nickname = EXCLUDED.nickname,
+                profile_image_url = EXCLUDED.profile_image_url
+            RETURNING id, kakao_id, nickname, profile_image_url, created_at
+            """,
+            (
+                user.id,
+                user.kakao_id,
+                user.nickname,
+                user.profile_image_url,
+                user.created_at,
+            ),
+        )
+        assert row is not None
+        return User(**row)
+
+    def get_user(self, user_id: str) -> User | None:
+        row = self._one(
+            "SELECT id, kakao_id, nickname, profile_image_url, created_at"
+            " FROM app_user WHERE id = %s",
+            (user_id,),
+        )
+        return None if row is None else User(**row)

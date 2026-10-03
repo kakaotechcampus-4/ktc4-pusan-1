@@ -33,6 +33,14 @@ RUN uv sync --locked --no-dev
 # tests/ · scripts/ 는 복사하지 않는다. 런타임에 쓰이지 않고 CI 에서만 돈다.
 COPY app ./app
 
+# 어느 커밋으로 만든 이미지인지 남긴다. Registry 를 쓰지 않고 서버에서 빌드하므로
+# 이미지에 버전 태그가 없고, 그러면 "지금 도는 게 어느 커밋이냐" 를 배포 로그를
+# 뒤져야 알 수 있다. 장애 대응에서 제일 먼저 필요한 정보다.
+#
+# 소스 COPY 뒤에 둔다 — 앞에 두면 SHA 가 바뀔 때마다 의존성 레이어까지 다시 만든다.
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=$GIT_SHA
+
 # root 로 돌릴 이유가 없다. .venv 는 root 소유인 채로 읽기만 하면 된다.
 RUN useradd --create-home --uid 1000 app
 USER app
