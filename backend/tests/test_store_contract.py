@@ -516,6 +516,40 @@ def test_expiring_a_summary_that_does_not_exist(subject: Store):
     assert subject.expire_summary(session.id, timedelta(minutes=1)) is None
 
 
+def test_a_failure_report_marks_a_waiting_summary_failed(subject: Store):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    assert subject.fail_summary(session.id) is True
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.FAILED
+    assert stored.completed_at is not None
+
+
+def test_a_failure_report_does_not_erase_a_ready_summary(subject: Store):
+    """Agent 의 재시도 · 재실행에서 실패 한 번이 성공한 요약을 지우면 안 된다 (#132)."""
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.complete("살아남아야 하는 요약", ["근거 하나"])
+    subject.save_summary(summary)
+
+    assert subject.fail_summary(session.id) is False
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.READY
+    assert stored.overview == "살아남아야 하는 요약"
+    assert stored.key_points == ["근거 하나"]
+
+
+def test_a_failure_report_without_a_summary_slot(subject: Store):
+    session = _seed(subject)
+
+    assert subject.fail_summary(session.id) is False
+
+
 def test_reading_gives_a_copy_not_the_stored_object(subject: Store):
     """`get_*` 이 참조를 돌려주면 라우터가 저장을 빼먹어도 인메모리에서는 통과한다.
 

@@ -233,6 +233,29 @@ class PostgresStore:
                 ),
             )
 
+    def fail_summary(self, session_id: str) -> bool:
+        """READY 가 아닐 때만 FAILED 로. 조건이 `WHERE` 안에 있어 판정과 갱신
+        사이가 열리지 않는다 (#132). 시각은 `expire_summary` 처럼 앱이 찍는다."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE session_summary
+                   SET status = %s,
+                       overview = '',
+                       key_points = '[]'::jsonb,
+                       completed_at = %s
+                 WHERE session_id = %s
+                   AND status <> %s
+                """,
+                (
+                    SummaryStatus.FAILED.value,
+                    utcnow(),
+                    session_id,
+                    SummaryStatus.READY.value,
+                ),
+            )
+            return cursor.rowcount == 1
+
     def expire_summary(
         self, session_id: str, limit: timedelta
     ) -> SessionSummary | None:

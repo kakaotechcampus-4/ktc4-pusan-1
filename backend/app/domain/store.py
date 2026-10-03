@@ -22,6 +22,7 @@ from app.domain.models import (
     SessionStatus,
     SessionSummary,
     Suggestion,
+    SummaryStatus,
     TranscriptStage,
     User,
     Utterance,
@@ -98,6 +99,15 @@ class Store(Protocol):
 
     def save_summary(self, summary: SessionSummary) -> None:
         """Agent 가 만든 결과를 받아 둔다. 조건 없이 덮어쓴다."""
+        ...
+
+    def fail_summary(self, session_id: str) -> bool:
+        """Agent 의 실패 보고. READY 가 아니면 FAILED 로 넘기고 본문을 비운다.
+
+        READY 면 아무것도 바꾸지 않고 False 다. Agent 의 재시도 · 재실행에서 실패
+        한 번이 이미 성공한 요약을 지우면 안 된다 (#132). 판정과 갱신은 한 문장이다
+        — 읽고 나서 쓰면 그 사이에 들어온 READY 를 덮는다.
+        """
         ...
 
     def expire_summary(
@@ -271,6 +281,13 @@ class InMemoryStore:
         fresh = deepcopy(summary)
         fresh.requested_at = stored.requested_at
         self._summaries[summary.session_id] = fresh
+
+    def fail_summary(self, session_id: str) -> bool:
+        stored = self._summaries.get(session_id)
+        if stored is None or stored.status is SummaryStatus.READY:
+            return False
+        stored.give_up()
+        return True
 
     def expire_summary(
         self, session_id: str, limit: timedelta
