@@ -11,12 +11,8 @@ LiveKit 뿐이다. 자막 워커(Agent) · 녹화(Egress)는 사람보다 먼저
 
 AI 의 `startMs` 와 FE 의 `atSec` 은 단위만 ms·초로 두고 원점은 이 값 하나를 쓴다.
 
-LiveKit 설정 쪽에 아래가 필요하다 (`infra/livekit/livekit.yaml`).
-
-    webhook:
-      api_key: <LIVEKIT_KEYS 의 키>
-      urls:
-        - http://backend:8000/api/v1/livekit/webhook
+LiveKit 이 보내게 하는 설정은 `infra/livekit/livekit.yaml` 의 `webhook.urls` 와
+compose 의 `LIVEKIT_WEBHOOK_API_KEY`(서명 키 이름) 두 곳이다.
 """
 
 import logging
