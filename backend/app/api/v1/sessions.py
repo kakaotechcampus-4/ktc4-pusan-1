@@ -7,6 +7,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Path
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import (
     MediaDep,
@@ -100,8 +101,9 @@ async def join_session(
     토큰만 발급할 뿐 실제 입장은 클라이언트가 `livekitUrl` + `token` 으로
     LiveKit 에 직접 붙으면서 이뤄진다. 여러 번 불러도 되며 그때마다 새 토큰이 나온다.
     """
-    session = _load(store, session_id)
-    interview = store.get_interview(session.interview_id)
+    # 저장소는 동기다. async 라우트가 그대로 부르면 그동안 이벤트 루프가 멈춘다 (#133).
+    session = await run_in_threadpool(_load, store, session_id)
+    interview = await run_in_threadpool(store.get_interview, session.interview_id)
 
     # ponytail: 역할은 클라이언트가 고르고 서버는 INTERVIEWER 만 검증한다 (#130).
     #   면접관이 여럿이 되거나 역할이 셋 이상이면 서버가 역할을 정하는 쪽으로 옮긴다.
@@ -198,14 +200,17 @@ async def end_session(
     # 종료 시각도 그대로이므로 나머지 컬럼을 같이 써도 덮을 것이 없다.
     # ponytail: 시작과 겹치면 409 — 다시 누르면 끝난다. 자주 겹치면 종료가
     #   status · ended_at 만 쓰는 조건부 UPDATE 로 옮긴다.
-    if not store.save_session(session, expected_status=read_status):
+    saved = await run_in_threadpool(
+        store.save_session, session, expected_status=read_status
+    )
+    if not saved:
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 종료할 수 없습니다."
         )
     # 요약을 기다리는 자리를 지금 만든다. 한도 판정의 기준점이 여기서 찍히므로
     # 조회 시점이 아니라 종료 시점이어야 한다 — 면접이 끝나고 한참 뒤에 화면을
     # 열었다고 해서 마감이 그때부터 다시 시작되면 안 된다.
-    store.ensure_summary(SessionSummary(session_id=session.id))
+    await run_in_threadpool(store.ensure_summary, SessionSummary(session_id=session.id))
     await media.close_room(session.room_name)
     assert session.ended_at is not None
     return EndSessionResponse(

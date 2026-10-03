@@ -15,6 +15,7 @@ FE 가 develop 때부터 이 경로들을 부르고 있었는데 BE 에 하나�
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Path, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import (
     CurrentUserDep,
@@ -141,7 +142,9 @@ async def upload_doc(
     doc = ContextDoc(
         context_id=context.id, name=name, kind=kind, size_bytes=len(content)
     )
-    store.add_doc(doc, content)
+    # 저장소는 동기다. async 라우트가 그대로 부르면 그동안 이벤트 루프가 멈춘다.
+    # 50MB 까지 받으므로 수 초다 (#133).
+    await run_in_threadpool(store.add_doc, doc, content)
     return ContextDocResponse(
         id=doc.id,
         name=doc.name,

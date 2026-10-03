@@ -6,6 +6,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import (
     CurrentUserDep,
@@ -101,7 +102,8 @@ async def create_session(
     """
     session = Session(interview_id=interview.id)
     await media.ensure_room(session.room_name)
-    store.add_session(session)
+    # 저장소는 동기다. async 라우트가 그대로 부르면 그동안 이벤트 루프가 멈춘다 (#133).
+    await run_in_threadpool(store.add_session, session)
 
     return CreateSessionResponse(
         session_id=session.id,
@@ -175,7 +177,7 @@ async def upload_resume(
     resume = Resume(
         interview_id=interview.id, name=name, kind=kind, size_bytes=len(content)
     )
-    store.save_resume(resume, content)
+    await run_in_threadpool(store.save_resume, resume, content)
     return ContextDocResponse(
         id=resume.id,
         name=resume.name,
