@@ -120,20 +120,8 @@
               "김지원"
             ],
             "title": "Candidatename"
-          },
-          "interviewerId": {
-            "examples": [
-              "user_123"
-            ],
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Interviewerid",
-            "type": "string"
           }
         },
-        "required": [
-          "interviewerId"
-        ],
         "title": "CreateInterviewRequest",
         "type": "object"
       },
@@ -1162,8 +1150,20 @@
     },
     "/api/v1/interviews": {
       "post": {
-        "description": "면접관이 새로운 면접 정보를 생성한다.\n\nSession 과 LiveKit Room 은 여기서 만들지 않는다 —\n`POST /interviews/{interviewId}/sessions` 가 담당한다.",
+        "description": "면접관이 새로운 면접 정보를 생성한다.\n\nSession 과 LiveKit Room 은 여기서 만들지 않는다 —\n`POST /interviews/{interviewId}/sessions` 가 담당한다.\n\n면접의 주인(`interviewerId`)은 토큰의 사용자다. 요청 본문으로 받으면 아무 이름으로나\n면접을 만들 수 있어, 그 면접을 주인만 다룬다는 판단이 서지 않는다.",
         "operationId": "create_interview_api_v1_interviews_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1184,6 +1184,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
           },
           "422": {
             "content": {
@@ -1215,6 +1225,16 @@
               "title": "Interviewid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1228,6 +1248,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1236,7 +1266,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "422": {
             "content": {
@@ -1268,6 +1298,16 @@
               "title": "Interviewid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1291,6 +1331,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1299,7 +1349,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "413": {
             "content": {
@@ -1351,6 +1401,16 @@
               "title": "Interviewid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1364,6 +1424,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1372,7 +1442,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "422": {
             "content": {
@@ -1404,6 +1474,16 @@
               "title": "Interviewid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1417,6 +1497,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1425,7 +1515,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "422": {
             "content": {
@@ -1510,6 +1600,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1523,6 +1623,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1531,7 +1641,7 @@
                 }
               }
             },
-            "description": "Session을 찾을 수 없음"
+            "description": "Session을 찾을 수 없음 (남의 세션 포함)"
           },
           "409": {
             "content": {
@@ -1646,6 +1756,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1659,6 +1779,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1667,7 +1797,7 @@
                 }
               }
             },
-            "description": "Session을 찾을 수 없음"
+            "description": "Session을 찾을 수 없음 (남의 세션 포함)"
           },
           "409": {
             "content": {
@@ -1709,6 +1839,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1722,6 +1862,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1730,7 +1880,7 @@
                 }
               }
             },
-            "description": "Session을 찾을 수 없음"
+            "description": "Session을 찾을 수 없음 (남의 세션 포함)"
           },
           "409": {
             "content": {

@@ -1,12 +1,16 @@
-"""세션 상태·입장 — 명세 `면접`·`진입` 카테고리."""
+"""세션 상태·입장 — 명세 `면접`·`진입` 카테고리.
+
+지원자는 로그인하지 않는다. 그래서 상태 조회와 입장은 열어 두고, 시작 · 종료 · 요약은
+그 면접의 주인만 부른다 (#130). 남의 세션은 없는 것과 같이 404 다.
+"""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Path
 
-from app.api.deps import MediaDep, StoreDep
+from app.api.deps import MediaDep, OwnedSessionDep, StoreDep
 from app.core.config import settings
-from app.core.errors import ApiError, ErrorCode, responses
+from app.core.errors import LOGIN_REQUIRED, ApiError, ErrorCode, responses
 from app.domain.models import (
     Session,
     SessionStatus,
@@ -29,6 +33,8 @@ router = APIRouter(prefix="/sessions", tags=["세션"])
 # 명세의 path 파라미터는 camelCase 다.
 # 파이썬 변수명은 snake_case 로 두고 alias 로 맞춘다.
 SessionIdPath = Annotated[str, Path(alias="sessionId")]
+
+_NOT_FOUND = (404, "Session을 찾을 수 없음 (남의 세션 포함)")
 
 
 def _load(store: Store, session_id: str) -> Session:
@@ -107,16 +113,15 @@ async def join_session(
     response_model=StartSessionResponse,
     summary="면접 시작",
     responses=responses(
-        (404, "Session을 찾을 수 없음"), (409, "현재 상태에서 시작할 수 없음")
+        LOGIN_REQUIRED, _NOT_FOUND, (409, "현재 상태에서 시작할 수 없음")
     ),
 )
-def start_session(session_id: SessionIdPath, store: StoreDep) -> StartSessionResponse:
+def start_session(session: OwnedSessionDep, store: StoreDep) -> StartSessionResponse:
     """Session 을 면접 진행 상태로 변경하고 시작 시각을 기록한다.
 
     동시에 여러 번 불려도 **하나만 200 을 받고 나머지는 409** 다. 버튼을 두 번
     눌렀거나 응답이 늦어 클라이언트가 재시도한 경우에 닿는다.
     """
-    session = _load(store, session_id)
     # 애초에 시작할 수 없는 상태(이미 끝난 면접 등)를 DB 를 건드리기 전에 거른다.
     if not session.start():
         raise ApiError(
@@ -139,11 +144,11 @@ def start_session(session_id: SessionIdPath, store: StoreDep) -> StartSessionRes
     response_model=EndSessionResponse,
     summary="면접 종료",
     responses=responses(
-        (404, "Session을 찾을 수 없음"), (409, "현재 상태에서 종료할 수 없음")
+        LOGIN_REQUIRED, _NOT_FOUND, (409, "현재 상태에서 종료할 수 없음")
     ),
 )
 async def end_session(
-    session_id: SessionIdPath, store: StoreDep, media: MediaDep
+    session: OwnedSessionDep, store: StoreDep, media: MediaDep
 ) -> EndSessionResponse:
     """Session 을 종료 상태로 변경하고 종료 시각을 기록한다.
 
@@ -151,7 +156,6 @@ async def end_session(
     이 API 를 불러야 종료된다. 반대로 여기서는 LiveKit Room 을 닫아
     남아 있는 참가자를 끊는다.
     """
-    session = _load(store, session_id)
     if not session.end():
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 종료할 수 없습니다."
@@ -176,11 +180,12 @@ async def end_session(
     response_model=SummaryResponse,
     summary="면접 요약 조회",
     responses=responses(
-        (404, "Session을 찾을 수 없음"),
+        LOGIN_REQUIRED,
+        _NOT_FOUND,
         (409, "아직 종료되지 않은 면접"),
     ),
 )
-def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
+def get_summary(session: OwnedSessionDep, store: StoreDep) -> SummaryResponse:
     """면접이 끝난 뒤의 짧은 요약을 조회한다.
 
     **상태는 저장된 값이다.** 면접이 끝나면 `PROCESSING` 으로 자리가 생기고,
@@ -193,8 +198,7 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
     요약을 만드는 쪽(#70)이 아직 안 붙어 있어도 이 경로는 그대로 돈다 — 한도까지
     기다렸다 `FAILED` 로 간다. 붙고 나면 같은 코드가 `READY` 를 낸다.
     """
-    session = _load(store, session_id)
-    summary = store.get_summary(session_id)
+    summary = store.get_summary(session.id)
 
     if summary is None:
         if session.status is not SessionStatus.ENDED:
@@ -205,7 +209,7 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
             )
         # 이 기능이 붙기 전에 끝난 세션이다. 지금 자리를 만들어 준다 — 그 면접의
         # 요약은 어차피 안 오므로 한도를 넘기고 FAILED 가 된다.
-        summary = store.ensure_summary(SessionSummary(session_id=session_id))
+        summary = store.ensure_summary(SessionSummary(session_id=session.id))
 
     # 한도 판정은 저장소가 한 문장으로 끝낸다. 여기서 읽고 판정하고 쓰면 그
     # 사이에 Agent 의 결과가 들어와 덮여 지워진다 (#115).
@@ -215,7 +219,7 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
     # 낡았더라도 손해는 없다 — PROCESSING 으로 낡았으면 아래에서 제대로 판정하고,
     # 종착 상태는 되돌아오지 않는다.
     if summary.status is SummaryStatus.PROCESSING:
-        summary = store.expire_summary(session_id, settings.summary_timeout) or summary
+        summary = store.expire_summary(session.id, settings.summary_timeout) or summary
 
     content = None
     if summary.status is SummaryStatus.READY:

@@ -19,9 +19,8 @@ class Schema(BaseModel):
 
 
 class CreateInterviewRequest(Schema):
-    interviewer_id: str = Field(
-        alias="interviewerId", min_length=1, max_length=64, examples=["user_123"]
-    )
+    # 면접의 주인은 토큰의 사용자다 (#130). 예전 FE 가 `interviewerId` 를 보내도
+    # 스키마가 모르는 필드라 조용히 무시된다.
     candidate_name: str | None = Field(
         default=None,
         alias="candidateName",

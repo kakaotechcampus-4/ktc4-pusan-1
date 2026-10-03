@@ -105,6 +105,10 @@ class ErrorResponse(BaseModel):
     error: ErrorDetail
 
 
+#: 로그인이 필요한 라우트의 401 (#130). `responses(LOGIN_REQUIRED, ...)` 로 쓴다.
+LOGIN_REQUIRED = (401, "로그인이 필요함")
+
+
 def responses(*statuses: tuple[int, str]) -> dict[int | str, dict[str, Any]]:
     """명세 Status 표를 그대로 Swagger 에 싣는다.
 

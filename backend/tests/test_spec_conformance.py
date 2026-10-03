@@ -17,10 +17,13 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"status"},
         "statuses": {"200"},
     },
+    # ⚠️ 401 · 403 은 Notion 명세에 없다. 면접관 API 에 로그인을 붙이면서(#130)
+    # 생겼고, 면접의 주인은 본문이 아니라 토큰에서 정한다 — 그래서 요청에
+    # `interviewerId` 가 없다.
     ("post", "/api/v1/interviews"): {
-        "request": {"interviewerId", "candidateName"},
+        "request": {"candidateName"},
         "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
-        "statuses": {"201", "422"},
+        "statuses": {"201", "401", "422"},
     },
     # ⚠️ Notion 명세에 없다 (#118). FE 의 `api/auth.ts` 가 `{accessToken}` 을 기대하고
     # 있어 그 위에 `user` 만 더했다.
@@ -36,7 +39,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     ("get", "/api/v1/interviews/{interviewId}"): {
         "path_params": ["interviewId"],
         "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
-        "statuses": {"200", "404"},
+        "statuses": {"200", "401", "404"},
     },
     # ⚠️ 세 파트 합의 전이다. 응답은 지금 PROCESSING 한 갈래만 나간다.
     # READY 쪽 필드는 모델로만 선언해 두고 여기서는 잠그지 않는다 —
@@ -44,7 +47,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     ("get", "/api/v1/interviews/{interviewId}/review"): {
         "path_params": ["interviewId"],
         "response": {"status", "etaSec"},
-        "statuses": {"202", "404"},
+        "statuses": {"202", "401", "404"},
     },
     ("post", "/api/v1/interviews/{interviewId}/sessions"): {
         "path_params": ["interviewId"],
@@ -56,7 +59,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
             "inviteUrl",
             "createdAt",
         },
-        "statuses": {"201", "404"},
+        "statuses": {"201", "401", "404"},
     },
     ("get", "/api/v1/sessions/{sessionId}"): {
         "path_params": ["sessionId"],
@@ -80,7 +83,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     ("post", "/api/v1/sessions/{sessionId}/start"): {
         "path_params": ["sessionId"],
         "response": {"sessionId", "status", "startedAt"},
-        "statuses": {"200", "404", "409"},
+        "statuses": {"200", "401", "404", "409"},
     },
     # ⚠️ Notion 명세에 아직 없다. FE 가 요약 화면을 만들며 형태를 정했고
     # (`api/interview.ts` 의 「아직 명세에 없는 엔드포인트다」), BE 가 따라간 것이다.
@@ -88,12 +91,12 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     ("get", "/api/v1/sessions/{sessionId}/summary"): {
         "path_params": ["sessionId"],
         "response": {"sessionId", "status", "content", "durationSec"},
-        "statuses": {"200", "404", "409"},
+        "statuses": {"200", "401", "404", "409"},
     },
     ("post", "/api/v1/sessions/{sessionId}/end"): {
         "path_params": ["sessionId"],
         "response": {"sessionId", "status", "endedAt"},
-        "statuses": {"200", "404", "409"},
+        "statuses": {"200", "401", "404", "409"},
     },
     # ⚠️ 기업 컨텍스트는 Notion 명세에 아직 없다. FE 가 화면을 먼저 만들면서
     # 형태를 정했고(#79·#81), BE 가 그 모양에 맞춰 세운 것이다. 명세에 옮기는 일은
@@ -107,7 +110,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "path_params": ["interviewId"],
         "multipart": True,
         "response": {"id", "name", "kind", "sizeBytes", "status"},
-        "statuses": {"201", "404", "413", "415", "422"},
+        "statuses": {"201", "401", "404", "413", "415", "422"},
     },
     ("get", "/api/v1/contexts/current"): {
         "response": {"id", "company", "team", "role", "talentProfile", "docs"},
