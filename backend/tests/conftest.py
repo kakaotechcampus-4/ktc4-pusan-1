@@ -14,6 +14,7 @@ from app.core.errors import ApiError
 from app.domain.models import Role
 from app.domain.store import InMemoryStore
 from app.main import app
+from app.services import documents as documents_module
 from app.services.kakao import KakaoProfile
 from app.services.media import IssuedToken
 
@@ -74,6 +75,29 @@ class FakeKakao:
         return self.profile
 
 
+class FakeParser:
+    """Helpy Document Vision 대역. 받은 파일을 남기고 정해 둔 본문을 돌려준다.
+
+    ⚠️ 이게 없으면 테스트가 `.env` 의 키로 실제 Helpy 를 부른다 (페이지당 과금).
+    """
+
+    def __init__(self) -> None:
+        self.text: str | None = "추출한 본문"
+        self.calls: list[tuple[str, bytes]] = []
+
+    def extract_text(self, name: str, content: bytes) -> str | None:
+        self.calls.append((name, content))
+        return self.text
+
+
+@pytest.fixture(autouse=True)
+def parser(monkeypatch: pytest.MonkeyPatch) -> FakeParser:
+    """모든 테스트에서 실제 Helpy 를 막는다. `client` 를 안 쓰는 테스트도 포함한다."""
+    fake = FakeParser()
+    monkeypatch.setattr(documents_module, "parser", fake)
+    return fake
+
+
 @pytest.fixture
 def kakao() -> FakeKakao:
     return FakeKakao()
@@ -90,22 +114,55 @@ def store() -> InMemoryStore:
     return InMemoryStore()
 
 
+def login(client: TestClient, kakao: FakeKakao) -> dict[str, str]:
+    """`kakao.profile` 로 로그인하고 `Authorization` 헤더를 돌려준다."""
+    response = client.post("/api/v1/auth/kakao", json={"code": "code_login"})
+    kakao.codes.clear()
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['accessToken']}"}
+
+
+#: 로그인하지 않은 요청. 클라이언트 기본 헤더를 덮어 지운다.
+ANON = {"Authorization": ""}
+
+
 @pytest.fixture
 def client(
-    media: FakeMedia, store: InMemoryStore, kakao: FakeKakao
+    media: FakeMedia, store: InMemoryStore, kakao: FakeKakao, parser: FakeParser
 ) -> Iterator[TestClient]:
+    """기본으로 로그인한 면접관(`kakao.profile`)의 토큰을 싣는다.
+
+    지원자나 비로그인 요청은 `headers=ANON`, 다른 면접관은 `login()` 으로 만든다.
+    """
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_media] = lambda: media
     app.dependency_overrides[get_kakao] = lambda: kakao
     with TestClient(app) as test_client:
+        test_client.headers.update(login(test_client, kakao))
         yield test_client
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
+def user_id(client: TestClient) -> str:
+    """`client` 가 로그인한 면접관의 id."""
+    return client.get("/api/v1/auth/me").json()["id"]
+
+
+@pytest.fixture
+def other(client: TestClient, kakao: FakeKakao) -> dict[str, str]:
+    """다른 면접관의 `Authorization` 헤더."""
+    mine = kakao.profile
+    kakao.profile = KakaoProfile(kakao_id=9999, nickname="남", profile_image_url=None)
+    headers = login(client, kakao)
+    kakao.profile = mine
+    return headers
+
+
+@pytest.fixture
 def session_id(client: TestClient) -> str:
     """면접 → 세션까지 만들어 둔 상태의 sessionId."""
-    interview = client.post("/api/v1/interviews", json={"interviewerId": "user_123"})
+    interview = client.post("/api/v1/interviews", json={})
     interview_id = interview.json()["interviewId"]
     created = client.post(f"/api/v1/interviews/{interview_id}/sessions")
     return created.json()["sessionId"]

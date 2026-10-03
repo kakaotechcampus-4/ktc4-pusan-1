@@ -77,6 +77,19 @@ class Settings(BaseSettings):
     # 받으므로(`PUT .../review`), 짧게 잡아 틀리는 쪽이 복구된다.
     summary_timeout_seconds: float = Field(default=180, gt=0, le=1800)
 
+    # 문서 본문 추출 — Elice ML API 의 Helpy Document Vision (#143).
+    # 키는 AI Cloud 의 `API 키 관리 → Serverless` 에서, 주소는 모델 페이지 API 탭
+    # 예시 코드의 `https://mlapi.run/<uuid>` 에서 가져온다.
+    #
+    # 키가 비면 업로드한 문서가 전부 `failed` 가 된다. 운영은 기동을 거부한다.
+    elice_api_key: str = ""
+    helpy_doc_base_url: str = ""
+
+    # 추출을 기다리는 한도. 평균 10초 안팎이지만 줄이 밀리면 늘어난다.
+    # 넘기면 `failed` 다 — 조회 시점에도 같은 기준으로 판정해, 서버가 재시작돼
+    # `parsing` 에 멈춘 문서도 결국 끝난다.
+    doc_parse_timeout_seconds: float = Field(default=180, gt=0, le=1800)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -91,6 +104,10 @@ class Settings(BaseSettings):
     @property
     def summary_timeout(self) -> timedelta:
         return timedelta(seconds=self.summary_timeout_seconds)
+
+    @property
+    def doc_parse_timeout(self) -> timedelta:
+        return timedelta(seconds=self.doc_parse_timeout_seconds)
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -25,8 +25,10 @@ MULTIPART_SLACK_BYTES = 64 * 1024
 #: 파일명 길이 상한. 저장소를 S3 로 옮기면 키 길이가 된다.
 MAX_NAME_CHARS = 255
 
-#: 확장자 → 형식. FE 의 `DocKind` 와 같은 둘만 받는다.
-KIND_BY_SUFFIX = {".pdf": DocKind.PDF, ".docx": DocKind.DOCX}
+#: 확장자 → 형식. **PDF 만 받는다** (#143). 본문을 뽑는 Helpy Document Vision 이
+#: DOCX 를 읽지 못한다 — 받아 두기만 하면 AI 가 못 쓰는 문서가 된다. `DocKind.DOCX`
+#: 는 그 전에 올라온 문서를 읽기 위해 남겨 둔다.
+KIND_BY_SUFFIX = {".pdf": DocKind.PDF}
 
 
 def normalized_name(raw: str | None) -> str:
@@ -67,9 +69,7 @@ async def read_upload(file: UploadFile) -> tuple[str, DocKind, bytes]:
     suffix = name[name.rfind(".") :].lower() if "." in name else ""
     kind = KIND_BY_SUFFIX.get(suffix)
     if kind is None:
-        raise ApiError(
-            ErrorCode.VALIDATION_ERROR, 415, "PDF 와 DOCX 만 올릴 수 있습니다."
-        )
+        raise ApiError(ErrorCode.VALIDATION_ERROR, 415, "PDF 만 올릴 수 있습니다.")
 
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:

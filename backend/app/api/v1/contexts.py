@@ -5,22 +5,22 @@ FE 가 develop 때부터 이 경로들을 부르고 있었는데 BE 에 하나�
 
 **면접이 아니라 면접관에게 딸린다.** 회사 정보와 JD 는 면접마다 바뀌지 않으므로
 설정에 한 번 넣고 계속 쓴다는 것이 #79 의 제안이고, 그래서 면접관 한 명에 하나다.
-`POST /contexts` 는 그래서 멱등하다 — 이미 있으면 그걸 돌려준다. 로그인이 아직
-없어서 소유자는 `interviewerId` 로 둔다.
+`GET /contexts/current` 는 그래서 멱등하다 — 이미 있으면 그걸 돌려준다. 주인은
+로그인한 면접관이고 (#144), 남의 컨텍스트는 없는 것과 똑같이 404 다.
 
-문서 본문 추출(파싱)은 이 범위가 아니다. 누가 하는지가 안 정해졌고(#70 의
-「`resume` 가 합의안은 본문 문자열인데 현재는 스토리지 키」), 지금은 올라온 즉시
-`ready` 다. `parsing` 상태는 FE 가 이미 갖고 있어 나중에 붙이면 된다.
+문서는 PDF 만 받고, 올라오면 응답 뒤에 Helpy Document Vision 으로 본문을 뽑는다
+(#143, `app/services/documents.py`). 그 본문을 읽는 것은 AI Agent 다 (#70).
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, File, Path, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Form, Path, UploadFile, status
 
-from app.api.deps import StoreDep
+from app.api.deps import CurrentUserDep, ParserDep, StoreDep
+from app.core.config import settings
 from app.core.errors import ApiError, ErrorCode, responses
 from app.core.uploads import read_upload
-from app.domain.models import Context, ContextDoc
+from app.domain.models import Context, ContextDoc, DocCategory, User
 from app.domain.store import Store
 from app.schemas import (
     ContextDocResponse,
@@ -34,11 +34,26 @@ ContextIdPath = Annotated[str, Path(alias="contextId")]
 DocIdPath = Annotated[str, Path(alias="docId")]
 
 
-def _load(store: Store, context_id: str) -> Context:
+_UNAUTHORIZED = (401, "로그인이 필요함")
+_NOT_FOUND = (404, "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)")
+
+
+def _load(store: Store, context_id: str, user: User) -> Context:
     context = store.get_context(context_id)
-    if context is None:
+    if context is None or context.owner_id != user.id:
         raise ApiError(ErrorCode.NOT_FOUND, 404, "컨텍스트를 찾을 수 없습니다.")
     return context
+
+
+def _doc_response(doc: ContextDoc) -> ContextDocResponse:
+    return ContextDocResponse(
+        id=doc.id,
+        name=doc.name,
+        kind=doc.kind,
+        size_bytes=doc.size_bytes,
+        status=doc.shown_status(settings.doc_parse_timeout),
+        category=doc.category,
+    )
 
 
 def _to_response(store: Store, context: Context) -> ContextResponse:
@@ -48,16 +63,7 @@ def _to_response(store: Store, context: Context) -> ContextResponse:
         team=context.team,
         role=context.role,
         talent_profile=context.talent_profile,
-        docs=[
-            ContextDocResponse(
-                id=doc.id,
-                name=doc.name,
-                kind=doc.kind,
-                size_bytes=doc.size_bytes,
-                status=doc.status,
-            )
-            for doc in store.list_docs(context.id)
-        ],
+        docs=[_doc_response(doc) for doc in store.list_docs(context.id)],
     )
 
 
@@ -65,21 +71,21 @@ def _to_response(store: Store, context: Context) -> ContextResponse:
     "/current",
     response_model=ContextResponse,
     summary="기업 컨텍스트 조회 (현재 조직)",
+    responses=responses(_UNAUTHORIZED),
 )
-def get_current_context(store: StoreDep) -> ContextResponse:
+def get_current_context(store: StoreDep, user: CurrentUserDep) -> ContextResponse:
     """지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.
 
     FE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수
     있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어
     contextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.
 
-    **주인은 지금 하나뿐이다.** 조직도 로그인도 없어서 조직을 가릴 방법이 없다.
-    로그인이 들어오면 토큰에서 주인을 정하게 되고, 이 라우트의 겉모습은 그대로다.
+    **주인은 토큰의 면접관이다.** 조직 모델이 아직 없어서 면접관마다 하나다.
 
     없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가
     구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.
     """
-    context = store.ensure_context(Context())
+    context = store.ensure_context(Context(owner_id=user.id))
     return _to_response(store, context)
 
 
@@ -87,23 +93,28 @@ def get_current_context(store: StoreDep) -> ContextResponse:
     "/{contextId}",
     response_model=ContextResponse,
     summary="기업 컨텍스트 조회",
-    responses=responses((404, "컨텍스트를 찾을 수 없음")),
+    responses=responses(_UNAUTHORIZED, _NOT_FOUND),
 )
-def get_context(context_id: ContextIdPath, store: StoreDep) -> ContextResponse:
-    return _to_response(store, _load(store, context_id))
+def get_context(
+    context_id: ContextIdPath, store: StoreDep, user: CurrentUserDep
+) -> ContextResponse:
+    return _to_response(store, _load(store, context_id, user))
 
 
 @router.patch(
     "/{contextId}",
     response_model=ContextResponse,
     summary="기업 컨텍스트 수정",
-    responses=responses((404, "컨텍스트를 찾을 수 없음"), (422, "요청값 검증 실패")),
+    responses=responses(_UNAUTHORIZED, _NOT_FOUND, (422, "요청값 검증 실패")),
 )
 def update_context(
-    context_id: ContextIdPath, body: UpdateContextRequest, store: StoreDep
+    context_id: ContextIdPath,
+    body: UpdateContextRequest,
+    store: StoreDep,
+    user: CurrentUserDep,
 ) -> ContextResponse:
     """넣은 항목만 바꾼다. 빈 문자열은 지우라는 뜻이라 그대로 받는다."""
-    context = _load(store, context_id)
+    context = _load(store, context_id, user)
     if body.company is not None:
         context.company = body.company
     if body.team is not None:
@@ -122,7 +133,8 @@ def update_context(
     status_code=status.HTTP_201_CREATED,
     summary="문서 업로드",
     responses=responses(
-        (404, "컨텍스트를 찾을 수 없음"),
+        _UNAUTHORIZED,
+        _NOT_FOUND,
         (413, "파일이 너무 큼"),
         (415, "지원하지 않는 형식"),
     ),
@@ -130,36 +142,51 @@ def update_context(
 async def upload_doc(
     context_id: ContextIdPath,
     store: StoreDep,
+    user: CurrentUserDep,
+    parser: ParserDep,
+    background: BackgroundTasks,
     file: Annotated[UploadFile, File()],
+    category: Annotated[DocCategory, Form()] = DocCategory.INTERNAL,
 ) -> ContextDocResponse:
-    """면접에 쓸 문서를 올린다. `pdf` 와 `docx` 만 받는다.
+    """면접에 쓸 문서를 올린다. **PDF 만 받는다.**
 
     FE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지
     경계가 아니다. 여기서 다시 본다.
+
+    **응답은 `parsing` 으로 바로 나간다.** 본문 추출(Helpy Document Vision)은 평균
+    10초가 걸려서 응답 뒤에 따로 돈다. FE 는 `parsing` 인 문서가 있는 동안
+    컨텍스트를 다시 조회하면 `ready` 나 `failed` 로 바뀐 것을 본다.
     """
-    context = _load(store, context_id)
+    context = _load(store, context_id, user)
     name, kind, content = await read_upload(file)
 
     doc = ContextDoc(
-        context_id=context.id, name=name, kind=kind, size_bytes=len(content)
+        context_id=context.id,
+        name=name,
+        kind=kind,
+        size_bytes=len(content),
+        category=category,
     )
     store.add_doc(doc, content)
-    return ContextDocResponse(
-        id=doc.id,
-        name=doc.name,
-        kind=doc.kind,
-        size_bytes=doc.size_bytes,
-        status=doc.status,
+    background.add_task(
+        lambda: store.finish_doc(
+            doc.context_id, doc.id, parser.extract_text(doc.name, content)
+        )
     )
+    return _doc_response(doc)
 
 
 @router.delete(
     "/{contextId}/docs/{docId}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="문서 삭제",
-    responses=responses((404, "컨텍스트 또는 문서를 찾을 수 없음")),
+    responses=responses(
+        _UNAUTHORIZED, (404, "컨텍스트 또는 문서를 찾을 수 없음 (남의 컨텍스트 포함)")
+    ),
 )
-def delete_doc(context_id: ContextIdPath, doc_id: DocIdPath, store: StoreDep) -> None:
-    _load(store, context_id)
+def delete_doc(
+    context_id: ContextIdPath, doc_id: DocIdPath, store: StoreDep, user: CurrentUserDep
+) -> None:
+    _load(store, context_id, user)
     if not store.delete_doc(context_id, doc_id):
         raise ApiError(ErrorCode.NOT_FOUND, 404, "문서를 찾을 수 없습니다.")
