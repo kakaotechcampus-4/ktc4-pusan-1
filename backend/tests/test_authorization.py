@@ -15,9 +15,10 @@ V1 = "/api/v1"
 
 @pytest.fixture
 def ids(client: TestClient, session_id: str) -> dict[str, str]:
-    """주인이 만든 면접 · 세션 id."""
+    """주인이 만든 면접 · 세션 · 컨텍스트 id."""
     interview_id = client.get(f"{V1}/sessions/{session_id}").json()["interviewId"]
-    return {"interview": interview_id, "session": session_id}
+    context_id = client.get(f"{V1}/contexts/current").json()["id"]
+    return {"interview": interview_id, "session": session_id, "context": context_id}
 
 
 #: 면접관만 부르는 라우트. `{interview}` 같은 자리는 `ids` 로 채운다.
@@ -29,6 +30,10 @@ OWNER_ONLY = [
     ("post", "/sessions/{session}/start"),
     ("post", "/sessions/{session}/end"),
     ("get", "/sessions/{session}/summary"),
+    ("get", "/contexts/current"),
+    ("get", "/contexts/{context}"),
+    ("patch", "/contexts/{context}"),
+    ("delete", "/contexts/{context}/docs/doc_x"),
 ]
 
 
@@ -58,6 +63,9 @@ def test_owner_only_routes_need_login(
         ("post", "/sessions/{session}/start", ErrorCode.SESSION_NOT_FOUND),
         ("post", "/sessions/{session}/end", ErrorCode.SESSION_NOT_FOUND),
         ("get", "/sessions/{session}/summary", ErrorCode.SESSION_NOT_FOUND),
+        ("get", "/contexts/{context}", ErrorCode.NOT_FOUND),
+        ("patch", "/contexts/{context}", ErrorCode.NOT_FOUND),
+        ("delete", "/contexts/{context}/docs/doc_x", ErrorCode.NOT_FOUND),
     ],
 )
 def test_someone_elses_resource_looks_missing(
@@ -89,6 +97,16 @@ def test_resume_upload_is_owner_only(
 
     assert client.post(url, files=files, headers=ANON).status_code == 401
     assert client.post(url, files=files, headers=other).status_code == 404
+
+
+def test_each_user_gets_their_own_context(
+    client: TestClient, other: dict[str, str]
+) -> None:
+    mine = client.get(f"{V1}/contexts/current").json()["id"]
+    theirs = client.get(f"{V1}/contexts/current", headers=other).json()["id"]
+
+    assert mine != theirs
+    assert client.get(f"{V1}/contexts/current").json()["id"] == mine
 
 
 # ── 입장 역할 ───────────────────────────────────────────

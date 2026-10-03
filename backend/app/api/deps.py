@@ -11,7 +11,7 @@ from fastapi import Depends, Header, Path, status
 from app.core.auth import verified_user_id
 from app.core.errors import ApiError, ErrorCode
 from app.domain import store as store_module
-from app.domain.models import Interview, Session, User
+from app.domain.models import Context, Interview, Session, User
 from app.domain.store import Store
 from app.services import kakao as kakao_module
 from app.services import media as media_module
@@ -67,7 +67,7 @@ def get_current_user(user: OptionalUserDep) -> User:
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
-# 아래 의존성은 「로그인한 사람의 것」만 돌려준다 (#130). 남의 것도 없는 것과 같은 404 ·
+# 아래 셋은 「로그인한 사람의 것」만 돌려준다 (#130). 남의 것도 없는 것과 같은 404 ·
 # 같은 코드로 답한다 — 403 이나 다른 코드를 주면 그 id 가 있다는 사실이 드러난다.
 #
 # 동기 의존성이라 FastAPI 가 스레드풀에서 돌린다. async 라우트가 이걸 받으면 DB
@@ -97,5 +97,17 @@ def get_owned_session(
     return session
 
 
+def get_owned_context(
+    context_id: Annotated[str, Path(alias="contextId")],
+    user: CurrentUserDep,
+    store: StoreDep,
+) -> Context:
+    context = store.get_context(context_id)
+    if context is None or context.owner_id != user.id:
+        raise ApiError(ErrorCode.NOT_FOUND, 404, "컨텍스트를 찾을 수 없습니다.")
+    return context
+
+
 OwnedInterviewDep = Annotated[Interview, Depends(get_owned_interview)]
 OwnedSessionDep = Annotated[Session, Depends(get_owned_session)]
+OwnedContextDep = Annotated[Context, Depends(get_owned_context)]

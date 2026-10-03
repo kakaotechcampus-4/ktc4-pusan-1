@@ -114,29 +114,29 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     },
     ("get", "/api/v1/contexts/current"): {
         "response": {"id", "company", "team", "role", "talentProfile", "docs"},
-        "statuses": {"200"},
+        "statuses": {"200", "401"},
     },
     ("get", "/api/v1/contexts/{contextId}"): {
         "path_params": ["contextId"],
         "response": {"id", "company", "team", "role", "talentProfile", "docs"},
-        "statuses": {"200", "404"},
+        "statuses": {"200", "401", "404"},
     },
     ("patch", "/api/v1/contexts/{contextId}"): {
         "path_params": ["contextId"],
         "request": {"company", "team", "role", "talentProfile"},
         "response": {"id", "company", "team", "role", "talentProfile", "docs"},
-        "statuses": {"200", "404", "422"},
+        "statuses": {"200", "401", "404", "422"},
     },
     ("post", "/api/v1/contexts/{contextId}/docs"): {
         "path_params": ["contextId"],
         # 본문이 JSON 이 아니라 파일이다. 필드 표 대신 형식만 잠근다.
         "multipart": True,
         "response": {"id", "name", "kind", "sizeBytes", "status"},
-        "statuses": {"201", "404", "413", "415", "422"},
+        "statuses": {"201", "401", "404", "413", "415", "422"},
     },
     ("delete", "/api/v1/contexts/{contextId}/docs/{docId}"): {
         "path_params": ["contextId", "docId"],
-        "statuses": {"204", "404"},
+        "statuses": {"204", "401", "404"},
     },
 }
 

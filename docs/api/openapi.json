@@ -879,8 +879,20 @@
     },
     "/api/v1/contexts/current": {
       "get": {
-        "description": "지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.\n\nFE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수\n있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어\ncontextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.\n\n**주인은 지금 하나뿐이다.** 조직도 로그인도 없어서 조직을 가릴 방법이 없다.\n로그인이 들어오면 토큰에서 주인을 정하게 되고, 이 라우트의 겉모습은 그대로다.\n\n없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가\n구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.",
+        "description": "지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.\n\nFE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수\n있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어\ncontextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.\n\n**주인은 로그인한 사용자다.** 조직이 아직 없어서 면접관 한 명에 하나다.\n\n없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가\n구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.",
         "operationId": "get_current_context_api_v1_contexts_current_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -891,6 +903,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "기업 컨텍스트 조회 (현재 조직)",
@@ -911,6 +943,16 @@
               "title": "Contextid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -924,6 +966,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -932,7 +984,7 @@
                 }
               }
             },
-            "description": "컨텍스트를 찾을 수 없음"
+            "description": "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)"
           },
           "422": {
             "content": {
@@ -962,6 +1014,16 @@
               "title": "Contextid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -985,6 +1047,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -993,7 +1065,7 @@
                 }
               }
             },
-            "description": "컨텍스트를 찾을 수 없음"
+            "description": "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)"
           },
           "422": {
             "content": {
@@ -1025,6 +1097,16 @@
               "title": "Contextid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1048,6 +1130,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1056,7 +1148,7 @@
                 }
               }
             },
-            "description": "컨텍스트를 찾을 수 없음"
+            "description": "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)"
           },
           "413": {
             "content": {
@@ -1116,11 +1208,31 @@
               "title": "Docid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
           },
           "404": {
             "content": {
@@ -1130,7 +1242,7 @@
                 }
               }
             },
-            "description": "컨텍스트 또는 문서를 찾을 수 없음"
+            "description": "컨텍스트 또는 문서를 찾을 수 없음 (남의 것 포함)"
           },
           "422": {
             "content": {
