@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Header, Request, status
 from livekit.protocol.models import ParticipantInfo
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import MediaDep, StoreDep
 from app.domain.models import session_id_from_room
@@ -100,7 +101,10 @@ async def receive_webhook(
     # 저장소가 한 문장으로 가장 이른 값만 남긴다 (#86). 두 참가자가 각각 이벤트를
     # 만들고 재전송 · 순서 뒤바뀜이 겹쳐도, 시작 · 종료 저장과 동시에 와도 서로를
     # 덮어쓰지 않는다. 세션이 없으면 False 라 따로 읽지 않는다.
-    if store.mark_origin(session_id, joined_at):
+    #
+    # 스레드풀로 넘긴다 — 동기 저장소를 이벤트 루프에서 부르면 그동안 같은
+    # 프로세스의 다른 요청이 줄을 선다 (#133). 한 문장이라 넘겨도 사이가 열리지 않는다.
+    if await run_in_threadpool(store.mark_origin, session_id, joined_at):
         logger.info("전사 원점 기록 session_id=%s t0=%s", session_id, joined_at)
 
 
