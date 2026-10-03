@@ -184,6 +184,7 @@ async def end_session(
     이 API 를 불러야 종료된다. 반대로 여기서는 LiveKit Room 을 닫아
     남아 있는 참가자를 끊는다.
     """
+    read_status = session.status
     if not session.end():
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 종료할 수 없습니다."
@@ -191,7 +192,16 @@ async def end_session(
     # LiveKit Room 을 닫기 전에 저장한다. close_room 이 실패해도 종료 상태는
     # 남아야 한다 — 방이 남는 건 정원 제한에 걸리는 정도지만, 상태가 안 남으면
     # 이미 끝난 면접에 다시 입장할 수 있게 된다.
-    store.save_session(session)
+    #
+    # 읽은 상태 그대로일 때만 쓴다. 그 사이에 시작이 먼저 저장됐으면 조건 없이
+    # 쓰는 순간 읽어 둔 값으로 시작 시각을 지운다 (#131). 상태가 같으면 시작 ·
+    # 종료 시각도 그대로이므로 나머지 컬럼을 같이 써도 덮을 것이 없다.
+    # ponytail: 시작과 겹치면 409 — 다시 누르면 끝난다. 자주 겹치면 종료가
+    #   status · ended_at 만 쓰는 조건부 UPDATE 로 옮긴다.
+    if not store.save_session(session, expected_status=read_status):
+        raise ApiError(
+            ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 종료할 수 없습니다."
+        )
     # 요약을 기다리는 자리를 지금 만든다. 한도 판정의 기준점이 여기서 찍히므로
     # 조회 시점이 아니라 종료 시점이어야 한다 — 면접이 끝나고 한참 뒤에 화면을
     # 열었다고 해서 마감이 그때부터 다시 시작되면 안 된다.
