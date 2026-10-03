@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS context_doc (
 
 CREATE INDEX IF NOT EXISTS context_doc_context_id_idx ON context_doc (context_id);
 
+-- 문서 본문 (#143). 올라오면 status=parsing 으로 들어가고, Helpy Document Vision 이
+-- 뽑은 평문이 text 에 찬다. 못 뽑으면 status=failed, text 는 NULL 이다.
+-- category 는 FE 설정 화면의 두 칸(jd · internal)이다.
+ALTER TABLE context_doc ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'internal';
+ALTER TABLE context_doc ADD COLUMN IF NOT EXISTS text TEXT;
+
 -- 지원자 이력서. 면접 한 건에 한 장이라 interview_id 가 기본키다 — 다시 올리면
 -- 덮어쓴다. 원본을 여기 두는 이유는 context_doc 과 같다.
 CREATE TABLE IF NOT EXISTS interview_resume (
@@ -96,6 +102,9 @@ CREATE TABLE IF NOT EXISTS interview_resume (
     content      BYTEA       NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL
 );
+
+-- 이력서 본문. context_doc.text 와 같다. 다시 올리면 NULL 로 돌아간다.
+ALTER TABLE interview_resume ADD COLUMN IF NOT EXISTS text TEXT;
 
 -- 세션 하나의 요약. 면접이 끝나는 순간 PROCESSING 으로 만들어지고, Agent 가
 -- `PUT /internal/v1/sessions/{id}/review` 로 결과를 써 넣으면 READY 가 된다.

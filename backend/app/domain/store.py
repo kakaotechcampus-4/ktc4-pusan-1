@@ -15,6 +15,7 @@ from typing import Protocol
 from app.domain.models import (
     Context,
     ContextDoc,
+    DocStatus,
     Interview,
     Resume,
     Role,
@@ -87,6 +88,17 @@ class Store(Protocol):
         """지웠으면 True. 없던 문서면 False."""
         ...
 
+    def finish_doc(self, context_id: str, doc_id: str, text: str | None) -> None:
+        """추출 결과를 받는다. 본문이 있으면 READY, None·빈 문자열이면 FAILED.
+
+        그 사이 문서가 지워졌으면 아무것도 하지 않는다.
+        """
+        ...
+
+    def get_doc_text(self, context_id: str, doc_id: str) -> str | None:
+        """뽑아 둔 본문. 아직 없거나 못 뽑았으면 None. 목록 조회에는 싣지 않는다."""
+        ...
+
     # ── 지원자 이력서 ───────────────────────────────────
 
     def save_resume(self, resume: Resume, content: bytes) -> None:
@@ -94,6 +106,14 @@ class Store(Protocol):
         ...
 
     def get_resume(self, interview_id: str) -> Resume | None: ...
+
+    def finish_resume(
+        self, interview_id: str, resume_id: str, text: str | None
+    ) -> None:
+        """`finish_doc` 과 같다. 추출 도중 다시 올라와 id 가 바뀌었으면 버린다."""
+        ...
+
+    def get_resume_text(self, interview_id: str) -> str | None: ...
 
     def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
         """요약 자리를 만들고 돌려준다. 이미 있으면 **있는 것을 돌려준다.**
@@ -195,6 +215,8 @@ class InMemoryStore:
         self._docs: dict[tuple[str, str], tuple[ContextDoc, bytes]] = {}
         #: interview_id -> (메타데이터, 원본)
         self._resumes: dict[str, tuple[Resume, bytes]] = {}
+        #: 뽑은 본문. 문서는 (context_id, doc_id), 이력서는 interview_id 가 키다.
+        self._texts: dict[object, str] = {}
 
         self._summaries: dict[str, SessionSummary] = {}
         self._users: dict[str, User] = {}
@@ -282,11 +304,11 @@ class InMemoryStore:
         self._contexts[context.id] = context
 
     def add_doc(self, doc: ContextDoc, content: bytes) -> None:
-        self._docs[(doc.context_id, doc.id)] = (doc, content)
+        self._docs[(doc.context_id, doc.id)] = (deepcopy(doc), content)
 
     def list_docs(self, context_id: str) -> list[ContextDoc]:
         return [
-            doc
+            deepcopy(doc)
             for (ctx_id, _), (doc, _content) in self._docs.items()
             if ctx_id == context_id
         ]
@@ -296,12 +318,42 @@ class InMemoryStore:
         return None if found is None else deepcopy(found[0])
 
     def delete_doc(self, context_id: str, doc_id: str) -> bool:
+        self._texts.pop((context_id, doc_id), None)
         return self._docs.pop((context_id, doc_id), None) is not None
+
+    def finish_doc(self, context_id: str, doc_id: str, text: str | None) -> None:
+        found = self._docs.get((context_id, doc_id))
+        if found is None:
+            return
+        found[0].status = DocStatus.READY if text else DocStatus.FAILED
+        self._set_text((context_id, doc_id), text)
+
+    def get_doc_text(self, context_id: str, doc_id: str) -> str | None:
+        return self._texts.get((context_id, doc_id))
+
+    def _set_text(self, key: object, text: str | None) -> None:
+        if text:
+            self._texts[key] = text
+        else:
+            self._texts.pop(key, None)
 
     # ── 지원자 이력서 ───────────────────────────────────
 
     def save_resume(self, resume: Resume, content: bytes) -> None:
-        self._resumes[resume.interview_id] = (resume, content)
+        self._resumes[resume.interview_id] = (deepcopy(resume), content)
+        self._texts.pop(resume.interview_id, None)
+
+    def finish_resume(
+        self, interview_id: str, resume_id: str, text: str | None
+    ) -> None:
+        found = self._resumes.get(interview_id)
+        if found is None or found[0].id != resume_id:
+            return
+        found[0].status = DocStatus.READY if text else DocStatus.FAILED
+        self._set_text(interview_id, text)
+
+    def get_resume_text(self, interview_id: str) -> str | None:
+        return self._texts.get(interview_id)
 
     def get_resume(self, interview_id: str) -> Resume | None:
         found = self._resumes.get(interview_id)
@@ -395,6 +447,7 @@ class InMemoryStore:
         self._contexts.clear()
         self._docs.clear()
         self._resumes.clear()
+        self._texts.clear()
 
         self._summaries.clear()
         self._users.clear()

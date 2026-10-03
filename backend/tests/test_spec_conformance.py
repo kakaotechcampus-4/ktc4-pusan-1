@@ -114,7 +114,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     ("post", "/api/v1/interviews/{interviewId}/resume"): {
         "path_params": ["interviewId"],
         "multipart": True,
-        "response": {"id", "name", "kind", "sizeBytes", "status"},
+        "response": {"id", "name", "kind", "sizeBytes", "status", "category"},
         "statuses": {"201", "401", "404", "413", "415", "422"},
     },
     ("get", "/api/v1/contexts/current"): {
@@ -136,7 +136,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "path_params": ["contextId"],
         # 본문이 JSON 이 아니라 파일이다. 필드 표 대신 형식만 잠근다.
         "multipart": True,
-        "response": {"id", "name", "kind", "sizeBytes", "status"},
+        "response": {"id", "name", "kind", "sizeBytes", "status", "category"},
         "statuses": {"201", "401", "404", "413", "415", "422"},
     },
     ("delete", "/api/v1/contexts/{contextId}/docs/{docId}"): {

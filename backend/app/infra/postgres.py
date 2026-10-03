@@ -21,6 +21,7 @@ from psycopg_pool import ConnectionPool
 from app.domain.models import (
     Context,
     ContextDoc,
+    DocCategory,
     DocKind,
     DocStatus,
     Interview,
@@ -39,6 +40,10 @@ from app.domain.models import (
 )
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
+
+def _finished(text: str | None) -> DocStatus:
+    return DocStatus.READY if text else DocStatus.FAILED
 
 
 class PostgresStore:
@@ -467,15 +472,16 @@ class PostgresStore:
             conn.execute(
                 """
                 INSERT INTO context_doc
-                    (id, context_id, name, kind, size_bytes, status, content,
-                     created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (id, context_id, name, kind, category, size_bytes, status,
+                     content, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     doc.id,
                     doc.context_id,
                     doc.name,
                     doc.kind.value,
+                    doc.category.value,
                     doc.size_bytes,
                     doc.status.value,
                     content,
@@ -486,16 +492,16 @@ class PostgresStore:
     def list_docs(self, context_id: str) -> list[ContextDoc]:
         # content 는 고르지 않는다. 목록 한 번에 파일 전체가 딸려 오면 안 된다.
         rows = self._all(
-            "SELECT id, context_id, name, kind, size_bytes, status, created_at"
-            " FROM context_doc WHERE context_id = %s ORDER BY created_at",
+            "SELECT id, context_id, name, kind, category, size_bytes, status,"
+            " created_at FROM context_doc WHERE context_id = %s ORDER BY created_at",
             (context_id,),
         )
         return [self._to_doc(row) for row in rows]
 
     def get_doc(self, context_id: str, doc_id: str) -> ContextDoc | None:
         row = self._one(
-            "SELECT id, context_id, name, kind, size_bytes, status, created_at"
-            " FROM context_doc WHERE context_id = %s AND id = %s",
+            "SELECT id, context_id, name, kind, category, size_bytes, status,"
+            " created_at FROM context_doc WHERE context_id = %s AND id = %s",
             (context_id, doc_id),
         )
         return None if row is None else self._to_doc(row)
@@ -507,6 +513,21 @@ class PostgresStore:
                 (context_id, doc_id),
             )
             return cursor.rowcount == 1
+
+    def finish_doc(self, context_id: str, doc_id: str, text: str | None) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE context_doc SET status = %s, text = %s"
+                " WHERE context_id = %s AND id = %s",
+                (_finished(text).value, text, context_id, doc_id),
+            )
+
+    def get_doc_text(self, context_id: str, doc_id: str) -> str | None:
+        row = self._one(
+            "SELECT text FROM context_doc WHERE context_id = %s AND id = %s",
+            (context_id, doc_id),
+        )
+        return None if row is None else row["text"]
 
     @staticmethod
     def _context_values(context: Context) -> tuple[Any, ...]:
@@ -539,6 +560,7 @@ class PostgresStore:
             context_id=row["context_id"],
             name=row["name"],
             kind=DocKind(row["kind"]),
+            category=DocCategory(row["category"]),
             size_bytes=row["size_bytes"],
             status=DocStatus(row["status"]),
             created_at=row["created_at"],
@@ -561,6 +583,7 @@ class PostgresStore:
                     size_bytes = EXCLUDED.size_bytes,
                     status = EXCLUDED.status,
                     content = EXCLUDED.content,
+                    text = NULL,
                     created_at = EXCLUDED.created_at
                 """,
                 (
@@ -593,6 +616,24 @@ class PostgresStore:
             status=DocStatus(row["status"]),
             created_at=row["created_at"],
         )
+
+    def finish_resume(
+        self, interview_id: str, resume_id: str, text: str | None
+    ) -> None:
+        # id 까지 맞춰 본다. 추출 도중 새 이력서로 덮였으면 옛 결과를 버린다.
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE interview_resume SET status = %s, text = %s"
+                " WHERE interview_id = %s AND id = %s",
+                (_finished(text).value, text, interview_id, resume_id),
+            )
+
+    def get_resume_text(self, interview_id: str) -> str | None:
+        row = self._one(
+            "SELECT text FROM interview_resume WHERE interview_id = %s",
+            (interview_id,),
+        )
+        return None if row is None else row["text"]
 
     # ── 사용자 ──────────────────────────────────────────────
 

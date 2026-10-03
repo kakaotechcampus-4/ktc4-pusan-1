@@ -21,7 +21,9 @@ import pytest
 from app.domain.models import (
     Context,
     ContextDoc,
+    DocCategory,
     DocKind,
+    DocStatus,
     Interview,
     Resume,
     Role,
@@ -373,6 +375,51 @@ def test_docs_are_scoped_to_their_context(subject: Store):
     assert len(subject.list_docs(yours.id)) == 1
 
 
+def test_new_doc_is_parsing_with_its_category(subject: Store):
+    context = _context(subject)
+    doc = ContextDoc(
+        context_id=context.id,
+        name="jd.pdf",
+        kind=DocKind.PDF,
+        size_bytes=1,
+        category=DocCategory.JD,
+    )
+    subject.add_doc(doc, b"x")
+
+    found = subject.get_doc(context.id, doc.id)
+    assert found is not None
+    assert (found.status, found.category) == (DocStatus.PARSING, DocCategory.JD)
+    assert subject.get_doc_text(context.id, doc.id) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "status"), [("본문", DocStatus.READY), (None, DocStatus.FAILED)]
+)
+def test_finishing_a_doc_stores_text_and_status(subject: Store, text, status):
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"x")
+
+    subject.finish_doc(context.id, doc.id, text)
+
+    found = subject.get_doc(context.id, doc.id)
+    assert found is not None and found.status is status
+    assert subject.get_doc_text(context.id, doc.id) == text
+
+
+def test_finishing_a_deleted_doc_does_nothing(subject: Store):
+    """추출 도중 지운 문서. 결과가 늦게 와도 되살아나면 안 된다."""
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"x")
+    subject.delete_doc(context.id, doc.id)
+
+    subject.finish_doc(context.id, doc.id, "본문")
+
+    assert subject.get_doc(context.id, doc.id) is None
+    assert subject.list_docs(context.id) == []
+
+
 def test_deleting_a_doc_reports_whether_it_existed(subject: Store):
     context = _context(subject)
     doc = _doc(context.id)
@@ -410,6 +457,36 @@ def test_resume_is_replaced_not_appended(subject: Store):
     found = subject.get_resume(session.interview_id)
     assert found is not None
     assert found.name == "new.pdf"
+
+
+def test_finishing_a_resume_stores_text(subject: Store):
+    session = _seed(subject)
+    resume = _resume(session.interview_id)
+    subject.save_resume(resume, b"x")
+
+    subject.finish_resume(session.interview_id, resume.id, "경력 3년")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None and found.status is DocStatus.READY
+    assert subject.get_resume_text(session.interview_id) == "경력 3년"
+
+
+def test_late_result_of_a_replaced_resume_is_dropped(subject: Store):
+    """추출 도중 새 이력서가 올라왔다. 옛 결과가 새 이력서 자리에 들어가면 안 된다."""
+    session = _seed(subject)
+    old = _resume(session.interview_id, "old.pdf")
+    subject.save_resume(old, b"old")
+    subject.finish_resume(session.interview_id, old.id, "옛 본문")
+    new = _resume(session.interview_id, "new.pdf")
+    subject.save_resume(new, b"new")
+
+    subject.finish_resume(session.interview_id, old.id, "늦게 온 옛 본문")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None
+    assert (found.name, found.status) == ("new.pdf", DocStatus.PARSING)
+    # 다시 올리면 앞 이력서의 본문도 지운다.
+    assert subject.get_resume_text(session.interview_id) is None
 
 
 def test_resume_of_an_interview_without_one_is_none(subject: Store):
