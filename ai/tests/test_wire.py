@@ -14,7 +14,6 @@ from irya_ai.schemas.analysis import SuggestedQuestion
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
 from irya_ai.schemas.wire import (
     SuggestionPayload,
-    SuggestionType,
     TranscriptPayload,
     suggestion_payload,
     transcript_payload,
@@ -158,7 +157,6 @@ def test_the_suggestion_payload_serialises_to_the_agreed_keys() -> None:
 
     assert payload.model_dump(by_alias=True) == {
         "suggestionId": "sug_001",
-        "type": "FOLLOW_UP",
         "content": "말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
         "evidenceUtteranceIds": ["utt_001", "utt_002"],
     }
@@ -183,13 +181,7 @@ def test_the_suggestion_payload_refuses_a_key_the_contract_never_agreed() -> Non
     with pytest.raises(ValidationError):
         SuggestionPayload(
             suggestionId="sug_001",
-            type="FOLLOW_UP",
             content="더 여쭤보세요.",
             evidenceUtteranceIds=["utt_001"],
             qaId="qa_003",
         )
-
-
-def test_the_only_type_the_meeting_showed_is_the_default() -> None:
-    assert [t.value for t in SuggestionType] == ["FOLLOW_UP"]
-    assert suggestion_payload(question()).type is SuggestionType.FOLLOW_UP

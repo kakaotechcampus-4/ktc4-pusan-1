@@ -65,7 +65,6 @@ from irya_ai.schemas.transcript import (
 )
 from irya_ai.schemas.wire import (
     SuggestionPayload,
-    SuggestionType,
     TranscriptPayload,
     suggestion_payload,
     transcript_payload,
@@ -105,7 +104,6 @@ __all__ = [
     "SuggestionDraft",
     "SuggestionPayload",
     "SuggestionResult",
-    "SuggestionType",
     "SummaryDraft",
     "SummaryPoint",
     "SummaryResult",

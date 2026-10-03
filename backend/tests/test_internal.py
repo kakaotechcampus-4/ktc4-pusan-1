@@ -26,7 +26,6 @@ UPSERT = {
 
 SUGGESTION = {
     "suggestionId": "sug_001",
-    "type": "FOLLOW_UP",
     "content": "그 경험에서 가장 어려웠던 부분은 무엇이었나요?",
     "evidenceUtteranceIds": ["utt_001"],
 }
