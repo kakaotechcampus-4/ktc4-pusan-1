@@ -10,8 +10,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_kakao, get_media, get_store
+from app.core.auth import issue_token
 from app.core.errors import ApiError
-from app.domain.models import Role
+from app.domain.models import Role, User
 from app.domain.store import InMemoryStore
 from app.main import app
 from app.services.kakao import KakaoProfile
@@ -90,14 +91,35 @@ def store() -> InMemoryStore:
     return InMemoryStore()
 
 
+def bearer(user: User) -> dict[str, str]:
+    return {"Authorization": f"Bearer {issue_token(user.id)}"}
+
+
+#: 요청에 실으면 기본 헤더의 주인 토큰을 덮어써 로그인하지 않은 요청이 된다.
+ANON = {"Authorization": ""}
+
+
+@pytest.fixture
+def owner(store: InMemoryStore) -> User:
+    """`client` 가 로그인해 있는 면접관. 이 사람이 만든 면접 · 컨텍스트가 그의 것."""
+    return store.upsert_user(User(kakao_id=1, nickname="면접관"))
+
+
+@pytest.fixture
+def other(store: InMemoryStore) -> dict[str, str]:
+    """다른 면접관의 인증 헤더. 남의 자원에 닿는지 볼 때 요청마다 싣는다."""
+    return bearer(store.upsert_user(User(kakao_id=2, nickname="다른 면접관")))
+
+
 @pytest.fixture
 def client(
-    media: FakeMedia, store: InMemoryStore, kakao: FakeKakao
+    media: FakeMedia, store: InMemoryStore, kakao: FakeKakao, owner: User
 ) -> Iterator[TestClient]:
+    """`owner` 로 로그인한 클라이언트 (#130). 면접관 API 가 전부 로그인을 요구한다."""
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_media] = lambda: media
     app.dependency_overrides[get_kakao] = lambda: kakao
-    with TestClient(app) as test_client:
+    with TestClient(app, headers=bearer(owner)) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 

@@ -85,7 +85,8 @@ def _forged(**overrides) -> str:
 @pytest.mark.parametrize(
     "headers",
     [
-        {},
+        # `client` 는 기본으로 로그인해 있다. 빈 값으로 덮어써야 「토큰 없음」이다.
+        {"Authorization": ""},
         {"Authorization": "Basic abc"},
         {"Authorization": "Bearer garbage"},
         {"Authorization": f"Bearer {_forged()}"},
