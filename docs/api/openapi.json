@@ -3,6 +3,10 @@
     "schemas": {
       "Body_upload_doc_api_v1_contexts__contextId__docs_post": {
         "properties": {
+          "category": {
+            "$ref": "#/components/schemas/DocCategory",
+            "default": "internal"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -32,6 +36,17 @@
       "ContextDocResponse": {
         "description": "FE 의 `ContextDoc` 과 같은 모양.\n\n`progress` 는 내보내지 않는다 — 업로드 진행률은 클라이언트만 아는 값이다.",
         "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocCategory"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "기업 컨텍스트 문서의 칸(jd · internal). 이력서는 null."
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -48,7 +63,8 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/DocStatus"
+            "$ref": "#/components/schemas/DocStatus",
+            "description": "올라온 직후는 parsing 이다. 본문을 뽑으면 ready, 못 뽑으면 failed. parsing 인 동안 다시 조회한다."
           }
         },
         "required": [
@@ -172,6 +188,15 @@
         "title": "CreateSessionResponse",
         "type": "object"
       },
+      "DocCategory": {
+        "description": "기업 컨텍스트 문서의 종류. FE 설정 화면의 두 칸이다.\n\nAI 가 JD 와 사내 문서를 다르게 쓴다 — JD 는 「이 직무가 요구하는 것」이다.",
+        "enum": [
+          "jd",
+          "internal"
+        ],
+        "title": "DocCategory",
+        "type": "string"
+      },
       "DocKind": {
         "description": "업로드할 수 있는 문서 형식. FE 의 `DocKind` 와 같다.",
         "enum": [
@@ -182,7 +207,7 @@
         "type": "string"
       },
       "DocStatus": {
-        "description": "서버가 아는 문서 상태.\n\nFE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —\n서버는 업로드가 끝난 뒤에야 문서를 안다.\n\n`PARSING` 은 아직 쓰지 않는다. 본문 추출을 누가 하는지가 안 정해져서(#70) 지금은\n올라온 즉시 `READY` 다. 값은 미리 둔다 — 나중에 파싱이 붙을 때 FE 가 이미 이\n분기를 갖고 있다.",
+        "description": "서버가 아는 문서 상태.\n\nFE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —\n서버는 업로드가 끝난 뒤에야 문서를 안다.\n\n    PARSING --본문을 뽑음--> READY\n            --못 뽑음·한도 초과--> FAILED\n\n올라온 순간 `PARSING` 이고, 백그라운드에서 Helpy 가 본문을 뽑으면 끝난다 (#143).",
         "enum": [
           "parsing",
           "ready",
@@ -1173,7 +1198,7 @@
     },
     "/api/v1/contexts/{contextId}/docs": {
       "post": {
-        "description": "면접에 쓸 문서를 올린다. `pdf` 와 `docx` 만 받는다.\n\nFE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지\n경계가 아니다. 여기서 다시 본다.",
+        "description": "면접에 쓸 문서를 올린다. **PDF 만 받는다.**\n\nFE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지\n경계가 아니다. 여기서 다시 본다.\n\n**응답은 `parsing` 으로 바로 나간다.** 본문 추출(Helpy Document Vision)은 평균\n10초가 걸려서 응답 뒤에 따로 돈다. FE 는 `parsing` 인 문서가 있는 동안\n컨텍스트를 다시 조회하면 `ready` 나 `failed` 로 바뀐 것을 본다.",
         "operationId": "upload_doc_api_v1_contexts__contextId__docs_post",
         "parameters": [
           {
@@ -1543,7 +1568,7 @@
     },
     "/api/v1/interviews/{interviewId}/resume": {
       "post": {
-        "description": "지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.\n\n**면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은\n것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.\n\n응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드\n컴포넌트로 그린다.\n\n본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로\n하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.",
+        "description": "지원자 이력서를 올린다. **PDF 만 받는다.**\n\n**면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은\n것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.\n\n응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드\n컴포넌트로 그린다.\n\n본문은 기업 컨텍스트 문서와 같이 응답 뒤에 따로 뽑는다(#143). 응답은 `parsing`\n이다. 꼬리질문과 리포트가 이 본문을 쓴다(#70).",
         "operationId": "upload_resume_api_v1_interviews__interviewId__resume_post",
         "parameters": [
           {

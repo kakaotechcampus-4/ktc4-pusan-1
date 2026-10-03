@@ -8,19 +8,19 @@ FE 가 develop 때부터 이 경로들을 부르고 있었는데 BE 에 하나�
 `GET /contexts/current` 는 그래서 멱등하다 — 이미 있으면 그걸 돌려준다. 주인은
 로그인한 면접관이고 (#144), 남의 컨텍스트는 없는 것과 똑같이 404 다.
 
-문서 본문 추출(파싱)은 이 범위가 아니다. 누가 하는지가 안 정해졌고(#70 의
-「`resume` 가 합의안은 본문 문자열인데 현재는 스토리지 키」), 지금은 올라온 즉시
-`ready` 다. `parsing` 상태는 FE 가 이미 갖고 있어 나중에 붙이면 된다.
+문서는 PDF 만 받고, 올라오면 응답 뒤에 Helpy Document Vision 으로 본문을 뽑는다
+(#143, `app/services/documents.py`). 그 본문을 읽는 것은 AI Agent 다 (#70).
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, File, Path, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Form, Path, UploadFile, status
 
-from app.api.deps import CurrentUserDep, StoreDep
+from app.api.deps import CurrentUserDep, ParserDep, StoreDep
+from app.core.config import settings
 from app.core.errors import ApiError, ErrorCode, responses
 from app.core.uploads import read_upload
-from app.domain.models import Context, ContextDoc, User
+from app.domain.models import Context, ContextDoc, DocCategory, User
 from app.domain.store import Store
 from app.schemas import (
     ContextDocResponse,
@@ -45,6 +45,17 @@ def _load(store: Store, context_id: str, user: User) -> Context:
     return context
 
 
+def _doc_response(doc: ContextDoc) -> ContextDocResponse:
+    return ContextDocResponse(
+        id=doc.id,
+        name=doc.name,
+        kind=doc.kind,
+        size_bytes=doc.size_bytes,
+        status=doc.shown_status(settings.doc_parse_timeout),
+        category=doc.category,
+    )
+
+
 def _to_response(store: Store, context: Context) -> ContextResponse:
     return ContextResponse(
         id=context.id,
@@ -52,16 +63,7 @@ def _to_response(store: Store, context: Context) -> ContextResponse:
         team=context.team,
         role=context.role,
         talent_profile=context.talent_profile,
-        docs=[
-            ContextDocResponse(
-                id=doc.id,
-                name=doc.name,
-                kind=doc.kind,
-                size_bytes=doc.size_bytes,
-                status=doc.status,
-            )
-            for doc in store.list_docs(context.id)
-        ],
+        docs=[_doc_response(doc) for doc in store.list_docs(context.id)],
     )
 
 
@@ -141,27 +143,37 @@ async def upload_doc(
     context_id: ContextIdPath,
     store: StoreDep,
     user: CurrentUserDep,
+    parser: ParserDep,
+    background: BackgroundTasks,
     file: Annotated[UploadFile, File()],
+    category: Annotated[DocCategory, Form()] = DocCategory.INTERNAL,
 ) -> ContextDocResponse:
-    """면접에 쓸 문서를 올린다. `pdf` 와 `docx` 만 받는다.
+    """면접에 쓸 문서를 올린다. **PDF 만 받는다.**
 
     FE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지
     경계가 아니다. 여기서 다시 본다.
+
+    **응답은 `parsing` 으로 바로 나간다.** 본문 추출(Helpy Document Vision)은 평균
+    10초가 걸려서 응답 뒤에 따로 돈다. FE 는 `parsing` 인 문서가 있는 동안
+    컨텍스트를 다시 조회하면 `ready` 나 `failed` 로 바뀐 것을 본다.
     """
     context = _load(store, context_id, user)
     name, kind, content = await read_upload(file)
 
     doc = ContextDoc(
-        context_id=context.id, name=name, kind=kind, size_bytes=len(content)
+        context_id=context.id,
+        name=name,
+        kind=kind,
+        size_bytes=len(content),
+        category=category,
     )
     store.add_doc(doc, content)
-    return ContextDocResponse(
-        id=doc.id,
-        name=doc.name,
-        kind=doc.kind,
-        size_bytes=doc.size_bytes,
-        status=doc.status,
+    background.add_task(
+        lambda: store.finish_doc(
+            doc.context_id, doc.id, parser.extract_text(doc.name, content)
+        )
     )
+    return _doc_response(doc)
 
 
 @router.delete(

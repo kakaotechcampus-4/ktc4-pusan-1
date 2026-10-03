@@ -13,8 +13,10 @@ from app.core.errors import ApiError, ErrorCode
 from app.domain import store as store_module
 from app.domain.models import User
 from app.domain.store import Store
+from app.services import documents as documents_module
 from app.services import kakao as kakao_module
 from app.services import media as media_module
+from app.services.documents import DocumentParser
 from app.services.kakao import KakaoGateway
 from app.services.media import MediaGateway
 
@@ -31,9 +33,14 @@ def get_kakao() -> KakaoGateway:
     return kakao_module.kakao
 
 
+def get_parser() -> DocumentParser:
+    return documents_module.parser
+
+
 StoreDep = Annotated[Store, Depends(get_store)]
 MediaDep = Annotated[MediaGateway, Depends(get_media)]
 KakaoDep = Annotated[KakaoGateway, Depends(get_kakao)]
+ParserDep = Annotated[DocumentParser, Depends(get_parser)]
 
 _BEARER = "Bearer "
 

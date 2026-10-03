@@ -6,9 +6,9 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, File, Path, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Path, UploadFile, status
 
-from app.api.deps import CurrentUserDep, MediaDep, StoreDep
+from app.api.deps import CurrentUserDep, MediaDep, ParserDep, StoreDep
 from app.core.config import settings
 from app.core.errors import ApiError, ErrorCode, responses
 from app.core.uploads import read_upload
@@ -205,9 +205,11 @@ async def upload_resume(
     interview_id: InterviewIdPath,
     store: StoreDep,
     user: CurrentUserDep,
+    parser: ParserDep,
+    background: BackgroundTasks,
     file: Annotated[UploadFile, File()],
 ) -> ContextDocResponse:
-    """지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.
+    """지원자 이력서를 올린다. **PDF 만 받는다.**
 
     **면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은
     것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.
@@ -215,8 +217,8 @@ async def upload_resume(
     응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드
     컴포넌트로 그린다.
 
-    본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로
-    하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.
+    본문은 기업 컨텍스트 문서와 같이 응답 뒤에 따로 뽑는다(#143). 응답은 `parsing`
+    이다. 꼬리질문과 리포트가 이 본문을 쓴다(#70).
     """
     _owned(store, interview_id, user)
 
@@ -225,6 +227,11 @@ async def upload_resume(
         interview_id=interview_id, name=name, kind=kind, size_bytes=len(content)
     )
     store.save_resume(resume, content)
+    background.add_task(
+        lambda: store.finish_resume(
+            interview_id, resume.id, parser.extract_text(resume.name, content)
+        )
+    )
     return ContextDocResponse(
         id=resume.id,
         name=resume.name,

@@ -8,7 +8,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.models import DocKind, DocStatus, Role, SessionStatus, SummaryStatus
+from app.domain.models import (
+    DocCategory,
+    DocKind,
+    DocStatus,
+    Role,
+    SessionStatus,
+    SummaryStatus,
+)
 
 
 class Schema(BaseModel):
@@ -248,7 +255,16 @@ class ContextDocResponse(Schema):
     name: str
     kind: DocKind
     size_bytes: int = Field(serialization_alias="sizeBytes")
-    status: DocStatus
+    status: DocStatus = Field(
+        description=(
+            "올라온 직후는 parsing 이다. 본문을 뽑으면 ready, 못 뽑으면 failed. "
+            "parsing 인 동안 다시 조회한다."
+        )
+    )
+    category: DocCategory | None = Field(
+        default=None,
+        description="기업 컨텍스트 문서의 칸(jd · internal). 이력서는 null.",
+    )
 
 
 class ContextResponse(Schema):

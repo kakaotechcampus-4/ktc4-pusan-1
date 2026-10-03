@@ -32,9 +32,10 @@ class DocStatus(StrEnum):
     FE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —
     서버는 업로드가 끝난 뒤에야 문서를 안다.
 
-    `PARSING` 은 아직 쓰지 않는다. 본문 추출을 누가 하는지가 안 정해져서(#70) 지금은
-    올라온 즉시 `READY` 다. 값은 미리 둔다 — 나중에 파싱이 붙을 때 FE 가 이미 이
-    분기를 갖고 있다.
+        PARSING --본문을 뽑음--> READY
+                --못 뽑음·한도 초과--> FAILED
+
+    올라온 순간 `PARSING` 이고, 백그라운드에서 Helpy 가 본문을 뽑으면 끝난다 (#143).
     """
 
     PARSING = "parsing"
@@ -47,6 +48,20 @@ class Role(StrEnum):
 
     INTERVIEWER = "INTERVIEWER"
     CANDIDATE = "CANDIDATE"
+
+
+class DocCategory(StrEnum):
+    """기업 컨텍스트 문서의 종류. FE 설정 화면의 두 칸이다.
+
+    AI 가 JD 와 사내 문서를 다르게 쓴다 — JD 는 「이 직무가 요구하는 것」이다.
+    """
+
+    JD = "jd"
+    INTERNAL = "internal"
+
+
+def _stalled(status: "DocStatus", created_at: datetime, limit: timedelta) -> bool:
+    return status is DocStatus.PARSING and utcnow() - created_at > limit
 
 
 #: LiveKit Room 이름 접두사. Webhook 이 방 이름만 주므로 여기서 세션을 되찾는다.
@@ -190,9 +205,23 @@ class ContextDoc:
     name: str
     kind: DocKind
     size_bytes: int
+    category: DocCategory = DocCategory.INTERNAL
     id: str = field(default_factory=lambda: _new_id("doc"))
-    status: DocStatus = DocStatus.READY
+    status: DocStatus = DocStatus.PARSING
     created_at: datetime = field(default_factory=utcnow)
+
+    def shown_status(self, limit: timedelta) -> DocStatus:
+        """추출이 한도를 넘겨 멈춰 있으면 FAILED 로 보인다.
+
+        저장값은 바꾸지 않는다. 서버가 추출 도중 재시작되면 `PARSING` 이 영영 안
+        끝나는데, FE 는 그동안 계속 다시 조회한다. 늦게라도 추출이 끝나면 그 값이
+        이긴다 — 조회가 써 버리면 그 결과를 덮는다 (#115 와 같은 종류).
+        """
+        return (
+            DocStatus.FAILED
+            if _stalled(self.status, self.created_at, limit)
+            else self.status
+        )
 
 
 @dataclass
@@ -211,8 +240,16 @@ class Resume:
     kind: DocKind
     size_bytes: int
     id: str = field(default_factory=lambda: _new_id("doc"))
-    status: DocStatus = DocStatus.READY
+    status: DocStatus = DocStatus.PARSING
     created_at: datetime = field(default_factory=utcnow)
+
+    def shown_status(self, limit: timedelta) -> DocStatus:
+        """`ContextDoc.shown_status` 와 같다."""
+        return (
+            DocStatus.FAILED
+            if _stalled(self.status, self.created_at, limit)
+            else self.status
+        )
 
 
 class SummaryStatus(StrEnum):
