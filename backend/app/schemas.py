@@ -19,9 +19,8 @@ class Schema(BaseModel):
 
 
 class CreateInterviewRequest(Schema):
-    interviewer_id: str = Field(
-        alias="interviewerId", min_length=1, max_length=64, examples=["user_123"]
-    )
+    # 면접의 주인은 토큰의 사용자다 (#130). 예전 FE 가 `interviewerId` 를 보내도
+    # 스키마가 모르는 필드라 조용히 무시된다.
     candidate_name: str | None = Field(
         default=None,
         alias="candidateName",
@@ -93,8 +92,9 @@ class JoinRequest(Schema):
     role: Role = Field(
         default=Role.CANDIDATE,
         description=(
-            "현재 로그인·인증 제외 기준이라 요청값으로 받는다. "
-            "인증 도입 후에는 서버가 참가자 역할을 판단한다."
+            "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 "
+            "사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 "
+            "`ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다."
         ),
     )
 

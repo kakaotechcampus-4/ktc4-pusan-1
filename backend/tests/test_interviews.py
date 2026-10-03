@@ -2,16 +2,18 @@
 
 from fastapi.testclient import TestClient
 
+from app.domain.models import User
 from tests.conftest import FakeMedia
 
 
-def test_create_interview(client: TestClient):
+def test_create_interview(client: TestClient, owner: User):
+    """주인은 토큰의 사용자다. 본문의 `interviewerId` 는 무시한다 (#130)."""
     response = client.post("/api/v1/interviews", json={"interviewerId": "user_123"})
 
     assert response.status_code == 201
     body = response.json()
     assert body["interviewId"].startswith("int_")
-    assert body["interviewerId"] == "user_123"
+    assert body["interviewerId"] == owner.id
     assert body["candidateName"] is None
     assert body["createdAt"]
     assert set(body) == {"interviewId", "interviewerId", "candidateName", "createdAt"}
@@ -27,9 +29,9 @@ def test_create_interview_accepts_candidate_name(client: TestClient):
     assert response.json()["candidateName"] == "김지원"
 
 
-def test_create_interview_rejects_empty_id(client: TestClient):
+def test_create_interview_rejects_overlong_candidate_name(client: TestClient):
     """명세의 422 `요청값 검증 실패`."""
-    response = client.post("/api/v1/interviews", json={"interviewerId": ""})
+    response = client.post("/api/v1/interviews", json={"candidateName": "가" * 21})
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"

@@ -40,8 +40,10 @@ def session(store: InMemoryStore) -> Session:
 
 
 def _post(client: TestClient, *, auth: str = "signed") -> int:
-    headers = {"Authorization": auth} if auth else {}
-    return client.post(WEBHOOK, content=b"{}", headers=headers).status_code
+    # 빈 값도 실어야 한다 — 안 실으면 `client` 의 기본 로그인 헤더가 대신 간다.
+    return client.post(
+        WEBHOOK, content=b"{}", headers={"Authorization": auth}
+    ).status_code
 
 
 def test_participant_joined_sets_origin(client, media, store, session):
