@@ -238,6 +238,7 @@ curl -sSL https://get.livekit.io | bash
 
 ```bash
 LIVEKIT_KEYS="devkey: devsecret_local_only_0123456789abcdef" \
+LIVEKIT_WEBHOOK_API_KEY=devkey \
 LIVEKIT_RTC_USE_EXTERNAL_IP=false \
   livekit-server --config infra/livekit/livekit.yaml
 ```

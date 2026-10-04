@@ -6,7 +6,7 @@
 LiveKit 뿐이다. 자막 워커(Agent) · 녹화(Egress)는 사람보다 먼저 들어와도 원점이
 아니다 (#86).
 
-  현재 합의 : t=0 = 첫 참가자 접속 (이 Webhook)
+  현재 합의 : t=0 = 가장 이른 사람 참가자의 입장 (이 Webhook)
   재검토    : 녹화 도입 시 Egress start 와의 오프셋 보정 때문에
 
 AI 의 `startMs` 와 FE 의 `atSec` 은 단위만 ms·초로 두고 원점은 이 값 하나를 쓴다.
