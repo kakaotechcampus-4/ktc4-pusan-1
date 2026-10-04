@@ -105,7 +105,6 @@ class SuggestionCreate(InternalSchema):
     """`POST /internal/v1/sessions/{sessionId}/suggestions` 의 본문."""
 
     suggestion_id: PgText = Field(alias="suggestionId")
-    type: PgText = "FOLLOW_UP"
     content: PgText
     evidence_utterance_ids: Annotated[list[PgText], AfterValidator(_dedupe)] = Field(
         alias="evidenceUtteranceIds", min_length=1

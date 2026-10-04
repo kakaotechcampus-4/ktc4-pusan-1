@@ -28,7 +28,6 @@ UPSERT = {
 
 SUGGESTION = {
     "suggestionId": "sug_001",
-    "type": "FOLLOW_UP",
     "content": "그 경험에서 가장 어려웠던 부분은 무엇이었나요?",
     "evidenceUtteranceIds": ["utt_001"],
 }
@@ -437,9 +436,8 @@ def test_accepted_suggestion_is_stored(
     )
 
     [found] = store.list_suggestions(session_id)
-    assert (found.suggestion_id, found.type, found.content) == (
+    assert (found.suggestion_id, found.content) == (
         "sug_001",
-        "FOLLOW_UP",
         "그 경험에서 가장 어려웠던 부분은 무엇이었나요?",
     )
     assert found.evidence_utterance_ids == ["utt_001"]

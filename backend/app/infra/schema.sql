@@ -174,7 +174,6 @@ CREATE INDEX IF NOT EXISTS utterance_order_idx
 CREATE TABLE IF NOT EXISTS suggestion (
     session_id     TEXT        NOT NULL REFERENCES session (id) ON DELETE CASCADE,
     suggestion_id  TEXT        NOT NULL,
-    type           TEXT        NOT NULL,
     content        TEXT        NOT NULL,
     -- SuggestionStatus. 같은 이유로 CHECK 를 걸지 않는다.
     status         TEXT        NOT NULL,

@@ -343,6 +343,5 @@ class Suggestion:
     suggestion_id: str
     content: str
     evidence_utterance_ids: list[str]
-    type: str = "FOLLOW_UP"
     status: SuggestionStatus = SuggestionStatus.NEW
     created_at: datetime = field(default_factory=utcnow)

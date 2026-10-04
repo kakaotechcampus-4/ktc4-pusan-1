@@ -44,15 +44,13 @@ def create_suggestion(
         Suggestion(
             session_id=session_id,
             suggestion_id=body.suggestion_id,
-            type=body.type,
             content=body.content,
             evidence_utterance_ids=body.evidence_utterance_ids,
         )
     )
     logger.info(
-        "꼬리질문 수신 session_id=%s suggestion_id=%s type=%s 근거=%d개",
+        "꼬리질문 수신 session_id=%s suggestion_id=%s 근거=%d개",
         session_id,
         body.suggestion_id,
-        body.type,
         len(body.evidence_utterance_ids),
     )

@@ -643,16 +643,15 @@ class PostgresStore:
             inserted = conn.execute(
                 """
                 INSERT INTO suggestion (
-                    session_id, suggestion_id, type, content, status, created_at
+                    session_id, suggestion_id, content, status, created_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (session_id, suggestion_id) DO NOTHING
                 RETURNING 1
                 """,
                 (
                     suggestion.session_id,
                     suggestion.suggestion_id,
-                    suggestion.type,
                     suggestion.content,
                     suggestion.status.value,
                     suggestion.created_at,
@@ -677,7 +676,7 @@ class PostgresStore:
     def list_suggestions(self, session_id: str) -> list[Suggestion]:
         rows = self._all(
             """
-            SELECT s.session_id, s.suggestion_id, s.type, s.content,
+            SELECT s.session_id, s.suggestion_id, s.content,
                    s.status, s.created_at,
                    COALESCE(
                        (SELECT array_agg(e.utterance_id ORDER BY e.position)
@@ -698,7 +697,6 @@ class PostgresStore:
                 suggestion_id=row["suggestion_id"],
                 content=row["content"],
                 evidence_utterance_ids=list(row["evidence_utterance_ids"]),
-                type=row["type"],
                 status=SuggestionStatus(row["status"]),
                 created_at=row["created_at"],
             )
