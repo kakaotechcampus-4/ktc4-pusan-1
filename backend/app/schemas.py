@@ -257,3 +257,28 @@ class UpdateContextRequest(Schema):
     talent_profile: str | None = Field(
         default=None, alias="talentProfile", max_length=4000
     )
+
+
+# ── 인증 ────────────────────────────────────────────────
+
+
+class KakaoLoginRequest(Schema):
+    code: str = Field(
+        min_length=1,
+        max_length=512,
+        description="카카오가 FE 콜백으로 넘겨 준 `code`. 한 번만 쓸 수 있다.",
+    )
+
+
+class UserResponse(Schema):
+    id: str
+    nickname: str = Field(description="카카오 닉네임. 콘솔에서 필수 동의 항목이다.")
+    profile_image_url: str | None = Field(serialization_alias="profileImageUrl")
+
+
+class LoginResponse(Schema):
+    access_token: str = Field(
+        serialization_alias="accessToken",
+        description="이후 요청의 `Authorization: Bearer` 에 싣는다.",
+    )
+    user: UserResponse

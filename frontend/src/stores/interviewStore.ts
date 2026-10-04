@@ -73,7 +73,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
             });
           }
           // 화면에는 최근 6줄만 남긴다.
-          return { utterances: next.slice(-6) };
+          return { utterances: next.slice(-6), transcriptDegraded: false };
         }
 
         case 'stream.degraded':

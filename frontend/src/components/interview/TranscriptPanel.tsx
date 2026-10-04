@@ -46,7 +46,7 @@ export function TranscriptPanel() {
         <div className="relative flex max-h-44 flex-col gap-1 overflow-y-auto px-2.5 py-3">
           {transcriptDegraded && (
             <p className="px-1.5 text-[14px] leading-relaxed text-amber-300">
-              기록이 중단되었습니다. 통화와 녹화는 계속됩니다.
+              기록이 중단되었습니다. 통화는 계속됩니다.
             </p>
           )}
 

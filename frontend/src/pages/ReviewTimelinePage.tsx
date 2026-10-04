@@ -6,13 +6,14 @@
  *
  * 녹화 변환과 AI 평가에 시간이 걸리므로 준비 중 상태를 거친다.
  *
- * ⚠️ BE 에 이 엔드포인트가 없어 목으로 동작한다.
+ * 실제 API의 PROCESSING을 표시한다. READY 산출물은 서버 구현을 기다린다.
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getReview } from '../api/review';
+import { getInterview } from '../api/interview';
 import { AiReview } from '../components/review/AiReview';
 import { QaList } from '../components/review/QaList';
 import { ReviewPlayer } from '../components/review/ReviewPlayer';
@@ -26,11 +27,18 @@ const POLL_INTERVAL_MS = 3000;
 
 export default function ReviewTimelinePage() {
   const { interviewId } = useParams<{ interviewId: string }>();
-  const { data, isError } = useQuery({
+  const { data, isError, isFetching, refetch } = useQuery({
     queryKey: ['review', interviewId],
     queryFn: () => getReview(interviewId!),
     enabled: Boolean(interviewId),
     refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? POLL_INTERVAL_MS : false),
+  });
+
+  // 기록이 준비 중이어도 어떤 지원자의 면접인지 실제 면접 조회로 확인한다.
+  const { data: interview, refetch: refetchInterview } = useQuery({
+    queryKey: ['interview', interviewId],
+    queryFn: () => getInterview(interviewId!),
+    enabled: Boolean(interviewId),
   });
 
   const review = data?.status === 'READY' ? data : undefined;
@@ -52,8 +60,24 @@ export default function ReviewTimelinePage() {
   if (isError) {
     return (
       <Centered>
+        {interview?.candidateName && (
+          <h1 className="text-ink mb-4 text-xl font-semibold">
+            {interview.candidateName} · 면접 기록
+          </h1>
+        )}
         <p className="text-[15px] text-[#FFC46B]">면접 기록을 불러오지 못했습니다.</p>
         <p className="text-ink-muted mt-1.5 text-sm">잠시 후 다시 확인해주세요.</p>
+        <button
+          type="button"
+          onClick={() => {
+            void refetch();
+            void refetchInterview();
+          }}
+          disabled={isFetching}
+          className="mt-4 text-sm text-white underline disabled:opacity-50"
+        >
+          다시 확인
+        </button>
         <HomeLink />
       </Centered>
     );
@@ -63,19 +87,36 @@ export default function ReviewTimelinePage() {
     const etaSec = data?.status === 'PROCESSING' ? data.etaSec : undefined;
     return (
       <Centered>
+        {interview?.candidateName && (
+          <h1 className="text-ink mb-4 text-xl font-semibold">
+            {interview.candidateName} · 면접 기록
+          </h1>
+        )}
         <div
           aria-live="polite"
           className="border-border-base bg-surface-panel rounded-2xl border p-6"
         >
           <p className="text-ink text-[15px]">면접 기록을 정리하고 있습니다</p>
           <p className="text-ink-muted mt-1.5 text-sm">
-            녹화를 변환하고 AI 평가를 만드는 중입니다.
+            면접 기록이 아직 준비되지 않았습니다. 이 화면을 나갔다가 다시 확인할 수 있습니다.
             {etaSec ? ` 약 ${Math.ceil(etaSec / 60)}분 남았습니다.` : ''}
           </p>
           <div className="bg-surface-bright mt-4 h-1 overflow-hidden rounded-full">
             <div className="bg-brand h-full w-1/3 animate-[indeterminate_1.4s_ease-in-out_infinite] rounded-full" />
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            void refetch();
+            void refetchInterview();
+          }}
+          disabled={isFetching}
+          className="mt-4 text-sm text-white underline disabled:opacity-50"
+        >
+          다시 확인
+        </button>
+        <HomeLink />
       </Centered>
     );
   }

@@ -79,6 +79,17 @@ def _new_id(prefix: str) -> str:
 
 
 @dataclass
+class User:
+    """로그인한 면접관. 지금은 카카오 계정 하나에 하나다."""
+
+    kakao_id: int
+    nickname: str
+    profile_image_url: str | None = None
+    id: str = field(default_factory=lambda: _new_id("usr"))
+    created_at: datetime = field(default_factory=utcnow)
+
+
+@dataclass
 class Interview:
     interviewer_id: str
     candidate_name: str | None = None
@@ -267,3 +278,70 @@ class SessionSummary:
         self.overview = ""
         self.key_points = []
         self.completed_at = utcnow()
+
+
+class TranscriptStage(StrEnum):
+    """전사가 어느 벌인가. 전사는 두 벌 만든다 (#85).
+
+    LIVE      면접 중 실시간 전사. 자막과 꼬리질문이 이걸 본다
+    REALIGNED 끝난 뒤 녹화로 다시 돌린 것. 리뷰·요약이 이걸 본다 (#112 이후)
+
+    AI 쪽 `PassType`(INTERIM/FINAL)과는 다른 축이다. Agent 는 FINAL 만 보내서
+    (#76) 그쪽은 저장하지 않는다.
+    """
+
+    LIVE = "LIVE"
+    REALIGNED = "REALIGNED"
+
+
+@dataclass
+class Utterance:
+    """전사 한 발화. Agent 가 `transcript.upsert` 로 보낸다.
+
+    시각은 **세션 원점 기준 ms** 다 — 다른 모델처럼 `datetime` 이 아니다.
+    원점(`Session.transcript_origin_at`)을 더해야 벽시계가 되는데 그 원점이
+    아직 믿을 만하지 않다 (#86). 받은 값을 그대로 두면 원점을 고친 뒤에도
+    다시 계산할 수 있다.
+
+    `participantId` 는 받지만 두지 않는다. BE 가 identity 를 역할 문자열로
+    고정해서 `speaker` 와 같은 값이다 (#76 ②).
+    """
+
+    session_id: str
+    utterance_id: str
+    speaker: Role
+    text: str
+    started_at_ms: int
+    ended_at_ms: int
+    stage: TranscriptStage = TranscriptStage.LIVE
+
+
+class SuggestionStatus(StrEnum):
+    """꼬리질문의 상태. Agent 는 보내지 않고 BE 가 갖는다 (`irya_ai.schemas.wire`).
+
+    지금은 들어온 상태 하나뿐이다. FE 에 꼬리질문 UI 가 없어 상태를 바꿀
+    계기가 없다 — 「면접관이 썼다」「넘겼다」가 생기면 그때 늘린다.
+    """
+
+    NEW = "NEW"
+
+
+@dataclass
+class Suggestion:
+    """꼬리질문 하나. Agent 가 발급한 `suggestionId` 로 온다 (#76 4).
+
+    근거 발화가 비어 있으면 받지 않는다 — 경계(`SuggestionCreate`)에서 막는다.
+    근거가 **DB 에 있는지**는 보지 않는다. 꼬리질문(POST)과 전사(WebSocket)는
+    통로가 달라, 꼬리질문이 제 근거보다 먼저 도착할 수 있다. 근거는 받은 순서대로
+    따로 저장하고(`suggestion_evidence`), 타임라인을 읽을 때 전사와 잇는다.
+
+    `reason` 은 아직 없다. 생성기는 만들지만 전송 계약에서 빠져 있고, 넣을지는
+    회의 안건으로 남아 있다 (#73).
+    """
+
+    session_id: str
+    suggestion_id: str
+    content: str
+    evidence_utterance_ids: list[str]
+    status: SuggestionStatus = SuggestionStatus.NEW
+    created_at: datetime = field(default_factory=utcnow)

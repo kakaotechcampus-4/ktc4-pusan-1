@@ -221,6 +221,23 @@ class SegmentTiming:
         return (self.received_ms - self.start_ms) + pipeline
 
     @property
+    def speech_end_to_release_ms(self) -> int | None:
+        """From this segment's last sample to its text reaching the consumer.
+
+        The figure to hold against TechSpec N1 ("STT 결과가 표시되는 시간"):
+        a reader waits from when the speaker stopped, not from when they
+        started. It is :attr:`source_to_release_ms` less the segment's own
+        duration, which leaves the cut decision, the queue, the request and
+        the ordering barrier. Same real-time capture assumption, and the same
+        missing hop to the screen.
+        """
+
+        pipeline = self.pipeline_ms
+        if pipeline is None:
+            return None
+        return self.decision_lag_ms + pipeline
+
+    @property
     def proxy_display_lag_ms(self) -> int | None:
         """Segment duration plus request time - the older, published figure.
 

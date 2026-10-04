@@ -1,15 +1,20 @@
 /**
  * 기업 컨텍스트 API (S1).
  *
- * ⚠️ BE 명세에 없는 엔드포인트다. 목으로만 동작한다.
+ * 조회는 `current` 하나로 한다 — 설정 화면에 들어올 때 FE 는 contextId 를 모른다.
+ * 서버가 없으면 만들어서 돌려주므로, FE 는 "아직 안 만들었다" 와 "비어 있다" 를 구분하지 않는다.
  */
 
 import type { CompanyContext, ContextDoc } from '../types/interview';
 import { handleMockUpload, USE_MOCK_API } from '../mocks/mockApi';
-import { API_BASE, ApiError, authorizationHeader, request } from './client';
+import { request, uploadFile } from './client';
 
 const V1 = '/api/v1';
 
+/** GET /api/v1/contexts/current — 로그인한 사람의 조직 컨텍스트 */
+export const getCurrentContext = () => request<CompanyContext>(`${V1}/contexts/current`);
+
+/** 이미 확인한 컨텍스트의 문서·저장 결과를 다시 조회한다. */
 export const getContext = (contextId: string) =>
   request<CompanyContext>(`${V1}/contexts/${contextId}`);
 
@@ -30,24 +35,5 @@ export function uploadDoc(
   // ⚠️ 프로토타입 임시 분기. XHR 은 request() 를 거치지 않으므로 여기서 따로 가른다.
   if (USE_MOCK_API) return handleMockUpload(file, onProgress);
 
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const form = new FormData();
-    form.append('file', file);
-
-    xhr.open('POST', `${API_BASE}${V1}/contexts/${contextId}/docs`);
-    xhr.setRequestHeader('Authorization', authorizationHeader());
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(e.loaded / e.total);
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(JSON.parse(xhr.responseText) as ContextDoc);
-        return;
-      }
-      reject(new ApiError('UPLOAD_FAILED', xhr.status));
-    };
-    xhr.onerror = () => reject(new ApiError('NETWORK', 0));
-    xhr.send(form);
-  });
+  return uploadFile(`${V1}/contexts/${contextId}/docs`, file, onProgress);
 }

@@ -2,9 +2,10 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import contexts, interviews, sessions, webhooks
+from app.api.v1 import auth, contexts, interviews, sessions, webhooks
 
 router = APIRouter()
+router.include_router(auth.router)
 router.include_router(contexts.router)
 router.include_router(interviews.router)
 router.include_router(sessions.router)
