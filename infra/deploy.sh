@@ -82,9 +82,13 @@ cd "$INFRA"
 # 그러면 "지금 도는 게 어느 커밋이냐" 를 배포 로그를 뒤져야 알 수 있고, 장애
 # 대응에서 그게 제일 먼저 필요한 정보다. compose 가 이 값을 빌드 인자와 라벨로
 # 넘긴다 (`docker inspect`).
-GIT_SHA=$(git -C "$REPO" rev-parse --short HEAD)
-export GIT_SHA
-echo "GIT_SHA: $GIT_SHA"
+#
+# HEAD 가 아니라 그 폴더를 마지막으로 바꾼 커밋이다 — HEAD 면 무엇이 머지되든
+# backend · ai 가 다시 만들어져 진행 중인 면접의 자막이 멈춘다 (#134).
+BACKEND_SHA=$(git -C "$REPO" log -1 --format=%H -- backend)
+AI_SHA=$(git -C "$REPO" log -1 --format=%H -- ai)
+export BACKEND_SHA AI_SHA
+echo "backend: $BACKEND_SHA  ai: $AI_SHA"
 
 if [ "$COMPOSE_CHANGED" -gt 0 ]; then
 	cat <<-'WARN'
