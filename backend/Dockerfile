@@ -7,10 +7,12 @@
 # 스테이지를 나누는 값이 비용보다 크지 않다. 컴파일러가 필요한 의존성이
 # 생기면 그때 나눈다.
 #
-# 베이스는 digest 고정 — 갱신은 Dependabot PR (#134).
+# 베이스와 uv 는 digest 고정 — 갱신은 Dependabot PR (#134). uv 를 `FROM … AS uv`
+# 로 받는 건 Dependabot 이 FROM 줄만 읽어서다 (`COPY --from=<이미지>` 는 안 본다).
+FROM ghcr.io/astral-sh/uv:0.11.19@sha256:b46b03ddfcfbf8f547af7e9eaefdf8a39c8cebcba7c98858d3162bd28cf536f6 AS uv
 FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
 

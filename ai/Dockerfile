@@ -2,10 +2,13 @@
 # WebSocket and needs no public application port; 8081 is its private health
 # endpoint.
 #
-# Base pinned by digest; Dependabot bumps it (#134).
+# Base and uv pinned by digest; Dependabot bumps them (#134). uv comes in as a
+# `FROM ... AS uv` stage because Dependabot only reads FROM lines, not
+# `COPY --from=<image>`.
+FROM ghcr.io/astral-sh/uv:0.11.19@sha256:b46b03ddfcfbf8f547af7e9eaefdf8a39c8cebcba7c98858d3162bd28cf536f6 AS uv
 FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
 

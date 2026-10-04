@@ -82,6 +82,8 @@ docker inspect irya-ai --format '{{index .Config.Labels "org.opencontainers.imag
 
 코드가 그대로면 컨테이너도 그대로입니다 (#134, 베이스는 digest 고정). **`ai/` · `backend/` 나 베이스 digest 를 바꾸는 머지는 면접이 없는 시간에 합니다** — 다시 만들어진 워커는 진행 중인 방으로 돌아가지 않습니다.
 
+「그대로」는 빌드 캐시에도 기댑니다. 서버의 빌드 캐시가 비면(`docker builder prune` 등) 코드가 그대로여도 다음 배포에서 한 번 다시 만들어집니다.
+
 ## 손으로 배포하기
 
 ```bash
