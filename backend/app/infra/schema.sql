@@ -142,7 +142,10 @@ CREATE TABLE IF NOT EXISTS utterance (
     session_id     TEXT    NOT NULL REFERENCES session (id) ON DELETE CASCADE,
     -- TranscriptStage. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
     stage          TEXT    NOT NULL,
-    utterance_id   TEXT    NOT NULL,
+    -- C 정렬 — 같은 ms 의 id 순을 코드포인트 순(인메모리와 같음)으로 고정한다. id 에
+    -- 트랙 SID 가 들어가 대소문자 · '_' 가 섞이는데, DB 로캘을 따르면 이미지마다
+    -- (alpine · glibc · RDS) 순서가 갈린다.
+    utterance_id   TEXT    COLLATE "C" NOT NULL,
     speaker        TEXT    NOT NULL,
     text           TEXT    NOT NULL,
     started_at_ms  BIGINT  NOT NULL,
@@ -187,7 +190,8 @@ CREATE TABLE IF NOT EXISTS suggestion_evidence (
     session_id     TEXT  NOT NULL,
     suggestion_id  TEXT  NOT NULL,
     position       INT   NOT NULL,
-    utterance_id   TEXT  NOT NULL,
+    -- utterance.utterance_id 와 같은 C 정렬. 다르면 JOIN 이 아래 인덱스를 못 탄다.
+    utterance_id   TEXT  COLLATE "C" NOT NULL,
     PRIMARY KEY (session_id, suggestion_id, position),
     FOREIGN KEY (session_id, suggestion_id)
         REFERENCES suggestion (session_id, suggestion_id) ON DELETE CASCADE

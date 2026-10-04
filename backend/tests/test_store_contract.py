@@ -779,13 +779,15 @@ def test_at_the_same_ms_the_interviewer_comes_first(subject: Store):
 
 
 def test_same_speaker_at_the_same_ms_falls_back_to_id(subject: Store):
+    """id 순은 코드포인트 순이다. id 에 트랙 SID 가 들어가 대소문자 · `_` 가 섞이는데,
+    DB 로캘을 따르면 glibc 이미지에서 인메모리와 순서가 갈린다."""
     session = _seed(subject)
-    subject.upsert_utterance(_utterance(session, "utt_b", started_at_ms=1000))
-    subject.upsert_utterance(_utterance(session, "utt_a", started_at_ms=1000))
+    for uid in ["utt_TRa_0001", "utt_TR_b_0001", "utt_TR_B_0001"]:
+        subject.upsert_utterance(_utterance(session, uid, started_at_ms=1000))
 
     ids = [u.utterance_id for u in subject.list_utterances(session.id)]
 
-    assert ids == ["utt_a", "utt_b"]
+    assert ids == ["utt_TR_B_0001", "utt_TR_b_0001", "utt_TRa_0001"]
 
 
 def test_a_realigned_utterance_does_not_overwrite_the_live_one(subject: Store):
