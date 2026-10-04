@@ -1,11 +1,17 @@
 -- IRYA 저장소 스키마.
 --
--- 마이그레이션 도구는 아직 붙이지 않는다. 테이블이 둘뿐이고 운영 데이터가
--- 없어서, 지금은 기동 시 이 파일을 한 번 실행하는 것으로 충분하다.
--- 컬럼을 바꿔야 할 때가 오면 그때 Alembic 을 넣는다.
+-- 마이그레이션 도구는 아직 붙이지 않는다. 테이블은 늘었지만 전부 새로 만드는
+-- 것이라 `CREATE TABLE IF NOT EXISTS` 로 따라붙고, 기존 테이블에 컬럼을 더할
+-- 때는 `ALTER ... ADD COLUMN IF NOT EXISTS` 로 버틴다 (session 의 원점이 그렇다).
+-- 컬럼의 **타입이나 키를 바꿔야** 할 때가 오면 그때 Alembic 을 넣는다.
+-- 처음 닿을 자리는 전사에 seq 를 필수 컬럼으로 넣을 때다 (#76 ①). 보내는 쪽이
+-- 붙기 전까지 utterance · suggestion 계열은 비어 있어서 지우고 다시 만들어도 된다.
+-- ⚠️ `CREATE INDEX IF NOT EXISTS` 는 이름이 같으면 정의를 바꿔도 기존 DB 에
+-- 반영되지 않는다. 인덱스를 고칠 때는 이름도 바꾼다.
 --
--- 시각은 전부 TIMESTAMPTZ 다. 도메인 모델이 UTC aware datetime 을 쓰고,
--- 면접 참가자·서버·AI 가 서로 다른 시간대에 있을 수 있다.
+-- 시각은 TIMESTAMPTZ 다. 도메인 모델이 UTC aware datetime 을 쓰고, 면접
+-- 참가자·서버·AI 가 서로 다른 시간대에 있을 수 있다. 예외는 전사의 발화
+-- 시각 하나다 — 벽시계가 아니라 세션 원점 기준 ms 라 BIGINT 로 둔다 (아래).
 
 CREATE TABLE IF NOT EXISTS interview (
     id             TEXT        PRIMARY KEY,
@@ -118,3 +124,78 @@ CREATE TABLE IF NOT EXISTS app_user (
     profile_image_url  TEXT,
     created_at         TIMESTAMPTZ NOT NULL
 );
+
+-- ── 전사·꼬리질문 (#85) ────────────────────────────────────
+--
+-- Agent 가 면접 중에 보내는 두 가지다. 전사는 WebSocket 으로, 꼬리질문은
+-- POST 로 온다 (#76). 세션이 지워지면 같이 지워진다 — 면접 전사는 지원자의
+-- 말이라 지울 길이 있어야 한다.
+--
+-- 발화 시각은 **세션 원점 기준 ms** 다. TIMESTAMPTZ 로 바꾸려면 원점을
+-- 더해야 하는데 그 원점이 아직 믿을 만하지 않다 (#86). 받은 값을 그대로
+-- 두면 원점을 고친 뒤에도 다시 계산할 수 있다.
+--
+-- 기본키에 stage 가 있다. 재전사(REALIGNED)가 초벌과 같은 utterance_id 를
+-- 쓸지 새로 낼지 아직 답이 없는데 (#76 A), 키에 넣어 두면 어느 쪽이든 초벌을
+-- 덮지 않는다. 새로 낸다고 해도 키가 한 칸 넓을 뿐이다.
+CREATE TABLE IF NOT EXISTS utterance (
+    session_id     TEXT    NOT NULL REFERENCES session (id) ON DELETE CASCADE,
+    -- TranscriptStage. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+    stage          TEXT    NOT NULL,
+    -- C 정렬 — 같은 ms 의 id 순을 코드포인트 순(인메모리와 같음)으로 고정한다. id 에
+    -- 트랙 SID 가 들어가 대소문자 · '_' 가 섞이는데, DB 로캘을 따르면 이미지마다
+    -- (alpine · glibc · RDS) 순서가 갈린다.
+    utterance_id   TEXT    COLLATE "C" NOT NULL,
+    speaker        TEXT    NOT NULL,
+    text           TEXT    NOT NULL,
+    started_at_ms  BIGINT  NOT NULL,
+    ended_at_ms    BIGINT  NOT NULL,
+    PRIMARY KEY (session_id, stage, utterance_id)
+);
+
+-- 말한 순서대로 읽는다. 같은 ms 면 면접관이 먼저, 그다음 id 순이다 — 질문이
+-- 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. seq 가 전송 페이로드에 아직 없어서
+-- (#76 ①) 여기서 정한다. 같은 ms 는 드물어 그 자리는 인덱스를 안 탄다.
+CREATE INDEX IF NOT EXISTS utterance_order_idx
+    ON utterance (session_id, stage, started_at_ms, utterance_id);
+
+-- 근거 발화는 suggestion_evidence 에 한 줄씩 둔다. 타임라인에서 「이 말로 나온
+-- 꼬리질문」을 찾을 때 평범한 JOIN 으로 읽기 위해서다.
+--
+-- 근거 발화를 utterance 에 외래키로 걸지 않는다. 꼬리질문(POST)과 전사
+-- (WebSocket)는 통로가 달라서 꼬리질문이 제 근거보다 먼저 도착할 수 있고, 전사
+-- 배선 전에는 근거가 아예 없다. 그때 외래키가 있으면 멀쩡한 질문이 거절되고
+-- Agent 는 짧게 재시도한 뒤 버린다. 그래서 받은 그대로 두고, 타임라인을 읽을 때
+-- 잇는다 — 그때는 면접이 끝나 전사가 다 와 있다. 못 찾은 근거는 링크 없이 보인다.
+-- 이 방식이 믿을 만하려면 발화 ID 가 세션 안에서 유일해야 한다 (AI 쪽 계약).
+--
+-- 비어 있지 않은지는 경계(SuggestionCreate)에서 본다 — 여기서도 막으면 인메모리
+-- 구현과 결과가 갈린다.
+CREATE TABLE IF NOT EXISTS suggestion (
+    session_id     TEXT        NOT NULL REFERENCES session (id) ON DELETE CASCADE,
+    suggestion_id  TEXT        NOT NULL,
+    content        TEXT        NOT NULL,
+    -- SuggestionStatus. 같은 이유로 CHECK 를 걸지 않는다.
+    status         TEXT        NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (session_id, suggestion_id)
+);
+
+CREATE INDEX IF NOT EXISTS suggestion_order_idx
+    ON suggestion (session_id, created_at, suggestion_id);
+
+-- position 은 Agent 가 보낸 순서다. 중복 ID 는 경계에서 하나로 합쳐 온다.
+CREATE TABLE IF NOT EXISTS suggestion_evidence (
+    session_id     TEXT  NOT NULL,
+    suggestion_id  TEXT  NOT NULL,
+    position       INT   NOT NULL,
+    -- utterance.utterance_id 와 같은 C 정렬. 다르면 JOIN 이 아래 인덱스를 못 탄다.
+    utterance_id   TEXT  COLLATE "C" NOT NULL,
+    PRIMARY KEY (session_id, suggestion_id, position),
+    FOREIGN KEY (session_id, suggestion_id)
+        REFERENCES suggestion (session_id, suggestion_id) ON DELETE CASCADE
+);
+
+-- 발화에서 꼬리질문을 거꾸로 찾는다 (타임라인의 「이 말로 나온 질문」).
+CREATE INDEX IF NOT EXISTS suggestion_evidence_utterance_idx
+    ON suggestion_evidence (session_id, utterance_id);
