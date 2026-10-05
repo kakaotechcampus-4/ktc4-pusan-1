@@ -158,10 +158,10 @@ AI 워커는 다릅니다. compose 의 `ai` 서비스(#84)가 `backend` 와 같�
 
 ## DB 백업
 
-`backup-db.sh` 가 매일 KST 새벽 4시에 `pg_dump` 를 떠서 S3 `ktc4-pusan-1-irya/db/` 에 올립니다. 30일 지난 덤프는 S3 수명주기(`s3-lifecycle.json`)가 지웁니다. cron 은 서버의 `ubuntu` 사용자에 한 줄로 걸려 있습니다 — 서버는 UTC 입니다.
+`backup-db.sh` 가 매일 KST 새벽 4시에 `pg_dump` 를 떠서 S3 `ktc4-pusan-1-irya/db/` 에 올립니다. 30일 지난 덤프는 S3 수명주기(`s3-lifecycle.json`)가 지웁니다. cron 은 서버 `ubuntu` 사용자의 crontab 에 아래 한 줄로 걸어 둡니다 (`crontab -e`). 서버는 UTC 라 19시가 KST 새벽 4시입니다.
 
-```bash
-crontab -l    # 0 19 * * * $HOME/ktc4-pusan-1/infra/backup-db.sh >> $HOME/backup-db.log 2>&1
+```
+0 19 * * * $HOME/ktc4-pusan-1/infra/backup-db.sh >> $HOME/backup-db.log 2>&1
 ```
 
 시연 · 평가 직전에는 손으로 한 번 더 돌립니다.
@@ -188,6 +188,7 @@ docker run --rm --network host -v "$PWD:/d" amazon/aws-cli:2.37.9 \
 docker run -d --name irya-restore -e POSTGRES_PASSWORD=x postgres:17-alpine
 # -h 127.0.0.1 로 본다. 초기화 중의 임시 서버는 소켓으로만 받아서, 소켓으로 보면 재시작 전에 준비됐다고 나온다
 until docker exec irya-restore pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done
+# 스키마 경고 몇 줄과 exit 1 이 나올 수 있다. 성공 여부는 아래 행 수로 판단한다
 docker exec -i irya-restore pg_restore -U postgres -d postgres --no-owner --no-privileges < <이름>.dump
 docker exec irya-restore psql -U postgres -Atc 'select count(*) from interview' -c 'select count(*) from session'
 docker rm -f irya-restore
