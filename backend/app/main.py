@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.errors import register_error_handlers
 from app.core.uploads import MAX_UPLOAD_BYTES, MULTIPART_SLACK_BYTES
 from app.domain import store as store_module
+from app.services.documents import check_key_at_startup as check_parser_at_startup
 
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     check_key_at_startup()
     check_secret_at_startup()
+    check_parser_at_startup()
 
     if not settings.database_url:
         yield

@@ -12,9 +12,10 @@ from fastapi.testclient import TestClient
 from app.core import auth
 from app.core.errors import ApiError, ErrorCode
 from app.domain.models import utcnow
+from app.domain.store import InMemoryStore
 from app.services import kakao as kakao_module
 from app.services.kakao import KakaoClient, KakaoProfile
-from tests.conftest import FakeKakao
+from tests.conftest import ANON, FakeKakao
 
 
 def _login(client: TestClient, code: str = "code_abc") -> dict:
@@ -78,15 +79,23 @@ def test_empty_code_is_rejected(client: TestClient):
 
 
 def _forged(**overrides) -> str:
-    claims = {"sub": "usr_x", "exp": utcnow() + timedelta(days=1)} | overrides
+    claims = {"sub": "usr_x", "ver": 0, "exp": utcnow() + timedelta(days=1)} | overrides
     return jwt.encode(claims, "not-our-secret-" * 4, algorithm="HS256")
+
+
+def _signed(**claims) -> str:
+    """우리 키로 서명한 토큰. 서명 말고 다른 검사가 거르는지 볼 때 쓴다."""
+    return jwt.encode(
+        claims,
+        auth._secret,  # pyright: ignore[reportPrivateUsage]
+        algorithm="HS256",
+    )
 
 
 @pytest.mark.parametrize(
     "headers",
     [
-        # `client` 는 기본으로 로그인해 있다. 빈 값으로 덮어써야 「토큰 없음」이다.
-        {"Authorization": ""},
+        ANON,
         {"Authorization": "Basic abc"},
         {"Authorization": "Bearer garbage"},
         {"Authorization": f"Bearer {_forged()}"},
@@ -101,17 +110,37 @@ def test_me_without_valid_token_is_401(client: TestClient, headers: dict):
 
 def test_expired_token_is_401(client: TestClient):
     user_id = _login(client)["user"]["id"]
-    expired = jwt.encode(
-        {"sub": user_id, "exp": utcnow() - timedelta(seconds=1)},
-        auth._secret,  # pyright: ignore[reportPrivateUsage]
-        algorithm="HS256",
-    )
+    expired = _signed(sub=user_id, ver=0, exp=utcnow() - timedelta(seconds=1))
 
     assert _me(client, expired).status_code == 401
 
 
 def test_token_for_unknown_user_is_401(client: TestClient):
-    assert _me(client, auth.issue_token("usr_gone")).status_code == 401
+    assert _me(client, auth.issue_token("usr_gone", 0)).status_code == 401
+
+
+@pytest.mark.parametrize("ver", [None, "0", 1])
+def test_token_with_wrong_version_is_401(client: TestClient, ver):
+    """`ver` 가 없거나(#144 이전 토큰) 정수가 아니거나 저장된 값과 다르면 401."""
+    user_id = _login(client)["user"]["id"]
+    claims = {"sub": user_id, "exp": utcnow() + timedelta(days=1)}
+    if ver is not None:
+        claims["ver"] = ver
+
+    assert _me(client, _signed(**claims)).status_code == 401
+
+
+def test_bumping_token_version_revokes_issued_tokens(
+    client: TestClient, store: InMemoryStore
+):
+    """#119 리뷰 4번. 끊는 API 는 아직 없어서 저장소를 직접 올린다."""
+    token = _login(client)["accessToken"]
+    user = store._users[_me(client, token).json()["id"]]  # pyright: ignore[reportPrivateUsage]
+
+    user.token_version += 1
+
+    assert _me(client, token).status_code == 401
+    assert _me(client, _login(client)["accessToken"]).status_code == 200
 
 
 # ── 실제 클라이언트의 실패 분류 ─────────────────────────

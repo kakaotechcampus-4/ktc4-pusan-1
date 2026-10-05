@@ -1,0 +1,169 @@
+{
+ "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+ "type": "document_parsing",
+ "status": "succeeded",
+ "created_at": 1791044958.8822303,
+ "log": [
+  {
+   "timestamp": 1791044959.1258683,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Job started"
+  },
+  {
+   "timestamp": 1791044959.201657,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Processing 1 pages (render → extract → read)"
+  },
+  {
+   "timestamp": 1791044959.6589603,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Render phase complete: 1 / 1 pages"
+  },
+  {
+   "timestamp": 1791044959.809229,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Extracting page 1/1: 6 document elements"
+  },
+  {
+   "timestamp": 1791044959.812202,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Reading 6 document elements across 1 pages"
+  },
+  {
+   "timestamp": 1791044960.400946,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Reading text 1/6: • Python 또는 Java 기반 서버 개발 경험"
+  },
+  {
+   "timestamp": 1791044960.400978,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Reading text 2/6: • 관계형 DB와 캐시 사용 경험"
+  },
+  {
+   "timestamp": 1791044960.4065082,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Reading table 3/6: <table><tr><td>구분</td><td>내용</td></tr><tr><td>근무지</td><td>부산</td></tr><tr><td>고용형태</td><td>정규직</td></tr></table>"
+  },
+  {
+   "timestamp": 1791044960.5904896,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Reading text 4/6: 자격 요건"
+  },
+  {
+   "timestamp": 1791044960.622863,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Reading doc_title 5/6: 누리뱅크 백엔드 신입 채용"
+  },
+  {
+   "timestamp": 1791044960.6229062,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Reading text 6/6: 플랫폼팀에서 상품 조회·주문 API를 개발하고 운영합니다."
+  },
+  {
+   "timestamp": 1791044960.6278753,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "All 1 pages processed"
+  },
+  {
+   "timestamp": 1791044960.7583287,
+   "job_id": "45c36cc4-b1f2-43fa-868f-cd80bfd21234",
+   "message": "Job completed successfully"
+  }
+ ],
+ "found": true,
+ "result": {
+  "page_count": 1,
+  "pages": [
+   {
+    "page": 1,
+    "elements": [
+     {
+      "bounding_box": [
+       66.0,
+       70.0,
+       589.0,
+       125.0
+      ],
+      "label": "doc_title",
+      "score": 0.5721691250801086,
+      "content": "누리뱅크 백엔드 신입 채용",
+      "description": null,
+      "data": null,
+      "content_compact": "누리뱅크 백엔드 신입 채용"
+     },
+     {
+      "bounding_box": [
+       65.0,
+       160.0,
+       630.0,
+       194.0
+      ],
+      "label": "text",
+      "score": 0.6447265148162842,
+      "content": "플랫폼팀에서 상품 조회·주문 API를 개발하고 운영합니다.",
+      "description": null,
+      "data": null,
+      "content_compact": "플랫폼팀에서 상품 조회·주문 API를 개발하고 운영합니다."
+     },
+     {
+      "bounding_box": [
+       65.0,
+       224.0,
+       213.0,
+       266.0
+      ],
+      "label": "text",
+      "score": 0.5809726119041443,
+      "content": "자격 요건",
+      "description": null,
+      "data": null,
+      "content_compact": "자격 요건"
+     },
+     {
+      "bounding_box": [
+       101.0,
+       299.0,
+       513.0,
+       330.0
+      ],
+      "label": "text",
+      "score": 0.6641989350318909,
+      "content": "• Python 또는 Java 기반 서버 개발 경험",
+      "description": null,
+      "data": null,
+      "content_compact": "• Python 또는 Java 기반 서버 개발 경험"
+     },
+     {
+      "bounding_box": [
+       102.0,
+       330.0,
+       411.0,
+       360.0
+      ],
+      "label": "text",
+      "score": 0.6490501761436462,
+      "content": "• 관계형 DB와 캐시 사용 경험",
+      "description": null,
+      "data": null,
+      "content_compact": "• 관계형 DB와 캐시 사용 경험"
+     },
+     {
+      "bounding_box": [
+       71.0,
+       388.0,
+       247.0,
+       509.0
+      ],
+      "label": "table",
+      "score": 0.6953001618385315,
+      "content": "<table><tr><td style=\"border-top: 1px solid black; border-right: 1px solid black; border-bottom: 1px solid black; border-left: 1px solid black\">구분</td><td style=\"border-top: 1px solid black; border-right: 1px solid black; border-bottom: 1px solid black; border-left: 1px solid black\">내용</td></tr><tr><td style=\"border-top: 1px solid black; border-right: 1px solid black; border-bottom: 1px solid black; border-left: 1px solid black\">근무지</td><td style=\"border-top: 1px solid black; border-right: 1px solid black; border-bottom: 1px solid black; border-left: 1px solid black\">부산</td></tr><tr><td style=\"border-top: 1px solid black; border-right: 1px solid black; border-bottom: 1px solid black; border-left: 1px solid black\">고용형태</td><td style=\"border-top: 1px solid black; border-right: 1px solid black; border-bottom: 1px solid black; border-left: 1px solid black\">정규직</td></tr></table>",
+      "description": null,
+      "data": null,
+      "content_compact": "<table><tr><td>구분</td><td>내용</td></tr><tr><td>근무지</td><td>부산</td></tr><tr><td>고용형태</td><td>정규직</td></tr></table>"
+     }
+    ],
+    "image": null
+   }
+  ]
+ }
+}

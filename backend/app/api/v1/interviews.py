@@ -5,24 +5,28 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import (
     CurrentUserDep,
     MediaDep,
     OwnedInterviewDep,
+    ParserDep,
     StoreDep,
     get_owned_interview,
 )
 from app.core.config import settings
 from app.core.errors import LOGIN_REQUIRED, responses
 from app.core.uploads import read_upload
-from app.domain.models import Interview, Resume, Session
+from app.domain.models import Context, Interview, Resume, Session, SummaryStatus
 from app.schemas import (
     ContextDocResponse,
     CreateInterviewRequest,
     CreateSessionResponse,
+    InterviewerSummary,
+    InterviewListItem,
+    InterviewListResponse,
     InterviewResponse,
     ReviewProcessingResponse,
 )
@@ -72,6 +76,55 @@ def create_interview(
     )
     store.add_interview(interview)
     return _to_response(interview)
+
+
+@router.get(
+    "",
+    response_model=InterviewListResponse,
+    summary="내 면접 목록",
+    responses=responses(LOGIN_REQUIRED),
+)
+def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListResponse:
+    """내가 만든 면접을 최신순으로 준다. 필터 · 정렬은 FE 가 한다 (#137 1-1).
+
+    면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 내 컨텍스트에서 온다.
+    """
+    # ponytail: 페이지네이션 없음. 면접관 한 명의 면접이 수백 건을 넘으면
+    # cursor 를 붙인다.
+    role = store.ensure_context(Context(owner_id=user.id)).role
+    interviewer = InterviewerSummary(nickname=user.nickname)
+    return InterviewListResponse(
+        items=[
+            _to_list_item(interview, session, summary, role, interviewer)
+            for interview, session, summary in store.list_interviews(user.id)
+        ]
+    )
+
+
+def _to_list_item(
+    interview: Interview,
+    session: Session | None,
+    summary: SummaryStatus | None,
+    role: str,
+    interviewer: InterviewerSummary,
+) -> InterviewListItem:
+    began = (
+        None if session is None else session.started_at or session.transcript_origin_at
+    )
+    ended = None if session is None else session.ended_at
+    return InterviewListItem(
+        interview_id=interview.id,
+        candidate_name=interview.candidate_name,
+        role=role,
+        interviewer=interviewer,
+        interviewed_at=began,
+        duration_sec=None
+        if began is None or ended is None
+        else int((ended - began).total_seconds()),
+        review_status="PENDING",
+        summary_status=summary,
+        counts=None,
+    )
 
 
 @router.get(
@@ -160,9 +213,11 @@ def get_review() -> ReviewProcessingResponse:
 async def upload_resume(
     interview: OwnedInterviewDep,
     store: StoreDep,
+    parser: ParserDep,
+    background: BackgroundTasks,
     file: Annotated[UploadFile, File()],
 ) -> ContextDocResponse:
-    """지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.
+    """지원자 이력서를 올린다. **PDF 만 받는다.**
 
     **면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은
     것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.
@@ -170,14 +225,19 @@ async def upload_resume(
     응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드
     컴포넌트로 그린다.
 
-    본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로
-    하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.
+    본문은 기업 컨텍스트 문서와 같이 응답 뒤에 따로 뽑는다(#143). 응답은 `parsing`
+    이다. 꼬리질문과 리포트가 이 본문을 쓴다(#70).
     """
     name, kind, content = await read_upload(file)
     resume = Resume(
         interview_id=interview.id, name=name, kind=kind, size_bytes=len(content)
     )
     await run_in_threadpool(store.save_resume, resume, content)
+    background.add_task(
+        lambda: store.finish_resume(
+            interview.id, resume.id, parser.extract_text(resume.name, content)
+        )
+    )
     return ContextDocResponse(
         id=resume.id,
         name=resume.name,

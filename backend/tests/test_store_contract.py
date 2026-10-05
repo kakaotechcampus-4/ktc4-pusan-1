@@ -21,7 +21,9 @@ import pytest
 from app.domain.models import (
     Context,
     ContextDoc,
+    DocCategory,
     DocKind,
+    DocStatus,
     Interview,
     Resume,
     Role,
@@ -97,6 +99,37 @@ def test_candidate_name_may_be_empty(subject: Store):
 def test_unknown_ids_return_none(subject: Store):
     assert subject.get_interview("int_nope") is None
     assert subject.get_session("ses_nope") is None
+
+
+def test_list_interviews_is_mine_newest_first_on_last_ended_session(
+    subject: Store,
+):
+    old = Interview(interviewer_id="usr_a", candidate_name="가")
+    new = Interview(interviewer_id="usr_a", created_at=old.created_at + timedelta(1))
+    for interview in (old, new, Interview(interviewer_id="usr_b")):
+        subject.add_interview(interview)
+    at = old.created_at
+    first = Session(interview_id=old.id, status=SessionStatus.ENDED, ended_at=at)
+    last = Session(
+        interview_id=old.id,
+        status=SessionStatus.ENDED,
+        ended_at=at + timedelta(minutes=5),
+    )
+    # 가장 나중에 만들었지만 안 끝났다 — 기준이 아니다.
+    open_ = Session(interview_id=old.id, created_at=at + timedelta(hours=1))
+    for session in (first, last, open_):
+        subject.add_session(session)
+    subject.ensure_summary(SessionSummary(session_id=last.id))
+
+    listed = subject.list_interviews("usr_a")
+
+    assert [(i.id, s, st) for i, s, st in listed][0] == (new.id, None, None)
+    interview, session, status = listed[1]
+    assert (interview.id, interview.candidate_name) == (old.id, "가")
+    assert session is not None
+    assert session.id == last.id
+    assert status is SummaryStatus.PROCESSING
+    assert len(listed) == 2
 
 
 def test_session_roundtrip(subject: Store):
@@ -369,6 +402,51 @@ def test_docs_are_scoped_to_their_context(subject: Store):
     assert len(subject.list_docs(yours.id)) == 1
 
 
+def test_new_doc_is_parsing_with_its_category(subject: Store):
+    context = _context(subject)
+    doc = ContextDoc(
+        context_id=context.id,
+        name="jd.pdf",
+        kind=DocKind.PDF,
+        size_bytes=1,
+        category=DocCategory.JD,
+    )
+    subject.add_doc(doc, b"x")
+
+    found = subject.get_doc(context.id, doc.id)
+    assert found is not None
+    assert (found.status, found.category) == (DocStatus.PARSING, DocCategory.JD)
+    assert subject.get_doc_text(context.id, doc.id) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "status"), [("본문", DocStatus.READY), (None, DocStatus.FAILED)]
+)
+def test_finishing_a_doc_stores_text_and_status(subject: Store, text, status):
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"x")
+
+    subject.finish_doc(context.id, doc.id, text)
+
+    found = subject.get_doc(context.id, doc.id)
+    assert found is not None and found.status is status
+    assert subject.get_doc_text(context.id, doc.id) == text
+
+
+def test_finishing_a_deleted_doc_does_nothing(subject: Store):
+    """추출 도중 지운 문서. 결과가 늦게 와도 되살아나면 안 된다."""
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"x")
+    subject.delete_doc(context.id, doc.id)
+
+    subject.finish_doc(context.id, doc.id, "본문")
+
+    assert subject.get_doc(context.id, doc.id) is None
+    assert subject.list_docs(context.id) == []
+
+
 def test_deleting_a_doc_reports_whether_it_existed(subject: Store):
     context = _context(subject)
     doc = _doc(context.id)
@@ -406,6 +484,36 @@ def test_resume_is_replaced_not_appended(subject: Store):
     found = subject.get_resume(session.interview_id)
     assert found is not None
     assert found.name == "new.pdf"
+
+
+def test_finishing_a_resume_stores_text(subject: Store):
+    session = _seed(subject)
+    resume = _resume(session.interview_id)
+    subject.save_resume(resume, b"x")
+
+    subject.finish_resume(session.interview_id, resume.id, "경력 3년")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None and found.status is DocStatus.READY
+    assert subject.get_resume_text(session.interview_id) == "경력 3년"
+
+
+def test_late_result_of_a_replaced_resume_is_dropped(subject: Store):
+    """추출 도중 새 이력서가 올라왔다. 옛 결과가 새 이력서 자리에 들어가면 안 된다."""
+    session = _seed(subject)
+    old = _resume(session.interview_id, "old.pdf")
+    subject.save_resume(old, b"old")
+    subject.finish_resume(session.interview_id, old.id, "옛 본문")
+    new = _resume(session.interview_id, "new.pdf")
+    subject.save_resume(new, b"new")
+
+    subject.finish_resume(session.interview_id, old.id, "늦게 온 옛 본문")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None
+    assert (found.name, found.status) == ("new.pdf", DocStatus.PARSING)
+    # 다시 올리면 앞 이력서의 본문도 지운다.
+    assert subject.get_resume_text(session.interview_id) is None
 
 
 def test_resume_of_an_interview_without_one_is_none(subject: Store):
@@ -735,6 +843,16 @@ def test_upsert_user_keeps_first_id_and_updates_profile(subject: Store):
     found = subject.get_user(first.id)
     assert found is not None
     assert (found.nickname, found.profile_image_url) == ("바뀜", None)
+
+
+def test_new_user_starts_at_token_version_zero(subject: Store):
+    """access 토큰의 `ver` 가 이 값과 맞아야 한다. 재로그인해도 바뀌지 않는다."""
+    first = subject.upsert_user(User(kakao_id=7, nickname="a"))
+    again = subject.upsert_user(User(kakao_id=7, nickname="b"))
+    found = subject.get_user(first.id)
+
+    assert found is not None
+    assert first.token_version == again.token_version == found.token_version == 0
 
 
 def test_unknown_user_is_none(subject: Store):

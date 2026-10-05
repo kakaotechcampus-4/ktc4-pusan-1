@@ -64,7 +64,7 @@ def test_join_returns_livekit_connection_info(client: TestClient, session_id: st
 def test_join_returns_candidate_name(client: TestClient):
     interview = client.post(
         "/api/v1/interviews",
-        json={"interviewerId": "user_123", "candidateName": "김지원"},
+        json={"candidateName": "김지원"},
     ).json()
     session = client.post(
         f"/api/v1/interviews/{interview['interviewId']}/sessions"

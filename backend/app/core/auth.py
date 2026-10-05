@@ -26,26 +26,39 @@ _ALGORITHM = "HS256"
 _secret = settings.jwt_secret or secrets.token_hex(32)
 
 
-def issue_token(user_id: str) -> str:
+def issue_token(user_id: str, version: int) -> str:
+    """`version` 은 발급 시점의 `User.token_version` 이다.
+
+    저장된 값이 올라가면 그 전에 발급한 토큰은 401 이 된다.
+    """
     now = utcnow()
     claims = {
         "sub": user_id,
+        "ver": version,
         "iat": now,
         "exp": now + timedelta(days=settings.jwt_ttl_days),
     }
     return jwt.encode(claims, _secret, algorithm=_ALGORITHM)
 
 
-def verified_user_id(token: str) -> str | None:
-    """서명과 만료를 확인하고 사용자 id 를 꺼낸다. 하나라도 틀리면 None."""
+def verified_claims(token: str) -> tuple[str, int] | None:
+    """서명과 만료를 확인하고 (사용자 id, 토큰 버전) 을 꺼낸다. 하나라도 틀리면 None.
+
+    `ver` 가 없는 토큰(#144 이전 발급)도 None 이다 — 다시 로그인하면 된다.
+    """
     try:
         # algorithms 를 못박는다. 비우면 헤더의 alg 를 믿게 되어 `none` 토큰이 통과한다.
         claims = jwt.decode(
-            token, _secret, algorithms=[_ALGORITHM], options={"require": ["exp", "sub"]}
+            token,
+            _secret,
+            algorithms=[_ALGORITHM],
+            options={"require": ["exp", "sub", "ver"]},
         )
     except jwt.InvalidTokenError:
         return None
-    return claims["sub"]
+    if not isinstance(claims["ver"], int):
+        return None
+    return claims["sub"], claims["ver"]
 
 
 def check_secret_at_startup() -> None:

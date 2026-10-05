@@ -21,6 +21,7 @@ from psycopg_pool import ConnectionPool
 from app.domain.models import (
     Context,
     ContextDoc,
+    DocCategory,
     DocKind,
     DocStatus,
     Interview,
@@ -39,6 +40,10 @@ from app.domain.models import (
 )
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
+
+def _finished(text: str | None) -> DocStatus:
+    return DocStatus.READY if text else DocStatus.FAILED
 
 
 class PostgresStore:
@@ -101,6 +106,56 @@ class PostgresStore:
             candidate_name=row["candidate_name"],
             created_at=row["created_at"],
         )
+
+    def list_interviews(
+        self, interviewer_id: str
+    ) -> list[tuple[Interview, Session | None, SummaryStatus | None]]:
+        """마지막으로 끝난 세션은 `LATERAL` 로 면접마다 하나씩 붙인다. 한 문장이다."""
+        rows = self._all(
+            """
+            SELECT i.id, i.interviewer_id, i.candidate_name, i.created_at,
+                   s.id AS s_id, s.status AS s_status, s.created_at AS s_created_at,
+                   s.started_at AS s_started_at, s.ended_at AS s_ended_at,
+                   s.transcript_origin_at AS s_transcript_origin_at,
+                   ss.status AS summary_status
+            FROM interview i
+            LEFT JOIN LATERAL (
+                SELECT * FROM session
+                WHERE session.interview_id = i.id AND session.ended_at IS NOT NULL
+                ORDER BY session.ended_at DESC
+                LIMIT 1
+            ) s ON TRUE
+            LEFT JOIN session_summary ss ON ss.session_id = s.id
+            WHERE i.interviewer_id = %s
+            ORDER BY i.created_at DESC
+            """,
+            (interviewer_id,),
+        )
+        return [
+            (
+                Interview(
+                    id=row["id"],
+                    interviewer_id=row["interviewer_id"],
+                    candidate_name=row["candidate_name"],
+                    created_at=row["created_at"],
+                ),
+                None
+                if row["s_id"] is None
+                else Session(
+                    id=row["s_id"],
+                    interview_id=row["id"],
+                    status=SessionStatus(row["s_status"]),
+                    created_at=row["s_created_at"],
+                    started_at=row["s_started_at"],
+                    ended_at=row["s_ended_at"],
+                    transcript_origin_at=row["s_transcript_origin_at"],
+                ),
+                None
+                if row["summary_status"] is None
+                else SummaryStatus(row["summary_status"]),
+            )
+            for row in rows
+        ]
 
     # ── 세션 ────────────────────────────────────────────────
 
@@ -429,15 +484,16 @@ class PostgresStore:
             conn.execute(
                 """
                 INSERT INTO context_doc
-                    (id, context_id, name, kind, size_bytes, status, content,
-                     created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (id, context_id, name, kind, category, size_bytes, status,
+                     content, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     doc.id,
                     doc.context_id,
                     doc.name,
                     doc.kind.value,
+                    doc.category.value,
                     doc.size_bytes,
                     doc.status.value,
                     content,
@@ -448,16 +504,16 @@ class PostgresStore:
     def list_docs(self, context_id: str) -> list[ContextDoc]:
         # content 는 고르지 않는다. 목록 한 번에 파일 전체가 딸려 오면 안 된다.
         rows = self._all(
-            "SELECT id, context_id, name, kind, size_bytes, status, created_at"
-            " FROM context_doc WHERE context_id = %s ORDER BY created_at",
+            "SELECT id, context_id, name, kind, category, size_bytes, status,"
+            " created_at FROM context_doc WHERE context_id = %s ORDER BY created_at",
             (context_id,),
         )
         return [self._to_doc(row) for row in rows]
 
     def get_doc(self, context_id: str, doc_id: str) -> ContextDoc | None:
         row = self._one(
-            "SELECT id, context_id, name, kind, size_bytes, status, created_at"
-            " FROM context_doc WHERE context_id = %s AND id = %s",
+            "SELECT id, context_id, name, kind, category, size_bytes, status,"
+            " created_at FROM context_doc WHERE context_id = %s AND id = %s",
             (context_id, doc_id),
         )
         return None if row is None else self._to_doc(row)
@@ -469,6 +525,21 @@ class PostgresStore:
                 (context_id, doc_id),
             )
             return cursor.rowcount == 1
+
+    def finish_doc(self, context_id: str, doc_id: str, text: str | None) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE context_doc SET status = %s, text = %s"
+                " WHERE context_id = %s AND id = %s",
+                (_finished(text).value, text, context_id, doc_id),
+            )
+
+    def get_doc_text(self, context_id: str, doc_id: str) -> str | None:
+        row = self._one(
+            "SELECT text FROM context_doc WHERE context_id = %s AND id = %s",
+            (context_id, doc_id),
+        )
+        return None if row is None else row["text"]
 
     @staticmethod
     def _context_values(context: Context) -> tuple[Any, ...]:
@@ -501,6 +572,7 @@ class PostgresStore:
             context_id=row["context_id"],
             name=row["name"],
             kind=DocKind(row["kind"]),
+            category=DocCategory(row["category"]),
             size_bytes=row["size_bytes"],
             status=DocStatus(row["status"]),
             created_at=row["created_at"],
@@ -523,6 +595,7 @@ class PostgresStore:
                     size_bytes = EXCLUDED.size_bytes,
                     status = EXCLUDED.status,
                     content = EXCLUDED.content,
+                    text = NULL,
                     created_at = EXCLUDED.created_at
                 """,
                 (
@@ -556,6 +629,24 @@ class PostgresStore:
             created_at=row["created_at"],
         )
 
+    def finish_resume(
+        self, interview_id: str, resume_id: str, text: str | None
+    ) -> None:
+        # id 까지 맞춰 본다. 추출 도중 새 이력서로 덮였으면 옛 결과를 버린다.
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE interview_resume SET status = %s, text = %s"
+                " WHERE interview_id = %s AND id = %s",
+                (_finished(text).value, text, interview_id, resume_id),
+            )
+
+    def get_resume_text(self, interview_id: str) -> str | None:
+        row = self._one(
+            "SELECT text FROM interview_resume WHERE interview_id = %s",
+            (interview_id,),
+        )
+        return None if row is None else row["text"]
+
     # ── 사용자 ──────────────────────────────────────────────
 
     def upsert_user(self, user: User) -> User:
@@ -571,7 +662,8 @@ class PostgresStore:
             ON CONFLICT (kakao_id) DO UPDATE SET
                 nickname = EXCLUDED.nickname,
                 profile_image_url = EXCLUDED.profile_image_url
-            RETURNING id, kakao_id, nickname, profile_image_url, created_at
+            RETURNING id, kakao_id, nickname, profile_image_url, created_at,
+                      token_version
             """,
             (
                 user.id,
@@ -586,8 +678,8 @@ class PostgresStore:
 
     def get_user(self, user_id: str) -> User | None:
         row = self._one(
-            "SELECT id, kakao_id, nickname, profile_image_url, created_at"
-            " FROM app_user WHERE id = %s",
+            "SELECT id, kakao_id, nickname, profile_image_url, created_at,"
+            " token_version FROM app_user WHERE id = %s",
             (user_id,),
         )
         return None if row is None else User(**row)

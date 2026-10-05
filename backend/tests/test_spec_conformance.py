@@ -25,6 +25,11 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
         "statuses": {"201", "401", "422"},
     },
+    # ⚠️ Notion 명세에 없다. 모양은 #137 1-1 이다.
+    ("get", "/api/v1/interviews"): {
+        "response": {"items"},
+        "statuses": {"200", "401"},
+    },
     # ⚠️ Notion 명세에 없다 (#118). FE 의 `api/auth.ts` 가 `{accessToken}` 을 기대하고
     # 있어 그 위에 `user` 만 더했다.
     ("post", "/api/v1/auth/kakao"): {
@@ -109,7 +114,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     ("post", "/api/v1/interviews/{interviewId}/resume"): {
         "path_params": ["interviewId"],
         "multipart": True,
-        "response": {"id", "name", "kind", "sizeBytes", "status"},
+        "response": {"id", "name", "kind", "sizeBytes", "status", "category"},
         "statuses": {"201", "401", "404", "413", "415", "422"},
     },
     ("get", "/api/v1/contexts/current"): {
@@ -131,7 +136,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "path_params": ["contextId"],
         # 본문이 JSON 이 아니라 파일이다. 필드 표 대신 형식만 잠근다.
         "multipart": True,
-        "response": {"id", "name", "kind", "sizeBytes", "status"},
+        "response": {"id", "name", "kind", "sizeBytes", "status", "category"},
         "statuses": {"201", "401", "404", "413", "415", "422"},
     },
     ("delete", "/api/v1/contexts/{contextId}/docs/{docId}"): {
