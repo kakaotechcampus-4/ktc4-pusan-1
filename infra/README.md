@@ -156,7 +156,7 @@ develop push
 ```
 
 - 빌드는 CI 에서 합니다. 서버에는 node 가 없고, 서버 빌드는 진행 중인 면접과 CPU 를 나눠 씁니다.
-- 빌드 env 는 레포 Variable `KAKAO_CLIENT_ID` 하나입니다. 서버 `infra/.env` 의 값과 같아야 합니다. API 주소와 Redirect URI 는 비워 같은 오리진 기본값을 탑니다.
+- 빌드에 넣는 값은 레포 Variable `KAKAO_CLIENT_ID` 와 목 끄기(`VITE_USE_MOCK_API=false`)입니다. 서버 `infra/.env` 의 값과 같아야 합니다. API 주소와 Redirect URI 는 비워 같은 오리진 기본값을 탑니다.
 - 교체는 에셋 → `index.html` → `version.json` 순서입니다. 옛 에셋은 지우지 않습니다 — 배포 전에 열어 둔 페이지가 lazy 조각을 받습니다.
 - 지금 운영 FE 가 어느 커밋인지는 `https://irya.cloud/version.json` 으로 봅니다.
 

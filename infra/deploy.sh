@@ -170,7 +170,7 @@ if grep -qF "\"$FRONTEND_SHA\"" "$FE_DIR/version.json" 2>/dev/null; then
 else
 	FE_TMP=$(mktemp -d)
 	# --network host: 서버에 aws CLI 가 없고, 메타데이터 홉 제한이 1 이라 bridge
-	#   네트워크 컨테이너는 인스턴스 역할을 못 받는다 (backup-db.sh 와 같다).
+	#   네트워크 컨테이너는 인스턴스 역할을 못 받는다 (#113 과 같은 방식).
 	# --user: root 로 받으면 하위 폴더가 root 소유가 되어 아래 rm 이 못 지운다.
 	if docker run --rm --network host --user "$(id -u):$(id -g)" -e HOME=/tmp \
 		-v "$FE_TMP:/fe" amazon/aws-cli:2.37.9 \
