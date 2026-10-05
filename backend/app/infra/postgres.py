@@ -104,21 +104,23 @@ class PostgresStore:
 
     def list_interviews(
         self, interviewer_id: str
-    ) -> list[tuple[Interview, Session | None]]:
-        """최신 세션은 `LATERAL` 로 면접마다 하나씩 붙인다. 한 문장이다."""
+    ) -> list[tuple[Interview, Session | None, SummaryStatus | None]]:
+        """마지막으로 끝난 세션은 `LATERAL` 로 면접마다 하나씩 붙인다. 한 문장이다."""
         rows = self._all(
             """
             SELECT i.id, i.interviewer_id, i.candidate_name, i.created_at,
                    s.id AS s_id, s.status AS s_status, s.created_at AS s_created_at,
                    s.started_at AS s_started_at, s.ended_at AS s_ended_at,
-                   s.transcript_origin_at AS s_transcript_origin_at
+                   s.transcript_origin_at AS s_transcript_origin_at,
+                   ss.status AS summary_status
             FROM interview i
             LEFT JOIN LATERAL (
                 SELECT * FROM session
-                WHERE session.interview_id = i.id
-                ORDER BY session.created_at DESC
+                WHERE session.interview_id = i.id AND session.ended_at IS NOT NULL
+                ORDER BY session.ended_at DESC
                 LIMIT 1
             ) s ON TRUE
+            LEFT JOIN session_summary ss ON ss.session_id = s.id
             WHERE i.interviewer_id = %s
             ORDER BY i.created_at DESC
             """,
@@ -143,6 +145,9 @@ class PostgresStore:
                     ended_at=row["s_ended_at"],
                     transcript_origin_at=row["s_transcript_origin_at"],
                 ),
+                None
+                if row["summary_status"] is None
+                else SummaryStatus(row["summary_status"]),
             )
             for row in rows
         ]

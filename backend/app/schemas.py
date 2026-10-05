@@ -37,23 +37,38 @@ class InterviewResponse(Schema):
     created_at: datetime = Field(serialization_alias="createdAt")
 
 
-class LatestSession(Schema):
-    session_id: str = Field(serialization_alias="sessionId")
-    status: SessionStatus
-    started_at: datetime | None = Field(serialization_alias="startedAt")
-    ended_at: datetime | None = Field(serialization_alias="endedAt")
+class InterviewerSummary(Schema):
+    nickname: str
 
 
 class InterviewListItem(Schema):
-    """`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다."""
+    """`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다 (#137 1-1).
+
+    기준은 그 면접의 마지막으로 끝난 세션이다. 끝난 세션이 없으면 그 세션에서 오는
+    값(`interviewedAt` · `durationSec` · `summaryStatus`)은 null 이다.
+    """
 
     interview_id: str = Field(serialization_alias="interviewId")
     candidate_name: str | None = Field(serialization_alias="candidateName")
-    created_at: datetime = Field(serialization_alias="createdAt")
-    latest_session: LatestSession | None = Field(
-        serialization_alias="latestSession",
-        description="가장 최근에 만든 Session. 아직 없으면 null.",
+    role: str = Field(description="컨텍스트의 직무. 아직 안 정했으면 빈 문자열.")
+    interviewer: InterviewerSummary
+    interviewed_at: datetime | None = Field(
+        serialization_alias="interviewedAt",
+        description="「면접 시작」 시각. 비어 있으면 첫 입장 시각.",
     )
+    duration_sec: int | None = Field(serialization_alias="durationSec")
+    review_status: Literal["PENDING"] = Field(
+        serialization_alias="reviewStatus",
+        description="검토 기능이 아직 없어 늘 PENDING 이다.",
+    )
+    summary_status: SummaryStatus | None = Field(serialization_alias="summaryStatus")
+    counts: None = Field(
+        description="검토 항목 집계. 만들기 전까지 null 이다 (#137 도 READY 전엔 null)."
+    )
+
+
+class InterviewListResponse(Schema):
+    items: list[InterviewListItem]
 
 
 # ── 세션 ────────────────────────────────────────────────

@@ -18,14 +18,15 @@ from app.api.deps import (
 from app.core.config import settings
 from app.core.errors import LOGIN_REQUIRED, responses
 from app.core.uploads import read_upload
-from app.domain.models import Interview, Resume, Session
+from app.domain.models import Context, Interview, Resume, Session, SummaryStatus
 from app.schemas import (
     ContextDocResponse,
     CreateInterviewRequest,
     CreateSessionResponse,
+    InterviewerSummary,
     InterviewListItem,
+    InterviewListResponse,
     InterviewResponse,
-    LatestSession,
     ReviewProcessingResponse,
 )
 
@@ -78,34 +79,51 @@ def create_interview(
 
 @router.get(
     "",
-    response_model=list[InterviewListItem],
+    response_model=InterviewListResponse,
     summary="내 면접 목록",
     responses=responses(LOGIN_REQUIRED),
 )
-def list_interviews(user: CurrentUserDep, store: StoreDep) -> list[InterviewListItem]:
-    """내가 만든 면접을 최신순으로, 각 면접의 가장 최근 Session 과 함께 준다.
+def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListResponse:
+    """내가 만든 면접을 최신순으로 준다. 필터 · 정렬은 FE 가 한다 (#137 1-1).
 
-    지원자 목록 화면이 이름 · 면접 일시 · 길이 · 요약/기록 링크를 여기서 그린다.
-    직무 · 검토 상태 · 확인 항목은 서버에 아직 없는 값이라 싣지 않는다.
+    면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 내 컨텍스트에서 온다.
     """
     # ponytail: 페이지네이션 없음. 면접관 한 명의 면접이 수백 건을 넘으면
     # cursor 를 붙인다.
-    return [
-        InterviewListItem(
-            interview_id=interview.id,
-            candidate_name=interview.candidate_name,
-            created_at=interview.created_at,
-            latest_session=None
-            if session is None
-            else LatestSession(
-                session_id=session.id,
-                status=session.status,
-                started_at=session.started_at,
-                ended_at=session.ended_at,
-            ),
-        )
-        for interview, session in store.list_interviews(user.id)
-    ]
+    role = store.ensure_context(Context(owner_id=user.id)).role
+    interviewer = InterviewerSummary(nickname=user.nickname)
+    return InterviewListResponse(
+        items=[
+            _to_list_item(interview, session, summary, role, interviewer)
+            for interview, session, summary in store.list_interviews(user.id)
+        ]
+    )
+
+
+def _to_list_item(
+    interview: Interview,
+    session: Session | None,
+    summary: SummaryStatus | None,
+    role: str,
+    interviewer: InterviewerSummary,
+) -> InterviewListItem:
+    began = (
+        None if session is None else session.started_at or session.transcript_origin_at
+    )
+    ended = None if session is None else session.ended_at
+    return InterviewListItem(
+        interview_id=interview.id,
+        candidate_name=interview.candidate_name,
+        role=role,
+        interviewer=interviewer,
+        interviewed_at=began,
+        duration_sec=None
+        if began is None or ended is None
+        else int((ended - began).total_seconds()),
+        review_status="PENDING",
+        summary_status=summary,
+        counts=None,
+    )
 
 
 @router.get(

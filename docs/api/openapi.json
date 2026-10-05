@@ -294,7 +294,7 @@
         "type": "object"
       },
       "InterviewListItem": {
-        "description": "`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다.",
+        "description": "`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다 (#137 1-1).\n\n기준은 그 면접의 마지막으로 끝난 세션이다. 끝난 세션이 없으면 그 세션에서 오는\n값(`interviewedAt` · `durationSec` · `summaryStatus`)은 null 이다.",
         "properties": {
           "candidateName": {
             "anyOf": [
@@ -307,34 +307,92 @@
             ],
             "title": "Candidatename"
           },
-          "createdAt": {
-            "format": "date-time",
-            "title": "Createdat",
-            "type": "string"
+          "counts": {
+            "description": "검토 항목 집계. 만들기 전까지 null 이다 (#137 도 READY 전엔 null).",
+            "title": "Counts",
+            "type": "null"
           },
-          "interviewId": {
-            "title": "Interviewid",
-            "type": "string"
-          },
-          "latestSession": {
+          "durationSec": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/LatestSession"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "가장 최근에 만든 Session. 아직 없으면 null."
+            "title": "Durationsec"
+          },
+          "interviewId": {
+            "title": "Interviewid",
+            "type": "string"
+          },
+          "interviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "「면접 시작」 시각. 비어 있으면 첫 입장 시각.",
+            "title": "Interviewedat"
+          },
+          "interviewer": {
+            "$ref": "#/components/schemas/InterviewerSummary"
+          },
+          "reviewStatus": {
+            "const": "PENDING",
+            "description": "검토 기능이 아직 없어 늘 PENDING 이다.",
+            "title": "Reviewstatus",
+            "type": "string"
+          },
+          "role": {
+            "description": "컨텍스트의 직무. 아직 안 정했으면 빈 문자열.",
+            "title": "Role",
+            "type": "string"
+          },
+          "summaryStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "interviewId",
           "candidateName",
-          "createdAt",
-          "latestSession"
+          "role",
+          "interviewer",
+          "interviewedAt",
+          "durationSec",
+          "reviewStatus",
+          "summaryStatus",
+          "counts"
         ],
         "title": "InterviewListItem",
+        "type": "object"
+      },
+      "InterviewListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InterviewListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "InterviewListResponse",
         "type": "object"
       },
       "InterviewResponse": {
@@ -371,6 +429,19 @@
           "createdAt"
         ],
         "title": "InterviewResponse",
+        "type": "object"
+      },
+      "InterviewerSummary": {
+        "properties": {
+          "nickname": {
+            "title": "Nickname",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nickname"
+        ],
+        "title": "InterviewerSummary",
         "type": "object"
       },
       "JoinRequest": {
@@ -441,49 +512,6 @@
           "code"
         ],
         "title": "KakaoLoginRequest",
-        "type": "object"
-      },
-      "LatestSession": {
-        "properties": {
-          "endedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Endedat"
-          },
-          "sessionId": {
-            "title": "Sessionid",
-            "type": "string"
-          },
-          "startedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Startedat"
-          },
-          "status": {
-            "$ref": "#/components/schemas/SessionStatus"
-          }
-        },
-        "required": [
-          "sessionId",
-          "status",
-          "startedAt",
-          "endedAt"
-        ],
-        "title": "LatestSession",
         "type": "object"
       },
       "LoginResponse": {
@@ -1350,7 +1378,7 @@
     },
     "/api/v1/interviews": {
       "get": {
-        "description": "내가 만든 면접을 최신순으로, 각 면접의 가장 최근 Session 과 함께 준다.\n\n지원자 목록 화면이 이름 · 면접 일시 · 길이 · 요약/기록 링크를 여기서 그린다.\n직무 · 검토 상태 · 확인 항목은 서버에 아직 없는 값이라 싣지 않는다.",
+        "description": "내가 만든 면접을 최신순으로 준다. 필터 · 정렬은 FE 가 한다 (#137 1-1).\n\n면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 내 컨텍스트에서 온다.",
         "operationId": "list_interviews_api_v1_interviews_get",
         "parameters": [
           {
@@ -1369,11 +1397,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/InterviewListItem"
-                  },
-                  "title": "Response List Interviews Api V1 Interviews Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/InterviewListResponse"
                 }
               }
             },

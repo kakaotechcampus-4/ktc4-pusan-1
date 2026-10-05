@@ -114,23 +114,27 @@ def test_interview_can_have_multiple_sessions(client: TestClient):
     assert first != second
 
 
-# ── 내 면접 목록 (#144) ─────────────────────────────────
+# ── 내 면접 목록 (#137 1-1) ─────────────────────────────
 
 
-def test_list_is_mine_newest_first_with_latest_session(
+def test_list_is_mine_newest_first_on_last_ended_session(
     client: TestClient, other: dict[str, str]
 ):
+    context_id = client.get("/api/v1/contexts/current").json()["id"]
+    client.patch(f"/api/v1/contexts/{context_id}", json={"role": "백엔드 개발자"})
     first = client.post("/api/v1/interviews", json={"candidateName": "가"}).json()
     second = client.post("/api/v1/interviews", json={"candidateName": "나"}).json()
     client.post("/api/v1/interviews", json={}, headers=other)
-    client.post(f"/api/v1/interviews/{first['interviewId']}/sessions")
-    latest = client.post(f"/api/v1/interviews/{first['interviewId']}/sessions").json()
-    client.post(f"/api/v1/sessions/{latest['sessionId']}/start")
+    path = f"/api/v1/interviews/{first['interviewId']}/sessions"
+    ended = client.post(path).json()["sessionId"]
+    client.post(f"/api/v1/sessions/{ended}/start")
+    client.post(f"/api/v1/sessions/{ended}/end")
+    client.post(path)  # 나중에 만들었지만 안 끝난 세션은 기준이 아니다
 
     response = client.get("/api/v1/interviews")
 
     assert response.status_code == 200
-    items = response.json()
+    items = response.json()["items"]
     assert [i["interviewId"] for i in items] == [
         second["interviewId"],
         first["interviewId"],
@@ -138,15 +142,20 @@ def test_list_is_mine_newest_first_with_latest_session(
     assert items[0] == {
         "interviewId": second["interviewId"],
         "candidateName": "나",
-        "createdAt": second["createdAt"],
-        "latestSession": None,
+        "role": "백엔드 개발자",
+        "interviewer": {"nickname": "면접관"},
+        "interviewedAt": None,
+        "durationSec": None,
+        "reviewStatus": "PENDING",
+        "summaryStatus": None,
+        "counts": None,
     }
-    session = items[1]["latestSession"]
-    assert session["sessionId"] == latest["sessionId"]
-    assert session["status"] == "INTERVIEWING"
-    assert session["startedAt"] is not None
-    assert session["endedAt"] is None
+    done = items[1]
+    assert done["interviewedAt"] is not None
+    assert done["durationSec"] == 0
+    assert done["summaryStatus"] == "PROCESSING"
+    assert done["counts"] is None
 
 
 def test_list_is_empty_for_a_new_interviewer(client: TestClient):
-    assert client.get("/api/v1/interviews").json() == []
+    assert client.get("/api/v1/interviews").json() == {"items": []}

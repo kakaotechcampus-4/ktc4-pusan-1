@@ -25,9 +25,9 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
         "statuses": {"201", "401", "422"},
     },
-    # ⚠️ Notion 명세에 없다 (#144). 응답은 배열이고 아래는 그 한 줄의 필드다.
+    # ⚠️ Notion 명세에 없다. 모양은 #137 1-1 이다.
     ("get", "/api/v1/interviews"): {
-        "response": {"interviewId", "candidateName", "createdAt", "latestSession"},
+        "response": {"items"},
         "statuses": {"200", "401"},
     },
     # ⚠️ Notion 명세에 없다 (#118). FE 의 `api/auth.ts` 가 `{accessToken}` 을 기대하고
@@ -197,7 +197,7 @@ def test_response_fields_match_spec(method: str, path: str, schema: dict[str, An
         return
 
     content = op["responses"][success]["content"]["application/json"]["schema"]
-    assert _props(schema, content.get("items", content)) == expected
+    assert _props(schema, content) == expected
 
 
 @pytest.mark.parametrize(("method", "path"), sorted(SPEC))

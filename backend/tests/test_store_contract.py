@@ -99,26 +99,34 @@ def test_unknown_ids_return_none(subject: Store):
     assert subject.get_session("ses_nope") is None
 
 
-def test_list_interviews_is_mine_newest_first_with_latest_session(subject: Store):
+def test_list_interviews_is_mine_newest_first_on_last_ended_session(
+    subject: Store,
+):
     old = Interview(interviewer_id="usr_a", candidate_name="가")
     new = Interview(interviewer_id="usr_a", created_at=old.created_at + timedelta(1))
     for interview in (old, new, Interview(interviewer_id="usr_b")):
         subject.add_interview(interview)
-    subject.add_session(Session(interview_id=old.id))
-    latest = Session(
+    at = old.created_at
+    first = Session(interview_id=old.id, status=SessionStatus.ENDED, ended_at=at)
+    last = Session(
         interview_id=old.id,
         status=SessionStatus.ENDED,
-        created_at=old.created_at + timedelta(minutes=1),
+        ended_at=at + timedelta(minutes=5),
     )
-    subject.add_session(latest)
+    # 가장 나중에 만들었지만 안 끝났다 — 기준이 아니다.
+    open_ = Session(interview_id=old.id, created_at=at + timedelta(hours=1))
+    for session in (first, last, open_):
+        subject.add_session(session)
+    subject.ensure_summary(SessionSummary(session_id=last.id))
 
     listed = subject.list_interviews("usr_a")
 
-    assert [(i.id, s) for i, s in listed][0] == (new.id, None)
-    interview, session = listed[1]
+    assert [(i.id, s, st) for i, s, st in listed][0] == (new.id, None, None)
+    interview, session, status = listed[1]
     assert (interview.id, interview.candidate_name) == (old.id, "가")
     assert session is not None
-    assert (session.id, session.status) == (latest.id, SessionStatus.ENDED)
+    assert session.id == last.id
+    assert status is SummaryStatus.PROCESSING
     assert len(listed) == 2
 
 

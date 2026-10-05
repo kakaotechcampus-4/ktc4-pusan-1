@@ -36,10 +36,10 @@ class Store(Protocol):
 
     def list_interviews(
         self, interviewer_id: str
-    ) -> list[tuple[Interview, Session | None]]:
-        """그 면접관의 면접을 최신순으로, 각 면접의 가장 최근 세션과 함께.
+    ) -> list[tuple[Interview, Session | None, SummaryStatus | None]]:
+        """그 면접관의 면접을 최신순으로, 마지막으로 끝난 세션과 그 요약 상태와 함께.
 
-        세션을 아직 안 만든 면접은 None 이다.
+        끝난 세션이 없는 면접은 둘 다 None 이다 (#137 1-1).
         """
         ...
 
@@ -213,7 +213,7 @@ class InMemoryStore:
 
     def list_interviews(
         self, interviewer_id: str
-    ) -> list[tuple[Interview, Session | None]]:
+    ) -> list[tuple[Interview, Session | None, SummaryStatus | None]]:
         mine = sorted(
             (
                 i
@@ -223,14 +223,27 @@ class InMemoryStore:
             key=lambda i: i.created_at,
             reverse=True,
         )
-        return [(deepcopy(i), self._latest_session(i.id)) for i in mine]
+        listed: list[tuple[Interview, Session | None, SummaryStatus | None]] = []
+        for interview in mine:
+            session = self._last_ended_session(interview.id)
+            summary = None if session is None else self._summaries.get(session.id)
+            listed.append(
+                (
+                    deepcopy(interview),
+                    session,
+                    None if summary is None else summary.status,
+                )
+            )
+        return listed
 
-    def _latest_session(self, interview_id: str) -> Session | None:
-        sessions = [
-            s for s in self._sessions.values() if s.interview_id == interview_id
+    def _last_ended_session(self, interview_id: str) -> Session | None:
+        ended = [
+            s
+            for s in self._sessions.values()
+            if s.interview_id == interview_id and s.ended_at is not None
         ]
-        latest = max(sessions, key=lambda s: s.created_at, default=None)
-        return None if latest is None else deepcopy(latest)
+        last = max(ended, key=lambda s: s.ended_at or s.created_at, default=None)
+        return None if last is None else deepcopy(last)
 
     def add_session(self, session: Session) -> None:
         self._sessions[session.id] = deepcopy(session)
