@@ -92,6 +92,11 @@ services:
       # 로그인 토큰 서명 키입니다. INTERNAL_API_KEY 와 같은 이유로 `:?` 를 쓰지 않고,
       # 비어 있으면 BE 가 기동을 거부합니다 (`app/core/auth.py`).
       JWT_SECRET: ${JWT_SECRET:-}
+      # 문서 본문 추출 (#143). JWT_SECRET 과 같은 이유로 `:?` 를 쓰지 않고,
+      # 비어 있으면 BE 가 기동을 거부합니다 (`app/services/documents.py`).
+      # ai 의 STT 키(STT_API_KEY)와 헷갈리지 않게 .env 에서는 이름을 따로 둡니다.
+      ELICE_API_KEY: ${HELPY_API_KEY:-}
+      HELPY_DOC_BASE_URL: ${HELPY_DOC_BASE_URL:-}
       # 면접이 끝난 뒤 요약을 기다리는 한도(초)입니다. 넘기면 FAILED 로 넘어가
       # 화면이 멈춥니다. 비워 두면 3분입니다 — 요약 파이프라인이 붙은 뒤
       # 실제로 얼마나 걸리는지 보고 조정하라고 밖으로 빼 두었습니다.
