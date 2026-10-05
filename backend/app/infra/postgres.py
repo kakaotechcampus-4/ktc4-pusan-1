@@ -9,7 +9,7 @@ asyncpg 를 쓰면 Protocol 과 라우터 절반의 시그니처를 함께 바�
 그만한 이득이 없다.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, LiteralString
 
@@ -155,7 +155,6 @@ class PostgresStore:
             session.status.value,
             session.started_at,
             session.ended_at,
-            session.transcript_origin_at,
             session.id,
         )
         if expected_status is not None:
@@ -167,11 +166,24 @@ class PostgresStore:
                 UPDATE session
                    SET status = %s,
                        started_at = %s,
-                       ended_at = %s,
-                       transcript_origin_at = %s
+                       ended_at = %s
                  WHERE id = %s{clause}
                 """,
                 params,
+            )
+            return cursor.rowcount == 1
+
+    def mark_origin(self, session_id: str, at: datetime) -> bool:
+        """조건과 갱신이 한 문장이다. 동시에 들어와도 늦은 값이 이기지 않는다."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE session
+                   SET transcript_origin_at = %s
+                 WHERE id = %s
+                   AND (transcript_origin_at IS NULL OR transcript_origin_at > %s)
+                """,
+                (at, session_id, at),
             )
             return cursor.rowcount == 1
 

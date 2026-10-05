@@ -143,19 +143,46 @@ def test_end_is_persisted(subject: Store):
     assert found.ended_at == session.ended_at
 
 
-def test_transcript_origin_is_persisted(subject: Store):
-    """Webhook 이 채우는 값이다. 재시작해도 원점이 유지돼야 한다."""
-    session = _seed(subject)
-    origin = session.created_at
+def test_mark_origin_keeps_the_earliest(subject: Store):
+    """원점은 가장 이른 사람 입장이다 (#86). 늦은 값 · 같은 값(재전송)은 무시한다.
 
-    assert session.mark_origin(origin) is True
-    subject.save_session(session)
+    webhook 은 참가자마다 따로 오고 순서가 뒤바뀔 수 있어, 처음 온 값이 아니라
+    가장 이른 값이 남아야 한다.
+    """
+    session = _seed(subject)
+    early = session.created_at
+    late = early + timedelta(seconds=5)
+
+    assert subject.mark_origin(session.id, late) is True
+    assert subject.mark_origin(session.id, early) is True
+    assert subject.mark_origin(session.id, late) is False
+    assert subject.mark_origin(session.id, early) is False
 
     found = subject.get_session(session.id)
     assert found is not None
+    assert found.transcript_origin_at == early
+
+
+def test_save_session_does_not_touch_origin(subject: Store):
+    """원점이 비어 있을 때 읽은 세션을 나중에 저장해도 원점이 지워지면 안 된다.
+
+    시작 요청이 세션을 읽은 사이에 webhook 이 원점을 기록하는 경우다.
+    """
+    stale = _seed(subject)
+    origin = stale.created_at
+    subject.mark_origin(stale.id, origin)
+
+    assert stale.start() is True
+    assert subject.save_session(stale) is True
+
+    found = subject.get_session(stale.id)
+    assert found is not None
+    assert found.status is SessionStatus.INTERVIEWING
     assert found.transcript_origin_at == origin
-    # 두 번째 참가자·재전송이 원점을 밀면 안 된다.
-    assert found.mark_origin(session.created_at) is False
+
+
+def test_mark_origin_on_unknown_session_is_false(subject: Store):
+    assert subject.mark_origin("ses_nope", _seed(subject).created_at) is False
 
 
 def test_conditional_save_rejects_stale_expectation(subject: Store):

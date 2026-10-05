@@ -198,6 +198,9 @@ services:
       # 값은 .env 에 한 번만 적고 형식은 여기서 조립합니다. 콜론 뒤 공백이 필수입니다.
       # 값이 비어 있으면 기동 자체가 실패하도록 :? 를 씁니다.
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}"
+      # livekit.yaml 의 webhook.api_key 자리입니다 (설정 필드마다 생기는 env 오버라이드).
+      # LIVEKIT_KEYS 의 키 이름이라 같은 값을 넣고, yaml 에는 적지 않습니다 (#86).
+      LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
     ports:
       # 호스트와 컨테이너의 포트 번호를 같게 맞춥니다. LiveKit 이 advertise 하는
       # ICE 후보는 컨테이너 내부 포트라, 번호가 다르면 클라이언트가 엉뚱한 곳으로 붙습니다.

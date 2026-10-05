@@ -131,18 +131,6 @@ class Session:
         self.started_at = utcnow()
         return True
 
-    def mark_origin(self, at: datetime) -> bool:
-        """전사 원점을 첫 참가자 입장 시각으로 고정한다.
-
-        Webhook 은 재전송되고 두 참가자가 각각 이벤트를 만드므로 여러 번 불린다.
-        처음 한 번만 쓰고 이후는 무시한다 — 원점이 뒤로 밀리면 이미 찍힌
-        전사 타임스탬프가 전부 어긋난다.
-        """
-        if self.transcript_origin_at is not None:
-            return False
-        self.transcript_origin_at = at
-        return True
-
     def end(self) -> bool:
         """종료 상태로 전이. 이미 ENDED 면 False.
 
