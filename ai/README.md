@@ -168,7 +168,8 @@ src/irya_ai/
 │   ├── context.py     Company · JobDescription · Competency · Rubric · Candidate · Resume · ResumeClaim
 │   ├── analysis.py    QAPair · Finding · SuggestedQuestion · ReviewReport
 │   ├── summary.py     SummaryPoint · SummaryResult · AnalysisResult
-│   └── timeline.py    Moment · TimelineResult (리뷰 타임라인)
+│   ├── timeline.py    Moment · TimelineResult (리뷰 타임라인)
+│   └── prep.py        PrepDraft · PrepResult (면접 전 사전 가공)
 ├── pipeline/          Q&A 구조화 · 근거 접지
 ├── stt/               LiveKit 브리지 · PCM 청킹 · Elice HTTP · 세션 정렬 · 비동기 전사 스트림
 ├── analysis.py        Snapshot 한 건의 분석과 상태 처리
@@ -176,6 +177,7 @@ src/irya_ai/
 ├── openai_summary.py  OpenAI 구조화 요약
 ├── timeline.py        청크 병합 → Q&A → 검증된 Moment (리뷰 타임라인)
 ├── openai_timeline.py 프로젝트 LLM(Luna/Terra) 타임라인 초안
+├── prep.py            JD·이력서 초안 검증 → Competency · ResumeClaim (면접 전 사전 가공)
 └── simulator/         대본 JSON을 STT 이벤트 스트림으로 재생
 data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데이터)
 ```
