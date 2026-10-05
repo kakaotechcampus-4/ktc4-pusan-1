@@ -159,6 +159,40 @@ else
 	log "Caddy 재시작 건너뜀 (설정 동일)"
 fi
 
+log "FE"
+# CD 의 build-fe 가 frontend/ 를 마지막으로 바꾼 커밋으로 빌드해 S3 fe/<SHA>/ 에
+# 올려 두었다. 같은 방식으로 SHA 를 구해 받아 온다 (#103). caddy 는
+# /home/ubuntu/fe 를 바인드 마운트로 읽으니 컨테이너는 건드리지 않는다.
+FRONTEND_SHA=$(git -C "$REPO" log -1 --format=%H -- frontend)
+FE_DIR=/home/ubuntu/fe
+if grep -qF "\"$FRONTEND_SHA\"" "$FE_DIR/version.json" 2>/dev/null; then
+	echo "  이미 ${FRONTEND_SHA::7} — 건너뜀"
+else
+	FE_TMP=$(mktemp -d)
+	# --network host: 서버에 aws CLI 가 없고, 메타데이터 홉 제한이 1 이라 bridge
+	#   네트워크 컨테이너는 인스턴스 역할을 못 받는다 (backup-db.sh 와 같다).
+	# --user: root 로 받으면 하위 폴더가 root 소유가 되어 아래 rm 이 못 지운다.
+	if docker run --rm --network host --user "$(id -u):$(id -g)" -e HOME=/tmp \
+		-v "$FE_TMP:/fe" amazon/aws-cli:2.37.9 \
+		s3 cp "s3://ktc4-pusan-1-irya/fe/$FRONTEND_SHA/" /fe/ \
+		--recursive --region ap-northeast-2 --only-show-errors < /dev/null \
+		&& [ -f "$FE_TMP/version.json" ]; then
+		# 에셋 → index.html → version.json 순서로 바꾼다. 새 index.html 이 아직 없는
+		# 에셋을 가리키는 순간이 없게. 폴더째 바꾸지 않고(바인드 마운트가 끊긴다)
+		# 옛 에셋은 지우지 않는다 — 배포 전에 열어 둔 페이지가 lazy 조각을 받는다.
+		mkdir -p "$FE_DIR"
+		tar -C "$FE_TMP" --exclude=./index.html --exclude=./version.json -cf - . | tar -C "$FE_DIR" -xf -
+		cp "$FE_TMP/index.html" "$FE_DIR/.index.html.new" && mv "$FE_DIR/.index.html.new" "$FE_DIR/index.html"
+		cp "$FE_TMP/version.json" "$FE_DIR/.version.json.new" && mv "$FE_DIR/.version.json.new" "$FE_DIR/version.json"
+		echo "  ${FRONTEND_SHA::7} 로 교체"
+	else
+		# CD 를 거치지 않은 배포(손으로 돌린 ref, 이 기능 이전 커밋)는 S3 에 없을 수
+		# 있다. 화면을 비우느니 지금 것을 둔다. CD 는 cd.yml 이 version.json 으로 맞춘다.
+		echo "  ⚠️  S3 에 fe/${FRONTEND_SHA::7} 가 없어 지금 화면을 둡니다"
+	fi
+	rm -rf "$FE_TMP"
+fi
+
 log "상태 확인"
 docker compose ps --format '  {{.Service}}  {{.Status}}'
 

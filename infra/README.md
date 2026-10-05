@@ -141,18 +141,28 @@ git show origin/develop:infra/deploy.sh > /tmp/irya-deploy.sh
 bash /tmp/irya-deploy.sh rollback-0927
 ```
 
-## FE 는 CD 밖입니다
+## FE 배포
 
-`caddy` 가 호스트의 `/home/ubuntu/fe` 를 읽기 전용으로 마운트해 그대로 내보냅니다. **저장소에도 이미지에도 FE 빌드 결과가 들어 있지 않습니다** — 컨테이너가 보는 파일은 호스트 디렉터리입니다.
+`caddy` 가 호스트의 `/home/ubuntu/fe` 를 읽기 전용으로 마운트해 그대로 내보냅니다. **저장소에도 이미지에도 FE 빌드 결과가 들어 있지 않습니다** — 컨테이너가 보는 파일은 호스트 디렉터리입니다. 그 디렉터리를 CD 가 채웁니다 (#103).
 
-그래서 FE 를 고치면 손으로 올려야 합니다. 자동화는 #103 에서 다룹니다.
-
-```bash
-cd frontend && npm run build
-# dist/ 를 서버의 /home/ubuntu/fe 로 복사
+```
+develop push
+  → cd.yml build-fe: FRONTEND_SHA = frontend/ 를 마지막으로 바꾼 커밋
+       S3 fe/<FRONTEND_SHA>/version.json 이 있으면 건너뜀
+       없으면 빌드 → 검사 → fe/<FRONTEND_SHA>/ 에 업로드 (version.json 은 마지막)
+  → deploy.sh: 같은 FRONTEND_SHA 를 받아 /home/ubuntu/fe 교체
+       서버 version.json 이 이미 그 SHA 면 건너뜀
+  → 외부 확인: https://irya.cloud/version.json 의 commit 이 FRONTEND_SHA 인지
 ```
 
-⚠️ `cd.yml` 의 `paths` 에 `frontend/**` 가 있어서 **FE 만 바뀐 push 도 CD 를 돌립니다.** 그런데 FE 는 올라가지 않습니다 — caddy 가 서빙하지만 내용물이 `/home/ubuntu/fe` 라는 호스트 디렉터리에 있고, `deploy.sh` 는 거기를 건드리지 않습니다. 초록불을 「올라갔다」로 읽으면 안 됩니다.
+- 빌드는 CI 에서 합니다. 서버에는 node 가 없고, 서버 빌드는 진행 중인 면접과 CPU 를 나눠 씁니다.
+- 빌드 env 는 레포 Variable `KAKAO_CLIENT_ID` 하나입니다. 서버 `infra/.env` 의 값과 같아야 합니다. API 주소와 Redirect URI 는 비워 같은 오리진 기본값을 탑니다.
+- 교체는 에셋 → `index.html` → `version.json` 순서입니다. 옛 에셋은 지우지 않습니다 — 배포 전에 열어 둔 페이지가 lazy 조각을 받습니다.
+- 지금 운영 FE 가 어느 커밋인지는 `https://irya.cloud/version.json` 으로 봅니다.
+
+**FE 롤백**은 BE 롤백과 같습니다(위 「롤백」). 되돌릴 커밋을 브랜치로 push 하고 그 이름으로 CD 를 돌리면, build-fe 가 그 커밋의 FRONTEND_SHA 를 찾아 S3 에 이미 있으면 그대로 쓰고 deploy.sh 가 그것을 받습니다.
+
+손으로 돌린 배포(`deploy.sh` 를 직접 실행)에서 S3 에 그 SHA 가 없으면 경고만 남기고 지금 화면을 둡니다. #103 이전 커밋이 그렇습니다.
 
 AI 워커는 다릅니다. compose 의 `ai` 서비스(#84)가 `backend` 와 같이 서버에서 빌드되어 `up -d` 로 올라갑니다. 워커는 LiveKit 컨테이너에 등록만 하고 공개 포트가 없어서, 올라갔는지는 `docker compose logs ai` 의 `joined room=` · `microphone subscribed` 로그로 봅니다.
 
