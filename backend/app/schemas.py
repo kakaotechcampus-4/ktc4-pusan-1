@@ -19,12 +19,8 @@ class Schema(BaseModel):
 
 
 class CreateInterviewRequest(Schema):
-    """면접관은 토큰에서 정한다 (#144).
-
-    예전 본문의 `interviewerId` 는 받지 않는다. 모르는 필드는 무시되므로 FE 가 아직
-    보내고 있어도 422 가 나지 않는다.
-    """
-
+    # 면접의 주인은 토큰의 사용자다 (#130). 예전 FE 가 `interviewerId` 를 보내도
+    # 스키마가 모르는 필드라 조용히 무시된다.
     candidate_name: str | None = Field(
         default=None,
         alias="candidateName",
@@ -115,8 +111,9 @@ class JoinRequest(Schema):
     role: Role = Field(
         default=Role.CANDIDATE,
         description=(
-            "CANDIDATE 는 초대 링크만으로 입장한다. "
-            "INTERVIEWER 는 로그인한 면접 소유자여야 한다 (아니면 401·404)."
+            "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 "
+            "사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 "
+            "`ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다."
         ),
     )
 

@@ -10,17 +10,40 @@
   만들지 않는 것이 AI 쪽 파이프라인의 원칙이고, 경계에서도 그걸 말한다.
 * `endedAtMs` 는 `startedAtMs` 보다 앞설 수 없다. Agent 쪽 `Utterance` 가 같은
   검증을 갖고 있어 여기서도 같이 막아 둔다.
+
+그리고 **저장할 수 없는 값은 여기서 거른다.** PostgreSQL 은 TEXT 에 NUL 문자를
+못 넣고 BIGINT 는 2^63 을 못 넘는다. 이런 프레임이 검증을 통과하면 저장에서
+실패하고, 우리는 연결을 끊고(`transcripts.py`), Agent 는 다시 붙어 **그 프레임부터**
+다시 보낸다 — 끝나지 않는다. 여기서 막으면 그 발화 하나만 NACK 으로 버려진다.
 """
 
-from typing import Final, Literal
+from typing import Annotated, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.models import Role
 
 FRAME_UPSERT: Final = "transcript.upsert"
 FRAME_ACK: Final = "transcript.ack"
 FRAME_NACK: Final = "transcript.nack"
+
+#: BIGINT 의 상한. 발화 시각은 이 컬럼에 들어간다 (`schema.sql`).
+MAX_MS: Final = 2**63 - 1
+
+
+def _no_nul(value: str) -> str:
+    if "\x00" in value:
+        raise ValueError("NUL 문자는 저장할 수 없다")
+    return value
+
+
+#: DB 의 TEXT 에 들어갈 문자열. 비어 있을 수 없다.
+PgText = Annotated[str, Field(min_length=1), AfterValidator(_no_nul)]
+
+
+def _dedupe(ids: list[str]) -> list[str]:
+    """처음 나온 순서를 지키며 중복을 지운다. 근거는 위치로 저장된다."""
+    return list(dict.fromkeys(ids))
 
 
 class InternalSchema(BaseModel):
@@ -46,12 +69,12 @@ class TranscriptUpsert(InternalSchema):
     """
 
     type: Literal["transcript.upsert"]
-    utterance_id: str = Field(alias="utteranceId", min_length=1)
-    participant_id: str = Field(alias="participantId", min_length=1)
+    utterance_id: PgText = Field(alias="utteranceId")
+    participant_id: PgText = Field(alias="participantId")
     speaker: Role
-    text: str = Field(min_length=1)
-    started_at_ms: int = Field(alias="startedAtMs", ge=0)
-    ended_at_ms: int = Field(alias="endedAtMs", ge=0)
+    text: PgText
+    started_at_ms: int = Field(alias="startedAtMs", ge=0, le=MAX_MS)
+    ended_at_ms: int = Field(alias="endedAtMs", ge=0, le=MAX_MS)
 
     @model_validator(mode="after")
     def _check_range(self) -> "TranscriptUpsert":
@@ -70,11 +93,7 @@ class TranscriptAck(InternalSchema):
 class TranscriptNack(InternalSchema):
     """받을 수 없다는 답. **다시 보내지 말라**는 뜻이다.
 
-    ⚠️ **Agent 는 아직 이걸 처리하지 않는다.** `irya_ai.transcripts` 의 수신부가
-    `type != "transcript.ack"` 인 프레임을 전부 넘기므로, 지금 NACK 을 보내면 그
-    발화가 버퍼에 남아 ACK 타임아웃 → 재연결 → 재전송이 반복된다. #76 에 처리를
-    요청해 두었고, 그때까지는 계약이 갈라지지 않는 한 이 프레임이 나갈 일이 없다
-    (`extra="ignore"` 로 둔 이유가 그것이다).
+    Agent 는 이걸 받으면 그 발화를 버리고 다음으로 넘어간다 (#97).
     """
 
     type: Literal["transcript.nack"] = FRAME_NACK
@@ -85,10 +104,9 @@ class TranscriptNack(InternalSchema):
 class SuggestionCreate(InternalSchema):
     """`POST /internal/v1/sessions/{sessionId}/suggestions` 의 본문."""
 
-    suggestion_id: str = Field(alias="suggestionId", min_length=1)
-    type: str = Field(default="FOLLOW_UP", min_length=1)
-    content: str = Field(min_length=1)
-    evidence_utterance_ids: list[str] = Field(
+    suggestion_id: PgText = Field(alias="suggestionId")
+    content: PgText
+    evidence_utterance_ids: Annotated[list[PgText], AfterValidator(_dedupe)] = Field(
         alias="evidenceUtteranceIds", min_length=1
     )
 
@@ -102,7 +120,9 @@ class ReviewUpsert(InternalSchema):
     번역을 시키면 같은 판단이 두 군데로 갈라진다.
 
     본문은 `AnalysisResult.summary_result` 의 `summary` · `keyPoints` 다. 근거
-    인용(`points[]`)은 `Finding` 쪽이라 여기 범위가 아니다 (#85).
+    인용(`points[]`)은 `Finding` 쪽이라 여기 범위가 아니다. 면접이 끝난 뒤의
+    분석 결과라 최종 리뷰(#70)에서 다룬다 — 면접 중에 들어오는 전사·꼬리질문
+    (#85)과 다르다.
     """
 
     status: Literal["completed", "partial", "empty", "failed"]

@@ -46,12 +46,12 @@ services:
       context: ../backend
       args:
         # deploy.sh 가 넘깁니다. 손으로 띄우면 unknown 입니다.
-        GIT_SHA: ${GIT_SHA:-unknown}
+        GIT_SHA: ${BACKEND_SHA:-unknown}
     # 이미지에 어느 커밋인지 남깁니다. Registry 를 쓰지 않아 태그가 없으므로,
     # `docker inspect irya-backend --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
     # 로 서버에 뜬 버전을 확인합니다.
     labels:
-      org.opencontainers.image.revision: ${GIT_SHA:-unknown}
+      org.opencontainers.image.revision: ${BACKEND_SHA:-unknown}
     container_name: irya-backend
     restart: unless-stopped
     logging: *logging
@@ -122,11 +122,11 @@ services:
       context: ../ai
       args:
         # deploy.sh 가 넘깁니다. 손으로 띄우면 unknown 입니다.
-        GIT_SHA: ${GIT_SHA:-unknown}
+        GIT_SHA: ${AI_SHA:-unknown}
     # backend 와 같은 방식으로 이미지에 커밋을 남깁니다.
     # `docker inspect irya-ai --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
     labels:
-      org.opencontainers.image.revision: ${GIT_SHA:-unknown}
+      org.opencontainers.image.revision: ${AI_SHA:-unknown}
     container_name: irya-ai
     restart: unless-stopped
     # 방마다 작업 프로세스가 뜨고 지연 로그를 남기므로 상한이 특히 필요합니다.

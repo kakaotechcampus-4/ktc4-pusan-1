@@ -17,10 +17,15 @@ from app.domain.models import (
     ContextDoc,
     Interview,
     Resume,
+    Role,
     Session,
     SessionStatus,
     SessionSummary,
+    Suggestion,
+    SummaryStatus,
+    TranscriptStage,
     User,
+    Utterance,
 )
 
 
@@ -105,6 +110,15 @@ class Store(Protocol):
         """Agent 가 만든 결과를 받아 둔다. 조건 없이 덮어쓴다."""
         ...
 
+    def fail_summary(self, session_id: str) -> bool:
+        """Agent 의 실패 보고. READY 가 아니면 FAILED 로 넘기고 본문을 비운다.
+
+        READY 면 아무것도 바꾸지 않고 False 다. Agent 의 재시도 · 재실행에서 실패
+        한 번이 이미 성공한 요약을 지우면 안 된다 (#132). 판정과 갱신은 한 문장이다
+        — 읽고 나서 쓰면 그 사이에 들어온 READY 를 덮는다.
+        """
+        ...
+
     def expire_summary(
         self, session_id: str, limit: timedelta
     ) -> SessionSummary | None:
@@ -133,6 +147,36 @@ class Store(Protocol):
 
     def get_user(self, user_id: str) -> User | None: ...
 
+    # ── 전사·꼬리질문 (#85) ─────────────────────────────────
+
+    def upsert_utterance(self, utterance: Utterance) -> None:
+        """같은 `(session, stage, utterance_id)` 면 덮어쓴다. 교정본이 이 길로 온다.
+
+        Agent 는 ACK 를 받아야 버퍼에서 지운다 (#76). 여기가 끝나야 ACK 가 나간다.
+        """
+        ...
+
+    def list_utterances(
+        self, session_id: str, stage: TranscriptStage = TranscriptStage.LIVE
+    ) -> list[Utterance]:
+        """말한 순서대로. 같은 ms 에 시작했으면 면접관이 먼저, 그다음 id 순이다.
+
+        질문이 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. `seq` 가 전송
+        페이로드에 없어서 (#76 ①) 여기서 정한다.
+        """
+        ...
+
+    def add_suggestion(self, suggestion: Suggestion) -> None:
+        """이미 같은 id 가 있으면 **처음 것을 남긴다.**
+
+        Agent 의 재시도가 이 길로 온다.
+        """
+        ...
+
+    def list_suggestions(self, session_id: str) -> list[Suggestion]:
+        """도착한 순서대로."""
+        ...
+
 
 class InMemoryStore:
     """DB 구현과 같은 계약을 주는 인메모리 저장소.
@@ -154,6 +198,11 @@ class InMemoryStore:
 
         self._summaries: dict[str, SessionSummary] = {}
         self._users: dict[str, User] = {}
+
+        #: (session_id, stage, utterance_id) -> 발화
+        self._utterances: dict[tuple[str, TranscriptStage, str], Utterance] = {}
+        #: (session_id, suggestion_id) -> 꼬리질문
+        self._suggestions: dict[tuple[str, str], Suggestion] = {}
 
     def add_interview(self, interview: Interview) -> None:
         self._interviews[interview.id] = interview
@@ -263,6 +312,13 @@ class InMemoryStore:
         fresh.requested_at = stored.requested_at
         self._summaries[summary.session_id] = fresh
 
+    def fail_summary(self, session_id: str) -> bool:
+        stored = self._summaries.get(session_id)
+        if stored is None or stored.status is SummaryStatus.READY:
+            return False
+        stored.give_up()
+        return True
+
     def expire_summary(
         self, session_id: str, limit: timedelta
     ) -> SessionSummary | None:
@@ -288,6 +344,36 @@ class InMemoryStore:
         found = self._users.get(user_id)
         return None if found is None else deepcopy(found)
 
+    def upsert_utterance(self, utterance: Utterance) -> None:
+        key = (utterance.session_id, utterance.stage, utterance.utterance_id)
+        self._utterances[key] = deepcopy(utterance)
+
+    def list_utterances(
+        self, session_id: str, stage: TranscriptStage = TranscriptStage.LIVE
+    ) -> list[Utterance]:
+        found = [
+            u
+            for (sid, st, _), u in self._utterances.items()
+            if sid == session_id and st == stage
+        ]
+        found.sort(
+            key=lambda u: (
+                u.started_at_ms,
+                u.speaker is not Role.INTERVIEWER,
+                u.utterance_id,
+            )
+        )
+        return deepcopy(found)
+
+    def add_suggestion(self, suggestion: Suggestion) -> None:
+        key = (suggestion.session_id, suggestion.suggestion_id)
+        self._suggestions.setdefault(key, deepcopy(suggestion))
+
+    def list_suggestions(self, session_id: str) -> list[Suggestion]:
+        found = [s for (sid, _), s in self._suggestions.items() if sid == session_id]
+        found.sort(key=lambda s: (s.created_at, s.suggestion_id))
+        return deepcopy(found)
+
     def clear(self) -> None:
         """테스트용."""
         self._interviews.clear()
@@ -299,6 +385,9 @@ class InMemoryStore:
 
         self._summaries.clear()
         self._users.clear()
+
+        self._utterances.clear()
+        self._suggestions.clear()
 
 
 store: Store = InMemoryStore()

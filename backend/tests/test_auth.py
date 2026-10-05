@@ -133,7 +133,7 @@ def test_token_with_wrong_version_is_401(client: TestClient, ver):
 def test_bumping_token_version_revokes_issued_tokens(
     client: TestClient, store: InMemoryStore
 ):
-    """#127 리뷰 4번. 끊는 API 는 아직 없어서 저장소를 직접 올린다."""
+    """#119 리뷰 4번. 끊는 API 는 아직 없어서 저장소를 직접 올린다."""
     token = _login(client)["accessToken"]
     user = store._users[_me(client, token).json()["id"]]  # pyright: ignore[reportPrivateUsage]
 

@@ -17,8 +17,9 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"status"},
         "statuses": {"200"},
     },
-    # 면접관 API 는 전부 로그인이 필요하다 (#144). 남의 것은 404 로 숨긴다.
-    # 요청의 `interviewerId` 는 없앴다 — 면접관은 토큰에서 정한다.
+    # ⚠️ 401 · 403 은 Notion 명세에 없다. 면접관 API 에 로그인을 붙이면서(#130)
+    # 생겼고, 면접의 주인은 본문이 아니라 토큰에서 정한다 — 그래서 요청에
+    # `interviewerId` 가 없다.
     ("post", "/api/v1/interviews"): {
         "request": {"candidateName"},
         "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
@@ -82,7 +83,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "path_params": ["sessionId"],
         "request": {"role"},
         "response": {"sessionId", "candidateName", "livekitUrl", "token", "roomName"},
-        "statuses": {"200", "401", "404", "409"},
+        "statuses": {"200", "401", "403", "404", "409"},
     },
     ("post", "/api/v1/sessions/{sessionId}/start"): {
         "path_params": ["sessionId"],
@@ -161,6 +162,7 @@ ERROR_CODE = {
     "INVALID_SESSION_STATE",
     "ROOM_FULL",
     "UNAUTHORIZED",
+    "ROLE_NOT_ALLOWED",
     "KAKAO_AUTH_FAILED",
     "KAKAO_UNAVAILABLE",
 }
@@ -195,7 +197,6 @@ def test_response_fields_match_spec(method: str, path: str, schema: dict[str, An
         return
 
     content = op["responses"][success]["content"]["application/json"]["schema"]
-    # 목록 응답은 배열이다. 한 줄의 필드를 본다.
     assert _props(schema, content.get("items", content)) == expected
 
 

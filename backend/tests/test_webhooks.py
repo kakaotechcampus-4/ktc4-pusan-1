@@ -40,7 +40,7 @@ def session(store: InMemoryStore) -> Session:
 
 
 def _post(client: TestClient, *, auth: str = "signed") -> int:
-    # 빈 값도 실어 보낸다. 빼면 `client` 의 로그인 헤더가 대신 실린다.
+    # 빈 값도 실어야 한다 — 안 실으면 `client` 의 기본 로그인 헤더가 대신 간다.
     return client.post(
         WEBHOOK, content=b"{}", headers={"Authorization": auth}
     ).status_code

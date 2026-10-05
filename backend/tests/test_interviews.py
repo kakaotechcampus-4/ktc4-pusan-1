@@ -2,16 +2,18 @@
 
 from fastapi.testclient import TestClient
 
+from app.domain.models import User
 from tests.conftest import FakeMedia
 
 
-def test_create_interview(client: TestClient, user_id: str):
-    response = client.post("/api/v1/interviews", json={})
+def test_create_interview(client: TestClient, owner: User):
+    """주인은 토큰의 사용자다. 본문의 `interviewerId` 는 무시한다 (#130)."""
+    response = client.post("/api/v1/interviews", json={"interviewerId": "user_123"})
 
     assert response.status_code == 201
     body = response.json()
     assert body["interviewId"].startswith("int_")
-    assert body["interviewerId"] == user_id
+    assert body["interviewerId"] == owner.id
     assert body["candidateName"] is None
     assert body["createdAt"]
     assert set(body) == {"interviewId", "interviewerId", "candidateName", "createdAt"}
@@ -20,22 +22,14 @@ def test_create_interview(client: TestClient, user_id: str):
 def test_create_interview_accepts_candidate_name(client: TestClient):
     response = client.post(
         "/api/v1/interviews",
-        json={"candidateName": "  김지원  "},
+        json={"interviewerId": "user_123", "candidateName": "  김지원  "},
     )
 
     assert response.status_code == 201
     assert response.json()["candidateName"] == "김지원"
 
 
-def test_interviewer_comes_from_token_not_body(client: TestClient, user_id: str):
-    """#144 전의 FE 는 본문에 interviewerId 를 싣는다. 422 없이 무시해야 한다."""
-    response = client.post("/api/v1/interviews", json={"interviewerId": "usr_남"})
-
-    assert response.status_code == 201
-    assert response.json()["interviewerId"] == user_id
-
-
-def test_create_interview_rejects_too_long_name(client: TestClient):
+def test_create_interview_rejects_overlong_candidate_name(client: TestClient):
     """명세의 422 `요청값 검증 실패`."""
     response = client.post("/api/v1/interviews", json={"candidateName": "가" * 21})
 
@@ -44,7 +38,9 @@ def test_create_interview_rejects_too_long_name(client: TestClient):
 
 
 def test_get_interview(client: TestClient):
-    created = client.post("/api/v1/interviews", json={}).json()
+    created = client.post(
+        "/api/v1/interviews", json={"interviewerId": "user_123"}
+    ).json()
 
     response = client.get(f"/api/v1/interviews/{created['interviewId']}")
 
@@ -60,7 +56,9 @@ def test_get_unknown_interview(client: TestClient):
 
 
 def test_create_session(client: TestClient, media: FakeMedia):
-    interview = client.post("/api/v1/interviews", json={}).json()
+    interview = client.post(
+        "/api/v1/interviews", json={"interviewerId": "user_123"}
+    ).json()
 
     response = client.post(f"/api/v1/interviews/{interview['interviewId']}/sessions")
 
@@ -86,7 +84,7 @@ def test_create_session(client: TestClient, media: FakeMedia):
 def test_create_session_returns_candidate_name(client: TestClient):
     interview = client.post(
         "/api/v1/interviews",
-        json={"candidateName": "김지원"},
+        json={"interviewerId": "user_123", "candidateName": "김지원"},
     ).json()
 
     response = client.post(f"/api/v1/interviews/{interview['interviewId']}/sessions")
@@ -105,7 +103,9 @@ def test_create_session_for_unknown_interview(client: TestClient, media: FakeMed
 
 def test_interview_can_have_multiple_sessions(client: TestClient):
     """명세가 sessions 를 컬렉션으로 두었으므로 1:N 이다."""
-    interview = client.post("/api/v1/interviews", json={}).json()
+    interview = client.post(
+        "/api/v1/interviews", json={"interviewerId": "user_123"}
+    ).json()
     path = f"/api/v1/interviews/{interview['interviewId']}/sessions"
 
     first = client.post(path).json()["sessionId"]
