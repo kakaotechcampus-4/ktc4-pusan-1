@@ -23,6 +23,19 @@ cp .env.example .env
 uv run uvicorn app.main:app --reload
 ```
 
+## 데모 데이터 (검토 화면)
+
+AI 분석이 붙기 전에도 검토 화면을 끝까지 그릴 수 있게, FE 목(`demoReview.ts`)의 지원자 5명을 끝난 면접으로 넣습니다 (#163). 데모 계정으로 먼저 한 번 로그인해 사용자를 만든 뒤, 그 사용자 id(`usr_…`)로 돌립니다. 다시 돌려도 중복되지 않습니다.
+
+```bash
+# 서버
+docker compose exec backend python -m app.seed_demo --owner usr_xxx
+# 로컬 — DB 가 있어야 한다. 인메모리로 띄운 BE 에는 넣을 길이 없다
+DATABASE_URL=postgresql://irya:test@localhost:55432/irya uv run python -m app.seed_demo --owner usr_xxx
+```
+
+분석 내용은 `app/demo_review.json` 한 벌을 다섯 명이 함께 씁니다. 계산 규칙 테스트도 같은 파일을 읽습니다.
+
 ## CI 와 같은 검사 돌리기
 
 아래 다섯이 `be-ci` 가 도는 순서입니다. **`pytest` 만 돌리면 CI 에서 떨어집니다.**
