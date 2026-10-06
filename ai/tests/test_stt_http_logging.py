@@ -82,11 +82,8 @@ def ok(request: httpx.Request) -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "_result": {"status": "ok"},
-            "transcript": {
-                "text": TRANSCRIPT,
-                "chunks": [{"timestamp": [0.0, 1.0], "text": TRANSCRIPT}],
-            },
+            "text": TRANSCRIPT,
+            "segments": [{"id": 0, "start": 0.0, "end": 1.0, "text": TRANSCRIPT}],
         },
     )
 

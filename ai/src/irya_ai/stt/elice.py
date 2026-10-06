@@ -1,27 +1,29 @@
 """Elice STT client (TechSpec F2).
 
-The endpoint is a BentoML prediction service, not an OpenAI-compatible one:
-requests are multipart with a ``file`` part, ``language`` is a word
-("korean") rather than an ISO code, and the response wraps the text:
+The endpoint is vLLM's OpenAI-compatible server (since 2026-10-06, #159):
+``POST /v1/audio/transcriptions`` takes a multipart ``file`` with ``model``
+and an ISO 639-1 ``language`` (``"ko"``), and answers in the OpenAI shape.
+The default ``json`` body is text alone; this client always asks for
+``response_format=verbose_json`` because the hallucination guard needs the
+timing that only that shape carries:
 
-    {"_result": {"status": "ok"}, "transcript": {"text": ..., "chunks": [...]}}
+    {"text": ..., "duration": ..., "language": ...,
+     "segments": [{"id": 0, "start": 0.0, "end": 4.78, "text": ...}, ...],
+     "words": []}
 
-Every ``chunks`` entry observed from this deployment has carried a
-segment-level span, and that is the service's own default rather than a
-consequence of what these requests ask for: the deployment's OpenAPI schema
-types ``return_timestamps`` as a boolean defaulting to ``true``, so the
-cached corpus was produced with timestamps already enabled and still came
-back as whole utterances. Elice's model-library page shows a word-level
-example, but it passes the string ``'word'`` to a field this deployment
-declares boolean, so the page's setting is not one this contract offers.
-That last step is read off the schema, not tested: no request here has ever
-carried ``return_timestamps`` in any form, so the deployment has never been
-asked for word mode and has never refused it.
-Requests therefore carry ``file``, ``model`` and ``language`` and nothing
-else, and :mod:`irya_ai.stt.segmentation` does not overlap segments because
-segment-level spans leave an overlap nothing to be de-duplicated by. The
-counts behind that observation live with the STT bench data, which is kept
-outside this repository.
+``segments`` are sentence-sized, the same granularity the previous BentoML
+deployment reported as ``chunks[].timestamp``, so the no-overlap strategy in
+:mod:`irya_ai.stt.segmentation` carries over unchanged. ``words`` has come
+back empty on every request so far, including with
+``timestamp_granularities[]=word``, so nothing here reads it. The schema also
+offers ``prompt`` (a vocabulary hint) and ``stream``; neither is sent yet -
+both are their own decision (#159).
+
+The previous deployment answered ``{"_result": {"status"}, "transcript":
+{"text", "chunks"}}`` with ``language="korean"``. That shape is gone and is
+not parsed any more: a body in it reads as an empty transcription, which is
+exactly how the swap was noticed, so :func:`parse_response` refuses a body
+with no ``text`` key rather than treating it as silence.
 
 Errors leave this module as :class:`SttError` carrying a stable ``code`` and
 a ``retryable`` flag, and nothing else. Provider response bodies, transcript
@@ -55,7 +57,14 @@ from irya_ai.stt.http_logging import protect_host
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "whisper-large-v3"
-DEFAULT_LANGUAGE = "korean"
+# ISO 639-1, as the OpenAI transcription API defines ``language``. The old
+# deployment wanted the word "korean"; the new one accepts that too but the
+# result is indistinguishable from auto-detection, so the documented form is
+# the one sent.
+DEFAULT_LANGUAGE = "ko"
+# Only ``verbose_json`` carries ``segments`` and their spans. Without them the
+# hallucination guard has nothing to judge.
+RESPONSE_FORMAT = "verbose_json"
 
 # A last timestamp this far past the end of the audio describes time that was
 # never sent, which is a signal the text is untrustworthy - not proof of what
@@ -112,10 +121,9 @@ class Transcription:
 def _mapping(value: object, *, allow_missing: bool = True) -> Mapping:
     """A wrapper object, or an empty one when the field is simply absent.
 
-    ``None`` and a missing key mean the same thing here and are tolerated -
-    the service omits ``_result`` on some successful bodies. A field that is
-    present as some *other* type is a shape this parser does not understand,
-    which is a different thing from an absent one.
+    ``None`` and a missing key mean the same thing here and are tolerated. A
+    field that is present as some *other* type is a shape this parser does
+    not understand, which is a different thing from an absent one.
     """
 
     if value is None and allow_missing:
@@ -155,69 +163,62 @@ def _offset_seconds(value: object) -> float | None:
     return float(value)
 
 
-def _span_end_seconds(timestamp: object) -> float | None:
-    """The end of one chunk's span, or ``None`` when it carries no timing.
+def _segment_end_seconds(segment: object) -> float | None:
+    """The end of one segment's span, or ``None`` when it carries no timing.
 
-    The documented shape is a pair, ``[start, end]``, and both ends are
-    checked even though only the end is used: a chunk whose start is negative,
-    non-numeric, or later than its end is not a span this parser understood,
-    and taking its end anyway would put an invented number into a transcript.
-    A pair that is the wrong length is malformed for the same reason.
+    A segment is an object with ``start`` and ``end`` in seconds. Both are
+    checked even though only the end is used: a segment whose start is
+    negative, non-numeric, or later than its end is not a span this parser
+    understood, and taking its end anyway would put an invented number into a
+    transcript. A segment that is not an object at all is malformed for the
+    same reason; one with a null end simply carries no timing.
     """
 
-    if timestamp is None:
-        return None
-    if not isinstance(timestamp, list | tuple):
-        raise SttError("STT_MALFORMED_RESPONSE")
-    if len(timestamp) != 2:
-        raise SttError("STT_MALFORMED_RESPONSE")
-
-    start = _offset_seconds(timestamp[0])
-    end = _offset_seconds(timestamp[1])
+    fields = _mapping(segment)
+    start = _offset_seconds(fields.get("start"))
+    end = _offset_seconds(fields.get("end"))
     if start is not None and end is not None and start > end:
         raise SttError("STT_MALFORMED_RESPONSE")
     return end
 
 
 def parse_response(payload: object, *, latency_ms: int) -> Transcription:
-    """Validate the wrapped response body and pull text and the last span out.
+    """Validate the ``verbose_json`` body and pull text and the last span out.
 
     This is the boundary: everything past it is trusted, so every shape the
     service could return has to be decided here. Anything unexpected leaves as
     :class:`SttError`, never as a ``TypeError`` or an ``IndexError`` escaping
     into a caller that is iterating a live stream.
 
-    Absent text is an empty transcription, which the caller drops as ``EMPTY``.
-    Text present as a non-string is malformed. The two are not the same answer
-    and are not reported as the same thing.
+    ``text`` is required. A transcription body without it is not "nothing was
+    said" - the service always writes the key, empty or not - it is a body in
+    some other shape, and reading it as silence is how a whole interview's
+    captions went missing when the deployment changed (#159). An empty string
+    *is* silence, which the caller drops as ``EMPTY``. Absent segments mean
+    the hallucination guard has nothing to judge, which is an answer too.
+
+    An ``error`` object is the provider saying no inside a 200. Its message
+    is free-form provider text and is deliberately not forwarded.
     """
 
     body = _mapping(payload, allow_missing=False)
 
-    result = _mapping(body.get("_result"))
-    status = result.get("status")
-    if status is not None and status != "ok":
-        # The provider's own ``reason`` string is deliberately dropped: it is
-        # free-form provider text and this message is logged.
+    if body.get("error") is not None:
         raise SttError("STT_PROVIDER_ERROR")
 
-    transcript = _mapping(body.get("transcript"))
-
-    text = transcript.get("text")
-    if text is None:
-        text = ""
-    elif not isinstance(text, str):
+    text = body.get("text")
+    if not isinstance(text, str):
         raise SttError("STT_MALFORMED_RESPONSE")
 
-    chunks = transcript.get("chunks")
-    if chunks is None:
-        chunks = []
-    elif not isinstance(chunks, list | tuple):
+    segments = body.get("segments")
+    if segments is None:
+        segments = []
+    elif not isinstance(segments, list | tuple):
         raise SttError("STT_MALFORMED_RESPONSE")
 
     ends = []
-    for chunk in chunks:
-        end = _span_end_seconds(_mapping(chunk).get("timestamp"))
+    for segment in segments:
+        end = _segment_end_seconds(segment)
         if end is not None:
             ends.append(end)
 
@@ -345,7 +346,11 @@ class EliceSttClient:
                 response = await self.client.post(
                     "/v1/audio/transcriptions",
                     files={"file": (filename, pcm_wav, "audio/wav")},
-                    data={"model": self.model, "language": self.language},
+                    data={
+                        "model": self.model,
+                        "language": self.language,
+                        "response_format": RESPONSE_FORMAT,
+                    },
                 )
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:

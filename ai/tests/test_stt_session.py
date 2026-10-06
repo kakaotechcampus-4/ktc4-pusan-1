@@ -26,11 +26,8 @@ def ok(text: str) -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "_result": {"status": "ok", "reason": None},
-            "transcript": {
-                "text": text,
-                "chunks": [{"timestamp": [0.0, 1.5], "text": text}],
-            },
+            "text": text,
+            "segments": [{"id": 0, "start": 0.0, "end": 1.5, "text": text}],
         },
     )
 
@@ -281,7 +278,7 @@ async def test_a_rejected_chunk_does_not_shift_what_came_after_it() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if b'filename="seg_0001.wav"' in request.content:
-            return httpx.Response(500, json={"_result": {"status": "error"}})
+            return httpx.Response(500, json={"error": {"message": "decode failed"}})
         return ok("남은 말")
 
     ordering = SessionOrdering()

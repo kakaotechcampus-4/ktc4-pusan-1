@@ -55,7 +55,7 @@ candidate_order = ordering.register("trk_candidate", offset_ms=30_000)
 
 ## 오류와 과부하
 
-`EliceSttClient`는 multipart `file/model/language`를 보내고, 언어 기본값은 `korean`이다. 모델 기본값은 `whisper-large-v3`다. 키·배포 주소 설정은 [README](../README.md)를 따른다.
+`EliceSttClient`는 multipart `file/model/language/response_format=verbose_json`을 보내고, 언어 기본값은 `ko`다. 모델 기본값은 `whisper-large-v3`다. 키·배포 주소 설정은 [README](../README.md)를 따른다. 2026-10-06에 Elice가 배포를 BentoML 서비스에서 vLLM의 OpenAI 호환 서버로 바꿨고, 응답은 `{"text", "segments": [{"start", "end", ...}]}`다 (#159). 옛 `{"_result", "transcript": {"chunks"}}` 형식은 더 받지 않는다.
 
 - 불량 JSON·타입·timestamp, 공급자 오류는 안전한 코드의 `SttError`로 처리한다. 실패한 청크를 기록하고 다음 정상 청크를 계속 전달한다.
 - 401/403과 대부분의 4xx는 재시도하지 않는다. 일시적인 네트워크 오류·429·일부 상태·5xx는 제한된 재시도를 하며 요청 시간에는 이전 시도와 backoff가 포함된다.
@@ -89,7 +89,7 @@ candidate_order = ordering.register("trk_candidate", offset_ms=30_000)
 
 표의 122청크는 해당 5개 설정만 센 수이며 전체 API 사용량이 아니다. 저장 응답에서 요청 실패·timestamp 초과는 0이었지만 일반적인 환각 부재를 뜻하지 않는다. 모의 재생은 과거 요청 시간을 재사용해 샘플 유입·동시성 3·순서 대기를 계산했고 신규 API 실측이 아니다. p95는 nearest rank다. 이번 적대적 리뷰의 추가 STT 호출은 0회다.
 
-[Elice 공식 Whisper 문서](https://elice.io/en/ax/model-library/16ceb1c5-be5e-413f-8398-cfac8d8ce5d9)는 `return_timestamps="word"`를 설명한다. 반면 2026-09-12 확보된 사용 배포의 OpenAPI는 boolean/default true를 선언했고, 옵션을 생략한 캐시 470응답에서는 세그먼트 단위 span을 관찰했다. 명시적 `word` 값의 실제 수용·거부는 시험하지 않았다. 현재 무중첩 전략은 관찰된 세그먼트 타이밍을 근거로 유지하며, Elice 전체의 단어 시각 지원 불가나 모든 중복 제거 방법의 불가능성을 주장하지 않는다. warm-up 성공도 다음 요청의 지연을 보장하지 않는다.
+2026-10-06 이전 BentoML 배포는 `return_timestamps` 필드로 세그먼트 단위 span만 돌려줬고, 단어 시각은 시험하지 않았다. 교체된 vLLM 배포(#159)는 `response_format=verbose_json`에서 문장 단위 `segments[].start/end`를 주며, `timestamp_granularities[]=word`를 보내도 `words`는 비어 있었다(10.5초 한국어 TTS 1건 실측). 현재 무중첩 전략은 이 세그먼트 타이밍을 근거로 유지한다. 새 배포의 OpenAPI에는 `prompt`(용어 힌트)와 `stream`(SSE 조각 응답)이 있지만 보내지 않는다. 둘 다 별도 결정 사항이다. warm-up 성공도 다음 요청의 지연을 보장하지 않는다.
 
 ## 다음 통합 테스트
 
