@@ -27,7 +27,6 @@ import time
 from collections.abc import (
     AsyncIterable,
     AsyncIterator,
-    Awaitable,
     Callable,
     Iterable,
     Iterator,
@@ -41,6 +40,7 @@ from typing import Protocol
 from livekit import rtc
 
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
+from irya_ai.sinks import UtteranceSink
 from irya_ai.stt.elice import EliceSttClient
 from irya_ai.stt.segmentation import SegmentationConfig
 from irya_ai.stt.session import SessionOrdering
@@ -58,9 +58,6 @@ DEGRADED_REASON = "STT_UNAVAILABLE"
 # so a frame arriving in any other shape is a programming error, not audio.
 SAMPLE_RATE = SegmentationConfig().sample_rate
 NUM_CHANNELS = 1
-
-
-UtteranceSink = Callable[[Utterance], Awaitable[None]]
 
 
 class TranscribingStream(Protocol):

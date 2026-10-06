@@ -2,8 +2,8 @@
 
 Everything here runs against a local ``aiohttp`` server on the loopback
 interface. No real Backend, no real interview audio, and no route outside
-127.0.0.1 - the BE side of this contract does not exist yet, so an end-to-end
-check is not available to write.
+127.0.0.1. These failure cases use a controllable peer; verification against the
+actual Backend storage route is recorded separately.
 """
 
 import asyncio
@@ -50,6 +50,8 @@ def payload(
     return TranscriptPayload(
         utterance_id=utterance_id,
         participant_id="candidate_123",
+        track_id="trk_candidate",
+        seq=0,
         speaker="CANDIDATE",
         text=text,
         started_at_ms=15_200,
@@ -229,6 +231,8 @@ async def test_a_confirmed_utterance_is_written_as_the_agreed_frame() -> None:
                 "type": FRAME_UPSERT,
                 "utteranceId": "utt_001",
                 "participantId": "candidate_123",
+                "trackId": "trk_candidate",
+                "seq": 0,
                 "speaker": "CANDIDATE",
                 "text": "첫 발화입니다.",
                 "startedAtMs": 15_200,

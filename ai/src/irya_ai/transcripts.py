@@ -2,9 +2,10 @@
 
 The agreed contract carries confirmed utterances over
 ``WS /internal/v1/sessions/{sessionId}/transcripts`` rather than the HTTP POST
-this branch first implemented. The transport is settled; the frame shape, the
-ACK and the internal authentication method below are the contract proposal's
-values and are not independently confirmed - see ``OPEN_QUESTIONS.md``.
+the original implementation used. Backend authenticates the handshake and
+stores a valid frame before ACK; NACK rejects only that frame. The #137
+extension sends ``seq`` and ``trackId``, which current Backend ignores until
+its storage extension lands.
 
 One connection per session. The Agent writes one JSON text frame per confirmed
 utterance::
@@ -15,7 +16,7 @@ and Backend answers each one::
 
     {"type": "transcript.ack", "utteranceId": "utt_001"}
 
-Backend keys on ``(sessionId, utteranceId)`` and upserts, so a frame resent
+Backend keys on ``(sessionId, stage, utteranceId)`` and upserts, so a frame resent
 after a reconnect is not a duplicate. That is what makes the buffer here safe:
 :meth:`TranscriptChannel.send` returns as soon as the frame is written, keeps
 it until its ACK arrives, and writes everything still unacknowledged again on

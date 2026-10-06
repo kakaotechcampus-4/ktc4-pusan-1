@@ -12,7 +12,9 @@ agreed payload          ``Utterance``
 ``text``                ``content``
 ``startedAtMs``         ``start_ms``
 ``endedAtMs``           ``end_ms``
-``participantId``       *absent* - the Agent holds ``track_id``
+``participantId``       *absent* - the worker supplies the human identity
+``trackId``             ``track_id``
+``seq``                 ``seq``
 ======================  ==========================================
 
 Renaming ``Utterance`` to close that gap would reach into Q&A segmentation,
@@ -58,12 +60,14 @@ class TranscriptPayload(CamelModel):
     "transcript.upsert"``. The discriminator is not a field here either, for
     the same reason the session is not: it identifies the frame, not the
     utterance, and :mod:`irya_ai.transcripts` is the one place that knows a
-    frame is being built. Backend keys on ``(sessionId, utteranceId)`` and
+    frame is being built. Backend keys on ``(sessionId, stage, utteranceId)`` and
     upserts, so the same payload resent after a reconnect is not a duplicate.
     """
 
     utterance_id: str = Field(min_length=1, examples=["utt_001"])
     participant_id: str = Field(min_length=1, examples=["candidate_123"])
+    track_id: str = Field(min_length=1)
+    seq: int = Field(ge=0, le=2**63 - 1)
     speaker: SpeakerRole
     text: str = Field(min_length=1)
     started_at_ms: int = Field(ge=0, examples=[15200])
@@ -81,13 +85,11 @@ def transcript_payload(
 ) -> TranscriptPayload:
     """Translate one ``Utterance`` into the agreed transcript payload.
 
-    ``participant_id`` is a required argument rather than something read off
-    the utterance because the Agent genuinely does not have it. What it holds
-    is the LiveKit ``track_id``, which is not the Backend's participant
-    identifier, and inventing a mapping here would put a wrong id on every
-    utterance of the interview while every value still looked well formed.
-    Where the caller gets it from is still open with Backend; until it is
-    settled, the type system asks for it at every call site.
+    ``participant_id`` is supplied by the caller. The worker uses the human
+    LiveKit identity (INTERVIEWER or CANDIDATE), as specified in #137, never
+    the track SID. ``trackId`` and ``seq`` preserve the source ordering for
+    persisted-input analysis; the current Backend still ignores these two
+    fields until its #137 storage extension is implemented.
     """
 
     if not utterance.is_final:
@@ -96,6 +98,8 @@ def transcript_payload(
     return TranscriptPayload(
         utterance_id=utterance.utterance_id,
         participant_id=participant_id,
+        track_id=utterance.track_id,
+        seq=utterance.seq,
         speaker=utterance.speaker,
         text=utterance.content,
         started_at_ms=utterance.start_ms,
