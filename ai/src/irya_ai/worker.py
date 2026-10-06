@@ -8,9 +8,9 @@ share the server.
 
 One room is one job. The job builds one Elice STT client, hands it to a
 :class:`~irya_ai.stt.rtc_bridge.RoomTranscriber`, and lets that transcribe
-each human microphone through the Whisper live path. Nothing else runs here:
-the follow-up question agent and the Backend transcript channel attach to the
-transcriber's sinks in their own change (#83).
+each human microphone through the Whisper live path. FINAL utterances also enter
+a bounded background sender for Backend storage.
+Captions never wait for its WebSocket. Follow-up question wiring stays in #120.
 """
 
 import asyncio
@@ -24,12 +24,27 @@ from livekit.agents import (
     cli,
 )
 
+from irya_ai.backend import BackendError
 from irya_ai.config import Settings, get_settings
+from irya_ai.sinks import FanOutSink
 from irya_ai.stt.elice import EliceSttClient, SttError, build_client
 from irya_ai.stt.rtc_bridge import RoomTranscriber, session_id_from_room
 from irya_ai.stt.stream import silent_probe
+from irya_ai.transcript_runner import TranscriptRunner
+from irya_ai.transcripts import build_transcript_channel
 
 logger = logging.getLogger(__name__)
+
+
+def wire_transcripts(settings: Settings, session_id: str) -> TranscriptRunner | None:
+    try:
+        channel = build_transcript_channel(settings, session_id)
+    except BackendError as exc:
+        logger.info("transcripts disabled session=%s code=%s", session_id, exc.code)
+        return None
+    return TranscriptRunner(
+        channel, session_id=session_id, max_queue=settings.transcript_max_pending
+    )
 
 
 async def _warm_up(client: EliceSttClient) -> None:
@@ -74,6 +89,13 @@ async def transcribe_room(ctx: JobContext) -> None:
         client=client,
     )
 
+    transcripts = wire_transcripts(settings, session_id)
+    consumers = [transcriber.caption]
+    if transcripts is not None:
+        consumers.append(transcripts)
+        ctx.add_shutdown_callback(transcripts.stop)
+    transcriber.sinks = [FanOutSink(consumers)]
+
     async def transcribe_participant(_ctx: JobContext, participant) -> None:
         await transcriber.transcribe_participant(participant)
 
@@ -83,6 +105,8 @@ async def transcribe_room(ctx: JobContext) -> None:
     warm_up = asyncio.create_task(_warm_up(client), name="stt-warm-up")
     ctx.add_shutdown_callback(lambda: _cancel(warm_up))
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+    if transcripts is not None:
+        transcripts.start()
     origin = transcriber.initialize_origin(ctx.room.remote_participants.values())
     logger.info(
         "joined room=%s session=%s participants=%d origin=%s",

@@ -8,9 +8,17 @@ import httpx
 import pytest
 
 from irya_ai import worker
+from irya_ai.config import Settings
 from irya_ai.stt.elice import EliceSttClient, SttError
 from irya_ai.stt.rtc_bridge import RoomTranscriber
 from irya_ai.worker import transcribe_room
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(monkeypatch):
+    monkeypatch.setattr(
+        worker, "get_settings", lambda: Settings(_env_file=None, backend_base_url="")
+    )
 
 
 class FakeJobContext:
@@ -119,3 +127,28 @@ def test_room_entrypoint_can_cross_the_worker_process_boundary() -> None:
     """AgentServer uses multiprocessing ``spawn``/``forkserver`` in production."""
 
     assert pickle.loads(pickle.dumps(transcribe_room)) is transcribe_room
+
+
+async def test_worker_starts_transcript_sender_and_closes_it_after_session(monkeypatch):
+    ctx = FakeJobContext("interview_ses_123")
+    client = probe_client()
+    monkeypatch.setattr(worker, "build_client", lambda settings: client)
+    settings = Settings(_env_file=None, backend_base_url="http://backend.invalid")
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+    built = []
+    original = worker.wire_transcripts
+
+    def capture(settings, session_id):
+        runner = original(settings, session_id)
+        built.append(runner)
+        return runner
+
+    monkeypatch.setattr(worker, "wire_transcripts", capture)
+    await transcribe_room(ctx)
+    assert len(built) == 1
+    runner = built[0]
+    assert runner._task is not None and not runner._task.done()
+    for callback in ctx.shutdown_callbacks:
+        await callback()
+    assert runner._task.done()
+    assert runner.channel._closed

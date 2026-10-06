@@ -41,6 +41,8 @@ def test_the_payload_serialises_to_the_agreed_keys() -> None:
     assert payload.model_dump(by_alias=True) == {
         "utteranceId": "utt_001",
         "participantId": "candidate_123",
+        "trackId": "trk_candidate",
+        "seq": 0,
         "speaker": "CANDIDATE",
         "text": "인턴 당시 React Native로 지도 기능을 개발했습니다.",
         "startedAtMs": 15_200,
@@ -53,9 +55,7 @@ def test_the_payload_carries_nothing_the_contract_did_not_ask_for() -> None:
 
     keys = set(transcript_payload(utterance(), participant_id="p_1").model_dump())
 
-    assert keys.isdisjoint(
-        {"session_id", "track_id", "seq", "pass_type", "uncertain", "words"}
-    )
+    assert keys.isdisjoint({"session_id", "pass_type", "uncertain", "words"})
 
 
 def test_the_utterance_keeps_its_own_field_names() -> None:
@@ -104,6 +104,8 @@ def test_an_unknown_key_is_refused_rather_than_dropped() -> None:
             startedAtMs=0,
             endedAtMs=1,
             trackId="trk_candidate",
+            seq=0,
+            words=[],
         )
 
 
@@ -114,6 +116,8 @@ def test_a_backwards_span_is_refused() -> None:
             participantId="candidate_123",
             speaker="CANDIDATE",
             text="네",
+            trackId="trk_interviewer",
+            seq=1,
             startedAtMs=3_000,
             endedAtMs=1_000,
         )
@@ -126,6 +130,8 @@ def test_the_payload_reads_the_agreed_keys_back() -> None:
         {
             "utteranceId": "utt_002",
             "participantId": "interviewer_7",
+            "trackId": "trk_interviewer",
+            "seq": 1,
             "speaker": "INTERVIEWER",
             "text": "인턴 경험을 설명해주세요.",
             "startedAtMs": 0,
