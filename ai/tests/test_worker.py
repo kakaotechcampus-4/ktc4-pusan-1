@@ -49,10 +49,7 @@ def probe_client() -> EliceSttClient:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-            json={
-                "_result": {"status": "ok"},
-                "transcript": {"text": "", "chunks": []},
-            },
+            json={"text": "", "segments": []},
         )
 
     return EliceSttClient(

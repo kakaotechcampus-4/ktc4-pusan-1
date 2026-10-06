@@ -57,7 +57,7 @@ chmod 600 .env
 | `ELICE_API_KEY` | 서버 측 Elice STT API Key | 없음 |
 | `ELICE_STT_BASE_URL` | Elice STT 배포 주소. 비공개 값이라 커밋하지 않습니다 | 없음 |
 | `ELICE_STT_MODEL` | STT 모델 이름 | `whisper-large-v3` |
-| `ELICE_STT_LANGUAGE` | 전사 언어. ISO 코드가 아니라 단어입니다 | `korean` |
+| `ELICE_STT_LANGUAGE` | 전사 언어. ISO 639-1 코드입니다 (2026-10-06 배포 교체 전에는 단어 `korean`) | `ko` |
 | `ELICE_STT_TIMEOUT_SECONDS` | STT 요청 제한 시간(초), 0 초과 300 이하 | `60` |
 | `BACKEND_BASE_URL` | 백엔드 `/internal/v1` 주소. 비공개 값이라 커밋하지 않습니다 | 없음 |
 | `BACKEND_API_KEY` | 백엔드 내부 API 인증 키. `Authorization: Bearer`로 전달하며, compose에서는 `INTERNAL_API_KEY`와 공유합니다. 비워 두면 인증 헤더를 보내지 않습니다 | 없음 |

@@ -15,7 +15,7 @@ def test_settings_have_safe_local_defaults() -> None:
     # The deployment host is private, so there is no default to fall back to.
     assert settings.elice_stt_base_url == ""
     assert settings.elice_stt_model == "whisper-large-v3"
-    assert settings.elice_stt_language == "korean"
+    assert settings.elice_stt_language == "ko"
     assert settings.elice_stt_timeout_seconds == 60
 
 
@@ -30,7 +30,7 @@ def test_settings_load_environment_variables(monkeypatch) -> None:
     monkeypatch.setenv("ELICE_API_KEY", "test-elice-key")
     monkeypatch.setenv("ELICE_STT_BASE_URL", "https://stt.example.test")
     monkeypatch.setenv("ELICE_STT_MODEL", "whisper-large-v3-turbo")
-    monkeypatch.setenv("ELICE_STT_LANGUAGE", "english")
+    monkeypatch.setenv("ELICE_STT_LANGUAGE", "en")
     monkeypatch.setenv("ELICE_STT_TIMEOUT_SECONDS", "15")
 
     settings = Settings(_env_file=None)
@@ -45,7 +45,7 @@ def test_settings_load_environment_variables(monkeypatch) -> None:
     assert settings.elice_api_key.get_secret_value() == "test-elice-key"
     assert settings.elice_stt_base_url == "https://stt.example.test"
     assert settings.elice_stt_model == "whisper-large-v3-turbo"
-    assert settings.elice_stt_language == "english"
+    assert settings.elice_stt_language == "en"
     assert settings.elice_stt_timeout_seconds == 15
 
 
