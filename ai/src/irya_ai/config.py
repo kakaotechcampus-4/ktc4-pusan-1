@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     elice_api_key: SecretStr = SecretStr("")
     elice_stt_base_url: str = ""
     elice_stt_model: str = "whisper-large-v3"
-    elice_stt_language: str = "korean"
+    elice_stt_language: str = "ko"
     elice_stt_timeout_seconds: float = Field(default=60, gt=0, le=300)
 
     # Project LLM (Elice ML API, OpenAI-compatible). The base URL names a
