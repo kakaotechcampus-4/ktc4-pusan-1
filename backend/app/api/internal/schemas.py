@@ -102,7 +102,11 @@ class TranscriptNack(InternalSchema):
 
 
 class SuggestionCreate(InternalSchema):
-    """`POST /internal/v1/sessions/{sessionId}/suggestions` 의 본문."""
+    """꼬리질문 하나: suggestionId · content · evidenceUtteranceIds.
+
+    `POST /internal/v1/sessions/{sessionId}/suggestions` 는 꼬리질문만 받아
+    type 구분자를 두지 않는다. 세션은 URL 로 식별한다.
+    """
 
     suggestion_id: PgText = Field(alias="suggestionId")
     content: PgText

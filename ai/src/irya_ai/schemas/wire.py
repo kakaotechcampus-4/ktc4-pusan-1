@@ -24,13 +24,12 @@ vocabulary. ``CamelModel`` forbids unknown keys, so a drift on either side of
 this boundary fails the request instead of dropping a field quietly.
 
 The suggestion payload is the same story from the other end. It renames one
-field, adds one the pipeline has no use for, and drops four:
+field and drops the pipeline-only fields:
 
 ========================  ==========================================
 agreed payload            ``SuggestedQuestion``
 ========================  ==========================================
 ``suggestionId``          ``question_id``
-``type``                  *absent* - see :class:`SuggestionType`
 ``content``               ``content``
 ``evidenceUtteranceIds``  ``evidence_utterance_ids``
 *absent*                  ``reason`` ``status`` ``qa_id`` ``asked_at``
@@ -39,8 +38,6 @@ agreed payload            ``SuggestedQuestion``
 ``reason`` and ``status`` are not losses: the rationale is for the interviewer
 and the status is Backend's to keep once the question is theirs.
 """
-
-from enum import StrEnum
 
 from pydantic import Field, model_validator
 
@@ -107,39 +104,22 @@ def transcript_payload(
     )
 
 
-class SuggestionType(StrEnum):
-    """What kind of suggestion this is.
-
-    The agreed payload carries ``type`` and the meeting only ever showed
-    ``FOLLOW_UP``. Whether other values exist, and whether the Agent or
-    Backend decides them, is not settled - so the enum lives out here at the
-    boundary rather than in the pipeline's own vocabulary, and a value added
-    later touches this file alone.
-    """
-
-    FOLLOW_UP = "FOLLOW_UP"
-
-
 class SuggestionPayload(CamelModel):
     """One follow-up as ``POST /internal/v1/sessions/{sessionId}/suggestions``.
 
-    As with the transcript payload the session lives in the path, not the body.
-    ``evidenceUtteranceIds`` is required and non-empty on purpose: a suggestion
-    that cannot point at what prompted it is the one thing this pipeline
-    refuses to produce, and the type should say so at the boundary too.
+    This route carries only follow-up questions, so no type discriminator is
+    needed. As with the transcript payload the session lives in the path, not
+    the body. ``evidenceUtteranceIds`` is required and non-empty on purpose:
+    a suggestion that cannot point at what prompted it is the one thing this
+    pipeline refuses to produce, and the model enforces that at the boundary.
     """
 
     suggestion_id: str = Field(min_length=1, examples=["sug_001"])
-    type: SuggestionType = SuggestionType.FOLLOW_UP
     content: str = Field(min_length=1)
     evidence_utterance_ids: list[str] = Field(min_length=1, examples=[["utt_001"]])
 
 
-def suggestion_payload(
-    question: SuggestedQuestion,
-    *,
-    suggestion_type: SuggestionType = SuggestionType.FOLLOW_UP,
-) -> SuggestionPayload:
+def suggestion_payload(question: SuggestedQuestion) -> SuggestionPayload:
     """Translate one verified ``SuggestedQuestion`` into the agreed payload.
 
     ``question_id`` is carried over as ``suggestionId``. Who is supposed to
@@ -151,7 +131,6 @@ def suggestion_payload(
 
     return SuggestionPayload(
         suggestion_id=question.question_id,
-        type=suggestion_type,
         content=question.content,
         evidence_utterance_ids=question.evidence_utterance_ids,
     )
