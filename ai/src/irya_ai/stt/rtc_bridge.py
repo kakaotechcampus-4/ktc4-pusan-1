@@ -23,6 +23,7 @@ transcription and post-interview storage remain separate work.
 import asyncio
 import json
 import logging
+import math
 import time
 from collections.abc import (
     AsyncIterable,
@@ -233,12 +234,18 @@ async def _emit_utterances(
 
 
 def _percentile(values: Sequence[int], fraction: float) -> int | None:
-    """Nearest-rank percentile, or ``None`` when there is nothing to rank."""
+    """Nearest-rank percentile, or ``None`` when there is nothing to rank.
+
+    Nearest-rank rounds the rank up: ``ceil(fraction * n)``. ``round`` would
+    land a place low wherever ``fraction * n`` has a fraction below .5 (p95 of
+    11 to 13 values) and, being banker's rounding, on exact halves too (p50 of
+    5 values) - the very sizes one answer's segments come in.
+    """
 
     if not values:
         return None
     ordered = sorted(values)
-    rank = max(1, round(fraction * len(ordered)))
+    rank = max(1, math.ceil(fraction * len(ordered)))
     return ordered[min(rank, len(ordered)) - 1]
 
 
