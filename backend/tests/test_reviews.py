@@ -341,3 +341,83 @@ def test_review_can_change_before_any_analysis(client: TestClient):
 )
 def test_unstorable_review_input_is_refused(client: TestClient, body: dict[str, Any]):
     assert patch(client, _interview(client), body).status_code == 422
+
+
+# ── 채택 · 북마크 (#137 1-4) ────────────────────────────
+
+FINDING_ID = DEMO["review"]["findings"][1]["findingId"]
+MOMENT_ID = DEMO["review"]["moments"][2]["momentId"]
+
+
+def _ready(client: TestClient, store: InMemoryStore) -> tuple[str, str]:
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    _prepared(store, interview_id)
+    _analysed(store, session_id)
+    return interview_id, session_id
+
+
+def put_mark(client: TestClient, interview_id: str, item_id: str, body: Any):
+    return client.put(
+        f"{V1}/interviews/{interview_id}/review/marks/{item_id}", json=body
+    )
+
+
+def test_adopting_a_finding_shows_in_the_detail(
+    client: TestClient, store: InMemoryStore
+):
+    interview_id, _ = _ready(client, store)
+
+    response = put_mark(client, interview_id, FINDING_ID, {"state": "ADOPTED"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "itemId": FINDING_ID,
+        "state": "ADOPTED",
+        "bookmarked": False,
+    }
+    findings = get_review(client, interview_id).json()["findings"]
+    assert {f["id"]: f["state"] for f in findings}[FINDING_ID] == "ADOPTED"
+
+
+def test_only_the_sent_field_changes(client: TestClient, store: InMemoryStore):
+    interview_id, _ = _ready(client, store)
+    put_mark(client, interview_id, MOMENT_ID, {"bookmarked": True})
+
+    body = put_mark(client, interview_id, MOMENT_ID, {"state": "REJECTED"}).json()
+
+    assert (body["state"], body["bookmarked"]) == ("REJECTED", True)
+    moments = get_review(client, interview_id).json()["moments"]
+    assert {m["id"]: m["bookmarked"] for m in moments}[MOMENT_ID] is True
+
+
+def test_an_item_the_detail_does_not_have_is_404(
+    client: TestClient, store: InMemoryStore
+):
+    """아무 id 로 행이 쌓이지 않는다 (#163 결정)."""
+    interview_id, session_id = _ready(client, store)
+
+    response = put_mark(client, interview_id, "fnd_nope", {"state": "ADOPTED"})
+
+    assert response.status_code == 404
+    assert store.list_marks(session_id) == []
+
+
+def test_marks_wait_for_an_analysis(client: TestClient, store: InMemoryStore):
+    """끝난 세션이 없거나 요약이 FAILED 면 표시할 항목이 없다."""
+    never_ended = _interview(client)
+    failed = _interview(client)
+    store.fail_summary(_ended_session(client, failed))
+
+    for interview_id in (never_ended, failed):
+        got = put_mark(client, interview_id, FINDING_ID, {"state": "ADOPTED"})
+        assert got.status_code == 404
+
+
+@pytest.mark.parametrize("body", [{}, {"state": "EDITED"}, {"bookmarked": "maybe"}])
+def test_a_mark_without_a_usable_field_is_refused(
+    client: TestClient, store: InMemoryStore, body: dict[str, Any]
+):
+    interview_id, _ = _ready(client, store)
+
+    assert put_mark(client, interview_id, FINDING_ID, body).status_code == 422

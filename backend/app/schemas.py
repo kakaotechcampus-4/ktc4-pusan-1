@@ -6,7 +6,7 @@ FE 는 camelCase 를 쓴다. 파이썬 쪽은 snake_case 로 두고 alias 로 �
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.models import (
     DocCategory,
@@ -265,6 +265,31 @@ class ReviewUpdateResponse(Schema):
         description="CONFIRMED 가 된 시각. 다른 상태로 돌아가면 null.",
     )
     memo: str
+
+
+class MarkUpdateRequest(Schema):
+    """`PUT .../review/marks/{itemId}` — 채택 · 북마크 (#137 1-4). 보낸 것만 바뀐다.
+
+    `state` 는 검토 항목(finding)의 채택 여부, `bookmarked` 는 문답(moment)의
+    북마크다. 둘 다 없으면 바꿀 것이 없어 422 다.
+    """
+
+    state: FindingState | None = None
+    bookmarked: bool | None = None
+
+    @model_validator(mode="after")
+    def _something_to_change(self) -> "MarkUpdateRequest":
+        if self.state is None and self.bookmarked is None:
+            raise ValueError("state 나 bookmarked 중 하나는 있어야 한다")
+        return self
+
+
+class MarkResponse(Schema):
+    """그 항목의 지금 표시."""
+
+    item_id: str = Field(serialization_alias="itemId")
+    state: FindingState
+    bookmarked: bool
 
 
 class ReviewProcessingResponse(Schema):

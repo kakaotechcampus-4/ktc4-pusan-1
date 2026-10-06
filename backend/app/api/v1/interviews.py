@@ -6,7 +6,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, File, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Path, UploadFile, status
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -18,13 +18,14 @@ from app.api.deps import (
     StoreDep,
 )
 from app.core.config import settings
-from app.core.errors import LOGIN_REQUIRED, responses
+from app.core.errors import LOGIN_REQUIRED, ApiError, ErrorCode, responses
 from app.core.uploads import read_upload
 from app.domain.models import (
     Context,
     Interview,
     InterviewPrep,
     Resume,
+    ReviewMark,
     Session,
     SessionSummary,
     SummaryStatus,
@@ -38,6 +39,8 @@ from app.schemas import (
     InterviewListItem,
     InterviewListResponse,
     InterviewResponse,
+    MarkResponse,
+    MarkUpdateRequest,
     ReviewCandidate,
     ReviewCounts,
     ReviewCoverage,
@@ -330,6 +333,47 @@ def get_review(
         moments=[ReviewMoment.model_validate(m) for m in review.moments],
         findings=[ReviewFinding.model_validate(f) for f in review.findings],
     )
+
+
+@router.put(
+    "/{interviewId}/review/marks/{itemId}",
+    response_model=MarkResponse,
+    summary="검토 항목 채택 · 문답 북마크",
+    responses=responses(
+        LOGIN_REQUIRED, (404, "면접이 없거나 지금 상세에 그 항목이 없음")
+    ),
+)
+def put_mark(
+    item_id: Annotated[str, Path(alias="itemId")],
+    body: MarkUpdateRequest,
+    interview: OwnedInterviewDep,
+    store: StoreDep,
+) -> MarkResponse:
+    """검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).
+
+    `itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면
+    404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도
+    없다 (#163 결정). 표시는 기준 세션에 남는다.
+    """
+    session = store.last_ended_session(interview.id)
+    summary = None if session is None else store.get_summary(session.id)
+    items = (
+        set()
+        if summary is None or summary.status is not SummaryStatus.READY
+        else {m["momentId"] for m in summary.moments}
+        | {f["findingId"] for f in summary.findings}
+    )
+    if session is None or item_id not in items:
+        raise ApiError(ErrorCode.NOT_FOUND, 404, "검토 항목을 찾을 수 없습니다.")
+
+    marks = {m.item_id: m for m in store.list_marks(session.id)}
+    mark = marks.get(item_id) or ReviewMark(session_id=session.id, item_id=item_id)
+    if body.state is not None:
+        mark.state = body.state
+    if body.bookmarked is not None:
+        mark.bookmarked = body.bookmarked
+    store.save_mark(mark)
+    return MarkResponse(item_id=item_id, state=mark.state, bookmarked=mark.bookmarked)
 
 
 def _processing() -> JSONResponse:

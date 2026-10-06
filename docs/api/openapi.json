@@ -571,6 +571,57 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "MarkResponse": {
+        "description": "그 항목의 지금 표시.",
+        "properties": {
+          "bookmarked": {
+            "title": "Bookmarked",
+            "type": "boolean"
+          },
+          "itemId": {
+            "title": "Itemid",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/FindingState"
+          }
+        },
+        "required": [
+          "itemId",
+          "state",
+          "bookmarked"
+        ],
+        "title": "MarkResponse",
+        "type": "object"
+      },
+      "MarkUpdateRequest": {
+        "description": "`PUT .../review/marks/{itemId}` — 채택 · 북마크 (#137 1-4). 보낸 것만 바뀐다.\n\n`state` 는 검토 항목(finding)의 채택 여부, `bookmarked` 는 문답(moment)의\n북마크다. 둘 다 없으면 바꿀 것이 없어 422 다.",
+        "properties": {
+          "bookmarked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bookmarked"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindingState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "MarkUpdateRequest",
+        "type": "object"
+      },
       "ReviewCandidate": {
         "properties": {
           "name": {
@@ -2298,6 +2349,98 @@
           }
         },
         "summary": "면접 기록 조회",
+        "tags": [
+          "면접"
+        ]
+      }
+    },
+    "/api/v1/interviews/{interviewId}/review/marks/{itemId}": {
+      "put": {
+        "description": "검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).\n\n`itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면\n404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도\n없다 (#163 결정). 표시는 기준 세션에 남는다.",
+        "operationId": "put_mark_api_v1_interviews__interviewId__review_marks__itemId__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "title": "Itemid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접이 없거나 지금 상세에 그 항목이 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "검토 항목 채택 · 문답 북마크",
         "tags": [
           "면접"
         ]
