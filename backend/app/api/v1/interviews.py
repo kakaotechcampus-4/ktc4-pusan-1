@@ -419,7 +419,11 @@ async def upload_resume(
     await run_in_threadpool(store.save_resume, resume, content)
     # 새 이력서로 면접 전 분석을 다시 돌린다(#162). 세션을 만들기 전이면 자리가 없어
     # 아무 일도 없고, 세션을 만들 때 열린다. 본문 추출이 끝나야 작업이 나간다.
-    await run_in_threadpool(store.restart_prep, interview.id)
+    #
+    # 면접이 끝났으면 돌리지 않는다(#163). 다시 돌리면 검토 중에 역량 · 주장이
+    # 비워져 상세의 coverage · 근거가 사라진다.
+    if await run_in_threadpool(store.last_ended_session, interview.id) is None:
+        await run_in_threadpool(store.restart_prep, interview.id)
     background.add_task(
         lambda: store.finish_resume(
             interview.id, resume.id, parser.extract_text(resume.name, content)
