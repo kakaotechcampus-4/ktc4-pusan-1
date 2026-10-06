@@ -1,49 +1,243 @@
-"""면접 기록 조회 — 계약 확정 전 단계.
+"""면접 기록(검토 상세) 조회 — `GET /interviews/{interviewId}/review` (#137 1-2 · #163).
 
-FE(`types/interview.ts`)가 이미 이 경로를 부르고 `PROCESSING` 분기를 갖고 있다.
-BE 는 지금 그 분기만 돌려준다. READY 는 세 파트 합의 전이라 나가지 않는다.
+기준 세션은 그 면접에서 가장 나중에 끝난 세션이다(목록과 같다).
+
+    끝난 세션 없음 · 요약 PROCESSING  → 202 PROCESSING
+    요약 READY                       → 200, 계산된 coverage · moments · findings
+    요약 FAILED                      → 200, 분석만 빈다 (#163 결정)
+
+계산 규칙 자체는 `test_review_rules.py` 가 본다. 여기서는 경로가 저장된 값을 제대로
+모아 그 규칙에 넘기는지, 갈래가 맞는지를 본다.
 """
+
+import json
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
+from app.domain.models import (
+    Context,
+    FindingState,
+    InterviewPrep,
+    ReviewMark,
+    SummaryStatus,
+    User,
+)
+from app.domain.store import InMemoryStore
+from app.services.review import build_review
 
-def _interview(client: TestClient) -> str:
-    created = client.post("/api/v1/interviews", json={})
-    return created.json()["interviewId"]
+V1 = "/api/v1"
+DEMO: dict[str, Any] = json.loads(
+    (Path(__file__).parents[1] / "app" / "demo_review.json").read_text(encoding="utf-8")
+)
 
 
-def test_review_is_processing(client: TestClient):
-    interview_id = _interview(client)
+def _interview(client: TestClient, name: str | None = "김도현") -> str:
+    return client.post(f"{V1}/interviews", json={"candidateName": name}).json()[
+        "interviewId"
+    ]
 
-    response = client.get(f"/api/v1/interviews/{interview_id}/review")
+
+def _ended_session(client: TestClient, interview_id: str, *, start: bool = True) -> str:
+    session_id = client.post(f"{V1}/interviews/{interview_id}/sessions").json()[
+        "sessionId"
+    ]
+    if start:
+        client.post(f"{V1}/sessions/{session_id}/start")
+    client.post(f"{V1}/sessions/{session_id}/end")
+    return session_id
+
+
+def _prepared(store: InMemoryStore, interview_id: str) -> None:
+    """면접 전 분석을 데모 역량 · 주장으로 READY 로 둔다."""
+    opened = store.get_prep(interview_id) or InterviewPrep(interview_id=interview_id)
+    store.ensure_prep(opened)
+    opened.status = SummaryStatus.READY
+    opened.competencies = DEMO["prep"]["competencies"]
+    opened.resume_claims = DEMO["prep"]["resumeClaims"]
+    store.finish_prep(opened)
+
+
+def _analysed(store: InMemoryStore, session_id: str) -> None:
+    """면접 후 분석을 데모 결과로 READY 로 둔다 (#164 가 붙기 전의 대역)."""
+    summary = store.get_summary(session_id)
+    assert summary is not None
+    review = DEMO["review"]
+    summary.complete(
+        review["summary"],
+        review["keyPoints"],
+        moments=review["moments"],
+        findings=review["findings"],
+    )
+    store.save_summary(summary)
+
+
+def get_review(client: TestClient, interview_id: str):
+    return client.get(f"{V1}/interviews/{interview_id}/review")
+
+
+# ── 준비 전 (202) ───────────────────────────────────────
+
+
+def test_an_interview_never_ended_is_processing(client: TestClient):
+    response = get_review(client, _interview(client))
 
     # 202 인 건 FE 가 그렇게 읽기 때문이다 — "준비 전에는 202 와 PROCESSING".
     assert response.status_code == 202
     assert response.json() == {"status": "PROCESSING", "etaSec": None}
 
 
-def test_review_eta_is_empty(client: TestClient):
-    """추정할 근거가 없다. 숫자를 주면 FE 가 그걸 믿고 화면에 쓴다."""
+def test_a_summary_still_being_made_is_processing(client: TestClient):
     interview_id = _interview(client)
+    _ended_session(client, interview_id)
 
-    body = client.get(f"/api/v1/interviews/{interview_id}/review").json()
+    assert get_review(client, interview_id).status_code == 202
 
-    assert body["etaSec"] is None
+
+def test_a_summary_past_its_limit_is_judged_here_too(
+    client: TestClient, store: InMemoryStore
+):
+    """요약 API 와 같은 판정이다. 아무도 요약 화면을 안 열어도 상세는 열린다."""
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    stored = store._summaries[session_id]  # pyright: ignore[reportPrivateUsage]
+    stored.requested_at -= settings.summary_timeout + timedelta(seconds=1)
+
+    response = get_review(client, interview_id)
+
+    assert response.status_code == 200
+    assert response.json()["summaryStatus"] == "FAILED"
+
+
+# ── READY ───────────────────────────────────────────────
+
+
+def test_a_ready_review_carries_the_computed_parts(
+    client: TestClient, store: InMemoryStore, owner: User
+):
+    context = store.ensure_context(Context(owner_id=owner.id))
+    context.role = "백엔드 개발자"
+    store.save_context(context)
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    _prepared(store, interview_id)
+    _analysed(store, session_id)
+    store.save_mark(ReviewMark(session_id, "mom_qa_utt_TR_a_0007", bookmarked=True))
+
+    response = get_review(client, interview_id)
+
+    assert response.status_code == 200
+    body = response.json()
+    expected = build_review(
+        DEMO["prep"]["competencies"],
+        DEMO["prep"]["resumeClaims"],
+        DEMO["review"]["moments"],
+        DEMO["review"]["findings"],
+        store.list_marks(session_id),
+    )
+    assert (body["coverage"], body["moments"], body["findings"]) == (
+        expected.coverage,
+        expected.moments,
+        expected.findings,
+    )
+    assert body["moments"][1]["bookmarked"] is True
+    assert body["summary"] == {
+        "overview": DEMO["review"]["summary"],
+        "keyPoints": DEMO["review"]["keyPoints"],
+    }
+    assert {k: body[k] for k in ("status", "summaryStatus", "interviewId")} == {
+        "status": "READY",
+        "summaryStatus": "READY",
+        "interviewId": interview_id,
+    }
+    # 녹화는 싣지 않는다. FE 가 이 id 로 녹화 API 를 부른다 (#163).
+    assert body["sessionId"] == session_id
+    assert "recording" not in body
+    assert body["candidate"] == {"name": "김도현", "role": "백엔드 개발자"}
+    assert body["interviewer"] == {"nickname": owner.nickname}
+    assert (body["reviewStatus"], body["reviewedAt"], body["memo"]) == (
+        "PENDING",
+        None,
+        "",
+    )
+    assert body["interviewedAt"] is not None
+    assert isinstance(body["durationSec"], int)
+
+
+def test_the_latest_ended_session_is_the_one_shown(
+    client: TestClient, store: InMemoryStore
+):
+    interview_id = _interview(client)
+    _ended_session(client, interview_id)
+    later = _ended_session(client, interview_id)
+    store.fail_summary(later)
+
+    assert get_review(client, interview_id).json()["sessionId"] == later
+
+
+# ── FAILED (#163 결정) ──────────────────────────────────
+
+
+def test_a_failed_summary_still_opens_with_an_empty_analysis(
+    client: TestClient, store: InMemoryStore
+):
+    """AI 결과가 없어도 메모 · 검토 확정은 해야 한다. 역량은 전부 MISSING 이다."""
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    _prepared(store, interview_id)
+    store.fail_summary(session_id)
+    store.save_mark(ReviewMark(session_id, "fnd_x", state=FindingState.ADOPTED))
+
+    response = get_review(client, interview_id)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summaryStatus"] == "FAILED"
+    assert body["summary"] is None
+    assert (body["moments"], body["findings"]) == ([], [])
+    assert [c["state"] for c in body["coverage"]] == ["MISSING"] * 4
+
+
+def test_a_session_ended_before_summaries_existed_waits_like_the_summary_api(
+    client: TestClient, store: InMemoryStore
+):
+    """요약 자리가 없으면 지금 만든다 — 요약 API 와 같다. 한도가 지나면 FAILED 다."""
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    store._summaries.pop(session_id)  # pyright: ignore[reportPrivateUsage]
+
+    assert get_review(client, interview_id).status_code == 202
+    assert store.get_summary(session_id) is not None
+
+
+# ── 면접 정보 ───────────────────────────────────────────
+
+
+def test_an_interview_never_started_has_no_time(
+    client: TestClient, store: InMemoryStore
+):
+    """「시작」을 안 누르고 아무도 입장하지 않고 끝낸 면접. 500 이 아니라 null 이다."""
+    interview_id = _interview(client, name=None)
+    session_id = _ended_session(client, interview_id, start=False)
+    store.fail_summary(session_id)
+
+    body = get_review(client, interview_id).json()
+
+    assert (body["interviewedAt"], body["durationSec"]) == (None, None)
+    assert body["candidate"]["name"] is None
 
 
 def test_review_of_unknown_interview(client: TestClient):
-    response = client.get("/api/v1/interviews/int_nope/review")
+    response = get_review(client, "int_nope")
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "INTERVIEW_NOT_FOUND"
 
 
-def test_ready_shape_is_not_published_yet(client: TestClient):
-    """합의 전 형태를 OpenAPI 에 실으면 FE·AI 가 확정된 계약으로 읽는다.
-
-    READY 는 `schemas.py` 에 모델로만 둔다. 합의되면 이 테스트를 뒤집는다.
-    """
+def test_the_ready_shape_is_published(client: TestClient):
     schemas = client.get("/openapi.json").json()["components"]["schemas"]
 
-    assert "ReviewProcessingResponse" in schemas
-    assert "ReviewReadyResponse" not in schemas
+    assert {"ReviewResponse", "ReviewProcessingResponse"} <= set(schemas)

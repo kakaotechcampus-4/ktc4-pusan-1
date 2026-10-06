@@ -3,9 +3,11 @@
 전부 면접관 전용이라 로그인이 필요하고, 남의 면접은 없는 것과 같이 404 다 (#130).
 """
 
+from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, UploadFile, status
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import (
@@ -14,7 +16,6 @@ from app.api.deps import (
     OwnedInterviewDep,
     ParserDep,
     StoreDep,
-    get_owned_interview,
 )
 from app.core.config import settings
 from app.core.errors import LOGIN_REQUIRED, responses
@@ -25,6 +26,7 @@ from app.domain.models import (
     InterviewPrep,
     Resume,
     Session,
+    SessionSummary,
     SummaryStatus,
 )
 from app.schemas import (
@@ -35,8 +37,15 @@ from app.schemas import (
     InterviewListItem,
     InterviewListResponse,
     InterviewResponse,
+    ReviewCandidate,
+    ReviewCoverage,
+    ReviewFinding,
+    ReviewMoment,
     ReviewProcessingResponse,
+    ReviewResponse,
+    SummaryContent,
 )
+from app.services.review import build_review
 
 router = APIRouter(prefix="/interviews", tags=["면접"])
 
@@ -108,6 +117,20 @@ def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListRespo
     )
 
 
+def _timing(session: Session | None) -> tuple[datetime | None, int | None]:
+    """면접 시각과 길이. 「시작」을 안 눌렀으면 첫 입장 시각으로 대신한다 (#145).
+
+    둘 다 없으면(아무도 입장하지 않고 끝낸 면접) 시각과 길이 모두 None 이다.
+    """
+    began = (
+        None if session is None else session.started_at or session.transcript_origin_at
+    )
+    ended = None if session is None else session.ended_at
+    if began is None or ended is None:
+        return began, None
+    return began, int((ended - began).total_seconds())
+
+
 def _to_list_item(
     interview: Interview,
     session: Session | None,
@@ -115,19 +138,14 @@ def _to_list_item(
     role: str,
     interviewer: InterviewerSummary,
 ) -> InterviewListItem:
-    began = (
-        None if session is None else session.started_at or session.transcript_origin_at
-    )
-    ended = None if session is None else session.ended_at
+    began, duration = _timing(session)
     return InterviewListItem(
         interview_id=interview.id,
         candidate_name=interview.candidate_name,
         role=role,
         interviewer=interviewer,
         interviewed_at=began,
-        duration_sec=None
-        if began is None or ended is None
-        else int((ended - began).total_seconds()),
+        duration_sec=duration,
         review_status="PENDING",
         summary_status=summary,
         counts=None,
@@ -184,32 +202,76 @@ async def create_session(
 
 @router.get(
     "/{interviewId}/review",
-    # 지금 나가는 건 PROCESSING 한 갈래뿐이라 그것만 선언한다.
-    # READY 는 아직 합의 전이라 schemas.py 에 모델로만 둔다 — 합의 전 형태를
-    # OpenAPI 에 실으면 FE·AI 가 확정된 계약으로 읽는다.
-    response_model=ReviewProcessingResponse,
-    status_code=202,
+    response_model=ReviewResponse,
     summary="면접 기록 조회",
-    responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
-    dependencies=[Depends(get_owned_interview)],
+    responses={
+        202: {"model": ReviewProcessingResponse, "description": "준비 중"},
+        **responses(LOGIN_REQUIRED, _NOT_FOUND),
+    },
 )
-def get_review() -> ReviewProcessingResponse:
-    """면접이 끝난 뒤의 기록(녹화 · 타임라인 · AI 서술)을 조회한다.
+def get_review(
+    interview: OwnedInterviewDep, user: CurrentUserDep, store: StoreDep
+) -> ReviewResponse | JSONResponse:
+    """면접이 끝난 뒤의 검토 화면 — 요약 · coverage · 타임라인 · 검토 항목 (#137 1-2).
 
-    **지금은 항상 `PROCESSING` 을 돌려준다.** 면접 존재 여부만 확인하는 단계다.
-    FE 는 이 분기를 이미 갖고 있어(`ReviewResponse`) 화면이 로딩 상태로 뜬다.
+    기준 세션은 그 면접에서 가장 나중에 끝난 세션이다(목록과 같다). 끝난 세션이
+    없거나 요약이 아직 PROCESSING 이면 202 다. FE 는 그동안 다시 조회한다.
 
-    READY 를 채우려면 셋이 더 필요하고, 전부 아직 없다.
-
-      moments   AI 의 build_timeline() 결과. ai/ 패키지를 BE 가 어떻게 부를지 미정
-      recording LiveKit Egress. compose 에 컨테이너도 저장소도 없다
-      aiReview  요약 파이프라인. moments 와 다른 산출물이다
-
-    202 로 두는 건 FE 가 그렇게 읽기 때문이다 — "준비 전에는 202 와 PROCESSING".
-    준비가 끝나면 200 + READY 로 바뀐다.
+    **요약이 FAILED 여도 200 이다** (#163). `summary` 는 null 이고 moments ·
+    findings 는 비며 coverage 는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI
+    결과와 상관없이 할 수 있어야 한다.
     """
-    # etaSec 은 비운다. 추정할 근거가 아직 없는데 숫자를 주면 FE 가 그걸 믿는다.
-    return ReviewProcessingResponse()
+    session = store.last_ended_session(interview.id)
+    if session is None:
+        return _processing()
+    # 요약 API(`GET /sessions/{id}/summary`)와 같은 판정이다. 자리가 없으면(이 기능
+    # 전에 끝난 세션) 만들고, PROCESSING 은 한도를 본다 — 아무도 요약 화면을 열지
+    # 않아도 상세는 열려야 한다.
+    summary = store.get_summary(session.id) or store.ensure_summary(
+        SessionSummary(session_id=session.id)
+    )
+    if summary.status is SummaryStatus.PROCESSING:
+        summary = store.expire_summary(session.id, settings.summary_timeout) or summary
+    if summary.status is SummaryStatus.PROCESSING:
+        return _processing()
+
+    ready = summary.status is SummaryStatus.READY
+    prep = store.get_prep(interview.id) or InterviewPrep(interview_id=interview.id)
+    review = build_review(
+        prep.competencies,
+        prep.resume_claims,
+        summary.moments if ready else [],
+        summary.findings if ready else [],
+        store.list_marks(session.id),
+    )
+    began, duration = _timing(session)
+    return ReviewResponse(
+        summary_status="READY" if ready else "FAILED",
+        interview_id=interview.id,
+        session_id=session.id,
+        candidate=ReviewCandidate(
+            name=interview.candidate_name,
+            role=store.ensure_context(Context(owner_id=user.id)).role,
+        ),
+        interviewer=InterviewerSummary(nickname=user.nickname),
+        interviewed_at=began,
+        duration_sec=duration,
+        review_status=interview.review_status,
+        reviewed_at=interview.reviewed_at,
+        memo=interview.memo,
+        summary=SummaryContent(overview=summary.overview, key_points=summary.key_points)
+        if ready
+        else None,
+        coverage=[ReviewCoverage.model_validate(c) for c in review.coverage],
+        moments=[ReviewMoment.model_validate(m) for m in review.moments],
+        findings=[ReviewFinding.model_validate(f) for f in review.findings],
+    )
+
+
+def _processing() -> JSONResponse:
+    # etaSec 은 비운다. 추정할 근거가 없는데 숫자를 주면 FE 가 그걸 믿는다.
+    body = ReviewProcessingResponse().model_dump(by_alias=True)
+    return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)
 
 
 @router.post(
