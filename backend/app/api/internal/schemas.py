@@ -75,6 +75,9 @@ class TranscriptUpsert(InternalSchema):
     text: PgText
     started_at_ms: int = Field(alias="startedAtMs", ge=0, le=MAX_MS)
     ended_at_ms: int = Field(alias="endedAtMs", ge=0, le=MAX_MS)
+    # PR #158 부터 온다. 그 전 Agent 의 프레임도 받도록 비워 둘 수 있다.
+    track_id: PgText | None = Field(default=None, alias="trackId")
+    seq: int | None = Field(default=None, ge=0, le=MAX_MS)
 
     @model_validator(mode="after")
     def _check_range(self) -> "TranscriptUpsert":

@@ -149,6 +149,8 @@ async def receive_transcripts(
                     text=frame.text,
                     started_at_ms=frame.started_at_ms,
                     ended_at_ms=frame.ended_at_ms,
+                    track_id=frame.track_id,
+                    seq=frame.seq,
                 ),
             )
             received += 1

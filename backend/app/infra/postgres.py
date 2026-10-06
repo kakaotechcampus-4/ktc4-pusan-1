@@ -692,14 +692,16 @@ class PostgresStore:
                 """
                 INSERT INTO utterance (
                     session_id, stage, utterance_id,
-                    speaker, text, started_at_ms, ended_at_ms
+                    speaker, text, started_at_ms, ended_at_ms, track_id, seq
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id, stage, utterance_id) DO UPDATE SET
                     speaker = EXCLUDED.speaker,
                     text = EXCLUDED.text,
                     started_at_ms = EXCLUDED.started_at_ms,
-                    ended_at_ms = EXCLUDED.ended_at_ms
+                    ended_at_ms = EXCLUDED.ended_at_ms,
+                    track_id = EXCLUDED.track_id,
+                    seq = EXCLUDED.seq
                 """,
                 (
                     utterance.session_id,
@@ -709,6 +711,8 @@ class PostgresStore:
                     utterance.text,
                     utterance.started_at_ms,
                     utterance.ended_at_ms,
+                    utterance.track_id,
+                    utterance.seq,
                 ),
             )
 
@@ -718,7 +722,7 @@ class PostgresStore:
         rows = self._all(
             """
             SELECT session_id, stage, utterance_id,
-                   speaker, text, started_at_ms, ended_at_ms
+                   speaker, text, started_at_ms, ended_at_ms, track_id, seq
             FROM utterance
             WHERE session_id = %s AND stage = %s
             ORDER BY started_at_ms,
@@ -736,6 +740,8 @@ class PostgresStore:
                 started_at_ms=row["started_at_ms"],
                 ended_at_ms=row["ended_at_ms"],
                 stage=TranscriptStage(row["stage"]),
+                track_id=row["track_id"],
+                seq=row["seq"],
             )
             for row in rows
         ]

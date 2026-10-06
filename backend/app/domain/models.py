@@ -321,6 +321,9 @@ class Utterance:
 
     `participantId` 는 받지만 두지 않는다. BE 가 identity 를 역할 문자열로
     고정해서 `speaker` 와 같은 값이다 (#76 ②).
+
+    `track_id` · `seq` 는 PR #158 부터 온다. 면접 후 분석이 저장된 전사로 AI 의
+    `TranscriptSnapshot` 을 다시 만들 때 쓴다 (#137 2-1). 그 전에 받은 발화는 비어 있다.
     """
 
     session_id: str
@@ -330,6 +333,8 @@ class Utterance:
     started_at_ms: int
     ended_at_ms: int
     stage: TranscriptStage = TranscriptStage.LIVE
+    track_id: str | None = None
+    seq: int | None = None
 
 
 class SuggestionStatus(StrEnum):

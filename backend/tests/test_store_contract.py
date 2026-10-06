@@ -881,6 +881,17 @@ def test_utterance_roundtrip(subject: Store):
     assert subject.list_utterances(session.id) == [_utterance(session)]
 
 
+def test_utterance_keeps_its_track_and_seq(subject: Store):
+    """면접 후 분석이 저장된 전사로 `TranscriptSnapshot` 을 다시 만들 때 쓴다
+    (#137 2-1)."""
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, track_id="TR_b", seq=268900000003))
+
+    [found] = subject.list_utterances(session.id)
+
+    assert (found.track_id, found.seq) == ("TR_b", 268900000003)
+
+
 def test_upserting_the_same_utterance_twice_replaces_it(subject: Store):
     """교정본이 같은 id 로 다시 온다 (#76). 행이 늘지 않고 내용만 바뀐다."""
     session = _seed(subject)
