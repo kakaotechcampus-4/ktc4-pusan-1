@@ -101,6 +101,10 @@ services:
       # 화면이 멈춥니다. 비워 두면 3분입니다 — 요약 파이프라인이 붙은 뒤
       # 실제로 얼마나 걸리는지 보고 조정하라고 밖으로 빼 두었습니다.
       SUMMARY_TIMEOUT_SECONDS: ${SUMMARY_TIMEOUT_SECONDS:-180}
+      # 녹화 버킷입니다 (#112). 아래 egress 설정의 bucket 과 같아야 합니다.
+      # 비우면 녹화를 걸지 않습니다 — 컨테이너가 인스턴스 역할을 받도록(IMDS 홉 2)
+      # 하고 역할에 rec/ 권한을 준 뒤 .env 에 넣어 켭니다. 자격증명은 넣지 않습니다.
+      RECORDING_BUCKET: ${RECORDING_BUCKET:-}
       # 비우면 인메모리로 떨어집니다. 서버에서는 반드시 채웁니다 —
       # 재시작할 때마다 진행 중인 면접 상태가 사라집니다.
       DATABASE_URL: postgresql://${POSTGRES_USER:-irya}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-irya}
@@ -196,6 +200,9 @@ services:
     logging: *logging
     # 이미지에 기본 CMD 가 없어 설정 경로를 직접 넘깁니다.
     command: --config /etc/livekit.yaml
+    # livekit.yaml 에 redis 가 있으면 redis 없이는 뜨지 않습니다 (#112).
+    depends_on:
+      - redis
     volumes:
       - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
     environment:
@@ -213,6 +220,52 @@ services:
       - "7882:7882/udp"  # 미디어
       # 7880(시그널링)은 퍼블리싱하지 않습니다. Caddy 가 같은 compose 네트워크에서
       # 서비스 이름으로 부르므로 외부에 열 필요가 없습니다.
+
+  # LiveKit 이 egress 에게 녹화 일을 넘기는 큐입니다 (#112). 둘이 같은 redis 를
+  # 봐야 합니다. LiveKit 의 방 상태와 녹화 목록(끝난 뒤 24시간)도 여기 있고, BE 는
+  # 합칠 때 이 목록을 읽습니다. 볼륨은 두지 않습니다 — 재시작은 저장했다 다시 읽지만,
+  # 컨테이너를 다시 만들면 비어서 그때 합치기를 기다리던 녹화는 FAILED 가 됩니다.
+  # Redis 7.4 부터 라이선스가 바뀌어(RSAL · SSPL) BSD 인 포크 Valkey 를 씁니다.
+  # 프로토콜이 같아 LiveKit 은 그대로 붙습니다.
+  redis:
+    image: valkey/valkey:8.1.10-alpine
+    container_name: irya-redis
+    restart: unless-stopped
+    logging: *logging
+
+  # 녹화 (#112). TrackEgress 라 트랙을 다시 인코딩하지 않고 S3 rec/ 로 바로 올립니다.
+  # 9/29 에 livekit v1.13.6 과 짝으로 잰 버전입니다.
+  egress:
+    image: livekit/egress:v1.13.0
+    container_name: irya-egress
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - redis
+      - livekit
+    environment:
+      # 설정 전체를 env 로 넘깁니다. 키를 파일에 적지 않으려는 것입니다.
+      # S3 키는 비웁니다 — 인스턴스 역할을 씁니다. bridge 네트워크 컨테이너가
+      # 역할을 받으려면 메타데이터 홉 제한이 2 여야 합니다 (README · 테크스펙 Q23).
+      #
+      # track_cpu_cost: egress 는 녹화를 받을 때마다 이만큼 CPU 를 15초간 잡아 두고,
+      # 잡힌 합이 CPU 수의 80% 를 넘으면 그 녹화를 미룹니다. 기본 0.5 면 vCPU 2 에서
+      # 15초에 트랙 3개(면접 하나)까지라, 면접 둘이 같이 시작하면 두 번째는 15초 늦게
+      # 녹화가 걸려 앞부분을 잃습니다 (로컬 재현). 실제 사용은 면접 하나(트랙 3개)에
+      # 약 8% 라(9/29 실측) 0.1 로 둡니다.
+      EGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+        api_secret: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+        ws_url: ws://livekit:7880
+        redis:
+          address: redis:6379
+        storage:
+          s3:
+            region: ap-northeast-2
+            bucket: ktc4-pusan-1-irya
+        cpu_cost:
+          track_cpu_cost: 0.1
+        log_level: info
 
 volumes:
   caddy_data:

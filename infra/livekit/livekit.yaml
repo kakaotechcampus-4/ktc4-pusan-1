@@ -38,6 +38,15 @@ webhook:
   urls:
     - http://backend:8000/api/v1/livekit/webhook
 
+# egress(녹화)와 일을 주고받는 큐 (#112). egress 도 같은 주소를 본다.
+redis:
+  address: redis:6379
+
+room:
+  # 마지막 참가자가 나간 뒤 방을 닫기까지 기다리는 시간(초). 기본 20초를 10분으로.
+  # 종료를 누르지 않은 면접도 방이 닫히고, BE 가 room_finished 로 세션을 끝낸다 (#112).
+  departure_timeout: 600
+
 logging:
   level: info
   # 컨테이너 로그 수집을 전제로 JSON 으로 뽑는다.

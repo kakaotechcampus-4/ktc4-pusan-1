@@ -10,11 +10,11 @@ FE·BE·AI 사이에서 미디어를 중계하는 **SFU(Selective Forwarding Uni
 
 | 주체 | LiveKit 과의 관계 |
 | --- | --- |
-| Backend | 미디어 경로에 **들어가지 않는다**. `livekit-api` 로 RoomService(HTTP)를 불러 방을 만들고(`ensure_room`), 입장 토큰(JWT)을 서명해 내려준다. [`backend/app/services/media.py`](../../backend/app/services/media.py) |
+| Backend | 미디어 경로에 **들어가지 않는다**. `livekit-api` 로 RoomService(HTTP)를 불러 방을 만들고(`ensure_room`), 입장 토큰(JWT)을 서명해 내려준다. 녹화도 Egress 에 시키기만 하고, 끝나면 S3 의 트랙 파일을 한 파일로 합친다(#112). [`backend/app/services/media.py`](../../backend/app/services/media.py) |
 | Frontend | `livekit-client` 로 `livekitUrl` + `token` 을 들고 **LiveKit 에 직접** 붙는다. |
 | AI | `livekit-agents` 로 참가자 오디오 트랙을 구독해 STT 로 흘린다. |
 
-즉 시그널링·미디어는 전부 LiveKit 이 처리하고, BE 는 **방 관리와 토큰 발급**만 한다.
+즉 시그널링·미디어는 전부 LiveKit 이 처리하고, BE 는 **방 관리 · 토큰 발급 · 녹화 지시**만 한다.
 
 ## 2. 설정 파일
 
@@ -26,6 +26,8 @@ FE·BE·AI 사이에서 미디어를 중계하는 **SFU(Selective Forwarding Uni
 | `rtc.udp_port` | `7882` | WebRTC 미디어를 UDP 한 포트로 먹싱(mux). 포트 하나만 열면 돼서 Security Group·docker 매핑이 단순해진다. |
 | `rtc.tcp_port` | `7881` | UDP 가 막힌 망을 위한 ICE/TCP 폴백. **LB·TLS 뒤에 두면 안 되고** 인스턴스에 직접 노출돼야 한다. TURN/TLS 의 대체재는 아니다 (아래 참조). |
 | `rtc.use_external_ip` | `true` | EC2 같은 cloud/NAT 환경에서는 NIC 에 사설 IP 만 붙고 EIP 로 NAT 된다. STUN 으로 공인 IP 를 자동 탐지해 ICE 후보로 advertise 하기 위해 켠다. 끄면 사설 IP 가 후보로 나가 외부 클라이언트가 연결하지 못할 수 있다. |
+| `redis.address` | `redis:6379` | Egress(녹화)와 일을 주고받는 큐 (#112). Egress 도 같은 주소를 봐야 한다. compose 의 `redis`(Valkey) 서비스다. |
+| `room.departure_timeout` | `600` | 마지막 **사람** 참가자가 나간 뒤 방을 닫기까지 기다리는 초. 기본 20초를 10분으로. AI 워커(에이전트)가 남아 있어도 방은 닫힌다. 종료를 누르지 않은 면접은 BE 가 `room_finished` 로 끝낸다 (#112). |
 | `logging.json` | `true` | 컨테이너 로그 수집 전제. |
 
 `rtc.udp_port` 와 `rtc.port_range_start/end` 는 **같이 쓰지 않는다** (range 가 이긴다).
@@ -36,11 +38,10 @@ SG 도 같은 범위로 맞춘다.
 들어 있지 않은 것과 그 이유:
 
 - **`keys`** — 실제 값을 파일에 적지 않는다. 아래 §3 참고.
-- **`redis`** — 단일 노드는 필요 없다. 노드를 2대 이상으로 늘릴 때, 그리고 Egress 를 붙일 때 추가한다.
 - **`turn`** — 이번 Issue 범위에서 구현하지 않는다. 아래 "연결 경로와 한계" 참조.
-- **`room`** 기본값 — 정원(`max_participants: 2`)은 BE 가 `CreateRoom` 으로 방마다 지정한다.
+- **`room.max_participants`** — 정원(2)은 BE 가 `CreateRoom` 으로 방마다 지정한다.
   서버 기본값에 중복으로 박으면 두 군데가 갈라진다.
-- **Egress / Recording** — 아직 없다. #112 에서 다룬다.
+- **Egress 설정** — 이 파일이 아니라 compose 의 `egress` 서비스(`EGRESS_CONFIG_BODY`)에 있다. 키를 파일에 적지 않으려는 것이다 (#112).
 
 ### 연결 경로와 한계 (TURN 미구성)
 
@@ -70,6 +71,7 @@ TURN/TLS(443)는 이런 망에서 시그널링과 구분되지 않는 트래픽�
 | `LIVEKIT_CONFIG` | — | YAML 본문 | `--config` 파일 대신 YAML 을 통째로 넘기는 방식. 우리는 파일 마운트를 쓰므로 안 쓴다. |
 | `NODE_IP` | — | IP | `use_external_ip` 의 STUN 탐지가 실패할 때만. EC2 에서는 보통 불필요. |
 | `UDP_PORT` | — | `7882` | yaml 값을 덮어쓸 때만. yaml 에 이미 있으므로 안 쓴다. |
+| `LIVEKIT_REDIS_ADDRESS` | — | `host:port` | yaml 의 `redis.address` 를 덮어쓴다. 로컬에서 compose 밖으로 띄울 때만 쓴다 (§8). |
 
 livekit-server 는 **모든 설정 필드에 대해 환경변수 오버라이드를 자동 생성**한다.
 규칙은 `LIVEKIT_` + yaml 경로를 대문자·`_` 로 바꾼 것이다.
@@ -153,6 +155,7 @@ livekit/livekit-server:v1.13.6
 | 마운트 | `infra/livekit/livekit.yaml` → `/etc/livekit.yaml` (읽기 전용) |
 | 환경변수 | `LIVEKIT_KEYS="<key>: <secret>"` — **compose 파일에 값을 적지 말고** `.env` / SSM 등 외부에서 주입 |
 | restart | `unless-stopped` |
+| 의존 | `redis` — `livekit.yaml` 에 redis 가 있어 먼저 떠 있어야 한다 (#112) |
 
 **필요한 네트워크 조건** (구현 방식은 Docker/Caddy 담당자가 결정)
 
@@ -236,10 +239,17 @@ curl -sSL https://get.livekit.io | bash
 
 **실행**
 
+`livekit.yaml` 에 redis 가 있어서 redis 없이는 뜨지 않는다 (#112). 먼저 하나 띄운다.
+
+```bash
+docker run -d --name lk-redis -p 6379:6379 valkey/valkey:8.1.10-alpine
+```
+
 ```bash
 LIVEKIT_KEYS="devkey: devsecret_local_only_0123456789abcdef" \
 LIVEKIT_WEBHOOK_API_KEY=devkey \
 LIVEKIT_RTC_USE_EXTERNAL_IP=false \
+LIVEKIT_REDIS_ADDRESS=localhost:6379 \
   livekit-server --config infra/livekit/livekit.yaml
 ```
 
