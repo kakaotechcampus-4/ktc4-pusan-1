@@ -24,11 +24,14 @@ from app.domain.models import (
     DocCategory,
     DocKind,
     DocStatus,
+    FindingState,
     Interview,
     InterviewPrep,
     Job,
     JobKind,
     Resume,
+    ReviewMark,
+    ReviewStatus,
     Role,
     Session,
     SessionStatus,
@@ -1378,8 +1381,153 @@ def test_reading_prep_gives_a_copy(subject: Store):
     assert again.competencies == []
 
 
+# ── 검토 (#163) ─────────────────────────────────────────────
+
+MOMENT = {
+    "momentId": "mom_qa_utt_TR_a_0015",
+    "qaId": "qa_utt_TR_a_0015",
+    "atMs": 262000,
+    "endMs": 301000,
+    "label": "성능 개선",
+    "question": "초당 2만 건을 처리할 때 병목은 어디였나요?",
+    "answer": "병목은 구체적으로 재보지 못했다고 답했습니다.",
+    "evidence": [],
+}
+FINDING = {
+    "findingId": "fnd_GAP_cpt_incident",
+    "sessionId": "ses_9c1e2a7b",
+    "type": "GAP",
+    "competencyId": "cpt_incident",
+    "summary": "장애 원인과 재발 방지에 대한 발언이 없습니다.",
+    "state": "PROPOSED",
+}
+
+
+def test_new_interview_waits_for_review(subject: Store):
+    interview = Interview(interviewer_id="usr_a")
+    subject.add_interview(interview)
+
+    found = subject.get_interview(interview.id)
+
+    assert found is not None
+    assert (found.review_status, found.memo, found.reviewed_at) == (
+        ReviewStatus.PENDING,
+        "",
+        None,
+    )
+
+
+def test_saving_an_interview_keeps_its_review(subject: Store):
+    interview = Interview(interviewer_id="usr_a")
+    subject.add_interview(interview)
+    interview.review_status = ReviewStatus.CONFIRMED
+    interview.memo = "기여 범위를 다음 면접에서 확인할 것."
+    interview.reviewed_at = utcnow()
+
+    subject.save_interview(interview)
+
+    found = subject.get_interview(interview.id)
+    assert found is not None
+    assert (found.review_status, found.memo, found.reviewed_at) == (
+        ReviewStatus.CONFIRMED,
+        "기여 범위를 다음 면접에서 확인할 것.",
+        interview.reviewed_at,
+    )
+    [(listed, _, _)] = subject.list_interviews("usr_a")
+    assert (listed.review_status, listed.memo) == (ReviewStatus.CONFIRMED, found.memo)
+
+
+def test_saving_an_unknown_interview_creates_nothing(subject: Store):
+    subject.save_interview(Interview(interviewer_id="usr_a"))
+
+    assert subject.list_interviews("usr_a") == []
+
+
+def test_last_ended_session_is_the_latest_to_end(subject: Store):
+    interview = Interview(interviewer_id="usr_a")
+    subject.add_interview(interview)
+    at = utcnow()
+    first = Session(interview_id=interview.id, status=SessionStatus.ENDED, ended_at=at)
+    last = Session(
+        interview_id=interview.id,
+        status=SessionStatus.ENDED,
+        ended_at=at + timedelta(minutes=5),
+    )
+    # 가장 나중에 만들었지만 안 끝났다 — 기준이 아니다.
+    open_ = Session(interview_id=interview.id, created_at=at + timedelta(hours=1))
+    for session in (first, last, open_):
+        subject.add_session(session)
+
+    found = subject.last_ended_session(interview.id)
+
+    assert found is not None
+    assert found.id == last.id
+
+
+def test_an_interview_never_ended_has_no_last_session(subject: Store):
+    session = _seed(subject)
+
+    assert subject.last_ended_session(session.interview_id) is None
+
+
+def test_summary_keeps_moments_and_findings(subject: Store):
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    assert (summary.moments, summary.findings) == ([], [])
+
+    summary.complete("요약", ["핵심"], moments=[MOMENT], findings=[FINDING])
+    subject.save_summary(summary)
+
+    found = subject.get_summary(session.id)
+    assert found is not None
+    assert (found.moments, found.findings) == ([MOMENT], [FINDING])
+
+
+def test_giving_up_empties_the_analysis(subject: Store):
+    summary = SessionSummary(session_id="ses_x", moments=[MOMENT], findings=[FINDING])
+
+    summary.give_up()
+
+    assert (summary.moments, summary.findings) == ([], [])
+
+
+def test_mark_roundtrip(subject: Store):
+    session = _seed(subject)
+    mark = ReviewMark(
+        session_id=session.id, item_id=FINDING["findingId"], state=FindingState.ADOPTED
+    )
+
+    subject.save_mark(mark)
+
+    assert subject.list_marks(session.id) == [mark]
+
+
+def test_a_new_mark_is_proposed_and_not_bookmarked():
+    mark = ReviewMark(session_id="ses_x", item_id="mom_x")
+
+    assert (mark.state, mark.bookmarked) == (FindingState.PROPOSED, False)
+
+
+def test_saving_a_mark_again_replaces_it(subject: Store):
+    session = _seed(subject)
+    subject.save_mark(ReviewMark(session_id=session.id, item_id="mom_x"))
+
+    again = ReviewMark(session_id=session.id, item_id="mom_x", bookmarked=True)
+    subject.save_mark(again)
+
+    assert subject.list_marks(session.id) == [again]
+
+
+def test_marks_do_not_leak_between_sessions(subject: Store):
+    one = _seed(subject)
+    two = _seed(subject)
+    subject.save_mark(ReviewMark(session_id=one.id, item_id="mom_x"))
+
+    assert subject.list_marks(two.id) == []
+
+
 def test_deleting_the_interview_takes_its_transcript_and_suggestions():
-    """면접이 지워지면 전사·꼬리질문·근거·면접 전 분석이 같이 지워진다.
+    """면접이 지워지면 전사·꼬리질문·근거·면접 전 분석·검토 표시가 같이 지워진다.
     **PostgreSQL 전용이다.**
 
     인메모리에는 삭제 경로가 없고, 이 보장은 외래키의 `ON DELETE CASCADE` 가
@@ -1398,11 +1546,13 @@ def test_deleting_the_interview_takes_its_transcript_and_suggestions():
         subject.upsert_utterance(_utterance(session))
         subject.add_suggestion(_suggestion(session))
         _opened(subject, session)
+        subject.save_mark(ReviewMark(session_id=session.id, item_id="mom_x"))
 
         with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
             conn.execute("DELETE FROM interview WHERE id = %s", (session.interview_id,))
 
         assert subject.get_prep(session.interview_id) is None
+        assert subject.list_marks(session.id) == []
         assert subject.list_utterances(session.id) == []
         assert subject.list_suggestions(session.id) == []
         with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]

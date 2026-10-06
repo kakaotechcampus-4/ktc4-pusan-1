@@ -107,12 +107,25 @@ class User:
     created_at: datetime = field(default_factory=utcnow)
 
 
+class ReviewStatus(StrEnum):
+    """면접관의 검토 진행 상태 (#137 1-3). 한글 표시는 FE 가 한다."""
+
+    PENDING = "PENDING"
+    IN_REVIEW = "IN_REVIEW"
+    CONFIRMED = "CONFIRMED"
+
+
 @dataclass
 class Interview:
     interviewer_id: str
     candidate_name: str | None = None
     id: str = field(default_factory=lambda: _new_id("int"))
     created_at: datetime = field(default_factory=utcnow)
+    #: 검토는 면접 단위다 — 세션이 바뀌어도 메모와 확정은 남는다 (#163).
+    review_status: ReviewStatus = ReviewStatus.PENDING
+    memo: str = ""
+    #: `CONFIRMED` 가 된 시각. 다른 상태로 돌아가면 비운다.
+    reviewed_at: datetime | None = None
 
 
 @dataclass
@@ -271,6 +284,10 @@ class SessionSummary:
     key_points: list[str] = field(default_factory=list)
     requested_at: datetime = field(default_factory=utcnow)
     completed_at: datetime | None = None
+    #: AI 의 `Moment` · `Finding` 을 camelCase JSON 그대로 둔다 (#137 2-5).
+    #: BE 는 id 로 조인 · 집계만 한다(#163). 써 넣는 길은 #164 다.
+    moments: list[dict[str, Any]] = field(default_factory=list)
+    findings: list[dict[str, Any]] = field(default_factory=list)
 
     def overdue(self, limit: timedelta, now: datetime | None = None) -> bool:
         """기다린 시간이 한도를 넘었나. 이미 끝난 요약은 언제 봐도 False 다.
@@ -282,11 +299,20 @@ class SessionSummary:
             return False
         return (now or utcnow()) - self.requested_at > limit
 
-    def complete(self, overview: str, key_points: list[str]) -> None:
+    def complete(
+        self,
+        overview: str,
+        key_points: list[str],
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+    ) -> None:
         """Agent 가 만든 요약을 받는다."""
         self.status = SummaryStatus.READY
         self.overview = overview
         self.key_points = list(key_points)
+        self.moments = list(moments or [])
+        self.findings = list(findings or [])
         self.completed_at = utcnow()
 
     def give_up(self) -> None:
@@ -294,7 +320,35 @@ class SessionSummary:
         self.status = SummaryStatus.FAILED
         self.overview = ""
         self.key_points = []
+        self.moments = []
+        self.findings = []
         self.completed_at = utcnow()
+
+
+class FindingState(StrEnum):
+    """검토 항목에 대한 면접관의 판단 (#137 1-4). AI `FindingState` 의 어휘다.
+
+    AI 쪽에는 `EDITED` 도 있지만 면접관이 고르는 값은 이 셋이다.
+    """
+
+    PROPOSED = "PROPOSED"
+    ADOPTED = "ADOPTED"
+    REJECTED = "REJECTED"
+
+
+@dataclass
+class ReviewMark:
+    """검토 항목(finding) 하나의 채택 여부, 또는 문답(moment) 하나의 북마크.
+
+    키는 `(session_id, item_id)` 다. id 는 AI 가 결정적으로 만들어서 재분석해도
+    대부분 이어진다(#137 3장). 사라진 id 의 표시는 상세에 나오지 않을 뿐 지우지
+    않는다. 행이 없으면 `PROPOSED` · 북마크 없음이다.
+    """
+
+    session_id: str
+    item_id: str
+    state: FindingState = FindingState.PROPOSED
+    bookmarked: bool = False
 
 
 class TranscriptStage(StrEnum):

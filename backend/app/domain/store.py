@@ -22,6 +22,7 @@ from app.domain.models import (
     Job,
     JobKind,
     Resume,
+    ReviewMark,
     Role,
     Session,
     SessionStatus,
@@ -46,6 +47,21 @@ class Store(Protocol):
         """그 면접관의 면접을 최신순으로, 마지막으로 끝난 세션과 그 요약 상태와 함께.
 
         끝난 세션이 없는 면접은 둘 다 None 이다 (#137 1-1).
+        """
+        ...
+
+    def save_interview(self, interview: Interview) -> None:
+        """검토 상태 · 메모 · 확정 시각을 저장한다. 나머지 열은 바뀌지 않는다.
+
+        없는 면접은 쓰지 않는다 — 추가는 `add_interview` 다.
+        """
+        ...
+
+    def last_ended_session(self, interview_id: str) -> Session | None:
+        """그 면접에서 가장 나중에 끝난 세션. 검토 화면의 기준 세션이다 (#163).
+
+        목록(`list_interviews`)이 붙이는 세션과 같은 것이어야 목록과 상세가 어긋나지
+        않는다. 끝난 세션이 없으면 None.
         """
         ...
 
@@ -215,6 +231,16 @@ class Store(Protocol):
         """
         ...
 
+    # ── 검토 표시 (#163) ─────────────────────────────────
+
+    def save_mark(self, mark: ReviewMark) -> None:
+        """채택 · 북마크를 저장한다. 같은 `(session_id, item_id)` 면 덮어쓴다."""
+        ...
+
+    def list_marks(self, session_id: str) -> list[ReviewMark]:
+        """그 세션의 표시 전부. 순서는 정하지 않는다 — 부르는 쪽이 id 로 찾는다."""
+        ...
+
     # ── 사용자 ──────────────────────────────────────────
 
     def upsert_user(self, user: User) -> User:
@@ -282,6 +308,8 @@ class InMemoryStore:
         self._summaries: dict[str, SessionSummary] = {}
         #: interview_id -> 면접 전 분석
         self._preps: dict[str, InterviewPrep] = {}
+        #: (session_id, item_id) -> 채택 · 북마크
+        self._marks: dict[tuple[str, str], ReviewMark] = {}
         self._users: dict[str, User] = {}
 
         #: (session_id, stage, utterance_id) -> 발화
@@ -290,7 +318,7 @@ class InMemoryStore:
         self._suggestions: dict[tuple[str, str], Suggestion] = {}
 
     def add_interview(self, interview: Interview) -> None:
-        self._interviews[interview.id] = interview
+        self._interviews[interview.id] = deepcopy(interview)
 
     def get_interview(self, interview_id: str) -> Interview | None:
         found = self._interviews.get(interview_id)
@@ -310,7 +338,7 @@ class InMemoryStore:
         )
         listed: list[tuple[Interview, Session | None, SummaryStatus | None]] = []
         for interview in mine:
-            session = self._last_ended_session(interview.id)
+            session = self.last_ended_session(interview.id)
             summary = None if session is None else self._summaries.get(session.id)
             listed.append(
                 (
@@ -321,7 +349,15 @@ class InMemoryStore:
             )
         return listed
 
-    def _last_ended_session(self, interview_id: str) -> Session | None:
+    def save_interview(self, interview: Interview) -> None:
+        stored = self._interviews.get(interview.id)
+        if stored is None:
+            return
+        stored.review_status = interview.review_status
+        stored.memo = interview.memo
+        stored.reviewed_at = interview.reviewed_at
+
+    def last_ended_session(self, interview_id: str) -> Session | None:
         ended = [
             s
             for s in self._sessions.values()
@@ -534,6 +570,14 @@ class InMemoryStore:
             for doc, _ in self._docs.values()
         )
 
+    # ── 검토 표시 (#163) ─────────────────────────────────
+
+    def save_mark(self, mark: ReviewMark) -> None:
+        self._marks[(mark.session_id, mark.item_id)] = deepcopy(mark)
+
+    def list_marks(self, session_id: str) -> list[ReviewMark]:
+        return [deepcopy(m) for (sid, _), m in self._marks.items() if sid == session_id]
+
     # ── 사용자 ──────────────────────────────────────────
 
     def upsert_user(self, user: User) -> User:
@@ -591,6 +635,7 @@ class InMemoryStore:
 
         self._summaries.clear()
         self._preps.clear()
+        self._marks.clear()
         self._users.clear()
 
         self._utterances.clear()

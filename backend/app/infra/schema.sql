@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS interview (
 CREATE INDEX IF NOT EXISTS interview_interviewer_id_idx
     ON interview (interviewer_id, created_at DESC);
 
+-- 검토 (#163). 면접 단위다 — 세션이 바뀌어도 메모와 확정은 남는다.
+-- review_status 는 ReviewStatus. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+-- reviewed_at 은 CONFIRMED 가 된 시각이고, 다른 상태로 돌아가면 비운다.
+ALTER TABLE interview ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'PENDING';
+ALTER TABLE interview ADD COLUMN IF NOT EXISTS memo TEXT NOT NULL DEFAULT '';
+ALTER TABLE interview ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS session (
     id           TEXT        PRIMARY KEY,
     interview_id TEXT        NOT NULL REFERENCES interview (id) ON DELETE CASCADE,
@@ -119,6 +126,24 @@ CREATE TABLE IF NOT EXISTS session_summary (
     -- 기다리기 시작한 시각. 한도 판정의 기준점이라 면접 종료 시각과 따로 둔다.
     requested_at TIMESTAMPTZ NOT NULL,
     completed_at TIMESTAMPTZ
+);
+
+-- AI 의 Moment · Finding 을 camelCase JSON 그대로 둔다 (#137 2-5). BE 는 id 로 조인 ·
+-- 집계만 한다(#163). READY 일 때만 차고 FAILED 로 갈 때 다시 비운다. 써 넣는 길은 #164.
+ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS moments JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS findings JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- 면접관의 검토 표시 (#163) — finding 의 채택 여부(state)와 moment 의 북마크.
+-- 키의 item_id 는 AI 가 결정적으로 만드는 findingId · momentId 라 재분석해도 대부분
+-- 이어진다(#137 3장). 사라진 id 의 행은 지우지 않는다 — 상세에 안 나올 뿐이다.
+-- 세션이 지워지면 같이 간다.
+CREATE TABLE IF NOT EXISTS review_mark (
+    session_id  TEXT     NOT NULL REFERENCES session (id) ON DELETE CASCADE,
+    item_id     TEXT     NOT NULL,
+    -- FindingState. 같은 이유로 CHECK 를 걸지 않는다.
+    state       TEXT     NOT NULL DEFAULT 'PROPOSED',
+    bookmarked  BOOLEAN  NOT NULL DEFAULT false,
+    PRIMARY KEY (session_id, item_id)
 );
 
 -- 면접 전 분석 (#162) — JD 의 역량과 이력서의 주장. 면접 하나에 하나라 interview_id
