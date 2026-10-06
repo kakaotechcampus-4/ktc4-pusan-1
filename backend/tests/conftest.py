@@ -10,10 +10,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_kakao, get_media, get_store
+from app.core.auth import issue_token
 from app.core.errors import ApiError
-from app.domain.models import Role
+from app.domain.models import Role, User
 from app.domain.store import InMemoryStore
 from app.main import app
+from app.services import documents as documents_module
 from app.services.kakao import KakaoProfile
 from app.services.media import IssuedToken
 
@@ -74,6 +76,29 @@ class FakeKakao:
         return self.profile
 
 
+class FakeParser:
+    """Helpy Document Vision 대역. 받은 파일을 남기고 정해 둔 본문을 돌려준다.
+
+    ⚠️ 이게 없으면 테스트가 `.env` 의 키로 실제 Helpy 를 부른다 (페이지당 과금).
+    """
+
+    def __init__(self) -> None:
+        self.text: str | None = "추출한 본문"
+        self.calls: list[tuple[str, bytes]] = []
+
+    def extract_text(self, name: str, content: bytes) -> str | None:
+        self.calls.append((name, content))
+        return self.text
+
+
+@pytest.fixture(autouse=True)
+def parser(monkeypatch: pytest.MonkeyPatch) -> FakeParser:
+    """모든 테스트에서 실제 Helpy 를 막는다. `client` 를 안 쓰는 테스트도 포함한다."""
+    fake = FakeParser()
+    monkeypatch.setattr(documents_module, "parser", fake)
+    return fake
+
+
 @pytest.fixture
 def kakao() -> FakeKakao:
     return FakeKakao()
@@ -90,14 +115,35 @@ def store() -> InMemoryStore:
     return InMemoryStore()
 
 
+def bearer(user: User) -> dict[str, str]:
+    return {"Authorization": f"Bearer {issue_token(user.id, user.token_version)}"}
+
+
+#: 요청에 실으면 기본 헤더의 주인 토큰을 덮어써 로그인하지 않은 요청이 된다.
+ANON = {"Authorization": ""}
+
+
+@pytest.fixture
+def owner(store: InMemoryStore) -> User:
+    """`client` 가 로그인해 있는 면접관. 이 사람이 만든 면접 · 컨텍스트가 그의 것."""
+    return store.upsert_user(User(kakao_id=1, nickname="면접관"))
+
+
+@pytest.fixture
+def other(store: InMemoryStore) -> dict[str, str]:
+    """다른 면접관의 인증 헤더. 남의 자원에 닿는지 볼 때 요청마다 싣는다."""
+    return bearer(store.upsert_user(User(kakao_id=2, nickname="다른 면접관")))
+
+
 @pytest.fixture
 def client(
-    media: FakeMedia, store: InMemoryStore, kakao: FakeKakao
+    media: FakeMedia, store: InMemoryStore, kakao: FakeKakao, owner: User
 ) -> Iterator[TestClient]:
+    """`owner` 로 로그인한 클라이언트 (#130). 면접관 API 가 전부 로그인을 요구한다."""
     app.dependency_overrides[get_store] = lambda: store
     app.dependency_overrides[get_media] = lambda: media
     app.dependency_overrides[get_kakao] = lambda: kakao
-    with TestClient(app) as test_client:
+    with TestClient(app, headers=bearer(owner)) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 

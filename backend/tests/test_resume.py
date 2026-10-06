@@ -20,7 +20,7 @@ PDF = b"%PDF-1.7\nresume\n"
 
 @pytest.fixture
 def interview_id(client: TestClient) -> str:
-    made = client.post(f"{V1}/interviews", json={"interviewerId": "user_123"})
+    made = client.post(f"{V1}/interviews", json={})
     return made.json()["interviewId"]
 
 
@@ -36,10 +36,28 @@ def test_upload_returns_the_fe_doc_shape(client: TestClient, interview_id: str) 
     assert got.status_code == 201
     body = got.json()
     # FE 는 기업 컨텍스트 문서와 같은 카드로 그린다.
-    assert set(body) == {"id", "name", "kind", "sizeBytes", "status"}
+    assert set(body) == {"id", "name", "kind", "sizeBytes", "status", "category"}
     assert body["kind"] == "pdf"
     assert body["sizeBytes"] == len(PDF)
-    assert body["status"] == "ready"
+    assert body["status"] == "parsing"
+    assert body["category"] is None
+
+
+def test_resume_text_is_extracted(
+    client: TestClient, store: InMemoryStore, interview_id: str
+) -> None:
+    upload(client, interview_id, "이력서.pdf")
+
+    stored = store.get_resume(interview_id)
+    assert stored is not None
+    assert stored.status.value == "ready"
+    assert store.get_resume_text(interview_id) == "추출한 본문"
+
+
+def test_docx_resume_is_415(client: TestClient, interview_id: str) -> None:
+    """Helpy 가 DOCX 를 못 읽는다 (#143)."""
+    response = upload(client, interview_id, "이력서.docx", b"PK\x03\x04docx")
+    assert response.status_code == 415
 
 
 def test_reupload_replaces_the_previous_one(
@@ -47,11 +65,11 @@ def test_reupload_replaces_the_previous_one(
 ) -> None:
     """FE 가 목록도 삭제도 두지 않았다 — 새 이력서를 올리면 앞의 것은 쓸 일이 없다."""
     upload(client, interview_id, "old.pdf")
-    upload(client, interview_id, "new.docx", b"PK\x03\x04docx")
+    upload(client, interview_id, "new.pdf")
 
     stored = store.get_resume(interview_id)
     assert stored is not None
-    assert stored.name == "new.docx"
+    assert stored.name == "new.pdf"
 
 
 def test_filename_is_normalized_to_nfc(
@@ -102,11 +120,7 @@ def test_upload_to_unknown_interview_is_404(client: TestClient) -> None:
 def test_resumes_do_not_leak_between_interviews(
     client: TestClient, store: InMemoryStore
 ) -> None:
-    a = client.post(f"{V1}/interviews", json={"interviewerId": "user_a"}).json()[
-        "interviewId"
-    ]
-    b = client.post(f"{V1}/interviews", json={"interviewerId": "user_b"}).json()[
-        "interviewId"
-    ]
+    a = client.post(f"{V1}/interviews", json={}).json()["interviewId"]
+    b = client.post(f"{V1}/interviews", json={}).json()["interviewId"]
     upload(client, a, "a.pdf")
     assert store.get_resume(b) is None

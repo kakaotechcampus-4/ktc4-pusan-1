@@ -17,14 +17,11 @@ ACK 과 반대로 **다시 보내지 말라**는 뜻이다. 계약이 어긋난 
 같은 답이라, 끊어서 재전송을 유도하면 그 발화에서 영원히 막힌다. 연결은 살려 둔다 —
 발화 하나가 잘못됐다고 면접 전체의 전사를 끊을 이유가 없다.
 
-⚠️ **Agent 는 아직 NACK 을 처리하지 않는다** (`irya_ai.transcripts` 가 ACK 이 아닌
-프레임을 전부 넘긴다). #76 에 요청해 두었다. 그 사이 NACK 이 실제로 나가면 그 발화가
-버퍼에 남아 재연결이 반복되므로, 계약이 조금 갈라졌다고 NACK 이 쏟아지지 않도록
-프레임 모델을 `extra="ignore"` 로 두었다.
+Agent 는 NACK 을 받으면 그 발화를 버리고 다음으로 넘어간다 (#97). 그래도 계약이
+조금 갈라졌다고 발화가 통째로 버려지지 않도록 프레임 모델은 `extra="ignore"` 다.
 
-⚠️ **아직 저장하지 않는다.** 전사 테이블이 없다 (#85). 지금은 검증하고 로그만
-남긴 뒤 ACK 한다 — Agent 가 핸드셰이크·인증·프레임 모양·ACK 까지 한 번 통과시켜
-보기 위한 단계다. #85 가 붙기 전까지 이 경로로 들어온 전사는 사라진다.
+받은 발화는 `utterance` 에 저장한 **뒤에** ACK 한다 (#85). 저장이 실패하면 예외가
+올라가 연결이 끊기고, Agent 는 ACK 못 받은 발화를 재접속 후 다시 보낸다.
 
 세션이 없으면 `accept()` 전에 끊는다. 붙은 뒤에 끊으면 Agent 가 연결 문제로 보고
 같은 세션으로 계속 다시 붙는다.
@@ -35,10 +32,12 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import StoreDep
 from app.api.internal.deps import websocket_authorized
 from app.api.internal.schemas import TranscriptAck, TranscriptNack, TranscriptUpsert
+from app.domain.models import Utterance
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +135,22 @@ async def receive_transcripts(
                 await websocket.send_json(nack.model_dump(by_alias=True))
                 continue
 
-            # TODO(#85): (session_id, utterance_id) 로 upsert 한다.
+            # 저장이 ACK 보다 먼저다. 실패하면 잡지 않는다 — 예외로 연결이 끊겨야
+            # Agent 가 다시 보낸다. 잡아서 NACK 을 보내면 「버려라」가 되어 사라진다.
+            #
+            # 저장소가 동기라 스레드풀로 넘긴다. 발화마다 부르므로 이벤트 루프에서
+            # 돌리면 같은 프로세스의 다른 요청이 그동안 줄을 선다.
+            await run_in_threadpool(
+                store.upsert_utterance,
+                Utterance(
+                    session_id=sessionId,
+                    utterance_id=frame.utterance_id,
+                    speaker=frame.speaker,
+                    text=frame.text,
+                    started_at_ms=frame.started_at_ms,
+                    ended_at_ms=frame.ended_at_ms,
+                ),
+            )
             received += 1
             logger.info(
                 "전사 수신 session_id=%s utterance_id=%s speaker=%s %d-%dms",

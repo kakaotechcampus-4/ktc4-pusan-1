@@ -9,7 +9,7 @@ asyncpg 를 쓰면 Protocol 과 라우터 절반의 시그니처를 함께 바�
 그만한 이득이 없다.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, LiteralString
 
@@ -21,23 +21,34 @@ from psycopg_pool import ConnectionPool
 from app.domain.models import (
     Context,
     ContextDoc,
+    DocCategory,
     DocKind,
     DocStatus,
     Interview,
     Resume,
+    Role,
     Session,
     SessionStatus,
     SessionSummary,
+    Suggestion,
+    SuggestionStatus,
     SummaryStatus,
+    TranscriptStage,
     User,
+    Utterance,
     utcnow,
 )
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 
+def _finished(text: str | None) -> DocStatus:
+    return DocStatus.READY if text else DocStatus.FAILED
+
+
 class PostgresStore:
-    """`interview` · `session` · `session_summary` 를 읽고 쓴다.
+    """`schema.sql` 의 테이블을 읽고 쓴다 — 면접·세션·요약·기업 컨텍스트·이력서·
+    사용자·전사·꼬리질문.
 
     커넥션 풀을 하나 들고 있다가 호출마다 빌려 쓴다. 매번 새로 연결하면
     면접 입장처럼 짧은 요청이 몰릴 때 연결 비용이 응답 시간을 지배한다.
@@ -96,6 +107,56 @@ class PostgresStore:
             created_at=row["created_at"],
         )
 
+    def list_interviews(
+        self, interviewer_id: str
+    ) -> list[tuple[Interview, Session | None, SummaryStatus | None]]:
+        """마지막으로 끝난 세션은 `LATERAL` 로 면접마다 하나씩 붙인다. 한 문장이다."""
+        rows = self._all(
+            """
+            SELECT i.id, i.interviewer_id, i.candidate_name, i.created_at,
+                   s.id AS s_id, s.status AS s_status, s.created_at AS s_created_at,
+                   s.started_at AS s_started_at, s.ended_at AS s_ended_at,
+                   s.transcript_origin_at AS s_transcript_origin_at,
+                   ss.status AS summary_status
+            FROM interview i
+            LEFT JOIN LATERAL (
+                SELECT * FROM session
+                WHERE session.interview_id = i.id AND session.ended_at IS NOT NULL
+                ORDER BY session.ended_at DESC
+                LIMIT 1
+            ) s ON TRUE
+            LEFT JOIN session_summary ss ON ss.session_id = s.id
+            WHERE i.interviewer_id = %s
+            ORDER BY i.created_at DESC
+            """,
+            (interviewer_id,),
+        )
+        return [
+            (
+                Interview(
+                    id=row["id"],
+                    interviewer_id=row["interviewer_id"],
+                    candidate_name=row["candidate_name"],
+                    created_at=row["created_at"],
+                ),
+                None
+                if row["s_id"] is None
+                else Session(
+                    id=row["s_id"],
+                    interview_id=row["id"],
+                    status=SessionStatus(row["s_status"]),
+                    created_at=row["s_created_at"],
+                    started_at=row["s_started_at"],
+                    ended_at=row["s_ended_at"],
+                    transcript_origin_at=row["s_transcript_origin_at"],
+                ),
+                None
+                if row["summary_status"] is None
+                else SummaryStatus(row["summary_status"]),
+            )
+            for row in rows
+        ]
+
     # ── 세션 ────────────────────────────────────────────────
 
     def add_session(self, session: Session) -> None:
@@ -149,7 +210,6 @@ class PostgresStore:
             session.status.value,
             session.started_at,
             session.ended_at,
-            session.transcript_origin_at,
             session.id,
         )
         if expected_status is not None:
@@ -161,11 +221,24 @@ class PostgresStore:
                 UPDATE session
                    SET status = %s,
                        started_at = %s,
-                       ended_at = %s,
-                       transcript_origin_at = %s
+                       ended_at = %s
                  WHERE id = %s{clause}
                 """,
                 params,
+            )
+            return cursor.rowcount == 1
+
+    def mark_origin(self, session_id: str, at: datetime) -> bool:
+        """조건과 갱신이 한 문장이다. 동시에 들어와도 늦은 값이 이기지 않는다."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE session
+                   SET transcript_origin_at = %s
+                 WHERE id = %s
+                   AND (transcript_origin_at IS NULL OR transcript_origin_at > %s)
+                """,
+                (at, session_id, at),
             )
             return cursor.rowcount == 1
 
@@ -226,6 +299,29 @@ class PostgresStore:
                     summary.session_id,
                 ),
             )
+
+    def fail_summary(self, session_id: str) -> bool:
+        """READY 가 아닐 때만 FAILED 로. 조건이 `WHERE` 안에 있어 판정과 갱신
+        사이가 열리지 않는다 (#132). 시각은 `expire_summary` 처럼 앱이 찍는다."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE session_summary
+                   SET status = %s,
+                       overview = '',
+                       key_points = '[]'::jsonb,
+                       completed_at = %s
+                 WHERE session_id = %s
+                   AND status <> %s
+                """,
+                (
+                    SummaryStatus.FAILED.value,
+                    utcnow(),
+                    session_id,
+                    SummaryStatus.READY.value,
+                ),
+            )
+            return cursor.rowcount == 1
 
     def expire_summary(
         self, session_id: str, limit: timedelta
@@ -388,15 +484,16 @@ class PostgresStore:
             conn.execute(
                 """
                 INSERT INTO context_doc
-                    (id, context_id, name, kind, size_bytes, status, content,
-                     created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (id, context_id, name, kind, category, size_bytes, status,
+                     content, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     doc.id,
                     doc.context_id,
                     doc.name,
                     doc.kind.value,
+                    doc.category.value,
                     doc.size_bytes,
                     doc.status.value,
                     content,
@@ -407,16 +504,16 @@ class PostgresStore:
     def list_docs(self, context_id: str) -> list[ContextDoc]:
         # content 는 고르지 않는다. 목록 한 번에 파일 전체가 딸려 오면 안 된다.
         rows = self._all(
-            "SELECT id, context_id, name, kind, size_bytes, status, created_at"
-            " FROM context_doc WHERE context_id = %s ORDER BY created_at",
+            "SELECT id, context_id, name, kind, category, size_bytes, status,"
+            " created_at FROM context_doc WHERE context_id = %s ORDER BY created_at",
             (context_id,),
         )
         return [self._to_doc(row) for row in rows]
 
     def get_doc(self, context_id: str, doc_id: str) -> ContextDoc | None:
         row = self._one(
-            "SELECT id, context_id, name, kind, size_bytes, status, created_at"
-            " FROM context_doc WHERE context_id = %s AND id = %s",
+            "SELECT id, context_id, name, kind, category, size_bytes, status,"
+            " created_at FROM context_doc WHERE context_id = %s AND id = %s",
             (context_id, doc_id),
         )
         return None if row is None else self._to_doc(row)
@@ -428,6 +525,21 @@ class PostgresStore:
                 (context_id, doc_id),
             )
             return cursor.rowcount == 1
+
+    def finish_doc(self, context_id: str, doc_id: str, text: str | None) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE context_doc SET status = %s, text = %s"
+                " WHERE context_id = %s AND id = %s",
+                (_finished(text).value, text, context_id, doc_id),
+            )
+
+    def get_doc_text(self, context_id: str, doc_id: str) -> str | None:
+        row = self._one(
+            "SELECT text FROM context_doc WHERE context_id = %s AND id = %s",
+            (context_id, doc_id),
+        )
+        return None if row is None else row["text"]
 
     @staticmethod
     def _context_values(context: Context) -> tuple[Any, ...]:
@@ -460,6 +572,7 @@ class PostgresStore:
             context_id=row["context_id"],
             name=row["name"],
             kind=DocKind(row["kind"]),
+            category=DocCategory(row["category"]),
             size_bytes=row["size_bytes"],
             status=DocStatus(row["status"]),
             created_at=row["created_at"],
@@ -482,6 +595,7 @@ class PostgresStore:
                     size_bytes = EXCLUDED.size_bytes,
                     status = EXCLUDED.status,
                     content = EXCLUDED.content,
+                    text = NULL,
                     created_at = EXCLUDED.created_at
                 """,
                 (
@@ -515,6 +629,24 @@ class PostgresStore:
             created_at=row["created_at"],
         )
 
+    def finish_resume(
+        self, interview_id: str, resume_id: str, text: str | None
+    ) -> None:
+        # id 까지 맞춰 본다. 추출 도중 새 이력서로 덮였으면 옛 결과를 버린다.
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE interview_resume SET status = %s, text = %s"
+                " WHERE interview_id = %s AND id = %s",
+                (_finished(text).value, text, interview_id, resume_id),
+            )
+
+    def get_resume_text(self, interview_id: str) -> str | None:
+        row = self._one(
+            "SELECT text FROM interview_resume WHERE interview_id = %s",
+            (interview_id,),
+        )
+        return None if row is None else row["text"]
+
     # ── 사용자 ──────────────────────────────────────────────
 
     def upsert_user(self, user: User) -> User:
@@ -530,7 +662,8 @@ class PostgresStore:
             ON CONFLICT (kakao_id) DO UPDATE SET
                 nickname = EXCLUDED.nickname,
                 profile_image_url = EXCLUDED.profile_image_url
-            RETURNING id, kakao_id, nickname, profile_image_url, created_at
+            RETURNING id, kakao_id, nickname, profile_image_url, created_at,
+                      token_version
             """,
             (
                 user.id,
@@ -545,8 +678,131 @@ class PostgresStore:
 
     def get_user(self, user_id: str) -> User | None:
         row = self._one(
-            "SELECT id, kakao_id, nickname, profile_image_url, created_at"
-            " FROM app_user WHERE id = %s",
+            "SELECT id, kakao_id, nickname, profile_image_url, created_at,"
+            " token_version FROM app_user WHERE id = %s",
             (user_id,),
         )
         return None if row is None else User(**row)
+
+    # ── 전사·꼬리질문 (#85) ─────────────────────────────────
+
+    def upsert_utterance(self, utterance: Utterance) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO utterance (
+                    session_id, stage, utterance_id,
+                    speaker, text, started_at_ms, ended_at_ms
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (session_id, stage, utterance_id) DO UPDATE SET
+                    speaker = EXCLUDED.speaker,
+                    text = EXCLUDED.text,
+                    started_at_ms = EXCLUDED.started_at_ms,
+                    ended_at_ms = EXCLUDED.ended_at_ms
+                """,
+                (
+                    utterance.session_id,
+                    utterance.stage.value,
+                    utterance.utterance_id,
+                    utterance.speaker.value,
+                    utterance.text,
+                    utterance.started_at_ms,
+                    utterance.ended_at_ms,
+                ),
+            )
+
+    def list_utterances(
+        self, session_id: str, stage: TranscriptStage = TranscriptStage.LIVE
+    ) -> list[Utterance]:
+        rows = self._all(
+            """
+            SELECT session_id, stage, utterance_id,
+                   speaker, text, started_at_ms, ended_at_ms
+            FROM utterance
+            WHERE session_id = %s AND stage = %s
+            ORDER BY started_at_ms,
+                     CASE speaker WHEN 'INTERVIEWER' THEN 0 ELSE 1 END,
+                     utterance_id
+            """,
+            (session_id, stage.value),
+        )
+        return [
+            Utterance(
+                session_id=row["session_id"],
+                utterance_id=row["utterance_id"],
+                speaker=Role(row["speaker"]),
+                text=row["text"],
+                started_at_ms=row["started_at_ms"],
+                ended_at_ms=row["ended_at_ms"],
+                stage=TranscriptStage(row["stage"]),
+            )
+            for row in rows
+        ]
+
+    def add_suggestion(self, suggestion: Suggestion) -> None:
+        # 꼬리질문과 근거를 한 트랜잭션으로 넣는다 — 풀에서 빌린 연결은 블록을
+        # 나갈 때 커밋한다. 재시도라 꼬리질문이 이미 있으면 근거도 다시 넣지 않는다.
+        with self._pool.connection() as conn:
+            inserted = conn.execute(
+                """
+                INSERT INTO suggestion (
+                    session_id, suggestion_id, content, status, created_at
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (session_id, suggestion_id) DO NOTHING
+                RETURNING 1
+                """,
+                (
+                    suggestion.session_id,
+                    suggestion.suggestion_id,
+                    suggestion.content,
+                    suggestion.status.value,
+                    suggestion.created_at,
+                ),
+            ).fetchone()
+            if inserted is None:
+                return
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO suggestion_evidence (
+                        session_id, suggestion_id, position, utterance_id
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    [
+                        (suggestion.session_id, suggestion.suggestion_id, i, uid)
+                        for i, uid in enumerate(suggestion.evidence_utterance_ids)
+                    ],
+                )
+
+    def list_suggestions(self, session_id: str) -> list[Suggestion]:
+        rows = self._all(
+            """
+            SELECT s.session_id, s.suggestion_id, s.content,
+                   s.status, s.created_at,
+                   COALESCE(
+                       (SELECT array_agg(e.utterance_id ORDER BY e.position)
+                        FROM suggestion_evidence e
+                        WHERE e.session_id = s.session_id
+                          AND e.suggestion_id = s.suggestion_id),
+                       '{}'
+                   ) AS evidence_utterance_ids
+            FROM suggestion s
+            WHERE s.session_id = %s
+            ORDER BY s.created_at, s.suggestion_id
+            """,
+            (session_id,),
+        )
+        return [
+            Suggestion(
+                session_id=row["session_id"],
+                suggestion_id=row["suggestion_id"],
+                content=row["content"],
+                evidence_utterance_ids=list(row["evidence_utterance_ids"]),
+                status=SuggestionStatus(row["status"]),
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]

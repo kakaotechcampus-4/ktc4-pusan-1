@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.errors import register_error_handlers
 from app.core.uploads import MAX_UPLOAD_BYTES, MULTIPART_SLACK_BYTES
 from app.domain import store as store_module
+from app.services.documents import check_key_at_startup as check_parser_at_startup
 
 
 @asynccontextmanager
@@ -23,12 +24,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     `DATABASE_URL` 이 없으면 인메모리로 둔다 — 로컬 개발과 테스트가 DB 없이
     돌아야 하고, 지금은 컨테이너 밖에서 띄우는 일이 더 많다.
 
-    스키마 적용을 여기서 한다. 테이블이 둘뿐이고 DDL 이 전부
-    `IF NOT EXISTS` 라 기동할 때마다 돌려도 안전하다. 컬럼을 바꿔야 할 때가
-    오면 Alembic 을 넣고 이 호출을 걷어낸다.
+    스키마 적용을 여기서 한다. DDL 이 전부 `IF NOT EXISTS` 라 기동할 때마다
+    돌려도 안전하다. 컬럼의 타입이나 키를 바꿔야 할 때가 오면 Alembic 을 넣고
+    이 호출을 걷어낸다 (`schema.sql` 머리말).
     """
     check_key_at_startup()
     check_secret_at_startup()
+    check_parser_at_startup()
 
     if not settings.database_url:
         yield

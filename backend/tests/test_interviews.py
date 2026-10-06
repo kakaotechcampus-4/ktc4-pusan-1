@@ -2,16 +2,18 @@
 
 from fastapi.testclient import TestClient
 
+from app.domain.models import User
 from tests.conftest import FakeMedia
 
 
-def test_create_interview(client: TestClient):
+def test_create_interview(client: TestClient, owner: User):
+    """주인은 토큰의 사용자다. 본문의 `interviewerId` 는 무시한다 (#130)."""
     response = client.post("/api/v1/interviews", json={"interviewerId": "user_123"})
 
     assert response.status_code == 201
     body = response.json()
     assert body["interviewId"].startswith("int_")
-    assert body["interviewerId"] == "user_123"
+    assert body["interviewerId"] == owner.id
     assert body["candidateName"] is None
     assert body["createdAt"]
     assert set(body) == {"interviewId", "interviewerId", "candidateName", "createdAt"}
@@ -27,9 +29,9 @@ def test_create_interview_accepts_candidate_name(client: TestClient):
     assert response.json()["candidateName"] == "김지원"
 
 
-def test_create_interview_rejects_empty_id(client: TestClient):
+def test_create_interview_rejects_overlong_candidate_name(client: TestClient):
     """명세의 422 `요청값 검증 실패`."""
-    response = client.post("/api/v1/interviews", json={"interviewerId": ""})
+    response = client.post("/api/v1/interviews", json={"candidateName": "가" * 21})
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
@@ -110,3 +112,50 @@ def test_interview_can_have_multiple_sessions(client: TestClient):
     second = client.post(path).json()["sessionId"]
 
     assert first != second
+
+
+# ── 내 면접 목록 (#137 1-1) ─────────────────────────────
+
+
+def test_list_is_mine_newest_first_on_last_ended_session(
+    client: TestClient, other: dict[str, str]
+):
+    context_id = client.get("/api/v1/contexts/current").json()["id"]
+    client.patch(f"/api/v1/contexts/{context_id}", json={"role": "백엔드 개발자"})
+    first = client.post("/api/v1/interviews", json={"candidateName": "가"}).json()
+    second = client.post("/api/v1/interviews", json={"candidateName": "나"}).json()
+    client.post("/api/v1/interviews", json={}, headers=other)
+    path = f"/api/v1/interviews/{first['interviewId']}/sessions"
+    ended = client.post(path).json()["sessionId"]
+    client.post(f"/api/v1/sessions/{ended}/start")
+    client.post(f"/api/v1/sessions/{ended}/end")
+    client.post(path)  # 나중에 만들었지만 안 끝난 세션은 기준이 아니다
+
+    response = client.get("/api/v1/interviews")
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [i["interviewId"] for i in items] == [
+        second["interviewId"],
+        first["interviewId"],
+    ]
+    assert items[0] == {
+        "interviewId": second["interviewId"],
+        "candidateName": "나",
+        "role": "백엔드 개발자",
+        "interviewer": {"nickname": "면접관"},
+        "interviewedAt": None,
+        "durationSec": None,
+        "reviewStatus": "PENDING",
+        "summaryStatus": None,
+        "counts": None,
+    }
+    done = items[1]
+    assert done["interviewedAt"] is not None
+    assert done["durationSec"] == 0
+    assert done["summaryStatus"] == "PROCESSING"
+    assert done["counts"] is None
+
+
+def test_list_is_empty_for_a_new_interviewer(client: TestClient):
+    assert client.get("/api/v1/interviews").json() == {"items": []}

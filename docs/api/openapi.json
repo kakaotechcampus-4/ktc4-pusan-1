@@ -3,6 +3,10 @@
     "schemas": {
       "Body_upload_doc_api_v1_contexts__contextId__docs_post": {
         "properties": {
+          "category": {
+            "$ref": "#/components/schemas/DocCategory",
+            "default": "internal"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -32,6 +36,17 @@
       "ContextDocResponse": {
         "description": "FE 의 `ContextDoc` 과 같은 모양.\n\n`progress` 는 내보내지 않는다 — 업로드 진행률은 클라이언트만 아는 값이다.",
         "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocCategory"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "기업 컨텍스트 문서의 칸(jd · internal). 이력서는 null."
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -48,7 +63,8 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/DocStatus"
+            "$ref": "#/components/schemas/DocStatus",
+            "description": "올라온 직후는 parsing 이다. 본문을 뽑으면 ready, 못 뽑으면 failed. parsing 인 동안 다시 조회한다."
           }
         },
         "required": [
@@ -120,20 +136,8 @@
               "김지원"
             ],
             "title": "Candidatename"
-          },
-          "interviewerId": {
-            "examples": [
-              "user_123"
-            ],
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Interviewerid",
-            "type": "string"
           }
         },
-        "required": [
-          "interviewerId"
-        ],
         "title": "CreateInterviewRequest",
         "type": "object"
       },
@@ -183,6 +187,15 @@
         "title": "CreateSessionResponse",
         "type": "object"
       },
+      "DocCategory": {
+        "description": "기업 컨텍스트 문서의 종류. FE 설정 화면의 두 칸이다.\n\nAI 가 JD 와 사내 문서를 다르게 쓴다 — JD 는 「이 직무가 요구하는 것」이다.",
+        "enum": [
+          "jd",
+          "internal"
+        ],
+        "title": "DocCategory",
+        "type": "string"
+      },
       "DocKind": {
         "description": "업로드할 수 있는 문서 형식. FE 의 `DocKind` 와 같다.",
         "enum": [
@@ -193,7 +206,7 @@
         "type": "string"
       },
       "DocStatus": {
-        "description": "서버가 아는 문서 상태.\n\nFE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —\n서버는 업로드가 끝난 뒤에야 문서를 안다.\n\n`PARSING` 은 아직 쓰지 않는다. 본문 추출을 누가 하는지가 안 정해져서(#70) 지금은\n올라온 즉시 `READY` 다. 값은 미리 둔다 — 나중에 파싱이 붙을 때 FE 가 이미 이\n분기를 갖고 있다.",
+        "description": "서버가 아는 문서 상태.\n\nFE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —\n서버는 업로드가 끝난 뒤에야 문서를 안다.\n\n    PARSING --본문을 뽑음--> READY\n            --못 뽑음·한도 초과--> FAILED\n\n올라온 순간 `PARSING` 이고, 백그라운드에서 Helpy 가 본문을 뽑으면 끝난다 (#143).",
         "enum": [
           "parsing",
           "ready",
@@ -237,6 +250,7 @@
           "INVALID_SESSION_STATE",
           "ROOM_FULL",
           "UNAUTHORIZED",
+          "ROLE_NOT_ALLOWED",
           "KAKAO_AUTH_FAILED",
           "KAKAO_UNAVAILABLE"
         ],
@@ -304,6 +318,108 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "InterviewListItem": {
+        "description": "`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다 (#137 1-1).\n\n기준은 그 면접의 마지막으로 끝난 세션이다. 끝난 세션이 없으면 그 세션에서 오는\n값(`interviewedAt` · `durationSec` · `summaryStatus`)은 null 이다.",
+        "properties": {
+          "candidateName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidatename"
+          },
+          "counts": {
+            "description": "검토 항목 집계. 만들기 전까지 null 이다 (#137 도 READY 전엔 null).",
+            "title": "Counts",
+            "type": "null"
+          },
+          "durationSec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationsec"
+          },
+          "interviewId": {
+            "title": "Interviewid",
+            "type": "string"
+          },
+          "interviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "「면접 시작」 시각. 비어 있으면 첫 입장 시각.",
+            "title": "Interviewedat"
+          },
+          "interviewer": {
+            "$ref": "#/components/schemas/InterviewerSummary"
+          },
+          "reviewStatus": {
+            "const": "PENDING",
+            "description": "검토 기능이 아직 없어 늘 PENDING 이다.",
+            "title": "Reviewstatus",
+            "type": "string"
+          },
+          "role": {
+            "description": "컨텍스트의 직무. 아직 안 정했으면 빈 문자열.",
+            "title": "Role",
+            "type": "string"
+          },
+          "summaryStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "interviewId",
+          "candidateName",
+          "role",
+          "interviewer",
+          "interviewedAt",
+          "durationSec",
+          "reviewStatus",
+          "summaryStatus",
+          "counts"
+        ],
+        "title": "InterviewListItem",
+        "type": "object"
+      },
+      "InterviewListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InterviewListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "InterviewListResponse",
+        "type": "object"
+      },
       "InterviewResponse": {
         "properties": {
           "candidateName": {
@@ -340,12 +456,25 @@
         "title": "InterviewResponse",
         "type": "object"
       },
+      "InterviewerSummary": {
+        "properties": {
+          "nickname": {
+            "title": "Nickname",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nickname"
+        ],
+        "title": "InterviewerSummary",
+        "type": "object"
+      },
       "JoinRequest": {
         "properties": {
           "role": {
             "$ref": "#/components/schemas/Role",
             "default": "CANDIDATE",
-            "description": "현재 로그인·인증 제외 기준이라 요청값으로 받는다. 인증 도입 후에는 서버가 참가자 역할을 판단한다."
+            "description": "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 `ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다."
           }
         },
         "title": "JoinRequest",
@@ -890,8 +1019,20 @@
     },
     "/api/v1/contexts/current": {
       "get": {
-        "description": "지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.\n\nFE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수\n있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어\ncontextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.\n\n**주인은 지금 하나뿐이다.** 조직도 로그인도 없어서 조직을 가릴 방법이 없다.\n로그인이 들어오면 토큰에서 주인을 정하게 되고, 이 라우트의 겉모습은 그대로다.\n\n없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가\n구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.",
+        "description": "지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.\n\nFE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수\n있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어\ncontextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.\n\n**주인은 로그인한 사용자다.** 조직이 아직 없어서 면접관 한 명에 하나다.\n\n없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가\n구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.",
         "operationId": "get_current_context_api_v1_contexts_current_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -902,6 +1043,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "기업 컨텍스트 조회 (현재 조직)",
@@ -922,6 +1083,16 @@
               "title": "Contextid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -935,6 +1106,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -943,7 +1124,7 @@
                 }
               }
             },
-            "description": "컨텍스트를 찾을 수 없음"
+            "description": "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)"
           },
           "422": {
             "content": {
@@ -973,6 +1154,16 @@
               "title": "Contextid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -996,6 +1187,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1004,7 +1205,7 @@
                 }
               }
             },
-            "description": "컨텍스트를 찾을 수 없음"
+            "description": "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)"
           },
           "422": {
             "content": {
@@ -1025,7 +1226,7 @@
     },
     "/api/v1/contexts/{contextId}/docs": {
       "post": {
-        "description": "면접에 쓸 문서를 올린다. `pdf` 와 `docx` 만 받는다.\n\nFE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지\n경계가 아니다. 여기서 다시 본다.",
+        "description": "면접에 쓸 문서를 올린다. **PDF 만 받는다.**\n\nFE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지\n경계가 아니다. 여기서 다시 본다.\n\n**응답은 `parsing` 으로 바로 나간다.** 본문 추출(Helpy Document Vision)은 평균\n10초가 걸려서 응답 뒤에 따로 돈다. FE 는 `parsing` 인 문서가 있는 동안\n컨텍스트를 다시 조회하면 `ready` 나 `failed` 로 바뀐 것을 본다.",
         "operationId": "upload_doc_api_v1_contexts__contextId__docs_post",
         "parameters": [
           {
@@ -1034,6 +1235,16 @@
             "required": true,
             "schema": {
               "title": "Contextid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
               "type": "string"
             }
           }
@@ -1059,6 +1270,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1067,7 +1288,7 @@
                 }
               }
             },
-            "description": "컨텍스트를 찾을 수 없음"
+            "description": "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)"
           },
           "413": {
             "content": {
@@ -1127,11 +1348,31 @@
               "title": "Docid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
           },
           "404": {
             "content": {
@@ -1141,7 +1382,7 @@
                 }
               }
             },
-            "description": "컨텍스트 또는 문서를 찾을 수 없음"
+            "description": "컨텍스트 또는 문서를 찾을 수 없음 (남의 것 포함)"
           },
           "422": {
             "content": {
@@ -1161,9 +1402,73 @@
       }
     },
     "/api/v1/interviews": {
+      "get": {
+        "description": "내가 만든 면접을 최신순으로 준다. 필터 · 정렬은 FE 가 한다 (#137 1-1).\n\n면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 내 컨텍스트에서 온다.",
+        "operationId": "list_interviews_api_v1_interviews_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "내 면접 목록",
+        "tags": [
+          "면접"
+        ]
+      },
       "post": {
-        "description": "면접관이 새로운 면접 정보를 생성한다.\n\nSession 과 LiveKit Room 은 여기서 만들지 않는다 —\n`POST /interviews/{interviewId}/sessions` 가 담당한다.",
+        "description": "면접관이 새로운 면접 정보를 생성한다.\n\nSession 과 LiveKit Room 은 여기서 만들지 않는다 —\n`POST /interviews/{interviewId}/sessions` 가 담당한다.\n\n면접의 주인(`interviewerId`)은 토큰의 사용자다. 요청 본문으로 받으면 아무 이름으로나\n면접을 만들 수 있어, 그 면접을 주인만 다룬다는 판단이 서지 않는다.",
         "operationId": "create_interview_api_v1_interviews_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1184,6 +1489,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
           },
           "422": {
             "content": {
@@ -1215,6 +1530,16 @@
               "title": "Interviewid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1228,6 +1553,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1236,7 +1571,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "422": {
             "content": {
@@ -1257,7 +1592,7 @@
     },
     "/api/v1/interviews/{interviewId}/resume": {
       "post": {
-        "description": "지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.\n\n**면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은\n것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.\n\n응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드\n컴포넌트로 그린다.\n\n본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로\n하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.",
+        "description": "지원자 이력서를 올린다. **PDF 만 받는다.**\n\n**면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은\n것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.\n\n응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드\n컴포넌트로 그린다.\n\n본문은 기업 컨텍스트 문서와 같이 응답 뒤에 따로 뽑는다(#143). 응답은 `parsing`\n이다. 꼬리질문과 리포트가 이 본문을 쓴다(#70).",
         "operationId": "upload_resume_api_v1_interviews__interviewId__resume_post",
         "parameters": [
           {
@@ -1266,6 +1601,16 @@
             "required": true,
             "schema": {
               "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
               "type": "string"
             }
           }
@@ -1291,6 +1636,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1299,7 +1654,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "413": {
             "content": {
@@ -1351,6 +1706,16 @@
               "title": "Interviewid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1364,6 +1729,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1372,7 +1747,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "422": {
             "content": {
@@ -1404,6 +1779,16 @@
               "title": "Interviewid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1417,6 +1802,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1425,7 +1820,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "422": {
             "content": {
@@ -1510,6 +1905,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1523,6 +1928,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1531,7 +1946,7 @@
                 }
               }
             },
-            "description": "Session을 찾을 수 없음"
+            "description": "Session을 찾을 수 없음 (남의 세션 포함)"
           },
           "409": {
             "content": {
@@ -1573,6 +1988,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1595,6 +2020,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접관으로 입장하는데 로그인이 안 됨"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접관으로 입장하는데 이 면접의 주인이 아님"
           },
           "404": {
             "content": {
@@ -1646,6 +2091,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1659,6 +2114,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1667,7 +2132,7 @@
                 }
               }
             },
-            "description": "Session을 찾을 수 없음"
+            "description": "Session을 찾을 수 없음 (남의 세션 포함)"
           },
           "409": {
             "content": {
@@ -1709,6 +2174,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1722,6 +2197,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1730,7 +2215,7 @@
                 }
               }
             },
-            "description": "Session을 찾을 수 없음"
+            "description": "Session을 찾을 수 없음 (남의 세션 포함)"
           },
           "409": {
             "content": {

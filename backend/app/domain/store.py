@@ -9,18 +9,24 @@
 """
 
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from app.domain.models import (
     Context,
     ContextDoc,
+    DocStatus,
     Interview,
     Resume,
+    Role,
     Session,
     SessionStatus,
     SessionSummary,
+    Suggestion,
+    SummaryStatus,
+    TranscriptStage,
     User,
+    Utterance,
 )
 
 
@@ -28,6 +34,15 @@ class Store(Protocol):
     def add_interview(self, interview: Interview) -> None: ...
 
     def get_interview(self, interview_id: str) -> Interview | None: ...
+
+    def list_interviews(
+        self, interviewer_id: str
+    ) -> list[tuple[Interview, Session | None, SummaryStatus | None]]:
+        """그 면접관의 면접을 최신순으로, 마지막으로 끝난 세션과 그 요약 상태와 함께.
+
+        끝난 세션이 없는 면접은 둘 다 None 이다 (#137 1-1).
+        """
+        ...
 
     def add_session(self, session: Session) -> None: ...
 
@@ -42,6 +57,18 @@ class Store(Protocol):
         아니면 아무것도 안 쓰고 False 를 돌려준다. 부른 쪽이 409 로 바꾼다.
 
         `None` 이면 조건 없이 쓴다. 경쟁이 없는 자리에만 쓴다.
+
+        전사 원점(`transcript_origin_at`)은 쓰지 않는다 — `mark_origin` 만 쓴다.
+        """
+        ...
+
+    def mark_origin(self, session_id: str, at: datetime) -> bool:
+        """전사 원점(t=0)을 기록한다. 이미 있으면 더 이른 쪽만 남긴다 (#86).
+
+        읽고-고쳐-쓰기가 아니라 저장소가 한 번에 판단한다. 그래서 webhook 이
+        재전송되거나 순서가 뒤바뀌어 와도, 시작 · 종료 저장과 겹쳐도 서로를
+        덮어쓰지 않는다. 값이 바뀌었으면 True, 세션이 없거나 더 이른 값이
+        이미 있으면 False.
         """
         ...
 
@@ -73,6 +100,17 @@ class Store(Protocol):
         """지웠으면 True. 없던 문서면 False."""
         ...
 
+    def finish_doc(self, context_id: str, doc_id: str, text: str | None) -> None:
+        """추출 결과를 받는다. 본문이 있으면 READY, None·빈 문자열이면 FAILED.
+
+        그 사이 문서가 지워졌으면 아무것도 하지 않는다.
+        """
+        ...
+
+    def get_doc_text(self, context_id: str, doc_id: str) -> str | None:
+        """뽑아 둔 본문. 아직 없거나 못 뽑았으면 None. 목록 조회에는 싣지 않는다."""
+        ...
+
     # ── 지원자 이력서 ───────────────────────────────────
 
     def save_resume(self, resume: Resume, content: bytes) -> None:
@@ -80,6 +118,14 @@ class Store(Protocol):
         ...
 
     def get_resume(self, interview_id: str) -> Resume | None: ...
+
+    def finish_resume(
+        self, interview_id: str, resume_id: str, text: str | None
+    ) -> None:
+        """`finish_doc` 과 같다. 추출 도중 다시 올라와 id 가 바뀌었으면 버린다."""
+        ...
+
+    def get_resume_text(self, interview_id: str) -> str | None: ...
 
     def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
         """요약 자리를 만들고 돌려준다. 이미 있으면 **있는 것을 돌려준다.**
@@ -94,6 +140,15 @@ class Store(Protocol):
 
     def save_summary(self, summary: SessionSummary) -> None:
         """Agent 가 만든 결과를 받아 둔다. 조건 없이 덮어쓴다."""
+        ...
+
+    def fail_summary(self, session_id: str) -> bool:
+        """Agent 의 실패 보고. READY 가 아니면 FAILED 로 넘기고 본문을 비운다.
+
+        READY 면 아무것도 바꾸지 않고 False 다. Agent 의 재시도 · 재실행에서 실패
+        한 번이 이미 성공한 요약을 지우면 안 된다 (#132). 판정과 갱신은 한 문장이다
+        — 읽고 나서 쓰면 그 사이에 들어온 READY 를 덮는다.
+        """
         ...
 
     def expire_summary(
@@ -124,6 +179,36 @@ class Store(Protocol):
 
     def get_user(self, user_id: str) -> User | None: ...
 
+    # ── 전사·꼬리질문 (#85) ─────────────────────────────────
+
+    def upsert_utterance(self, utterance: Utterance) -> None:
+        """같은 `(session, stage, utterance_id)` 면 덮어쓴다. 교정본이 이 길로 온다.
+
+        Agent 는 ACK 를 받아야 버퍼에서 지운다 (#76). 여기가 끝나야 ACK 가 나간다.
+        """
+        ...
+
+    def list_utterances(
+        self, session_id: str, stage: TranscriptStage = TranscriptStage.LIVE
+    ) -> list[Utterance]:
+        """말한 순서대로. 같은 ms 에 시작했으면 면접관이 먼저, 그다음 id 순이다.
+
+        질문이 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. `seq` 가 전송
+        페이로드에 없어서 (#76 ①) 여기서 정한다.
+        """
+        ...
+
+    def add_suggestion(self, suggestion: Suggestion) -> None:
+        """이미 같은 id 가 있으면 **처음 것을 남긴다.**
+
+        Agent 의 재시도가 이 길로 온다.
+        """
+        ...
+
+    def list_suggestions(self, session_id: str) -> list[Suggestion]:
+        """도착한 순서대로."""
+        ...
+
 
 class InMemoryStore:
     """DB 구현과 같은 계약을 주는 인메모리 저장소.
@@ -142,9 +227,16 @@ class InMemoryStore:
         self._docs: dict[tuple[str, str], tuple[ContextDoc, bytes]] = {}
         #: interview_id -> (메타데이터, 원본)
         self._resumes: dict[str, tuple[Resume, bytes]] = {}
+        #: 뽑은 본문. 문서는 (context_id, doc_id), 이력서는 interview_id 가 키다.
+        self._texts: dict[object, str] = {}
 
         self._summaries: dict[str, SessionSummary] = {}
         self._users: dict[str, User] = {}
+
+        #: (session_id, stage, utterance_id) -> 발화
+        self._utterances: dict[tuple[str, TranscriptStage, str], Utterance] = {}
+        #: (session_id, suggestion_id) -> 꼬리질문
+        self._suggestions: dict[tuple[str, str], Suggestion] = {}
 
     def add_interview(self, interview: Interview) -> None:
         self._interviews[interview.id] = interview
@@ -152,6 +244,40 @@ class InMemoryStore:
     def get_interview(self, interview_id: str) -> Interview | None:
         found = self._interviews.get(interview_id)
         return None if found is None else deepcopy(found)
+
+    def list_interviews(
+        self, interviewer_id: str
+    ) -> list[tuple[Interview, Session | None, SummaryStatus | None]]:
+        mine = sorted(
+            (
+                i
+                for i in self._interviews.values()
+                if i.interviewer_id == interviewer_id
+            ),
+            key=lambda i: i.created_at,
+            reverse=True,
+        )
+        listed: list[tuple[Interview, Session | None, SummaryStatus | None]] = []
+        for interview in mine:
+            session = self._last_ended_session(interview.id)
+            summary = None if session is None else self._summaries.get(session.id)
+            listed.append(
+                (
+                    deepcopy(interview),
+                    session,
+                    None if summary is None else summary.status,
+                )
+            )
+        return listed
+
+    def _last_ended_session(self, interview_id: str) -> Session | None:
+        ended = [
+            s
+            for s in self._sessions.values()
+            if s.interview_id == interview_id and s.ended_at is not None
+        ]
+        last = max(ended, key=lambda s: s.ended_at or s.created_at, default=None)
+        return None if last is None else deepcopy(last)
 
     def add_session(self, session: Session) -> None:
         self._sessions[session.id] = deepcopy(session)
@@ -170,7 +296,20 @@ class InMemoryStore:
             return False
         if expected_status is not None and stored.status is not expected_status:
             return False
-        self._sessions[session.id] = deepcopy(session)
+        saved = deepcopy(session)
+        # 원점은 mark_origin 만 쓴다. 들고 온 객체의 값이 낡았어도 덮어쓰지 않는다.
+        saved.transcript_origin_at = stored.transcript_origin_at
+        self._sessions[session.id] = saved
+        return True
+
+    def mark_origin(self, session_id: str, at: datetime) -> bool:
+        stored = self._sessions.get(session_id)
+        if stored is None:
+            return False
+        origin = stored.transcript_origin_at
+        if origin is not None and origin <= at:
+            return False
+        stored.transcript_origin_at = at
         return True
 
     # ── 기업 컨텍스트 ───────────────────────────────────
@@ -190,11 +329,11 @@ class InMemoryStore:
         self._contexts[context.id] = context
 
     def add_doc(self, doc: ContextDoc, content: bytes) -> None:
-        self._docs[(doc.context_id, doc.id)] = (doc, content)
+        self._docs[(doc.context_id, doc.id)] = (deepcopy(doc), content)
 
     def list_docs(self, context_id: str) -> list[ContextDoc]:
         return [
-            doc
+            deepcopy(doc)
             for (ctx_id, _), (doc, _content) in self._docs.items()
             if ctx_id == context_id
         ]
@@ -204,12 +343,42 @@ class InMemoryStore:
         return None if found is None else deepcopy(found[0])
 
     def delete_doc(self, context_id: str, doc_id: str) -> bool:
+        self._texts.pop((context_id, doc_id), None)
         return self._docs.pop((context_id, doc_id), None) is not None
+
+    def finish_doc(self, context_id: str, doc_id: str, text: str | None) -> None:
+        found = self._docs.get((context_id, doc_id))
+        if found is None:
+            return
+        found[0].status = DocStatus.READY if text else DocStatus.FAILED
+        self._set_text((context_id, doc_id), text)
+
+    def get_doc_text(self, context_id: str, doc_id: str) -> str | None:
+        return self._texts.get((context_id, doc_id))
+
+    def _set_text(self, key: object, text: str | None) -> None:
+        if text:
+            self._texts[key] = text
+        else:
+            self._texts.pop(key, None)
 
     # ── 지원자 이력서 ───────────────────────────────────
 
     def save_resume(self, resume: Resume, content: bytes) -> None:
-        self._resumes[resume.interview_id] = (resume, content)
+        self._resumes[resume.interview_id] = (deepcopy(resume), content)
+        self._texts.pop(resume.interview_id, None)
+
+    def finish_resume(
+        self, interview_id: str, resume_id: str, text: str | None
+    ) -> None:
+        found = self._resumes.get(interview_id)
+        if found is None or found[0].id != resume_id:
+            return
+        found[0].status = DocStatus.READY if text else DocStatus.FAILED
+        self._set_text(interview_id, text)
+
+    def get_resume_text(self, interview_id: str) -> str | None:
+        return self._texts.get(interview_id)
 
     def get_resume(self, interview_id: str) -> Resume | None:
         found = self._resumes.get(interview_id)
@@ -232,6 +401,13 @@ class InMemoryStore:
         fresh = deepcopy(summary)
         fresh.requested_at = stored.requested_at
         self._summaries[summary.session_id] = fresh
+
+    def fail_summary(self, session_id: str) -> bool:
+        stored = self._summaries.get(session_id)
+        if stored is None or stored.status is SummaryStatus.READY:
+            return False
+        stored.give_up()
+        return True
 
     def expire_summary(
         self, session_id: str, limit: timedelta
@@ -258,6 +434,36 @@ class InMemoryStore:
         found = self._users.get(user_id)
         return None if found is None else deepcopy(found)
 
+    def upsert_utterance(self, utterance: Utterance) -> None:
+        key = (utterance.session_id, utterance.stage, utterance.utterance_id)
+        self._utterances[key] = deepcopy(utterance)
+
+    def list_utterances(
+        self, session_id: str, stage: TranscriptStage = TranscriptStage.LIVE
+    ) -> list[Utterance]:
+        found = [
+            u
+            for (sid, st, _), u in self._utterances.items()
+            if sid == session_id and st == stage
+        ]
+        found.sort(
+            key=lambda u: (
+                u.started_at_ms,
+                u.speaker is not Role.INTERVIEWER,
+                u.utterance_id,
+            )
+        )
+        return deepcopy(found)
+
+    def add_suggestion(self, suggestion: Suggestion) -> None:
+        key = (suggestion.session_id, suggestion.suggestion_id)
+        self._suggestions.setdefault(key, deepcopy(suggestion))
+
+    def list_suggestions(self, session_id: str) -> list[Suggestion]:
+        found = [s for (sid, _), s in self._suggestions.items() if sid == session_id]
+        found.sort(key=lambda s: (s.created_at, s.suggestion_id))
+        return deepcopy(found)
+
     def clear(self) -> None:
         """테스트용."""
         self._interviews.clear()
@@ -266,9 +472,13 @@ class InMemoryStore:
         self._contexts.clear()
         self._docs.clear()
         self._resumes.clear()
+        self._texts.clear()
 
         self._summaries.clear()
         self._users.clear()
+
+        self._utterances.clear()
+        self._suggestions.clear()
 
 
 store: Store = InMemoryStore()

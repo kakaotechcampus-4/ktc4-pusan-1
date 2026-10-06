@@ -13,21 +13,28 @@ PostgreSQL 쪽은 `TEST_DATABASE_URL` 이 있을 때만 돈다. CI 와 로컬은
 
 import os
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
 from app.domain.models import (
     Context,
     ContextDoc,
+    DocCategory,
     DocKind,
+    DocStatus,
     Interview,
     Resume,
+    Role,
     Session,
     SessionStatus,
     SessionSummary,
+    Suggestion,
     SummaryStatus,
+    TranscriptStage,
     User,
+    Utterance,
 )
 from app.domain.store import InMemoryStore, Store
 
@@ -94,6 +101,37 @@ def test_unknown_ids_return_none(subject: Store):
     assert subject.get_session("ses_nope") is None
 
 
+def test_list_interviews_is_mine_newest_first_on_last_ended_session(
+    subject: Store,
+):
+    old = Interview(interviewer_id="usr_a", candidate_name="가")
+    new = Interview(interviewer_id="usr_a", created_at=old.created_at + timedelta(1))
+    for interview in (old, new, Interview(interviewer_id="usr_b")):
+        subject.add_interview(interview)
+    at = old.created_at
+    first = Session(interview_id=old.id, status=SessionStatus.ENDED, ended_at=at)
+    last = Session(
+        interview_id=old.id,
+        status=SessionStatus.ENDED,
+        ended_at=at + timedelta(minutes=5),
+    )
+    # 가장 나중에 만들었지만 안 끝났다 — 기준이 아니다.
+    open_ = Session(interview_id=old.id, created_at=at + timedelta(hours=1))
+    for session in (first, last, open_):
+        subject.add_session(session)
+    subject.ensure_summary(SessionSummary(session_id=last.id))
+
+    listed = subject.list_interviews("usr_a")
+
+    assert [(i.id, s, st) for i, s, st in listed][0] == (new.id, None, None)
+    interview, session, status = listed[1]
+    assert (interview.id, interview.candidate_name) == (old.id, "가")
+    assert session is not None
+    assert session.id == last.id
+    assert status is SummaryStatus.PROCESSING
+    assert len(listed) == 2
+
+
 def test_session_roundtrip(subject: Store):
     session = _seed(subject)
 
@@ -138,19 +176,46 @@ def test_end_is_persisted(subject: Store):
     assert found.ended_at == session.ended_at
 
 
-def test_transcript_origin_is_persisted(subject: Store):
-    """Webhook 이 채우는 값이다. 재시작해도 원점이 유지돼야 한다."""
-    session = _seed(subject)
-    origin = session.created_at
+def test_mark_origin_keeps_the_earliest(subject: Store):
+    """원점은 가장 이른 사람 입장이다 (#86). 늦은 값 · 같은 값(재전송)은 무시한다.
 
-    assert session.mark_origin(origin) is True
-    subject.save_session(session)
+    webhook 은 참가자마다 따로 오고 순서가 뒤바뀔 수 있어, 처음 온 값이 아니라
+    가장 이른 값이 남아야 한다.
+    """
+    session = _seed(subject)
+    early = session.created_at
+    late = early + timedelta(seconds=5)
+
+    assert subject.mark_origin(session.id, late) is True
+    assert subject.mark_origin(session.id, early) is True
+    assert subject.mark_origin(session.id, late) is False
+    assert subject.mark_origin(session.id, early) is False
 
     found = subject.get_session(session.id)
     assert found is not None
+    assert found.transcript_origin_at == early
+
+
+def test_save_session_does_not_touch_origin(subject: Store):
+    """원점이 비어 있을 때 읽은 세션을 나중에 저장해도 원점이 지워지면 안 된다.
+
+    시작 요청이 세션을 읽은 사이에 webhook 이 원점을 기록하는 경우다.
+    """
+    stale = _seed(subject)
+    origin = stale.created_at
+    subject.mark_origin(stale.id, origin)
+
+    assert stale.start() is True
+    assert subject.save_session(stale) is True
+
+    found = subject.get_session(stale.id)
+    assert found is not None
+    assert found.status is SessionStatus.INTERVIEWING
     assert found.transcript_origin_at == origin
-    # 두 번째 참가자·재전송이 원점을 밀면 안 된다.
-    assert found.mark_origin(session.created_at) is False
+
+
+def test_mark_origin_on_unknown_session_is_false(subject: Store):
+    assert subject.mark_origin("ses_nope", _seed(subject).created_at) is False
 
 
 def test_conditional_save_rejects_stale_expectation(subject: Store):
@@ -337,6 +402,51 @@ def test_docs_are_scoped_to_their_context(subject: Store):
     assert len(subject.list_docs(yours.id)) == 1
 
 
+def test_new_doc_is_parsing_with_its_category(subject: Store):
+    context = _context(subject)
+    doc = ContextDoc(
+        context_id=context.id,
+        name="jd.pdf",
+        kind=DocKind.PDF,
+        size_bytes=1,
+        category=DocCategory.JD,
+    )
+    subject.add_doc(doc, b"x")
+
+    found = subject.get_doc(context.id, doc.id)
+    assert found is not None
+    assert (found.status, found.category) == (DocStatus.PARSING, DocCategory.JD)
+    assert subject.get_doc_text(context.id, doc.id) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "status"), [("본문", DocStatus.READY), (None, DocStatus.FAILED)]
+)
+def test_finishing_a_doc_stores_text_and_status(subject: Store, text, status):
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"x")
+
+    subject.finish_doc(context.id, doc.id, text)
+
+    found = subject.get_doc(context.id, doc.id)
+    assert found is not None and found.status is status
+    assert subject.get_doc_text(context.id, doc.id) == text
+
+
+def test_finishing_a_deleted_doc_does_nothing(subject: Store):
+    """추출 도중 지운 문서. 결과가 늦게 와도 되살아나면 안 된다."""
+    context = _context(subject)
+    doc = _doc(context.id)
+    subject.add_doc(doc, b"x")
+    subject.delete_doc(context.id, doc.id)
+
+    subject.finish_doc(context.id, doc.id, "본문")
+
+    assert subject.get_doc(context.id, doc.id) is None
+    assert subject.list_docs(context.id) == []
+
+
 def test_deleting_a_doc_reports_whether_it_existed(subject: Store):
     context = _context(subject)
     doc = _doc(context.id)
@@ -374,6 +484,36 @@ def test_resume_is_replaced_not_appended(subject: Store):
     found = subject.get_resume(session.interview_id)
     assert found is not None
     assert found.name == "new.pdf"
+
+
+def test_finishing_a_resume_stores_text(subject: Store):
+    session = _seed(subject)
+    resume = _resume(session.interview_id)
+    subject.save_resume(resume, b"x")
+
+    subject.finish_resume(session.interview_id, resume.id, "경력 3년")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None and found.status is DocStatus.READY
+    assert subject.get_resume_text(session.interview_id) == "경력 3년"
+
+
+def test_late_result_of_a_replaced_resume_is_dropped(subject: Store):
+    """추출 도중 새 이력서가 올라왔다. 옛 결과가 새 이력서 자리에 들어가면 안 된다."""
+    session = _seed(subject)
+    old = _resume(session.interview_id, "old.pdf")
+    subject.save_resume(old, b"old")
+    subject.finish_resume(session.interview_id, old.id, "옛 본문")
+    new = _resume(session.interview_id, "new.pdf")
+    subject.save_resume(new, b"new")
+
+    subject.finish_resume(session.interview_id, old.id, "늦게 온 옛 본문")
+
+    found = subject.get_resume(session.interview_id)
+    assert found is not None
+    assert (found.name, found.status) == ("new.pdf", DocStatus.PARSING)
+    # 다시 올리면 앞 이력서의 본문도 지운다.
+    assert subject.get_resume_text(session.interview_id) is None
 
 
 def test_resume_of_an_interview_without_one_is_none(subject: Store):
@@ -509,6 +649,40 @@ def test_expiring_a_summary_that_does_not_exist(subject: Store):
     session = _seed(subject)
 
     assert subject.expire_summary(session.id, timedelta(minutes=1)) is None
+
+
+def test_a_failure_report_marks_a_waiting_summary_failed(subject: Store):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    assert subject.fail_summary(session.id) is True
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.FAILED
+    assert stored.completed_at is not None
+
+
+def test_a_failure_report_does_not_erase_a_ready_summary(subject: Store):
+    """Agent 의 재시도 · 재실행에서 실패 한 번이 성공한 요약을 지우면 안 된다 (#132)."""
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.complete("살아남아야 하는 요약", ["근거 하나"])
+    subject.save_summary(summary)
+
+    assert subject.fail_summary(session.id) is False
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.READY
+    assert stored.overview == "살아남아야 하는 요약"
+    assert stored.key_points == ["근거 하나"]
+
+
+def test_a_failure_report_without_a_summary_slot(subject: Store):
+    session = _seed(subject)
+
+    assert subject.fail_summary(session.id) is False
 
 
 def test_reading_gives_a_copy_not_the_stored_object(subject: Store):
@@ -671,5 +845,256 @@ def test_upsert_user_keeps_first_id_and_updates_profile(subject: Store):
     assert (found.nickname, found.profile_image_url) == ("바뀜", None)
 
 
+def test_new_user_starts_at_token_version_zero(subject: Store):
+    """access 토큰의 `ver` 가 이 값과 맞아야 한다. 재로그인해도 바뀌지 않는다."""
+    first = subject.upsert_user(User(kakao_id=7, nickname="a"))
+    again = subject.upsert_user(User(kakao_id=7, nickname="b"))
+    found = subject.get_user(first.id)
+
+    assert found is not None
+    assert first.token_version == again.token_version == found.token_version == 0
+
+
 def test_unknown_user_is_none(subject: Store):
     assert subject.get_user("usr_none") is None
+
+
+# ── 전사 (#85) ──────────────────────────────────────────
+
+
+def _utterance(session: Session, utterance_id: str = "utt_001", **overrides: Any):
+    fields: dict[str, Any] = {
+        "session_id": session.id,
+        "utterance_id": utterance_id,
+        "speaker": Role.CANDIDATE,
+        "text": "캐시는 Redis 로 붙였습니다.",
+        "started_at_ms": 15200,
+        "ended_at_ms": 23800,
+    }
+    return Utterance(**(fields | overrides))
+
+
+def test_utterance_roundtrip(subject: Store):
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session))
+
+    assert subject.list_utterances(session.id) == [_utterance(session)]
+
+
+def test_upserting_the_same_utterance_twice_replaces_it(subject: Store):
+    """교정본이 같은 id 로 다시 온다 (#76). 행이 늘지 않고 내용만 바뀐다."""
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, text="캐시는"))
+    subject.upsert_utterance(
+        _utterance(session, text="캐시는 Redis", ended_at_ms=24100)
+    )
+
+    [found] = subject.list_utterances(session.id)
+
+    assert (found.text, found.ended_at_ms) == ("캐시는 Redis", 24100)
+
+
+def test_utterances_come_back_in_speaking_order(subject: Store):
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, "utt_b", started_at_ms=3000))
+    subject.upsert_utterance(_utterance(session, "utt_a", started_at_ms=1000))
+    subject.upsert_utterance(_utterance(session, "utt_c", started_at_ms=2000))
+
+    ids = [u.utterance_id for u in subject.list_utterances(session.id)]
+
+    assert ids == ["utt_a", "utt_c", "utt_b"]
+
+
+def test_at_the_same_ms_the_interviewer_comes_first(subject: Store):
+    """두 사람이 같은 ms 에 말을 시작하면 면접관이 먼저다.
+
+    질문이 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. id 로 자르면 트랙 ID
+    순이 되는데 트랙 ID 는 무작위라 의미가 없다. `seq` 가 페이로드에 없어서
+    (#76 ①) 저장소가 정한다.
+    """
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, "utt_a", started_at_ms=1000))
+    subject.upsert_utterance(
+        _utterance(session, "utt_z", speaker=Role.INTERVIEWER, started_at_ms=1000)
+    )
+
+    ids = [u.utterance_id for u in subject.list_utterances(session.id)]
+
+    assert ids == ["utt_z", "utt_a"]
+
+
+def test_same_speaker_at_the_same_ms_falls_back_to_id(subject: Store):
+    """id 순은 코드포인트 순이다. id 에 트랙 SID 가 들어가 대소문자 · `_` 가 섞이는데,
+    DB 로캘을 따르면 glibc 이미지에서 인메모리와 순서가 갈린다."""
+    session = _seed(subject)
+    for uid in ["utt_TRa_0001", "utt_TR_b_0001", "utt_TR_B_0001"]:
+        subject.upsert_utterance(_utterance(session, uid, started_at_ms=1000))
+
+    ids = [u.utterance_id for u in subject.list_utterances(session.id)]
+
+    assert ids == ["utt_TR_B_0001", "utt_TR_b_0001", "utt_TRa_0001"]
+
+
+def test_a_realigned_utterance_does_not_overwrite_the_live_one(subject: Store):
+    """재전사가 같은 id 를 다시 써도 초벌이 남는다 — 기본키에 stage 가 있다.
+
+    재전사 id 를 새로 낼지 재사용할지는 아직 답이 없다 (#76 A). 어느 쪽이든
+    이 테스트가 통과하도록 키를 잡았다.
+    """
+    session = _seed(subject)
+    subject.upsert_utterance(_utterance(session, text="초벌"))
+    subject.upsert_utterance(
+        _utterance(session, text="재전사", stage=TranscriptStage.REALIGNED)
+    )
+
+    [live] = subject.list_utterances(session.id)
+    [realigned] = subject.list_utterances(session.id, stage=TranscriptStage.REALIGNED)
+
+    assert (live.text, realigned.text) == ("초벌", "재전사")
+
+
+def test_utterances_do_not_leak_between_sessions(subject: Store):
+    one = _seed(subject)
+    two = _seed(subject)
+    subject.upsert_utterance(_utterance(one))
+
+    assert subject.list_utterances(two.id) == []
+
+
+# ── 꼬리질문 (#85) ──────────────────────────────────────
+
+
+def _suggestion(session: Session, suggestion_id: str = "sug_001", **overrides: Any):
+    fields: dict[str, Any] = {
+        "session_id": session.id,
+        "suggestion_id": suggestion_id,
+        "content": "캐시 적중률은 얼마였나요?",
+        "evidence_utterance_ids": ["utt_001", "utt_002"],
+    }
+    return Suggestion(**(fields | overrides))
+
+
+def test_suggestion_roundtrip(subject: Store):
+    session = _seed(subject)
+    suggestion = _suggestion(session)
+    subject.add_suggestion(suggestion)
+
+    assert subject.list_suggestions(session.id) == [suggestion]
+
+
+def test_adding_the_same_suggestion_twice_keeps_the_first(subject: Store):
+    """Agent 가 전송을 재시도해도 한 건이다.
+
+    처음 것을 남긴다 — `status` 와 `created_at` 은 BE 가 매기는 값이라 재시도가
+    덮으면 도착 순서가 흔들린다.
+    """
+    session = _seed(subject)
+    first = _suggestion(session, created_at=datetime(2026, 9, 29, 1, tzinfo=UTC))
+    subject.add_suggestion(first)
+    subject.add_suggestion(
+        _suggestion(session, created_at=datetime(2026, 9, 29, 2, tzinfo=UTC))
+    )
+
+    assert subject.list_suggestions(session.id) == [first]
+
+
+def test_suggestions_come_back_in_the_order_they_arrived(subject: Store):
+    session = _seed(subject)
+    for suggestion_id, hour in [("sug_b", 3), ("sug_a", 1), ("sug_c", 2)]:
+        subject.add_suggestion(
+            _suggestion(
+                session,
+                suggestion_id,
+                created_at=datetime(2026, 9, 29, hour, tzinfo=UTC),
+            )
+        )
+
+    ids = [s.suggestion_id for s in subject.list_suggestions(session.id)]
+
+    assert ids == ["sug_a", "sug_c", "sug_b"]
+
+
+def test_suggestion_evidence_is_a_copy(subject: Store):
+    """돌려받은 근거 목록을 고쳐도 저장된 값은 그대로다."""
+    session = _seed(subject)
+    subject.add_suggestion(_suggestion(session))
+
+    subject.list_suggestions(session.id)[0].evidence_utterance_ids.append("utt_999")
+
+    [found] = subject.list_suggestions(session.id)
+    assert found.evidence_utterance_ids == ["utt_001", "utt_002"]
+
+
+def test_suggestion_evidence_keeps_the_order_it_was_sent(subject: Store):
+    """근거는 위치로 저장된다. 어느 발화를 먼저 들었는지가 Agent 의 판단이다."""
+    session = _seed(subject)
+    order = ["utt_009", "utt_001", "utt_005"]
+    subject.add_suggestion(_suggestion(session, evidence_utterance_ids=order))
+
+    [found] = subject.list_suggestions(session.id)
+    assert found.evidence_utterance_ids == order
+
+
+def test_retried_suggestion_does_not_add_its_evidence_again(subject: Store):
+    """재시도는 꼬리질문만이 아니라 근거도 다시 쌓지 않는다."""
+    session = _seed(subject)
+    subject.add_suggestion(_suggestion(session))
+    subject.add_suggestion(_suggestion(session))
+
+    [found] = subject.list_suggestions(session.id)
+    assert found.evidence_utterance_ids == ["utt_001", "utt_002"]
+
+
+def test_a_suggestion_can_arrive_before_its_evidence(subject: Store):
+    """근거 발화가 아직 없어도 받는다. 전사와 통로가 달라 먼저 올 수 있다.
+
+    잇는 것은 타임라인을 읽을 때다 — 그때는 면접이 끝나 전사가 다 와 있다.
+    """
+    session = _seed(subject)
+    subject.add_suggestion(_suggestion(session))
+
+    assert subject.list_utterances(session.id) == []
+    [found] = subject.list_suggestions(session.id)
+    assert found.evidence_utterance_ids == ["utt_001", "utt_002"]
+
+
+def test_suggestions_do_not_leak_between_sessions(subject: Store):
+    one = _seed(subject)
+    two = _seed(subject)
+    subject.add_suggestion(_suggestion(one))
+
+    assert subject.list_suggestions(two.id) == []
+
+
+def test_deleting_the_interview_takes_its_transcript_and_suggestions():
+    """세션이 지워지면 전사·꼬리질문·근거가 같이 지워진다. **PostgreSQL 전용이다.**
+
+    인메모리에는 삭제 경로가 없고, 이 보장은 외래키의 `ON DELETE CASCADE` 가
+    한다. 면접 전사는 지원자의 말이라, 지울 수 있는 길이 있어야 한다.
+    """
+    if not TEST_DATABASE_URL:
+        pytest.skip("TEST_DATABASE_URL 이 없다")
+
+    from app.infra.postgres import PostgresStore
+
+    subject = PostgresStore(TEST_DATABASE_URL)
+    subject.open()
+    subject.create_schema()
+    try:
+        session = _seed(subject)
+        subject.upsert_utterance(_utterance(session))
+        subject.add_suggestion(_suggestion(session))
+
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            conn.execute("DELETE FROM interview WHERE id = %s", (session.interview_id,))
+
+        assert subject.list_utterances(session.id) == []
+        assert subject.list_suggestions(session.id) == []
+        with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
+            left = conn.execute(
+                "SELECT count(*) FROM suggestion_evidence WHERE session_id = %s",
+                (session.id,),
+            ).fetchone()
+        assert left == (0,)
+    finally:
+        subject.close()

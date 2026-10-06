@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 
 def _interview(client: TestClient) -> str:
-    created = client.post("/api/v1/interviews", json={"interviewerId": "user_123"})
+    created = client.post("/api/v1/interviews", json={})
     return created.json()["interviewId"]
 
 

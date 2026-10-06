@@ -8,7 +8,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.models import DocKind, DocStatus, Role, SessionStatus, SummaryStatus
+from app.domain.models import (
+    DocCategory,
+    DocKind,
+    DocStatus,
+    Role,
+    SessionStatus,
+    SummaryStatus,
+)
 
 
 class Schema(BaseModel):
@@ -19,9 +26,8 @@ class Schema(BaseModel):
 
 
 class CreateInterviewRequest(Schema):
-    interviewer_id: str = Field(
-        alias="interviewerId", min_length=1, max_length=64, examples=["user_123"]
-    )
+    # 면접의 주인은 토큰의 사용자다 (#130). 예전 FE 가 `interviewerId` 를 보내도
+    # 스키마가 모르는 필드라 조용히 무시된다.
     candidate_name: str | None = Field(
         default=None,
         alias="candidateName",
@@ -36,6 +42,40 @@ class InterviewResponse(Schema):
     interviewer_id: str = Field(serialization_alias="interviewerId")
     candidate_name: str | None = Field(serialization_alias="candidateName")
     created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class InterviewerSummary(Schema):
+    nickname: str
+
+
+class InterviewListItem(Schema):
+    """`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다 (#137 1-1).
+
+    기준은 그 면접의 마지막으로 끝난 세션이다. 끝난 세션이 없으면 그 세션에서 오는
+    값(`interviewedAt` · `durationSec` · `summaryStatus`)은 null 이다.
+    """
+
+    interview_id: str = Field(serialization_alias="interviewId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
+    role: str = Field(description="컨텍스트의 직무. 아직 안 정했으면 빈 문자열.")
+    interviewer: InterviewerSummary
+    interviewed_at: datetime | None = Field(
+        serialization_alias="interviewedAt",
+        description="「면접 시작」 시각. 비어 있으면 첫 입장 시각.",
+    )
+    duration_sec: int | None = Field(serialization_alias="durationSec")
+    review_status: Literal["PENDING"] = Field(
+        serialization_alias="reviewStatus",
+        description="검토 기능이 아직 없어 늘 PENDING 이다.",
+    )
+    summary_status: SummaryStatus | None = Field(serialization_alias="summaryStatus")
+    counts: None = Field(
+        description="검토 항목 집계. 만들기 전까지 null 이다 (#137 도 READY 전엔 null)."
+    )
+
+
+class InterviewListResponse(Schema):
+    items: list[InterviewListItem]
 
 
 # ── 세션 ────────────────────────────────────────────────
@@ -93,8 +133,9 @@ class JoinRequest(Schema):
     role: Role = Field(
         default=Role.CANDIDATE,
         description=(
-            "현재 로그인·인증 제외 기준이라 요청값으로 받는다. "
-            "인증 도입 후에는 서버가 참가자 역할을 판단한다."
+            "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 "
+            "사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 "
+            "`ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다."
         ),
     )
 
@@ -226,7 +267,16 @@ class ContextDocResponse(Schema):
     name: str
     kind: DocKind
     size_bytes: int = Field(serialization_alias="sizeBytes")
-    status: DocStatus
+    status: DocStatus = Field(
+        description=(
+            "올라온 직후는 parsing 이다. 본문을 뽑으면 ready, 못 뽑으면 failed. "
+            "parsing 인 동안 다시 조회한다."
+        )
+    )
+    category: DocCategory | None = Field(
+        default=None,
+        description="기업 컨텍스트 문서의 칸(jd · internal). 이력서는 null.",
+    )
 
 
 class ContextResponse(Schema):
