@@ -81,6 +81,11 @@ _WS_SCHEMES = {"http": "ws", "https": "wss", "ws": "ws", "wss": "wss"}
 # is how long the reconnect behind it has to wait.
 CLOSE_TIMEOUT_SECONDS = 1.0
 
+# Backend treats 1000 as the end of transcript delivery (#164). Replacing
+# a connection must not advertise completion, even during session shutdown.
+CLOSE_COMPLETE = 1000
+CLOSE_RECONNECT = 4001
+
 # How long one frame may spend reaching the transport. ``send_str`` is not the
 # step it looks like: aiohttp pauses its writer while the transport's buffer is
 # over the high-water mark, which is what a Backend that has stopped reading
@@ -364,7 +369,7 @@ class TranscriptChannel:
                 self.unacknowledged,
             )
 
-        await self._drop_connection()
+        await self._drop_connection(code=CLOSE_COMPLETE)
 
         # Sockets a cancelled drop handed off rather than abandon. Each is
         # already bounded by ``CLOSE_TIMEOUT_SECONDS``, so this waits for the
@@ -687,12 +692,12 @@ class TranscriptChannel:
         except BackendError as failure:
             logger.warning("Transcript buffer still undelivered: %s", failure.code)
 
-    async def _drop_connection(self) -> None:
+    async def _drop_connection(self, *, code: int = CLOSE_RECONNECT) -> None:
         """Forget the current socket and reader, and unmark what it carried."""
 
         async with self._lock:
             ws, reader = self._detach()
-        await self._discard(ws, reader)
+        await self._discard(ws, reader, code=code)
 
     def _detach(
         self,
@@ -715,6 +720,8 @@ class TranscriptChannel:
         self,
         ws: aiohttp.ClientWebSocketResponse | None,
         reader: asyncio.Task[None] | None,
+        *,
+        code: int = CLOSE_RECONNECT,
     ) -> None:
         """Wait out a detached connection: stop its reader, close its socket."""
 
@@ -729,35 +736,39 @@ class TranscriptChannel:
                 await asyncio.wait({reader})
 
             if ws is not None:
-                await self._close_socket(ws)
+                await self._close_socket(ws, code=code)
         except BaseException:
             # A cancel aimed at the caller travels on untouched - but ``_detach``
             # took this socket out of ``_ws`` before the cancel landed, so there
             # is nothing left that would ever close it. It finishes closing on a
             # task of its own rather than staying open until the session does.
             if ws is not None and not ws.closed:
-                self._abandon_socket(ws)
+                self._abandon_socket(ws, code=code)
             raise
 
-    def _abandon_socket(self, ws: aiohttp.ClientWebSocketResponse) -> None:
+    def _abandon_socket(
+        self, ws: aiohttp.ClientWebSocketResponse, *, code: int = CLOSE_RECONNECT
+    ) -> None:
         """Close a socket nobody is left to wait for, on a task of its own.
 
         The handle is kept because the loop only holds a weak reference to a
         running task, and :meth:`aclose` waits for whatever is still here.
         """
 
-        closer = asyncio.create_task(self._close_socket(ws))
+        closer = asyncio.create_task(self._close_socket(ws, code=code))
         self._abandoned.add(closer)
         closer.add_done_callback(self._abandoned.discard)
 
-    async def _close_socket(self, ws: aiohttp.ClientWebSocketResponse) -> None:
+    async def _close_socket(
+        self, ws: aiohttp.ClientWebSocketResponse, *, code: int = CLOSE_RECONNECT
+    ) -> None:
         """Close one socket, bounded, and without anything to say if it fails."""
 
         with contextlib.suppress(TimeoutError, aiohttp.ClientError, OSError):
             # Belt and braces with ``ClientWSTimeout.ws_close``: that bound is
             # aiohttp's own and the version it lives in is a dependency range,
             # while this one is enforced here.
-            await asyncio.wait_for(ws.close(), CLOSE_TIMEOUT_SECONDS)
+            await asyncio.wait_for(ws.close(code=code), CLOSE_TIMEOUT_SECONDS)
 
     def _usable(self) -> bool:
         """Whether a frame written now would actually be carried.
