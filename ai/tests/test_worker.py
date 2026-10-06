@@ -9,9 +9,14 @@ import pytest
 
 from irya_ai import worker
 from irya_ai.config import Settings
+from irya_ai.openai_suggestions import OpenAISuggestionGenerator
+from irya_ai.sinks import FanOutSink
 from irya_ai.stt.elice import EliceSttClient, SttError
-from irya_ai.stt.rtc_bridge import RoomTranscriber
-from irya_ai.worker import transcribe_room
+from irya_ai.stt.rtc_bridge import LiveKitTextSink, RoomTranscriber
+from irya_ai.suggestion_runner import SuggestionRunner
+from irya_ai.suggestions import ExtractiveSuggestionGenerator
+from irya_ai.transcript_runner import TranscriptRunner
+from irya_ai.worker import build_suggestion_generator, transcribe_room
 
 
 @pytest.fixture(autouse=True)
@@ -93,12 +98,29 @@ async def test_an_unconfigured_stt_leaves_the_room_rather_than_hearing_nothing(
     }
 
 
+def settings_for(**overrides) -> Settings:
+    return Settings(_env_file=None, **overrides)
+
+
+def captured_transcribers(monkeypatch) -> list[RoomTranscriber]:
+    built: list[RoomTranscriber] = []
+    original = worker.RoomTranscriber
+
+    def capture(**kwargs) -> RoomTranscriber:
+        built.append(original(**kwargs))
+        return built[-1]
+
+    monkeypatch.setattr(worker, "RoomTranscriber", capture)
+    return built
+
+
 async def test_a_room_job_wires_one_transcriber_and_connects_audio_only(
     monkeypatch,
 ) -> None:
     ctx = FakeJobContext("interview_ses_123")
     client = probe_client()
     monkeypatch.setattr(worker, "build_client", lambda settings: client)
+    monkeypatch.setattr(worker, "get_settings", settings_for)
     built: list[RoomTranscriber] = []
     original = worker.RoomTranscriber
 
@@ -121,6 +143,107 @@ async def test_a_room_job_wires_one_transcriber_and_connects_audio_only(
     for callback in ctx.shutdown_callbacks:
         await callback()
     await asyncio.sleep(0)
+
+
+async def test_without_a_backend_the_caption_is_the_only_consumer(
+    monkeypatch,
+) -> None:
+    ctx = FakeJobContext("interview_ses_123")
+    monkeypatch.setattr(worker, "build_client", lambda settings: probe_client())
+    monkeypatch.setattr(
+        worker, "get_settings", lambda: settings_for(backend_base_url="")
+    )
+    built = captured_transcribers(monkeypatch)
+
+    await transcribe_room(ctx)  # type: ignore[arg-type]
+
+    assert ctx.shutdown_reasons == []
+    (fan_out,) = built[0].sinks
+    assert isinstance(fan_out, FanOutSink)
+    assert fan_out.sinks == [built[0].caption]
+    assert len(ctx.shutdown_callbacks) == 2, "nothing extra to take down"
+
+
+async def test_with_a_backend_both_runners_join_one_fan_out_and_stop_with_the_job(
+    monkeypatch,
+) -> None:
+    ctx = FakeJobContext("interview_ses_123")
+    monkeypatch.setattr(worker, "build_client", lambda settings: probe_client())
+    monkeypatch.setattr(
+        worker,
+        "get_settings",
+        lambda: settings_for(backend_base_url="https://backend.invalid"),
+    )
+    built = captured_transcribers(monkeypatch)
+
+    await transcribe_room(ctx)  # type: ignore[arg-type]
+
+    (fan_out,) = built[0].sinks
+    assert isinstance(fan_out, FanOutSink)
+    # One list of three. A second list built after the first would silently
+    # drop whichever consumer was wired earlier (#120 review).
+    caption, transcripts, runner = fan_out.sinks
+    assert isinstance(caption, LiveKitTextSink), "the interviewer sees words first"
+    assert isinstance(transcripts, TranscriptRunner), "stored before reasoned about"
+    assert isinstance(runner, SuggestionRunner)
+    assert runner.session_id == "ses_123"
+    assert runner.running, "started once the room is connected"
+    assert isinstance(runner.agent.generator, ExtractiveSuggestionGenerator), (
+        "no LLM configured: the baseline, not nothing"
+    )
+
+    # STT client, the transcript sender, the suggestion loop, the warm-up:
+    # all go when the job does.
+    assert len(ctx.shutdown_callbacks) == 4
+    for callback in ctx.shutdown_callbacks:
+        await callback()
+    assert not runner.running
+
+
+@pytest.mark.parametrize("backend", ["", "https://backend.invalid"])
+@pytest.mark.parametrize("llm", ["", "https://llm.invalid"])
+async def test_the_worker_starts_in_every_backend_and_llm_combination(
+    monkeypatch, backend: str, llm: str
+) -> None:
+    """Missing wiring narrows what the worker does; it never keeps it out."""
+
+    ctx = FakeJobContext("interview_ses_123")
+    monkeypatch.setattr(worker, "build_client", lambda settings: probe_client())
+    monkeypatch.setattr(
+        worker,
+        "get_settings",
+        lambda: settings_for(
+            backend_base_url=backend,
+            llm_base_url=llm,
+            llm_api_key="test-key" if llm else "",
+        ),
+    )
+    captured_transcribers(monkeypatch)
+
+    await transcribe_room(ctx)  # type: ignore[arg-type]
+
+    assert ctx.shutdown_reasons == []
+    assert len(ctx.connected_with) == 1
+    for callback in ctx.shutdown_callbacks:
+        await callback()
+
+
+def test_the_project_llm_is_used_only_when_both_its_values_are_set() -> None:
+    generator, client = build_suggestion_generator(
+        settings_for(llm_base_url="https://llm.invalid", llm_api_key="test-key")
+    )
+    assert isinstance(generator, OpenAISuggestionGenerator)
+    assert client is not None
+    assert generator.model == settings_for().llm_model
+    asyncio.run(client.close())
+
+    for partial in (
+        settings_for(llm_base_url="https://llm.invalid", llm_api_key=""),
+        settings_for(llm_base_url="", llm_api_key="test-key"),
+    ):
+        generator, client = build_suggestion_generator(partial)
+        assert isinstance(generator, ExtractiveSuggestionGenerator)
+        assert client is None
 
 
 def test_room_entrypoint_can_cross_the_worker_process_boundary() -> None:
