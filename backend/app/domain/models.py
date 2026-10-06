@@ -127,6 +127,19 @@ class Interview:
     #: `CONFIRMED` 가 된 시각. 다른 상태로 돌아가면 비운다.
     reviewed_at: datetime | None = None
 
+    def update_review(self, status: ReviewStatus | None, memo: str | None) -> None:
+        """면접관의 검토를 받는다. None 은 「보내지 않음」이라 그대로 둔다.
+
+        확정 시각은 상태가 **바뀔 때만** 움직인다 — 메모를 저장하며 같은 상태가
+        실려 와도 처음 확정한 시각이 밀리지 않는다.
+        """
+        if memo is not None:
+            self.memo = memo
+        if status is None or status is self.review_status:
+            return
+        self.review_status = status
+        self.reviewed_at = utcnow() if status is ReviewStatus.CONFIRMED else None
+
 
 @dataclass
 class Session:

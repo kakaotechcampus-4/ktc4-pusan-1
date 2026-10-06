@@ -15,6 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
@@ -241,3 +242,102 @@ def test_the_ready_shape_is_published(client: TestClient):
     schemas = client.get("/openapi.json").json()["components"]["schemas"]
 
     assert {"ReviewResponse", "ReviewProcessingResponse"} <= set(schemas)
+
+
+# ── 검토 상태 · 메모 (#137 1-3) ─────────────────────────
+
+
+def patch(client: TestClient, interview_id: str, body: dict[str, Any]):
+    return client.patch(f"{V1}/interviews/{interview_id}", json=body)
+
+
+def test_confirming_stamps_the_time(client: TestClient):
+    interview_id = _interview(client)
+
+    response = patch(
+        client, interview_id, {"reviewStatus": "CONFIRMED", "memo": "확인"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"reviewStatus", "reviewedAt", "memo"}
+    assert (body["reviewStatus"], body["memo"]) == ("CONFIRMED", "확인")
+    assert body["reviewedAt"] is not None
+
+
+def test_the_review_survives_a_reload(client: TestClient, store: InMemoryStore):
+    interview_id = _interview(client)
+    patch(client, interview_id, {"reviewStatus": "IN_REVIEW", "memo": "다시 볼 것"})
+
+    stored = store.get_interview(interview_id)
+
+    assert stored is not None
+    assert (stored.review_status.value, stored.memo) == ("IN_REVIEW", "다시 볼 것")
+
+
+def test_confirming_again_keeps_the_first_time(client: TestClient):
+    """메모를 저장할 때 상태가 같이 실려 와도 확정 시각이 밀리지 않는다."""
+    interview_id = _interview(client)
+    first = patch(client, interview_id, {"reviewStatus": "CONFIRMED"}).json()
+
+    again = patch(client, interview_id, {"reviewStatus": "CONFIRMED", "memo": "덧붙임"})
+
+    assert again.json()["reviewedAt"] == first["reviewedAt"]
+
+
+def test_a_memo_alone_leaves_the_status(client: TestClient):
+    interview_id = _interview(client)
+    confirmed = patch(client, interview_id, {"reviewStatus": "CONFIRMED"}).json()
+
+    body = patch(client, interview_id, {"memo": "메모만"}).json()
+
+    assert (body["reviewStatus"], body["reviewedAt"]) == (
+        "CONFIRMED",
+        confirmed["reviewedAt"],
+    )
+
+
+def test_leaving_confirmed_clears_the_time(client: TestClient):
+    interview_id = _interview(client)
+    patch(client, interview_id, {"reviewStatus": "CONFIRMED"})
+
+    body = patch(client, interview_id, {"reviewStatus": "IN_REVIEW"}).json()
+
+    assert (body["reviewStatus"], body["reviewedAt"]) == ("IN_REVIEW", None)
+
+
+def test_null_means_unchanged_and_empty_clears(client: TestClient):
+    interview_id = _interview(client)
+    patch(client, interview_id, {"memo": "남길 것"})
+
+    kept = patch(client, interview_id, {"memo": None}).json()
+    cleared = patch(client, interview_id, {"memo": ""}).json()
+
+    assert (kept["memo"], cleared["memo"]) == ("남길 것", "")
+
+
+def test_an_empty_patch_changes_nothing(client: TestClient):
+    interview_id = _interview(client)
+
+    body = patch(client, interview_id, {}).json()
+
+    assert body == {"reviewStatus": "PENDING", "reviewedAt": None, "memo": ""}
+
+
+def test_review_can_change_before_any_analysis(client: TestClient):
+    """AI 결과가 없어도(세션도 없어도) 검토 상태 · 메모는 바뀐다."""
+    interview_id = _interview(client)
+
+    assert patch(client, interview_id, {"reviewStatus": "IN_REVIEW"}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"reviewStatus": "DONE"},
+        {"memo": "가" * 4001},
+        {"memo": "NUL\x00"},
+    ],
+)
+def test_unstorable_review_input_is_refused(client: TestClient, body: dict[str, Any]):
+    assert patch(client, _interview(client), body).status_code == 422

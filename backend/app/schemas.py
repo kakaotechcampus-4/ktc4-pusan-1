@@ -247,6 +247,26 @@ class ReviewResponse(Schema):
     findings: list[ReviewFinding]
 
 
+class ReviewUpdateRequest(Schema):
+    """`PATCH /interviews/{interviewId}` — 검토 상태 · 메모 (#137 1-3). 둘 다 선택이다.
+
+    null 은 보내지 않은 것과 같다. 메모를 비우려면 빈 문자열을 보낸다. 길이와 NUL 은
+    경계에서 막는다 — PostgreSQL TEXT 는 NUL 을 못 넣어 500 이 된다.
+    """
+
+    review_status: ReviewStatus | None = Field(default=None, alias="reviewStatus")
+    memo: str | None = Field(default=None, max_length=4000, pattern=r"^[^\x00]*$")
+
+
+class ReviewUpdateResponse(Schema):
+    review_status: ReviewStatus = Field(serialization_alias="reviewStatus")
+    reviewed_at: datetime | None = Field(
+        serialization_alias="reviewedAt",
+        description="CONFIRMED 가 된 시각. 다른 상태로 돌아가면 null.",
+    )
+    memo: str
+
+
 class ReviewProcessingResponse(Schema):
     """녹화 변환과 AI 평가가 아직 끝나지 않은 상태. 202 로 나간다."""
 

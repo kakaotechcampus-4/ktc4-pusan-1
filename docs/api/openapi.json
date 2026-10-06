@@ -967,6 +967,67 @@
         "title": "ReviewStatus",
         "type": "string"
       },
+      "ReviewUpdateRequest": {
+        "description": "`PATCH /interviews/{interviewId}` — 검토 상태 · 메모 (#137 1-3). 둘 다 선택이다.\n\nnull 은 보내지 않은 것과 같다. 메모를 비우려면 빈 문자열을 보낸다. 길이와 NUL 은\n경계에서 막는다 — PostgreSQL TEXT 는 NUL 을 못 넣어 500 이 된다.",
+        "properties": {
+          "memo": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "pattern": "^[^\\x00]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memo"
+          },
+          "reviewStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ReviewUpdateRequest",
+        "type": "object"
+      },
+      "ReviewUpdateResponse": {
+        "properties": {
+          "memo": {
+            "title": "Memo",
+            "type": "string"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CONFIRMED 가 된 시각. 다른 상태로 돌아가면 null.",
+            "title": "Reviewedat"
+          }
+        },
+        "required": [
+          "reviewStatus",
+          "reviewedAt",
+          "memo"
+        ],
+        "title": "ReviewUpdateResponse",
+        "type": "object"
+      },
       "Role": {
         "description": "입장 권한. 명세의 Request Body 예시가 `\"role\": \"CANDIDATE\"` 다.",
         "enum": [
@@ -1970,6 +2031,87 @@
           }
         },
         "summary": "면접 조회",
+        "tags": [
+          "면접"
+        ]
+      },
+      "patch": {
+        "description": "검토 상태와 메모를 바꾼다. 보낸 것만 바뀐다 (#137 1-3).\n\n`CONFIRMED` 가 될 때 `reviewedAt` 을 찍고 다른 상태로 돌아가면 비운다. AI 결과가\n없어도 된다 — 검토는 면접 단위다.",
+        "operationId": "update_review_api_v1_interviews__interviewId__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "검토 상태 · 메모 수정",
         "tags": [
           "면접"
         ]

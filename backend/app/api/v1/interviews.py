@@ -45,6 +45,8 @@ from app.schemas import (
     ReviewMoment,
     ReviewProcessingResponse,
     ReviewResponse,
+    ReviewUpdateRequest,
+    ReviewUpdateResponse,
     SummaryContent,
 )
 from app.services.review import build_review
@@ -198,6 +200,31 @@ def _to_list_item(
 def get_interview(interview: OwnedInterviewDep) -> InterviewResponse:
     """생성된 면접의 기본 정보를 조회한다."""
     return _to_response(interview)
+
+
+@router.patch(
+    "/{interviewId}",
+    response_model=ReviewUpdateResponse,
+    summary="검토 상태 · 메모 수정",
+    responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
+)
+def update_review(
+    body: ReviewUpdateRequest, interview: OwnedInterviewDep, store: StoreDep
+) -> ReviewUpdateResponse:
+    """검토 상태와 메모를 바꾼다. 보낸 것만 바뀐다 (#137 1-3).
+
+    `CONFIRMED` 가 될 때 `reviewedAt` 을 찍고 다른 상태로 돌아가면 비운다. AI 결과가
+    없어도 된다 — 검토는 면접 단위다.
+    """
+    # ponytail: 읽고 고쳐 쓴다. 같은 면접관이 두 탭에서 동시에 고치면 나중 것이
+    #   이긴다. 면접관이 여럿이 되면 조건부 UPDATE 로 옮긴다.
+    interview.update_review(body.review_status, body.memo)
+    store.save_interview(interview)
+    return ReviewUpdateResponse(
+        review_status=interview.review_status,
+        reviewed_at=interview.reviewed_at,
+        memo=interview.memo,
+    )
 
 
 @router.post(

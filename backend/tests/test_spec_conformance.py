@@ -46,6 +46,13 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
         "statuses": {"200", "401", "404"},
     },
+    # ⚠️ Notion 명세에 없다. 모양은 #137 1-3 이다.
+    ("patch", "/api/v1/interviews/{interviewId}"): {
+        "path_params": ["interviewId"],
+        "request": {"reviewStatus", "memo"},
+        "response": {"reviewStatus", "reviewedAt", "memo"},
+        "statuses": {"200", "401", "404"},
+    },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-2 이고, 녹화 대신 sessionId 를 싣는다
     # (#163). 준비 전에는 202 { status, etaSec } 다.
     ("get", "/api/v1/interviews/{interviewId}/review"): {
