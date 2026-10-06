@@ -1,9 +1,20 @@
 """면접 · 세션 생성 — 명세 `면접` 카테고리."""
 
+from datetime import timedelta
+
 from fastapi.testclient import TestClient
 
-from app.domain.models import User
+from app.core.config import settings
+from app.domain.models import (
+    FindingState,
+    ReviewMark,
+    ReviewStatus,
+    SummaryStatus,
+    User,
+)
+from app.domain.store import InMemoryStore
 from tests.conftest import FakeMedia
+from tests.test_reviews import DEMO, _analysed, _prepared
 
 
 def test_create_interview(client: TestClient, owner: User):
@@ -159,3 +170,63 @@ def test_list_is_mine_newest_first_on_last_ended_session(
 
 def test_list_is_empty_for_a_new_interviewer(client: TestClient):
     assert client.get("/api/v1/interviews").json() == {"items": []}
+
+
+# ── 검토 상태와 집계 (#163) ──────────────────────────────
+
+
+def _ended(client: TestClient, interview_id: str) -> str:
+    session_id = client.post(f"/api/v1/interviews/{interview_id}/sessions").json()[
+        "sessionId"
+    ]
+    client.post(f"/api/v1/sessions/{session_id}/start")
+    client.post(f"/api/v1/sessions/{session_id}/end")
+    return session_id
+
+
+def test_a_ready_row_counts_like_the_detail(client: TestClient, store: InMemoryStore):
+    """목록과 상세가 같은 계산을 쓴다 — 숫자가 어긋나지 않는다 (#137 1-1)."""
+    interview_id = client.post("/api/v1/interviews", json={}).json()["interviewId"]
+    session_id = _ended(client, interview_id)
+    _prepared(store, interview_id)
+    _analysed(store, session_id)
+    store.save_mark(
+        ReviewMark(
+            session_id,
+            DEMO["review"]["findings"][0]["findingId"],
+            state=FindingState.ADOPTED,
+        )
+    )
+    interview = store.get_interview(interview_id)
+    assert interview is not None
+    interview.review_status = ReviewStatus.IN_REVIEW
+    store.save_interview(interview)
+
+    [item] = client.get("/api/v1/interviews").json()["items"]
+
+    assert (item["summaryStatus"], item["reviewStatus"]) == ("READY", "IN_REVIEW")
+    assert item["counts"] == {
+        "coverageConfirmed": 1,
+        "coverageTotal": 4,
+        "findings": 5,
+        "needsReview": 4,
+        "adopted": 1,
+    }
+
+
+def test_a_summary_past_its_limit_shows_failed_without_counts(
+    client: TestClient, store: InMemoryStore
+):
+    """아무도 요약 화면을 열지 않아도 목록에서 영원히 「처리 중」이지 않다. 보여 줄
+    뿐 쓰지 않는다 — 판정과 저장은 요약 · 상세 조회가 한다."""
+    interview_id = client.post("/api/v1/interviews", json={}).json()["interviewId"]
+    session_id = _ended(client, interview_id)
+    stored = store._summaries[session_id]  # pyright: ignore[reportPrivateUsage]
+    stored.requested_at -= settings.summary_timeout + timedelta(seconds=1)
+
+    [item] = client.get("/api/v1/interviews").json()["items"]
+
+    assert (item["summaryStatus"], item["counts"]) == ("FAILED", None)
+    stored_after = store.get_summary(session_id)
+    assert stored_after is not None
+    assert stored_after.status is SummaryStatus.PROCESSING

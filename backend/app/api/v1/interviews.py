@@ -29,6 +29,7 @@ from app.domain.models import (
     SessionSummary,
     SummaryStatus,
 )
+from app.domain.store import Store
 from app.schemas import (
     ContextDocResponse,
     CreateInterviewRequest,
@@ -38,6 +39,7 @@ from app.schemas import (
     InterviewListResponse,
     InterviewResponse,
     ReviewCandidate,
+    ReviewCounts,
     ReviewCoverage,
     ReviewFinding,
     ReviewMoment,
@@ -109,12 +111,46 @@ def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListRespo
     # cursor 를 붙인다.
     role = store.ensure_context(Context(owner_id=user.id)).role
     interviewer = InterviewerSummary(nickname=user.nickname)
-    return InterviewListResponse(
-        items=[
-            _to_list_item(interview, session, summary, role, interviewer)
-            for interview, session, summary in store.list_interviews(user.id)
-        ]
-    )
+    items = []
+    for interview, session, summary in store.list_interviews(user.id):
+        shown, counts = (
+            (summary, None)
+            if session is None
+            else _shown_summary(store, interview, session, summary)
+        )
+        items.append(
+            _to_list_item(interview, session, shown, counts, role, interviewer)
+        )
+    return InterviewListResponse(items=items)
+
+
+def _shown_summary(
+    store: Store, interview: Interview, session: Session, status: SummaryStatus | None
+) -> tuple[SummaryStatus | None, ReviewCounts | None]:
+    """보여 줄 요약 상태와 집계. 집계는 READY 일 때만, 상세와 같은 계산으로.
+
+    한도를 넘긴 PROCESSING 은 FAILED 로 **보여 줄 뿐** 쓰지 않는다 — 문서의
+    `shown_status` 와 같다. 판정과 저장은 요약 · 상세 조회가 한다.
+    """
+    # ponytail: READY 한 줄마다 쿼리 3개(N+1). 수백 건이면 LATERAL 로 한 번에 읽는다.
+    if status is not SummaryStatus.PROCESSING and status is not SummaryStatus.READY:
+        return status, None
+    summary = store.get_summary(session.id)
+    if summary is None:
+        return status, None
+    if summary.overdue(settings.summary_timeout):
+        return SummaryStatus.FAILED, None
+    if summary.status is not SummaryStatus.READY:
+        return summary.status, None
+    prep = store.get_prep(interview.id) or InterviewPrep(interview_id=interview.id)
+    counts = build_review(
+        prep.competencies,
+        prep.resume_claims,
+        summary.moments,
+        summary.findings,
+        store.list_marks(session.id),
+    ).counts()
+    return summary.status, ReviewCounts.model_validate(counts)
 
 
 def _timing(session: Session | None) -> tuple[datetime | None, int | None]:
@@ -135,6 +171,7 @@ def _to_list_item(
     interview: Interview,
     session: Session | None,
     summary: SummaryStatus | None,
+    counts: ReviewCounts | None,
     role: str,
     interviewer: InterviewerSummary,
 ) -> InterviewListItem:
@@ -146,9 +183,9 @@ def _to_list_item(
         interviewer=interviewer,
         interviewed_at=began,
         duration_sec=duration,
-        review_status="PENDING",
+        review_status=interview.review_status,
         summary_status=summary,
-        counts=None,
+        counts=counts,
     )
 
 

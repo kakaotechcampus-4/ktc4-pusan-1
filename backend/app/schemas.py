@@ -66,14 +66,26 @@ class InterviewListItem(Schema):
         description="「면접 시작」 시각. 비어 있으면 첫 입장 시각.",
     )
     duration_sec: int | None = Field(serialization_alias="durationSec")
-    review_status: Literal["PENDING"] = Field(
-        serialization_alias="reviewStatus",
-        description="검토 기능이 아직 없어 늘 PENDING 이다.",
+    review_status: ReviewStatus = Field(serialization_alias="reviewStatus")
+    summary_status: SummaryStatus | None = Field(
+        serialization_alias="summaryStatus",
+        description="한도를 넘긴 PROCESSING 은 FAILED 로 보인다(저장값은 그대로).",
     )
-    summary_status: SummaryStatus | None = Field(serialization_alias="summaryStatus")
-    counts: None = Field(
-        description="검토 항목 집계. 만들기 전까지 null 이다 (#137 도 READY 전엔 null)."
+    counts: "ReviewCounts | None" = Field(
+        description="검토 항목 집계. 요약이 READY 가 아니면 null 이다 (#137 1-1)."
     )
+
+
+class ReviewCounts(Schema):
+    """목록 한 줄의 집계. 상세와 같은 계산(`app/services/review.py`)에서 나온다."""
+
+    coverage_confirmed: int = Field(alias="coverageConfirmed")
+    coverage_total: int = Field(alias="coverageTotal")
+    findings: int
+    needs_review: int = Field(
+        alias="needsReview", description="아직 채택도 반려도 안 한 검토 항목"
+    )
+    adopted: int
 
 
 class InterviewListResponse(Schema):

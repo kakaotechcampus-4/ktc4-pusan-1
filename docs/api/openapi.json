@@ -343,9 +343,15 @@
             "title": "Candidatename"
           },
           "counts": {
-            "description": "검토 항목 집계. 만들기 전까지 null 이다 (#137 도 READY 전엔 null).",
-            "title": "Counts",
-            "type": "null"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewCounts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "검토 항목 집계. 요약이 READY 가 아니면 null 이다 (#137 1-1)."
           },
           "durationSec": {
             "anyOf": [
@@ -379,10 +385,7 @@
             "$ref": "#/components/schemas/InterviewerSummary"
           },
           "reviewStatus": {
-            "const": "PENDING",
-            "description": "검토 기능이 아직 없어 늘 PENDING 이다.",
-            "title": "Reviewstatus",
-            "type": "string"
+            "$ref": "#/components/schemas/ReviewStatus"
           },
           "role": {
             "description": "컨텍스트의 직무. 아직 안 정했으면 빈 문자열.",
@@ -397,7 +400,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "한도를 넘긴 PROCESSING 은 FAILED 로 보인다(저장값은 그대로)."
           }
         },
         "required": [
@@ -592,6 +596,41 @@
           "role"
         ],
         "title": "ReviewCandidate",
+        "type": "object"
+      },
+      "ReviewCounts": {
+        "description": "목록 한 줄의 집계. 상세와 같은 계산(`app/services/review.py`)에서 나온다.",
+        "properties": {
+          "adopted": {
+            "title": "Adopted",
+            "type": "integer"
+          },
+          "coverageConfirmed": {
+            "title": "Coverageconfirmed",
+            "type": "integer"
+          },
+          "coverageTotal": {
+            "title": "Coveragetotal",
+            "type": "integer"
+          },
+          "findings": {
+            "title": "Findings",
+            "type": "integer"
+          },
+          "needsReview": {
+            "description": "아직 채택도 반려도 안 한 검토 항목",
+            "title": "Needsreview",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "coverageConfirmed",
+          "coverageTotal",
+          "findings",
+          "needsReview",
+          "adopted"
+        ],
+        "title": "ReviewCounts",
         "type": "object"
       },
       "ReviewCoverage": {
