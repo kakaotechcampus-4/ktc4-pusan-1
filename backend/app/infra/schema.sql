@@ -121,6 +121,24 @@ CREATE TABLE IF NOT EXISTS session_summary (
     completed_at TIMESTAMPTZ
 );
 
+-- 면접 전 분석 (#162) — JD 의 역량과 이력서의 주장. 면접 하나에 하나라 interview_id
+-- 가 그대로 PK 다. 세션을 만들 때 PROCESSING 으로 열고(FAILED 면 다시), 이력서를 다시
+-- 올리면 비우고 다시 연다. AI 폴러가 `PUT /internal/v1/interviews/{id}/prep` 로 써 넣으면 READY 다.
+--
+-- 역량 · 주장은 AI 의 Competency · ResumeClaim 을 camelCase JSON 그대로 둔다. BE 는
+-- id 로 조인만 한다. requested_at 은 결과가 어느 요청의 것인지 가리는 값이라, 다시
+-- 열 때마다 바뀐다 — 그 사이 늦게 온 옛 결과를 거절한다.
+CREATE TABLE IF NOT EXISTS interview_prep (
+    interview_id   TEXT        PRIMARY KEY REFERENCES interview (id) ON DELETE CASCADE,
+    -- SummaryStatus. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+    status         TEXT        NOT NULL,
+    competencies   JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    resume_claims  JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    model          TEXT        NOT NULL DEFAULT '',
+    requested_at   TIMESTAMPTZ NOT NULL,
+    completed_at   TIMESTAMPTZ
+);
+
 -- ── 사용자 ──────────────────────────────────────────────
 --
 -- 카카오 로그인으로 들어온 면접관 (#118). `user` 는 예약어라 app_user 다.

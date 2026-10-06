@@ -19,7 +19,14 @@ from app.api.deps import (
 from app.core.config import settings
 from app.core.errors import LOGIN_REQUIRED, responses
 from app.core.uploads import read_upload
-from app.domain.models import Context, Interview, Resume, Session, SummaryStatus
+from app.domain.models import (
+    Context,
+    Interview,
+    InterviewPrep,
+    Resume,
+    Session,
+    SummaryStatus,
+)
 from app.schemas import (
     ContextDocResponse,
     CreateInterviewRequest,
@@ -157,6 +164,9 @@ async def create_session(
     await media.ensure_room(session.room_name)
     # 저장소는 동기다. async 라우트가 그대로 부르면 그동안 이벤트 루프가 멈춘다 (#133).
     await run_in_threadpool(store.add_session, session)
+    # 면접 전 분석을 요청한다(#162). 이미 있으면 그대로다 — 세션을 다시 만들 때마다
+    # 다시 돌리지 않는다. 실패했으면 다시 요청하고, 이력서를 바꾸면 다시 돈다.
+    await run_in_threadpool(store.ensure_prep, InterviewPrep(interview_id=interview.id))
 
     return CreateSessionResponse(
         session_id=session.id,
@@ -233,6 +243,9 @@ async def upload_resume(
         interview_id=interview.id, name=name, kind=kind, size_bytes=len(content)
     )
     await run_in_threadpool(store.save_resume, resume, content)
+    # 새 이력서로 면접 전 분석을 다시 돌린다(#162). 세션을 만들기 전이면 자리가 없어
+    # 아무 일도 없고, 세션을 만들 때 열린다. 본문 추출이 끝나야 작업이 나간다.
+    await run_in_threadpool(store.restart_prep, interview.id)
     background.add_task(
         lambda: store.finish_resume(
             interview.id, resume.id, parser.extract_text(resume.name, content)

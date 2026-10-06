@@ -25,6 +25,9 @@ from app.domain.models import (
     DocKind,
     DocStatus,
     Interview,
+    InterviewPrep,
+    Job,
+    JobKind,
     Resume,
     Role,
     Session,
@@ -35,6 +38,7 @@ from app.domain.models import (
     TranscriptStage,
     User,
     Utterance,
+    utcnow,
 )
 from app.domain.store import InMemoryStore, Store
 
@@ -1077,8 +1081,306 @@ def test_suggestions_do_not_leak_between_sessions(subject: Store):
     assert subject.list_suggestions(two.id) == []
 
 
+# ── 면접 전 분석 (#162) ─────────────────────────────────────
+
+#: 작업 한도와 문서 추출 한도. 실제 값과 상관없이 판정이 이 둘을 따르는지만 본다.
+LIMIT = timedelta(minutes=10)
+PARSE = timedelta(minutes=3)
+
+COMPETENCY = {
+    "competencyId": "cpt_design",
+    "jdId": "ctx_1a2b3c4d",
+    "name": "서비스 설계",
+    "required": True,
+    "description": None,
+}
+CLAIM = {
+    "claimId": "clm_002",
+    "resumeId": "doc_77aa01ce",
+    "quote": "초당 2만 건의 이벤트를 안정적으로 처리했습니다.",
+    "section": "성과 2",
+}
+
+
+def _opened(subject: Store, session: Session, **overrides: Any) -> InterviewPrep:
+    prep = InterviewPrep(interview_id=session.interview_id, **overrides)
+    subject.ensure_prep(prep)
+    return prep
+
+
+def _ready(opened: InterviewPrep, **overrides: Any) -> InterviewPrep:
+    fields: dict[str, Any] = {
+        "interview_id": opened.interview_id,
+        "status": SummaryStatus.READY,
+        "competencies": [COMPETENCY],
+        "resume_claims": [CLAIM],
+        "model": "gpt-4o-mini@prep-v1",
+        "requested_at": opened.requested_at,
+        "completed_at": utcnow(),
+    }
+    return InterviewPrep(**(fields | overrides))
+
+
+def test_prep_roundtrip(subject: Store):
+    session = _seed(subject)
+    opened = _opened(subject, session)
+
+    found = subject.get_prep(session.interview_id)
+
+    assert found is not None
+    assert found.status is SummaryStatus.PROCESSING
+    assert (found.competencies, found.resume_claims, found.model) == ([], [], "")
+    assert found.requested_at == opened.requested_at
+    assert found.completed_at is None
+
+
+def test_ensure_prep_keeps_the_first_request(subject: Store):
+    """세션을 또 만들어도 요청 시각이 밀리지 않는다. 밀리면 한도가 계속 연장된다."""
+    session = _seed(subject)
+    first = _opened(subject, session)
+
+    _opened(subject, session, requested_at=first.requested_at + timedelta(minutes=30))
+
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.requested_at == first.requested_at
+
+
+def test_ensure_prep_keeps_a_ready_one(subject: Store):
+    session = _seed(subject)
+    opened = _opened(subject, session)
+    subject.finish_prep(_ready(opened))
+
+    _opened(subject, session)
+
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.READY
+    assert found.competencies == [COMPETENCY]
+
+
+def test_ensure_prep_asks_again_after_a_failure(subject: Store):
+    """폴러가 한도 넘게 멈춰 FAILED 가 된 면접도 다음 세션에서 다시 돈다.
+    이력서를 다시 올리는 것 말고도 되살릴 길이 있어야 한다."""
+    session = _seed(subject)
+    failed = _opened(subject, session, requested_at=utcnow() - timedelta(hours=1))
+    subject.finish_prep(
+        _ready(failed, status=SummaryStatus.FAILED, competencies=[], resume_claims=[])
+    )
+
+    again = _opened(subject, session)
+
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.PROCESSING
+    assert found.requested_at == again.requested_at
+    assert found.completed_at is None
+
+
+def test_finishing_prep_stores_the_result(subject: Store):
+    session = _seed(subject)
+    opened = _opened(subject, session)
+
+    assert subject.finish_prep(_ready(opened))
+
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.READY
+    assert (found.competencies, found.resume_claims) == ([COMPETENCY], [CLAIM])
+    assert found.model == "gpt-4o-mini@prep-v1"
+    assert found.completed_at is not None
+    assert found.requested_at == opened.requested_at
+
+
+def test_a_result_for_an_older_request_is_not_written(subject: Store):
+    """이력서를 다시 올리는 사이 늦게 온 옛 결과다. 쓰면 옛 이력서의 주장이 남는다."""
+    session = _seed(subject)
+    opened = _opened(subject, session)
+
+    stale = _ready(opened, requested_at=opened.requested_at - timedelta(seconds=1))
+
+    assert not subject.finish_prep(stale)
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.PROCESSING
+
+
+def test_a_failure_marks_a_waiting_prep_failed(subject: Store):
+    session = _seed(subject)
+    opened = _opened(subject, session)
+
+    assert subject.finish_prep(
+        _ready(opened, status=SummaryStatus.FAILED, competencies=[], resume_claims=[])
+    )
+
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.FAILED
+
+
+def test_a_failure_does_not_erase_a_ready_prep(subject: Store):
+    """폴러가 다시 돌다 실패 한 번을 보내도 이미 만든 결과는 남는다 (#132 와 같다)."""
+    session = _seed(subject)
+    opened = _opened(subject, session)
+    subject.finish_prep(_ready(opened))
+
+    failed = _ready(
+        opened, status=SummaryStatus.FAILED, competencies=[], resume_claims=[]
+    )
+
+    assert not subject.finish_prep(failed)
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.READY
+    assert found.competencies == [COMPETENCY]
+
+
+def test_restarting_prep_empties_it_and_asks_again(subject: Store):
+    """이력서를 다시 올렸다. 옛 이력서의 주장을 들고 있으면 안 된다."""
+    session = _seed(subject)
+    opened = _opened(subject, session, requested_at=utcnow() - timedelta(minutes=1))
+    subject.finish_prep(_ready(opened))
+
+    subject.restart_prep(session.interview_id)
+
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.PROCESSING
+    assert (found.competencies, found.resume_claims, found.model) == ([], [], "")
+    assert found.completed_at is None
+    assert found.requested_at > opened.requested_at
+
+
+def test_restarting_prep_without_a_slot_does_nothing(subject: Store):
+    """세션을 만들기 전에 올린 이력서다. 자리는 세션을 만들 때 연다 — 세션이 없다."""
+    interview = Interview(interviewer_id="user_123")
+    subject.add_interview(interview)
+
+    subject.restart_prep(interview.id)
+
+    assert subject.get_prep(interview.id) is None
+
+
+def test_next_prep_hands_out_the_oldest_request(subject: Store):
+    one = _seed(subject)
+    two = _seed(subject)
+    now = utcnow()
+    _opened(subject, one, requested_at=now - timedelta(minutes=1))
+    _opened(subject, two, requested_at=now - timedelta(minutes=2))
+
+    job = subject.next_prep(LIMIT, PARSE)
+
+    assert job == Job(
+        kind=JobKind.PREP,
+        session_id=two.id,
+        interview_id=two.interview_id,
+        requested_at=now - timedelta(minutes=2),
+    )
+
+
+def test_next_prep_names_the_latest_session(subject: Store):
+    session = _seed(subject)
+    later = Session(
+        interview_id=session.interview_id,
+        created_at=session.created_at + timedelta(seconds=1),
+    )
+    subject.add_session(later)
+    _opened(subject, session)
+
+    job = subject.next_prep(LIMIT, PARSE)
+
+    assert job is not None
+    assert job.session_id == later.id
+
+
+def test_next_prep_skips_finished_ones(subject: Store):
+    session = _seed(subject)
+    subject.finish_prep(_ready(_opened(subject, session)))
+
+    assert subject.next_prep(LIMIT, PARSE) is None
+
+
+def test_an_overdue_request_fails_instead_of_going_out(subject: Store):
+    """폴러가 죽어 결과가 안 오는 작업이 큐를 영원히 막지 않는다."""
+    session = _seed(subject)
+    _opened(subject, session, requested_at=utcnow() - LIMIT - timedelta(seconds=1))
+
+    assert subject.next_prep(LIMIT, PARSE) is None
+
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.FAILED
+    assert found.completed_at is not None
+
+
+def test_next_prep_waits_for_the_resume_to_be_read(subject: Store):
+    """바로 내주면 빈 이력서로 분석해 주장이 비어 버린다."""
+    session = _seed(subject)
+    resume = _resume(session.interview_id)
+    subject.save_resume(resume, b"%PDF-1.7\n")
+    _opened(subject, session)
+
+    assert subject.next_prep(LIMIT, PARSE) is None
+
+    subject.finish_resume(session.interview_id, resume.id, "이력서 본문")
+    assert subject.next_prep(LIMIT, PARSE) is not None
+
+
+def test_next_prep_does_not_wait_for_a_stalled_resume(subject: Store):
+    """추출이 한도를 넘겨 멈춘 문서는 실패로 본다 — 화면에 보이는 것과 같다."""
+    session = _seed(subject)
+    resume = _resume(session.interview_id)
+    resume.created_at -= PARSE + timedelta(seconds=1)
+    subject.save_resume(resume, b"%PDF-1.7\n")
+    _opened(subject, session)
+
+    assert subject.next_prep(LIMIT, PARSE) is not None
+
+
+def test_next_prep_waits_for_a_jd_being_read(subject: Store):
+    session = _seed(subject)
+    context = _context(subject, "user_123")
+    jd = _doc(context.id)
+    jd.category = DocCategory.JD
+    subject.add_doc(jd, b"%PDF-1.7\n")
+    _opened(subject, session)
+
+    assert subject.next_prep(LIMIT, PARSE) is None
+
+    subject.finish_doc(context.id, jd.id, "JD 본문")
+    assert subject.next_prep(LIMIT, PARSE) is not None
+
+
+def test_next_prep_does_not_wait_for_other_documents(subject: Store):
+    """사내 문서와 남의 JD 는 면접 전 분석의 입력이 아니다."""
+    session = _seed(subject)
+    mine = _context(subject, "user_123")
+    subject.add_doc(_doc(mine.id, "사내.pdf"), b"%PDF-1.7\n")
+    theirs = _context(subject, "user_999")
+    jd = _doc(theirs.id)
+    jd.category = DocCategory.JD
+    subject.add_doc(jd, b"%PDF-1.7\n")
+    _opened(subject, session)
+
+    assert subject.next_prep(LIMIT, PARSE) is not None
+
+
+def test_reading_prep_gives_a_copy(subject: Store):
+    session = _seed(subject)
+    _opened(subject, session)
+
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    found.competencies.append(COMPETENCY)
+
+    again = subject.get_prep(session.interview_id)
+    assert again is not None
+    assert again.competencies == []
+
+
 def test_deleting_the_interview_takes_its_transcript_and_suggestions():
-    """세션이 지워지면 전사·꼬리질문·근거가 같이 지워진다. **PostgreSQL 전용이다.**
+    """면접이 지워지면 전사·꼬리질문·근거·면접 전 분석이 같이 지워진다.
+    **PostgreSQL 전용이다.**
 
     인메모리에는 삭제 경로가 없고, 이 보장은 외래키의 `ON DELETE CASCADE` 가
     한다. 면접 전사는 지원자의 말이라, 지울 수 있는 길이 있어야 한다.
@@ -1095,10 +1397,12 @@ def test_deleting_the_interview_takes_its_transcript_and_suggestions():
         session = _seed(subject)
         subject.upsert_utterance(_utterance(session))
         subject.add_suggestion(_suggestion(session))
+        _opened(subject, session)
 
         with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
             conn.execute("DELETE FROM interview WHERE id = %s", (session.interview_id,))
 
+        assert subject.get_prep(session.interview_id) is None
         assert subject.list_utterances(session.id) == []
         assert subject.list_suggestions(session.id) == []
         with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]

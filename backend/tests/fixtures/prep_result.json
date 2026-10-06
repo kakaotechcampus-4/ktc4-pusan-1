@@ -1,0 +1,27 @@
+{
+  "sessionId": "ses_9c1e2a7b",
+  "status": "completed",
+  "model": "gpt-4o-mini@prep-v1",
+  "competencies": [
+    {
+      "competencyId": "cpt_design",
+      "jdId": "ctx_1a2b3c4d",
+      "name": "서비스 설계",
+      "required": true,
+      "description": "요구사항을 서비스 구조와 데이터 모델로 옮기는 능력"
+    }
+  ],
+  "resumeClaims": [
+    {
+      "claimId": "clm_002",
+      "resumeId": "doc_77aa01ce",
+      "quote": "초당 2만 건의 이벤트를 안정적으로 처리했습니다.",
+      "section": "성과 2"
+    }
+  ],
+  "rejections": [],
+  "warnings": [],
+  "error": null,
+  "usage": { "promptTokens": 1830, "completionTokens": 412, "cachedPromptTokens": 0 },
+  "elapsedMs": 4210
+}

@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Any
 from uuid import uuid4
 
 
@@ -335,6 +336,51 @@ class Utterance:
     stage: TranscriptStage = TranscriptStage.LIVE
     track_id: str | None = None
     seq: int | None = None
+
+
+class JobKind(StrEnum):
+    """AI 폴러가 받는 작업의 종류 (#137 2-2).
+
+    PREP    면접 전 분석 — 역량 · 이력서 주장 (#162)
+    REVIEW  면접 후 분석 — 요약 · 타임라인 · findings (#164)
+    """
+
+    PREP = "PREP"
+    REVIEW = "REVIEW"
+
+
+@dataclass(frozen=True)
+class Job:
+    """AI 폴러에게 내주는 할 일 하나. `requested_at` 은 결과에 그대로 돌아와야 한다."""
+
+    kind: JobKind
+    session_id: str
+    interview_id: str
+    requested_at: datetime
+
+
+@dataclass
+class InterviewPrep:
+    """면접 전 분석 — JD 의 역량과 이력서의 주장 (#162).
+
+    면접 하나에 하나다. 세션을 만들 때 PROCESSING 으로 열고(실패했으면 다시),
+    이력서를 다시 올리면 비우고 다시 연다. AI 폴러가 결과를 써 넣으면 READY 다.
+    상태 기계는 요약과 같아서 `SummaryStatus` 를 쓴다.
+
+    역량 · 주장은 AI 의 `Competency` · `ResumeClaim` 을 camelCase JSON 그대로 둔다.
+    BE 는 id 로 조인만 하고(#163) 안을 해석하지 않는다.
+
+    `requested_at` 은 결과가 어느 요청의 것인지 가린다. 이력서를 다시 올리면 바뀌어서,
+    그 사이 늦게 온 옛 결과를 거절할 수 있다.
+    """
+
+    interview_id: str
+    status: SummaryStatus = SummaryStatus.PROCESSING
+    competencies: list[dict[str, Any]] = field(default_factory=list)
+    resume_claims: list[dict[str, Any]] = field(default_factory=list)
+    model: str = ""
+    requested_at: datetime = field(default_factory=utcnow)
+    completed_at: datetime | None = None
 
 
 class SuggestionStatus(StrEnum):

@@ -17,11 +17,20 @@
 다시 보낸다 — 끝나지 않는다. 여기서 막으면 그 발화 하나만 NACK 으로 버려진다.
 """
 
+from datetime import datetime
 from typing import Annotated, Final, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_validator,
+)
+from pydantic.alias_generators import to_camel
 
-from app.domain.models import Role
+from app.domain.models import JobKind, Role
 
 FRAME_UPSERT: Final = "transcript.upsert"
 FRAME_ACK: Final = "transcript.ack"
@@ -39,6 +48,9 @@ def _no_nul(value: str) -> str:
 
 #: DB 의 TEXT 에 들어갈 문자열. 비어 있을 수 없다.
 PgText = Annotated[str, Field(min_length=1), AfterValidator(_no_nul)]
+
+#: 비어 있어도 되는 쪽. JSONB 도 NUL(`\u0000`)을 못 넣는다.
+PgAnyText = Annotated[str, AfterValidator(_no_nul)]
 
 
 def _dedupe(ids: list[str]) -> list[str]:
@@ -139,3 +151,63 @@ class ReviewUpsert(InternalSchema):
         if self.status in ("completed", "partial") and not self.summary.strip():
             raise ValueError("completed/partial 이면 summary 가 비어 있을 수 없다")
         return self
+
+
+# ── AI 분석 작업 (#162) ─────────────────────────────────────
+
+
+class AiShape(InternalSchema):
+    """AI 의 `CamelModel` 과 같은 모양 — 파이썬은 snake_case, JSON 은 camelCase.
+
+    필드가 많아 하나하나 alias 를 달지 않고 규칙으로 맞춘다.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel)
+
+
+class PendingJob(AiShape):
+    """`GET /internal/v1/jobs/pending` — 할 일 하나 (#137 2-2).
+
+    `requestedAt` 은 결과를 보낼 때 그대로 돌려줘야 한다. 그 사이 다시 요청된
+    작업이면 결과를 409 로 거절한다.
+    """
+
+    kind: JobKind
+    session_id: str
+    interview_id: str
+    requested_at: datetime
+
+
+class Competency(AiShape):
+    """AI `Competency` (`schemas/context.py`). 이대로 JSON 으로 저장해 돌려준다."""
+
+    competency_id: PgText
+    jd_id: PgText
+    name: PgText
+    required: bool = True
+    description: PgAnyText | None = None
+
+
+class ResumeClaim(AiShape):
+    """AI `ResumeClaim`. `quote` 는 이력서 본문에 그대로 있는 문장이다."""
+
+    claim_id: PgText
+    resume_id: PgText
+    quote: PgText
+    section: PgAnyText | None = None
+
+
+class PrepUpsert(AiShape):
+    """`PUT /internal/v1/interviews/{interviewId}/prep` — AI `PrepResult` (PR #156).
+
+    `sessionId` · `rejections` · `warnings` · `usage` 같은 나머지는 받고 버린다.
+
+    `requestedAt` 은 받은 작업의 것을 그대로 돌려받는다. 시간대가 없으면 저장된 값과
+    비교할 수 없어 422 다.
+    """
+
+    status: Literal["completed", "partial", "empty", "failed"]
+    requested_at: AwareDatetime
+    model: PgAnyText = ""
+    competencies: list[Competency] = Field(default_factory=list)
+    resume_claims: list[ResumeClaim] = Field(default_factory=list)
