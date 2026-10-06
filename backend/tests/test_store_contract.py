@@ -25,6 +25,7 @@ from app.domain.models import (
     DocKind,
     DocStatus,
     Interview,
+    Recording,
     Resume,
     Role,
     Session,
@@ -829,6 +830,53 @@ def test_summaries_do_not_leak_between_sessions(subject: Store):
     subject.ensure_summary(SessionSummary(session_id=a.id))
 
     assert subject.get_summary(b.id) is None
+
+
+# ── 녹화 (#112) ─────────────────────────────────────────
+
+
+def test_recording_roundtrip(subject: Store):
+    session = _seed(subject)
+    subject.ensure_recording(session.id)
+    assert subject.get_recording(session.id) == Recording(session_id=session.id)
+
+    done = Recording(
+        session_id=session.id,
+        status=SummaryStatus.READY,
+        s3_key=f"rec/{session.id}/merged.webm",
+        egress_started_at=datetime(2026, 10, 6, 4, 30, 0, 840000, tzinfo=UTC),
+        duration_ms=634_500,
+        completed_at=datetime(2026, 10, 6, 5, 0, tzinfo=UTC),
+    )
+    subject.save_recording(done)
+    assert subject.get_recording(session.id) == done
+    assert subject.get_recording("ses_없는것") is None
+
+
+def test_ensure_recording_keeps_the_first_one(subject: Store):
+    """트랙마다 불린다. 이미 끝난 녹화를 PROCESSING 으로 되돌리면 안 된다."""
+    session = _seed(subject)
+    subject.ensure_recording(session.id)
+    subject.save_recording(
+        Recording(session_id=session.id, status=SummaryStatus.FAILED)
+    )
+    subject.ensure_recording(session.id)
+
+    found = subject.get_recording(session.id)
+    assert found is not None
+    assert found.status is SummaryStatus.FAILED
+
+
+def test_pending_recordings_are_waiting_ones_of_ended_sessions(subject: Store):
+    live, ended, done = _seed(subject), _seed(subject), _seed(subject)
+    for session in (live, ended, done):
+        subject.ensure_recording(session.id)
+    for session in (ended, done):
+        session.end()
+        subject.save_session(session)
+    subject.save_recording(Recording(session_id=done.id, status=SummaryStatus.READY))
+
+    assert subject.pending_recordings() == [ended.id]
 
 
 # ── 사용자 ──────────────────────────────────────────────

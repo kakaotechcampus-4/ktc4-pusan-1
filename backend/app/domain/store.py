@@ -17,6 +17,7 @@ from app.domain.models import (
     ContextDoc,
     DocStatus,
     Interview,
+    Recording,
     Resume,
     Role,
     Session,
@@ -166,6 +167,25 @@ class Store(Protocol):
         """
         ...
 
+    # ── 녹화 (#112) ─────────────────────────────────────
+
+    def ensure_recording(self, session_id: str) -> None:
+        """녹화 자리를 PROCESSING 으로 만든다. 이미 있으면 그대로 둔다.
+
+        트랙마다 불린다. 두 번째 트랙이 처음 것을 덮으면 안 된다.
+        """
+        ...
+
+    def get_recording(self, session_id: str) -> Recording | None: ...
+
+    def save_recording(self, recording: Recording) -> None:
+        """합치기 결과를 받아 둔다. 조건 없이 덮어쓴다 — 합치기만 부른다."""
+        ...
+
+    def pending_recordings(self) -> list[str]:
+        """합칠 차례인 세션 — 녹화가 PROCESSING 이고 세션이 끝났다."""
+        ...
+
     # ── 사용자 ──────────────────────────────────────────
 
     def upsert_user(self, user: User) -> User:
@@ -231,6 +251,7 @@ class InMemoryStore:
         self._texts: dict[object, str] = {}
 
         self._summaries: dict[str, SessionSummary] = {}
+        self._recordings: dict[str, Recording] = {}
         self._users: dict[str, User] = {}
 
         #: (session_id, stage, utterance_id) -> 발화
@@ -419,6 +440,27 @@ class InMemoryStore:
             stored.give_up()
         return deepcopy(stored)
 
+    # ── 녹화 ────────────────────────────────────────────
+
+    def ensure_recording(self, session_id: str) -> None:
+        self._recordings.setdefault(session_id, Recording(session_id=session_id))
+
+    def get_recording(self, session_id: str) -> Recording | None:
+        found = self._recordings.get(session_id)
+        return None if found is None else deepcopy(found)
+
+    def save_recording(self, recording: Recording) -> None:
+        self._recordings[recording.session_id] = deepcopy(recording)
+
+    def pending_recordings(self) -> list[str]:
+        return [
+            r.session_id
+            for r in self._recordings.values()
+            if r.status is SummaryStatus.PROCESSING
+            and (session := self._sessions.get(r.session_id)) is not None
+            and session.status is SessionStatus.ENDED
+        ]
+
     # ── 사용자 ──────────────────────────────────────────
 
     def upsert_user(self, user: User) -> User:
@@ -475,6 +517,7 @@ class InMemoryStore:
         self._texts.clear()
 
         self._summaries.clear()
+        self._recordings.clear()
         self._users.clear()
 
         self._utterances.clear()

@@ -557,6 +557,36 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "RecordingResponse": {
+        "description": "녹화 재생 (#112). 합친 파일 하나의 서명 URL 이다.\n\n`offsetMs` 는 녹화의 0초가 전사 원점(t=0)보다 얼마나 뒤인가다. 전사 시각\nt(ms) 의 장면은 녹화의 `t − offsetMs` 에 있다.",
+        "properties": {
+          "durationSec": {
+            "title": "Durationsec",
+            "type": "integer"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "offsetMs": {
+            "title": "Offsetms",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expiresAt",
+          "offsetMs",
+          "durationSec"
+        ],
+        "title": "RecordingResponse",
+        "type": "object"
+      },
       "ReviewProcessingResponse": {
         "description": "녹화 변환과 AI 평가가 아직 끝나지 않은 상태. 202 로 나간다.",
         "properties": {
@@ -2073,6 +2103,89 @@
           }
         },
         "summary": "면접 입장",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
+    "/api/v1/sessions/{sessionId}/recording": {
+      "get": {
+        "description": "면접 녹화를 10분짜리 서명 URL 로 준다 (#112). 면접 주인만 본다.\n\n면접 중이거나 합치는 중이면 검토 API 처럼 `202 {\"status\": \"PROCESSING\"}` 다.\n녹화가 없거나 합치지 못했으면(FAILED) 404 — 화면은 둘 다 녹화 없이 전사로\n검토한다.",
+        "operationId": "get_recording_api_v1_sessions__sessionId__recording_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewProcessingResponse"
+                }
+              }
+            },
+            "description": "아직 합치는 중"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session 이 없거나(남의 세션 포함) 녹화가 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "녹화 재생",
         "tags": [
           "세션"
         ]

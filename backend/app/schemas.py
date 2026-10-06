@@ -223,6 +223,19 @@ class ReviewProcessingResponse(Schema):
     )
 
 
+class RecordingResponse(Schema):
+    """녹화 재생 (#112). 합친 파일 하나의 서명 URL 이다.
+
+    `offsetMs` 는 녹화의 0초가 전사 원점(t=0)보다 얼마나 뒤인가다. 전사 시각
+    t(ms) 의 장면은 녹화의 `t − offsetMs` 에 있다.
+    """
+
+    url: str
+    expires_at: datetime = Field(serialization_alias="expiresAt")
+    offset_ms: int = Field(serialization_alias="offsetMs")
+    duration_sec: int = Field(serialization_alias="durationSec")
+
+
 class SummaryContent(Schema):
     """요약 본문. `status` 가 READY 일 때만 찬다.
 

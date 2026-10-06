@@ -296,6 +296,25 @@ class SessionSummary:
         self.completed_at = utcnow()
 
 
+@dataclass
+class Recording:
+    """세션 하나의 녹화 (#112). 첫 트랙의 녹화를 걸 때 PROCESSING 으로 생긴다.
+
+    상태는 요약과 같은 세 가지다 (테크스펙 「상태」). 트랙별 원본은 Egress 가 S3
+    `rec/{session_id}/` 에 올리고, 면접이 끝나면 BE 가 한 파일로 합친다. 원본 목록과
+    시작 시각은 LiveKit 이 끝난 뒤 24시간 들고 있어서 여기 두지 않는다.
+    """
+
+    session_id: str
+    status: SummaryStatus = SummaryStatus.PROCESSING
+    #: 합친 파일. READY 일 때만 찬다.
+    s3_key: str | None = None
+    #: 합친 파일의 0초가 가리키는 시각. 재생 오프셋 = 이것 − 전사 원점.
+    egress_started_at: datetime | None = None
+    duration_ms: int = 0
+    completed_at: datetime | None = None
+
+
 class TranscriptStage(StrEnum):
     """전사가 어느 벌인가. 전사는 두 벌 만든다 (#85).
 

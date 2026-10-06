@@ -123,6 +123,22 @@ CREATE TABLE IF NOT EXISTS session_summary (
     completed_at TIMESTAMPTZ
 );
 
+-- 세션 하나의 녹화 (#112). 첫 트랙의 녹화를 걸 때 PROCESSING 으로 생기고, 면접이
+-- 끝난 뒤 BE 가 트랙들을 한 파일로 합치면 READY 다. 트랙별 원본의 목록과 시작
+-- 시각은 LiveKit 이 끝난 뒤 24시간 들고 있어 따로 두지 않는다 — 원본 파일은
+-- S3 `rec/{session_id}/` 에 있다.
+CREATE TABLE IF NOT EXISTS recording (
+    session_id        TEXT        PRIMARY KEY REFERENCES session (id) ON DELETE CASCADE,
+    -- SummaryStatus. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+    status            TEXT        NOT NULL,
+    -- 합친 파일. READY 일 때만 찬다.
+    s3_key            TEXT,
+    -- 합친 파일의 0초가 가리키는 시각. 재생 오프셋 = 이것 − 전사 원점.
+    egress_started_at TIMESTAMPTZ,
+    duration_ms       BIGINT      NOT NULL DEFAULT 0,
+    completed_at      TIMESTAMPTZ
+);
+
 -- ── 사용자 ──────────────────────────────────────────────
 --
 -- 카카오 로그인으로 들어온 면접관 (#118). `user` 는 예약어라 app_user 다.
