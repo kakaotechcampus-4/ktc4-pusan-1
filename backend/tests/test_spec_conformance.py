@@ -129,6 +129,12 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"sessionId", "status", "content", "durationSec"},
         "statuses": {"200", "401", "404", "409"},
     },
+    # 테크스펙 「API」 의 녹화 재생 예시 (#112). 합치는 중이면 검토 API 처럼 202.
+    ("get", "/api/v1/sessions/{sessionId}/recording"): {
+        "path_params": ["sessionId"],
+        "response": {"url", "expiresAt", "offsetMs", "durationSec"},
+        "statuses": {"200", "202", "401", "404"},
+    },
     ("post", "/api/v1/sessions/{sessionId}/end"): {
         "path_params": ["sessionId"],
         "response": {"sessionId", "status", "endedAt"},

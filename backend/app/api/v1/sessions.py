@@ -7,6 +7,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Path
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import (
@@ -24,17 +25,21 @@ from app.domain.models import (
     SessionStatus,
     SessionSummary,
     SummaryStatus,
+    utcnow,
 )
 from app.domain.store import Store
 from app.schemas import (
     EndSessionResponse,
     JoinRequest,
     JoinResponse,
+    RecordingResponse,
+    ReviewProcessingResponse,
     SessionStateResponse,
     StartSessionResponse,
     SummaryContent,
     SummaryResponse,
 )
+from app.services import recording as recording_module
 
 router = APIRouter(prefix="/sessions", tags=["세션"])
 
@@ -274,6 +279,48 @@ def get_summary(session: OwnedSessionDep, store: StoreDep) -> SummaryResponse:
         status=summary.status,
         content=content,
         duration_sec=_duration_sec(session),
+    )
+
+
+@router.get(
+    "/{sessionId}/recording",
+    response_model=RecordingResponse,
+    summary="녹화 재생",
+    responses={
+        202: {"model": ReviewProcessingResponse, "description": "아직 합치는 중"},
+        **responses(
+            LOGIN_REQUIRED, (404, "Session 이 없거나(남의 세션 포함) 녹화가 없음")
+        ),
+    },
+)
+def get_recording(
+    session: OwnedSessionDep, store: StoreDep
+) -> RecordingResponse | JSONResponse:
+    """면접 녹화를 10분짜리 서명 URL 로 준다 (#112). 면접 주인만 본다.
+
+    면접 중이거나 합치는 중이면 검토 API 처럼 `202 {"status": "PROCESSING"}` 다.
+    녹화가 없거나 합치지 못했으면(FAILED) 404 — 화면은 둘 다 녹화 없이 전사로
+    검토한다.
+    """
+    recording = store.get_recording(session.id)
+    if recording is None or recording.status is SummaryStatus.FAILED:
+        raise ApiError(ErrorCode.NOT_FOUND, 404, "녹화가 없습니다.")
+    if recording.status is SummaryStatus.PROCESSING:
+        return JSONResponse(
+            ReviewProcessingResponse().model_dump(mode="json", by_alias=True),
+            status_code=202,
+        )
+    assert recording.s3_key is not None  # READY 면 찬다
+
+    origin, started = session.transcript_origin_at, recording.egress_started_at
+    offset_ms = 0
+    if origin is not None and started is not None:
+        offset_ms = int((started - origin).total_seconds() * 1000)
+    return RecordingResponse(
+        url=recording_module.presign(recording.s3_key),
+        expires_at=utcnow() + recording_module.URL_TTL,
+        offset_ms=offset_ms,
+        duration_sec=recording.duration_ms // 1000,
     )
 
 

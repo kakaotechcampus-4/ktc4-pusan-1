@@ -31,6 +31,9 @@ class FakeMedia:
         self.closed: list[str] = []
         self.participants = 0
         self.webhook_event: object | None = None
+        #: (room, track_sid, filepath)
+        self.egress_started: list[tuple[str, str, str]] = []
+        self.egress_infos: list[object] = []
 
     async def ensure_room(self, room: str) -> None:
         self.rooms.append(room)
@@ -50,6 +53,12 @@ class FakeMedia:
         if not auth_header:
             return None
         return self.webhook_event
+
+    async def start_track_egress(self, room: str, track_sid: str, filepath: str):
+        self.egress_started.append((room, track_sid, filepath))
+
+    async def list_egress(self, room: str):
+        return self.egress_infos
 
     def issue_token(self, room: str, role: Role) -> IssuedToken:
         return IssuedToken(

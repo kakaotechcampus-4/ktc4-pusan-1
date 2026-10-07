@@ -29,6 +29,7 @@ from app.domain.models import (
     InterviewPrep,
     Job,
     JobKind,
+    Recording,
     Resume,
     ReviewMark,
     ReviewStatus,
@@ -636,6 +637,68 @@ class PostgresStore:
             session.ended_at,
             session.transcript_origin_at,
         )
+
+    # ── 녹화 ────────────────────────────────────────────
+
+    def ensure_recording(self, session_id: str) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO recording (session_id, status) VALUES (%s, %s)
+                ON CONFLICT (session_id) DO NOTHING
+                """,
+                (session_id, SummaryStatus.PROCESSING.value),
+            )
+
+    def get_recording(self, session_id: str) -> Recording | None:
+        row = self._one(
+            """
+            SELECT session_id, status, s3_key, egress_started_at,
+                   duration_ms, completed_at
+            FROM recording WHERE session_id = %s
+            """,
+            (session_id,),
+        )
+        if row is None:
+            return None
+        return Recording(
+            session_id=row["session_id"],
+            status=SummaryStatus(row["status"]),
+            s3_key=row["s3_key"],
+            egress_started_at=row["egress_started_at"],
+            duration_ms=row["duration_ms"],
+            completed_at=row["completed_at"],
+        )
+
+    def save_recording(self, recording: Recording) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE recording
+                   SET status = %s, s3_key = %s, egress_started_at = %s,
+                       duration_ms = %s, completed_at = %s
+                 WHERE session_id = %s
+                """,
+                (
+                    recording.status.value,
+                    recording.s3_key,
+                    recording.egress_started_at,
+                    recording.duration_ms,
+                    recording.completed_at,
+                    recording.session_id,
+                ),
+            )
+
+    def pending_recordings(self) -> list[str]:
+        rows = self._all(
+            """
+            SELECT r.session_id FROM recording r
+            JOIN session s ON s.id = r.session_id
+            WHERE r.status = %s AND s.status = %s
+            """,
+            (SummaryStatus.PROCESSING.value, SessionStatus.ENDED.value),
+        )
+        return [row["session_id"] for row in rows]
 
     def _all(
         self, query: LiteralString, params: tuple[Any, ...]

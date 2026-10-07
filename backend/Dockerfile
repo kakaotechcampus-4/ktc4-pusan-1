@@ -28,6 +28,12 @@ ENV PATH="/app/.venv/bin:$PATH" \
     UV_PYTHON_DOWNLOADS=never \
     PYTHONUNBUFFERED=1
 
+# 녹화 합치기(#112)가 명령으로 부른다. 데비안 패키지를 쓴다 — 서버에서 돌리기만
+# 하고 이미지를 배포하지 않으므로 라이선스 의무가 생기지 않는다 (테크스펙 「녹화」).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # 의존성 레이어를 소스와 분리한다. app/ 만 바뀌면 uv sync 를 다시 돌지 않는다.
 COPY pyproject.toml uv.lock ./
 # --locked: uv.lock 과 pyproject.toml 이 어긋나면 잠금을 갱신하지 않고 실패한다.

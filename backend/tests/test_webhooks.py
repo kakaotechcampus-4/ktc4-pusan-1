@@ -144,7 +144,7 @@ def test_late_event_arriving_first_does_not_win(client, media, store, session):
 @pytest.mark.parametrize(
     ("event", "room", "joined_at_ms"),
     [
-        ("track_published", "{room}", 1789000000),  # 관심 없는 이벤트
+        ("track_unpublished", "{room}", 1789000000),  # 관심 없는 이벤트
         ("participant_joined", "lk-loadtest-3", 1789000000),  # 우리 방이 아님
         ("participant_joined", "interview_ses_nope", 1789000000),  # 없는 세션
         ("participant_joined", "{room}", 0),  # 시각이 비어 있음
@@ -193,7 +193,7 @@ def test_signature_failure_is_logged(client, media, store, session, caplog):
 
 def test_ignored_event_is_not_a_warning(client, media, store, session, caplog):
     """관심 없는 이벤트는 정상이다. warning 으로 남기면 로그가 쓸모없어진다."""
-    media.webhook_event = FakeEvent("track_published", session.room_name, JOINED_MS)
+    media.webhook_event = FakeEvent("track_unpublished", session.room_name, JOINED_MS)
 
     with caplog.at_level(logging.WARNING, logger="app.api.v1.webhooks"):
         assert _post(client) == 204
