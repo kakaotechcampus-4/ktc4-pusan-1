@@ -119,6 +119,16 @@
         "title": "ContextResponse",
         "type": "object"
       },
+      "CoverageState": {
+        "description": "역량 하나가 면접에서 얼마나 확인됐나 (#137 1-2 「coverage 규칙」).",
+        "enum": [
+          "CONFIRMED",
+          "PARTIAL",
+          "MISSING"
+        ],
+        "title": "CoverageState",
+        "type": "string"
+      },
       "CreateInterviewRequest": {
         "properties": {
           "candidateName": {
@@ -292,6 +302,28 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "FindingState": {
+        "description": "검토 항목에 대한 면접관의 판단 (#137 1-4). AI `FindingState` 의 어휘다.\n\nAI 쪽에는 `EDITED` 도 있지만 면접관이 고르는 값은 이 셋이다.",
+        "enum": [
+          "PROPOSED",
+          "ADOPTED",
+          "REJECTED"
+        ],
+        "title": "FindingState",
+        "type": "string"
+      },
+      "FindingType": {
+        "description": "검토 항목의 종류 — AI `FindingType` 의 어휘 (#137 1-2).",
+        "enum": [
+          "COMPETENCY_EVIDENCE",
+          "CLAIM_VERIFIED",
+          "CLAIM_CONTRADICTED",
+          "CLAIM_UNVERIFIED",
+          "GAP"
+        ],
+        "title": "FindingType",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -333,9 +365,15 @@
             "title": "Candidatename"
           },
           "counts": {
-            "description": "검토 항목 집계. 만들기 전까지 null 이다 (#137 도 READY 전엔 null).",
-            "title": "Counts",
-            "type": "null"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewCounts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "검토 항목 집계. 요약이 READY 가 아니면 null 이다 (#137 1-1)."
           },
           "durationSec": {
             "anyOf": [
@@ -369,10 +407,7 @@
             "$ref": "#/components/schemas/InterviewerSummary"
           },
           "reviewStatus": {
-            "const": "PENDING",
-            "description": "검토 기능이 아직 없어 늘 PENDING 이다.",
-            "title": "Reviewstatus",
-            "type": "string"
+            "$ref": "#/components/schemas/ReviewStatus"
           },
           "role": {
             "description": "컨텍스트의 직무. 아직 안 정했으면 빈 문자열.",
@@ -387,7 +422,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "한도를 넘긴 PROCESSING 은 FAILED 로 보인다(저장값은 그대로)."
           }
         },
         "required": [
@@ -557,6 +593,279 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "MarkResponse": {
+        "description": "그 항목의 지금 표시.",
+        "properties": {
+          "bookmarked": {
+            "title": "Bookmarked",
+            "type": "boolean"
+          },
+          "itemId": {
+            "title": "Itemid",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/FindingState"
+          }
+        },
+        "required": [
+          "itemId",
+          "state",
+          "bookmarked"
+        ],
+        "title": "MarkResponse",
+        "type": "object"
+      },
+      "MarkUpdateRequest": {
+        "description": "`PUT .../review/marks/{itemId}` — 채택 · 북마크 (#137 1-4). 보낸 것만 바뀐다.\n\n`state` 는 검토 항목(finding)의 채택 여부, `bookmarked` 는 문답(moment)의\n북마크다. 둘 다 없으면 바꿀 것이 없어 422 다.",
+        "properties": {
+          "bookmarked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bookmarked"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindingState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "MarkUpdateRequest",
+        "type": "object"
+      },
+      "ReviewCandidate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "비어 있으면 FE 가 기본 라벨로 대체한다.",
+            "title": "Name"
+          },
+          "role": {
+            "description": "컨텍스트의 직무. 아직 안 정했으면 빈 문자열.",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "role"
+        ],
+        "title": "ReviewCandidate",
+        "type": "object"
+      },
+      "ReviewCounts": {
+        "description": "목록 한 줄의 집계. 상세와 같은 계산(`app/services/review.py`)에서 나온다.",
+        "properties": {
+          "adopted": {
+            "title": "Adopted",
+            "type": "integer"
+          },
+          "coverageConfirmed": {
+            "title": "Coverageconfirmed",
+            "type": "integer"
+          },
+          "coverageTotal": {
+            "title": "Coveragetotal",
+            "type": "integer"
+          },
+          "findings": {
+            "title": "Findings",
+            "type": "integer"
+          },
+          "needsReview": {
+            "description": "아직 채택도 반려도 안 한 검토 항목",
+            "title": "Needsreview",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "coverageConfirmed",
+          "coverageTotal",
+          "findings",
+          "needsReview",
+          "adopted"
+        ],
+        "title": "ReviewCounts",
+        "type": "object"
+      },
+      "ReviewCoverage": {
+        "properties": {
+          "name": {
+            "description": "역량 이름",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CoverageState"
+          }
+        },
+        "required": [
+          "name",
+          "state"
+        ],
+        "title": "ReviewCoverage",
+        "type": "object"
+      },
+      "ReviewFinding": {
+        "description": "검토 항목 하나 — AI 가 근거와 함께 낸 관찰. 판정이 아니다.",
+        "properties": {
+          "atSec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Atsec"
+          },
+          "competency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competency"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "지원서의 문장",
+            "title": "Quote"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "「지원서 · 단락」 또는 「면접 답변」",
+            "title": "Source"
+          },
+          "state": {
+            "$ref": "#/components/schemas/FindingState"
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "근거가 된 면접 발화",
+            "title": "Transcript"
+          },
+          "type": {
+            "$ref": "#/components/schemas/FindingType"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "competency",
+          "source",
+          "quote",
+          "transcript",
+          "rationale",
+          "atSec",
+          "state"
+        ],
+        "title": "ReviewFinding",
+        "type": "object"
+      },
+      "ReviewMoment": {
+        "description": "질문 하나가 시작된 시점과 그 문답.",
+        "properties": {
+          "answer": {
+            "description": "답변 요약 한두 줄",
+            "title": "Answer",
+            "type": "string"
+          },
+          "atSec": {
+            "description": "전사 원점 기준 경과 초",
+            "title": "Atsec",
+            "type": "number"
+          },
+          "bookmarked": {
+            "title": "Bookmarked",
+            "type": "boolean"
+          },
+          "competencies": {
+            "description": "근거 시각이 이 문답 구간에 드는 검토 항목의 역량",
+            "items": {
+              "type": "string"
+            },
+            "title": "Competencies",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "타임라인 아래 짧은 라벨",
+            "title": "Label",
+            "type": "string"
+          },
+          "question": {
+            "description": "면접관 발화 원문",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "atSec",
+          "label",
+          "question",
+          "answer",
+          "competencies",
+          "bookmarked"
+        ],
+        "title": "ReviewMoment",
+        "type": "object"
+      },
       "ReviewProcessingResponse": {
         "description": "녹화 변환과 AI 평가가 아직 끝나지 않은 상태. 202 로 나간다.",
         "properties": {
@@ -580,6 +889,202 @@
           }
         },
         "title": "ReviewProcessingResponse",
+        "type": "object"
+      },
+      "ReviewResponse": {
+        "description": "준비가 끝난 면접 기록 (#137 1-2).\n\n요약이 FAILED 여도 이 모양이다 — `summary` 는 null, moments · findings 는 비고\ncoverage 는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI 결과와 상관없이 할 수\n있어야 한다 (#163).",
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/ReviewCandidate"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewCoverage"
+            },
+            "title": "Coverage",
+            "type": "array"
+          },
+          "durationSec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationsec"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "interviewId": {
+            "title": "Interviewid",
+            "type": "string"
+          },
+          "interviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interviewedat"
+          },
+          "interviewer": {
+            "$ref": "#/components/schemas/InterviewerSummary"
+          },
+          "memo": {
+            "title": "Memo",
+            "type": "string"
+          },
+          "moments": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewMoment"
+            },
+            "title": "Moments",
+            "type": "array"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewedat"
+          },
+          "sessionId": {
+            "description": "기준 세션. 녹화는 이 id 로 `GET /sessions/{sessionId}/recording`",
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "const": "READY",
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryContent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summaryStatus": {
+            "enum": [
+              "READY",
+              "FAILED"
+            ],
+            "title": "Summarystatus",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "summaryStatus",
+          "interviewId",
+          "sessionId",
+          "candidate",
+          "interviewer",
+          "interviewedAt",
+          "durationSec",
+          "reviewStatus",
+          "reviewedAt",
+          "memo",
+          "summary",
+          "coverage",
+          "moments",
+          "findings"
+        ],
+        "title": "ReviewResponse",
+        "type": "object"
+      },
+      "ReviewStatus": {
+        "description": "면접관의 검토 진행 상태 (#137 1-3). 한글 표시는 FE 가 한다.",
+        "enum": [
+          "PENDING",
+          "IN_REVIEW",
+          "CONFIRMED"
+        ],
+        "title": "ReviewStatus",
+        "type": "string"
+      },
+      "ReviewUpdateRequest": {
+        "description": "`PATCH /interviews/{interviewId}` — 검토 상태 · 메모 (#137 1-3). 둘 다 선택이다.\n\nnull 은 보내지 않은 것과 같다. 메모를 비우려면 빈 문자열을 보낸다. 길이와 NUL 은\n경계에서 막는다 — PostgreSQL TEXT 는 NUL 을 못 넣어 500 이 된다.",
+        "properties": {
+          "memo": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "pattern": "^[^\\x00]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memo"
+          },
+          "reviewStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ReviewUpdateRequest",
+        "type": "object"
+      },
+      "ReviewUpdateResponse": {
+        "properties": {
+          "memo": {
+            "title": "Memo",
+            "type": "string"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CONFIRMED 가 된 시각. 다른 상태로 돌아가면 null.",
+            "title": "Reviewedat"
+          }
+        },
+        "required": [
+          "reviewStatus",
+          "reviewedAt",
+          "memo"
+        ],
+        "title": "ReviewUpdateResponse",
         "type": "object"
       },
       "Role": {
@@ -1588,6 +2093,87 @@
         "tags": [
           "면접"
         ]
+      },
+      "patch": {
+        "description": "검토 상태와 메모를 바꾼다. 보낸 것만 바뀐다 (#137 1-3).\n\n`CONFIRMED` 가 될 때 `reviewedAt` 을 찍고 다른 상태로 돌아가면 비운다. AI 결과가\n없어도 된다 — 검토는 면접 단위다.",
+        "operationId": "update_review_api_v1_interviews__interviewId__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "검토 상태 · 메모 수정",
+        "tags": [
+          "면접"
+        ]
       }
     },
     "/api/v1/interviews/{interviewId}/resume": {
@@ -1695,7 +2281,7 @@
     },
     "/api/v1/interviews/{interviewId}/review": {
       "get": {
-        "description": "면접이 끝난 뒤의 기록(녹화 · 타임라인 · AI 서술)을 조회한다.\n\n**지금은 항상 `PROCESSING` 을 돌려준다.** 면접 존재 여부만 확인하는 단계다.\nFE 는 이 분기를 이미 갖고 있어(`ReviewResponse`) 화면이 로딩 상태로 뜬다.\n\nREADY 를 채우려면 셋이 더 필요하고, 전부 아직 없다.\n\n  moments   AI 의 build_timeline() 결과. ai/ 패키지를 BE 가 어떻게 부를지 미정\n  recording LiveKit Egress. compose 에 컨테이너도 저장소도 없다\n  aiReview  요약 파이프라인. moments 와 다른 산출물이다\n\n202 로 두는 건 FE 가 그렇게 읽기 때문이다 — \"준비 전에는 202 와 PROCESSING\".\n준비가 끝나면 200 + READY 로 바뀐다.",
+        "description": "면접이 끝난 뒤의 검토 화면 — 요약 · coverage · 타임라인 · 검토 항목 (#137 1-2).\n\n기준 세션은 그 면접에서 가장 나중에 끝난 세션이다(목록과 같다). 끝난 세션이\n없거나 요약이 아직 PROCESSING 이면 202 다. FE 는 그동안 다시 조회한다.\n\n**요약이 FAILED 여도 200 이다** (#163). `summary` 는 null 이고 moments ·\nfindings 는 비며 coverage 는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI\n결과와 상관없이 할 수 있어야 한다.",
         "operationId": "get_review_api_v1_interviews__interviewId__review_get",
         "parameters": [
           {
@@ -1719,6 +2305,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
           "202": {
             "content": {
               "application/json": {
@@ -1727,7 +2323,7 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "준비 중"
           },
           "401": {
             "content": {
@@ -1761,6 +2357,98 @@
           }
         },
         "summary": "면접 기록 조회",
+        "tags": [
+          "면접"
+        ]
+      }
+    },
+    "/api/v1/interviews/{interviewId}/review/marks/{itemId}": {
+      "put": {
+        "description": "검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).\n\n`itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면\n404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도\n없다 (#163 결정). 문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중\n하나」). 표시는 기준 세션에 남는다.",
+        "operationId": "put_mark_api_v1_interviews__interviewId__review_marks__itemId__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "title": "Itemid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접이 없거나 지금 상세에 그 항목이 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "검토 항목 채택 · 문답 북마크",
         "tags": [
           "면접"
         ]

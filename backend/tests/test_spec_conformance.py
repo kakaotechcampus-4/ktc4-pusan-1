@@ -46,13 +46,44 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
         "statuses": {"200", "401", "404"},
     },
-    # ⚠️ 세 파트 합의 전이다. 응답은 지금 PROCESSING 한 갈래만 나간다.
-    # READY 쪽 필드는 모델로만 선언해 두고 여기서는 잠그지 않는다 —
-    # 합의되면 그때 이 표에 옮긴다.
+    # ⚠️ Notion 명세에 없다. 모양은 #137 1-3 이다.
+    ("patch", "/api/v1/interviews/{interviewId}"): {
+        "path_params": ["interviewId"],
+        "request": {"reviewStatus", "memo"},
+        "response": {"reviewStatus", "reviewedAt", "memo"},
+        "statuses": {"200", "401", "404"},
+    },
+    # ⚠️ Notion 명세에 없다. 모양은 #137 1-4 이다. 경로 변수 순서가 뒤집혀 보이는
+    # 건 FastAPI 가 라우트 자신의 것(itemId)을 의존성의 것(interviewId)보다 먼저
+    # 싣기 때문이다 — 문서 순서일 뿐 호출에는 상관없다.
+    ("put", "/api/v1/interviews/{interviewId}/review/marks/{itemId}"): {
+        "path_params": ["itemId", "interviewId"],
+        "request": {"state", "bookmarked"},
+        "response": {"itemId", "state", "bookmarked"},
+        "statuses": {"200", "401", "404"},
+    },
+    # ⚠️ Notion 명세에 없다. 모양은 #137 1-2 이고, 녹화 대신 sessionId 를 싣는다
+    # (#163). 준비 전에는 202 { status, etaSec } 다.
     ("get", "/api/v1/interviews/{interviewId}/review"): {
         "path_params": ["interviewId"],
-        "response": {"status", "etaSec"},
-        "statuses": {"202", "401", "404"},
+        "response": {
+            "status",
+            "summaryStatus",
+            "interviewId",
+            "sessionId",
+            "candidate",
+            "interviewer",
+            "interviewedAt",
+            "durationSec",
+            "reviewStatus",
+            "reviewedAt",
+            "memo",
+            "summary",
+            "coverage",
+            "moments",
+            "findings",
+        },
+        "statuses": {"200", "202", "401", "404"},
     },
     ("post", "/api/v1/interviews/{interviewId}/sessions"): {
         "path_params": ["interviewId"],

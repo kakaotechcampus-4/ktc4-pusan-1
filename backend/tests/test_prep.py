@@ -393,3 +393,20 @@ def test_the_prep_slot_opens_even_if_adding_the_session_fails(
         open_session(client, interview_id)
 
     assert store.get_prep(interview_id) is not None
+
+
+def test_a_new_resume_after_the_interview_does_not_ask_again(
+    client: TestClient, key: str, interview_id: str, store: InMemoryStore
+):
+    """검토 중에 역량 · 주장이 비면 상세의 coverage · 근거가 사라진다 (#163 결정)."""
+    session_id = open_session(client, interview_id)
+    job = pending(client, key)
+    put_prep(client, key, interview_id, result_for(job))
+    client.post(f"{V1}/sessions/{session_id}/end")
+
+    upload_resume(client, interview_id)
+
+    found = store.get_prep(interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.READY
+    assert found.competencies == PREP_RESULT["competencies"]

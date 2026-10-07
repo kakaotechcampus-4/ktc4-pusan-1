@@ -17,11 +17,14 @@ from app.domain.models import (
     ContextDoc,
     DocCategory,
     DocStatus,
+    FindingState,
     Interview,
     InterviewPrep,
     Job,
     JobKind,
     Resume,
+    ReviewMark,
+    ReviewStatus,
     Role,
     Session,
     SessionStatus,
@@ -46,6 +49,25 @@ class Store(Protocol):
         """그 면접관의 면접을 최신순으로, 마지막으로 끝난 세션과 그 요약 상태와 함께.
 
         끝난 세션이 없는 면접은 둘 다 None 이다 (#137 1-1).
+        """
+        ...
+
+    def update_review(
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
+    ) -> Interview | None:
+        """면접관의 검토를 받고 **저장된 면접**을 돌려준다. None 은 그대로 둔다.
+
+        규칙은 `Interview.update_review` 와 같다. 판정과 갱신은 한 문장이다 — 읽은
+        객체를 통째로 덮어쓰면, 메모만 보낸 요청과 확정만 보낸 요청이 겹칠 때 보내지
+        않은 값이 읽어 둔 옛 값으로 돌아간다. 없는 면접이면 None.
+        """
+        ...
+
+    def last_ended_session(self, interview_id: str) -> Session | None:
+        """그 면접에서 가장 나중에 끝난 세션. 검토 화면의 기준 세션이다 (#163).
+
+        목록(`list_interviews`)이 붙이는 세션과 같은 것이어야 목록과 상세가 어긋나지
+        않는다. 같은 시각에 끝났으면 id 가 큰 쪽이다. 끝난 세션이 없으면 None.
         """
         ...
 
@@ -187,6 +209,10 @@ class Store(Protocol):
 
         자리가 없으면 아무것도 하지 않는다. FE 는 세션보다 이력서를 먼저 올리는데,
         세션이 없으면 AI 가 읽을 컨텍스트도 없다 — 자리는 세션을 만들 때 연다.
+
+        면접이 끝났으면(끝난 세션이 있으면) 아무것도 하지 않는다(#163). 검토 중에
+        역량 · 주장이 비면 상세의 coverage · 근거가 사라진다. 「끝났는가」는 같은
+        문장에서 본다 — 종료와 이력서 업로드가 겹쳐도 뚫리지 않게.
         """
         ...
 
@@ -213,6 +239,27 @@ class Store(Protocol):
 
         세션은 그 면접의 가장 최근 것을 싣는다. 컨텍스트를 세션으로 읽기 때문이다.
         """
+        ...
+
+    # ── 검토 표시 (#163) ─────────────────────────────────
+
+    def update_mark(
+        self,
+        session_id: str,
+        item_id: str,
+        *,
+        state: FindingState | None = None,
+        bookmarked: bool | None = None,
+    ) -> ReviewMark:
+        """채택 · 북마크를 바꾸고 **저장된 표시**를 돌려준다. None 은 그대로 둔다.
+
+        한 문장 UPSERT 다. 채택과 북마크를 따로 보내는 요청이 겹쳐도 서로를 지우지
+        않는다. 행이 없으면 「제안됨 · 북마크 없음」에서 시작한다.
+        """
+        ...
+
+    def list_marks(self, session_id: str) -> list[ReviewMark]:
+        """그 세션의 표시 전부. 순서는 정하지 않는다 — 부르는 쪽이 id 로 찾는다."""
         ...
 
     # ── 사용자 ──────────────────────────────────────────
@@ -282,6 +329,8 @@ class InMemoryStore:
         self._summaries: dict[str, SessionSummary] = {}
         #: interview_id -> 면접 전 분석
         self._preps: dict[str, InterviewPrep] = {}
+        #: (session_id, item_id) -> 채택 · 북마크
+        self._marks: dict[tuple[str, str], ReviewMark] = {}
         self._users: dict[str, User] = {}
 
         #: (session_id, stage, utterance_id) -> 발화
@@ -290,7 +339,7 @@ class InMemoryStore:
         self._suggestions: dict[tuple[str, str], Suggestion] = {}
 
     def add_interview(self, interview: Interview) -> None:
-        self._interviews[interview.id] = interview
+        self._interviews[interview.id] = deepcopy(interview)
 
     def get_interview(self, interview_id: str) -> Interview | None:
         found = self._interviews.get(interview_id)
@@ -310,7 +359,7 @@ class InMemoryStore:
         )
         listed: list[tuple[Interview, Session | None, SummaryStatus | None]] = []
         for interview in mine:
-            session = self._last_ended_session(interview.id)
+            session = self.last_ended_session(interview.id)
             summary = None if session is None else self._summaries.get(session.id)
             listed.append(
                 (
@@ -321,13 +370,25 @@ class InMemoryStore:
             )
         return listed
 
-    def _last_ended_session(self, interview_id: str) -> Session | None:
+    def update_review(
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
+    ) -> Interview | None:
+        stored = self._interviews.get(interview_id)
+        if stored is None:
+            return None
+        stored.update_review(status, memo)
+        return deepcopy(stored)
+
+    def last_ended_session(self, interview_id: str) -> Session | None:
         ended = [
             s
             for s in self._sessions.values()
             if s.interview_id == interview_id and s.ended_at is not None
         ]
-        last = max(ended, key=lambda s: s.ended_at or s.created_at, default=None)
+        # 같은 시각에 끝났으면 id 가 큰 쪽 — Postgres 쿼리의 ORDER BY 와 같다.
+        last = max(
+            ended, key=lambda s: (s.ended_at or s.created_at, s.id), default=None
+        )
         return None if last is None else deepcopy(last)
 
     def add_session(self, session: Session) -> None:
@@ -478,7 +539,10 @@ class InMemoryStore:
             self._preps[prep.interview_id] = deepcopy(prep)
 
     def restart_prep(self, interview_id: str) -> None:
-        if interview_id in self._preps:
+        if (
+            interview_id in self._preps
+            and self.last_ended_session(interview_id) is None
+        ):
             self._preps[interview_id] = InterviewPrep(interview_id=interview_id)
 
     def get_prep(self, interview_id: str) -> InterviewPrep | None:
@@ -533,6 +597,28 @@ class InMemoryStore:
             and self._contexts[doc.context_id].owner_id == interviewer
             for doc, _ in self._docs.values()
         )
+
+    # ── 검토 표시 (#163) ─────────────────────────────────
+
+    def update_mark(
+        self,
+        session_id: str,
+        item_id: str,
+        *,
+        state: FindingState | None = None,
+        bookmarked: bool | None = None,
+    ) -> ReviewMark:
+        mark = self._marks.setdefault(
+            (session_id, item_id), ReviewMark(session_id=session_id, item_id=item_id)
+        )
+        if state is not None:
+            mark.state = state
+        if bookmarked is not None:
+            mark.bookmarked = bookmarked
+        return deepcopy(mark)
+
+    def list_marks(self, session_id: str) -> list[ReviewMark]:
+        return [deepcopy(m) for (sid, _), m in self._marks.items() if sid == session_id]
 
     # ── 사용자 ──────────────────────────────────────────
 
@@ -591,6 +677,7 @@ class InMemoryStore:
 
         self._summaries.clear()
         self._preps.clear()
+        self._marks.clear()
         self._users.clear()
 
         self._utterances.clear()
