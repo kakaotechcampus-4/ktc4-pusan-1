@@ -27,7 +27,6 @@ from app.domain.models import (
     FindingState,
     Interview,
     InterviewPrep,
-    ReviewMark,
     ReviewStatus,
     Session,
     SessionStatus,
@@ -131,13 +130,11 @@ def _add(
     store.save_summary(summary)
 
     for mark in candidate["marks"]:
-        store.save_mark(
-            ReviewMark(
-                session_id=session.id,
-                item_id=mark["itemId"],
-                state=FindingState(mark.get("state", FindingState.PROPOSED)),
-                bookmarked=mark.get("bookmarked", False),
-            )
+        store.update_mark(
+            session.id,
+            mark["itemId"],
+            state=None if "state" not in mark else FindingState(mark["state"]),
+            bookmarked=mark.get("bookmarked"),
         )
 
 

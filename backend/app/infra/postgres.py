@@ -112,21 +112,38 @@ class PostgresStore:
         )
         return None if row is None else self._to_interview(row)
 
-    def save_interview(self, interview: Interview) -> None:
-        with self._pool.connection() as conn:
-            conn.execute(
-                """
-                UPDATE interview
-                   SET review_status = %s, memo = %s, reviewed_at = %s
-                 WHERE id = %s
-                """,
-                (
-                    interview.review_status.value,
-                    interview.memo,
-                    interview.reviewed_at,
-                    interview.id,
-                ),
-            )
+    def update_review(
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
+    ) -> Interview | None:
+        """`Interview.update_review` 의 규칙을 한 문장으로 옮긴 것이다.
+
+        `SET` 의 식은 모두 바뀌기 전 행을 본다. 그래서 확정 시각은 「상태가 바뀔 때만」
+        을 지금 저장된 상태와 비교해 판정하고, 보내지 않은 값(NULL)은 그대로 둔다.
+        """
+        row = self._one(
+            """
+            UPDATE interview
+               SET memo = COALESCE(%(memo)s, memo),
+                   reviewed_at = CASE
+                       WHEN %(status)s::text IS NULL
+                         OR %(status)s::text = review_status THEN reviewed_at
+                       WHEN %(status)s::text = %(confirmed)s THEN %(now)s
+                       ELSE NULL
+                   END,
+                   review_status = COALESCE(%(status)s::text, review_status)
+             WHERE id = %(id)s
+         RETURNING id, interviewer_id, candidate_name, created_at,
+                   review_status, memo, reviewed_at
+            """,
+            {
+                "memo": memo,
+                "status": None if status is None else status.value,
+                "confirmed": ReviewStatus.CONFIRMED.value,
+                "now": utcnow(),
+                "id": interview_id,
+            },
+        )
+        return None if row is None else self._to_interview(row)
 
     def last_ended_session(self, interview_id: str) -> Session | None:
         row = self._one(
@@ -454,7 +471,8 @@ class PostgresStore:
             )
 
     def restart_prep(self, interview_id: str) -> None:
-        """UPDATE 라 자리가 없으면 0행이다 — 세션을 만들 때 열린다."""
+        """UPDATE 라 자리가 없으면 0행이다 — 세션을 만들 때 열린다. 끝난 면접인지도
+        같은 문장의 `WHERE` 가 본다."""
         with self._pool.connection() as conn:
             conn.execute(
                 """
@@ -466,8 +484,12 @@ class PostgresStore:
                        requested_at = %s,
                        completed_at = NULL
                  WHERE interview_id = %s
+                   AND NOT EXISTS (
+                       SELECT 1 FROM session
+                       WHERE session.interview_id = %s AND session.ended_at IS NOT NULL
+                   )
                 """,
-                (SummaryStatus.PROCESSING.value, utcnow(), interview_id),
+                (SummaryStatus.PROCESSING.value, utcnow(), interview_id, interview_id),
             )
 
     def get_prep(self, interview_id: str) -> InterviewPrep | None:
@@ -638,7 +660,7 @@ class PostgresStore:
         )
 
     def _one(
-        self, query: LiteralString, params: tuple[Any, ...]
+        self, query: LiteralString, params: tuple[Any, ...] | dict[str, Any]
     ) -> dict[str, Any] | None:
         conn: Connection[dict[str, Any]]
         with self._pool.connection() as conn:
@@ -873,18 +895,38 @@ class PostgresStore:
 
     # ── 검토 표시 (#163) ─────────────────────────────────
 
-    def save_mark(self, mark: ReviewMark) -> None:
-        with self._pool.connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO review_mark (session_id, item_id, state, bookmarked)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (session_id, item_id) DO UPDATE SET
-                    state = EXCLUDED.state,
-                    bookmarked = EXCLUDED.bookmarked
-                """,
-                (mark.session_id, mark.item_id, mark.state.value, mark.bookmarked),
+    def update_mark(
+        self,
+        session_id: str,
+        item_id: str,
+        *,
+        state: FindingState | None = None,
+        bookmarked: bool | None = None,
+    ) -> ReviewMark:
+        """한 문장 UPSERT. 보내지 않은 값(NULL)은 저장된 것, 없으면 기본값을 쓴다."""
+        row = self._one(
+            """
+            INSERT INTO review_mark (session_id, item_id, state, bookmarked)
+            VALUES (
+                %(session)s, %(item)s,
+                COALESCE(%(state)s::text, %(proposed)s),
+                COALESCE(%(bookmarked)s::boolean, false)
             )
+            ON CONFLICT (session_id, item_id) DO UPDATE SET
+                state = COALESCE(%(state)s::text, review_mark.state),
+                bookmarked = COALESCE(%(bookmarked)s::boolean, review_mark.bookmarked)
+            RETURNING session_id, item_id, state, bookmarked
+            """,
+            {
+                "session": session_id,
+                "item": item_id,
+                "state": None if state is None else state.value,
+                "proposed": FindingState.PROPOSED.value,
+                "bookmarked": bookmarked,
+            },
+        )
+        assert row is not None  # INSERT … RETURNING 은 늘 한 행이다
+        return self._to_mark(row)
 
     def list_marks(self, session_id: str) -> list[ReviewMark]:
         rows = self._all(
@@ -892,15 +934,16 @@ class PostgresStore:
             " FROM review_mark WHERE session_id = %s",
             (session_id,),
         )
-        return [
-            ReviewMark(
-                session_id=row["session_id"],
-                item_id=row["item_id"],
-                state=FindingState(row["state"]),
-                bookmarked=row["bookmarked"],
-            )
-            for row in rows
-        ]
+        return [self._to_mark(row) for row in rows]
+
+    @staticmethod
+    def _to_mark(row: dict[str, Any]) -> ReviewMark:
+        return ReviewMark(
+            session_id=row["session_id"],
+            item_id=row["item_id"],
+            state=FindingState(row["state"]),
+            bookmarked=row["bookmarked"],
+        )
 
     # ── 사용자 ──────────────────────────────────────────────
 

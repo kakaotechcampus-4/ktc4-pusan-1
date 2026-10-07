@@ -25,7 +25,6 @@ from app.domain.models import (
     Interview,
     InterviewPrep,
     Resume,
-    ReviewMark,
     Session,
     SessionSummary,
     SummaryStatus,
@@ -219,14 +218,15 @@ def update_review(
     `CONFIRMED` 가 될 때 `reviewedAt` 을 찍고 다른 상태로 돌아가면 비운다. AI 결과가
     없어도 된다 — 검토는 면접 단위다.
     """
-    # ponytail: 읽고 고쳐 쓴다. 같은 면접관이 두 탭에서 동시에 고치면 나중 것이
-    #   이긴다. 면접관이 여럿이 되면 조건부 UPDATE 로 옮긴다.
-    interview.update_review(body.review_status, body.memo)
-    store.save_interview(interview)
+    # 저장소가 한 문장으로 바꾼다. 읽어 둔 객체를 덮어쓰면 메모 자동 저장과 확정
+    # 버튼이 겹칠 때 보내지 않은 값이 옛 값으로 돌아간다.
+    updated = store.update_review(interview.id, body.review_status, body.memo)
+    if updated is None:  # 주인 검사 뒤에 지워졌다
+        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
     return ReviewUpdateResponse(
-        review_status=interview.review_status,
-        reviewed_at=interview.reviewed_at,
-        memo=interview.memo,
+        review_status=updated.review_status,
+        reviewed_at=updated.reviewed_at,
+        memo=updated.memo,
     )
 
 
@@ -366,13 +366,10 @@ def put_mark(
     if session is None or item_id not in items:
         raise ApiError(ErrorCode.NOT_FOUND, 404, "검토 항목을 찾을 수 없습니다.")
 
-    marks = {m.item_id: m for m in store.list_marks(session.id)}
-    mark = marks.get(item_id) or ReviewMark(session_id=session.id, item_id=item_id)
-    if body.state is not None:
-        mark.state = body.state
-    if body.bookmarked is not None:
-        mark.bookmarked = body.bookmarked
-    store.save_mark(mark)
+    # 보낸 것만 한 문장으로 바꾼다 — 채택과 북마크가 겹쳐도 서로를 지우지 않는다.
+    mark = store.update_mark(
+        session.id, item_id, state=body.state, bookmarked=body.bookmarked
+    )
     return MarkResponse(item_id=item_id, state=mark.state, bookmarked=mark.bookmarked)
 
 
@@ -420,10 +417,8 @@ async def upload_resume(
     # 새 이력서로 면접 전 분석을 다시 돌린다(#162). 세션을 만들기 전이면 자리가 없어
     # 아무 일도 없고, 세션을 만들 때 열린다. 본문 추출이 끝나야 작업이 나간다.
     #
-    # 면접이 끝났으면 돌리지 않는다(#163). 다시 돌리면 검토 중에 역량 · 주장이
-    # 비워져 상세의 coverage · 근거가 사라진다.
-    if await run_in_threadpool(store.last_ended_session, interview.id) is None:
-        await run_in_threadpool(store.restart_prep, interview.id)
+    # 면접이 끝났으면 돌리지 않는다(#163). 그 판정은 저장소가 같은 문장에서 한다.
+    await run_in_threadpool(store.restart_prep, interview.id)
     background.add_task(
         lambda: store.finish_resume(
             interview.id, resume.id, parser.extract_text(resume.name, content)

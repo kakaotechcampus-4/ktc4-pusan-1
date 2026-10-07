@@ -17,12 +17,14 @@ from app.domain.models import (
     ContextDoc,
     DocCategory,
     DocStatus,
+    FindingState,
     Interview,
     InterviewPrep,
     Job,
     JobKind,
     Resume,
     ReviewMark,
+    ReviewStatus,
     Role,
     Session,
     SessionStatus,
@@ -50,10 +52,14 @@ class Store(Protocol):
         """
         ...
 
-    def save_interview(self, interview: Interview) -> None:
-        """검토 상태 · 메모 · 확정 시각을 저장한다. 나머지 열은 바뀌지 않는다.
+    def update_review(
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
+    ) -> Interview | None:
+        """면접관의 검토를 받고 **저장된 면접**을 돌려준다. None 은 그대로 둔다.
 
-        없는 면접은 쓰지 않는다 — 추가는 `add_interview` 다.
+        규칙은 `Interview.update_review` 와 같다. 판정과 갱신은 한 문장이다 — 읽은
+        객체를 통째로 덮어쓰면, 메모만 보낸 요청과 확정만 보낸 요청이 겹칠 때 보내지
+        않은 값이 읽어 둔 옛 값으로 돌아간다. 없는 면접이면 None.
         """
         ...
 
@@ -203,6 +209,10 @@ class Store(Protocol):
 
         자리가 없으면 아무것도 하지 않는다. FE 는 세션보다 이력서를 먼저 올리는데,
         세션이 없으면 AI 가 읽을 컨텍스트도 없다 — 자리는 세션을 만들 때 연다.
+
+        면접이 끝났으면(끝난 세션이 있으면) 아무것도 하지 않는다(#163). 검토 중에
+        역량 · 주장이 비면 상세의 coverage · 근거가 사라진다. 「끝났는가」는 같은
+        문장에서 본다 — 종료와 이력서 업로드가 겹쳐도 뚫리지 않게.
         """
         ...
 
@@ -233,8 +243,19 @@ class Store(Protocol):
 
     # ── 검토 표시 (#163) ─────────────────────────────────
 
-    def save_mark(self, mark: ReviewMark) -> None:
-        """채택 · 북마크를 저장한다. 같은 `(session_id, item_id)` 면 덮어쓴다."""
+    def update_mark(
+        self,
+        session_id: str,
+        item_id: str,
+        *,
+        state: FindingState | None = None,
+        bookmarked: bool | None = None,
+    ) -> ReviewMark:
+        """채택 · 북마크를 바꾸고 **저장된 표시**를 돌려준다. None 은 그대로 둔다.
+
+        한 문장 UPSERT 다. 채택과 북마크를 따로 보내는 요청이 겹쳐도 서로를 지우지
+        않는다. 행이 없으면 「제안됨 · 북마크 없음」에서 시작한다.
+        """
         ...
 
     def list_marks(self, session_id: str) -> list[ReviewMark]:
@@ -349,13 +370,14 @@ class InMemoryStore:
             )
         return listed
 
-    def save_interview(self, interview: Interview) -> None:
-        stored = self._interviews.get(interview.id)
+    def update_review(
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
+    ) -> Interview | None:
+        stored = self._interviews.get(interview_id)
         if stored is None:
-            return
-        stored.review_status = interview.review_status
-        stored.memo = interview.memo
-        stored.reviewed_at = interview.reviewed_at
+            return None
+        stored.update_review(status, memo)
+        return deepcopy(stored)
 
     def last_ended_session(self, interview_id: str) -> Session | None:
         ended = [
@@ -514,7 +536,10 @@ class InMemoryStore:
             self._preps[prep.interview_id] = deepcopy(prep)
 
     def restart_prep(self, interview_id: str) -> None:
-        if interview_id in self._preps:
+        if (
+            interview_id in self._preps
+            and self.last_ended_session(interview_id) is None
+        ):
             self._preps[interview_id] = InterviewPrep(interview_id=interview_id)
 
     def get_prep(self, interview_id: str) -> InterviewPrep | None:
@@ -572,8 +597,22 @@ class InMemoryStore:
 
     # ── 검토 표시 (#163) ─────────────────────────────────
 
-    def save_mark(self, mark: ReviewMark) -> None:
-        self._marks[(mark.session_id, mark.item_id)] = deepcopy(mark)
+    def update_mark(
+        self,
+        session_id: str,
+        item_id: str,
+        *,
+        state: FindingState | None = None,
+        bookmarked: bool | None = None,
+    ) -> ReviewMark:
+        mark = self._marks.setdefault(
+            (session_id, item_id), ReviewMark(session_id=session_id, item_id=item_id)
+        )
+        if state is not None:
+            mark.state = state
+        if bookmarked is not None:
+            mark.bookmarked = bookmarked
+        return deepcopy(mark)
 
     def list_marks(self, session_id: str) -> list[ReviewMark]:
         return [deepcopy(m) for (sid, _), m in self._marks.items() if sid == session_id]

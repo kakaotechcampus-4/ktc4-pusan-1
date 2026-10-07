@@ -1264,6 +1264,22 @@ def test_restarting_prep_without_a_slot_does_nothing(subject: Store):
     assert subject.get_prep(interview.id) is None
 
 
+def test_restarting_prep_after_the_interview_ended_does_nothing(subject: Store):
+    """끝난 면접의 역량 · 주장을 비우면 검토 상세의 coverage · 근거가 사라진다(#163).
+    「끝났는가」를 같은 문장에서 본다 — 종료와 이력서 업로드가 겹쳐도 뚫리지 않게."""
+    session = _seed(subject)
+    subject.finish_prep(_ready(_opened(subject, session)))
+    session.end()
+    subject.save_session(session)
+
+    subject.restart_prep(session.interview_id)
+
+    found = subject.get_prep(session.interview_id)
+    assert found is not None
+    assert found.status is SummaryStatus.READY
+    assert found.competencies == [COMPETENCY]
+
+
 def test_next_prep_hands_out_the_oldest_request(subject: Store):
     one = _seed(subject)
     two = _seed(subject)
@@ -1417,29 +1433,51 @@ def test_new_interview_waits_for_review(subject: Store):
     )
 
 
-def test_saving_an_interview_keeps_its_review(subject: Store):
+def test_a_review_update_changes_only_what_was_sent(subject: Store):
+    """한 문장으로 바꾼다 — 메모만 보낸 요청과 확정만 보낸 요청이 겹쳐도 서로를
+    되돌리지 않는다. 읽어 둔 객체를 통째로 덮어쓰면 보내지 않은 값이 옛 값으로
+    돌아간다(ACID 감사에서 재현)."""
     interview = Interview(interviewer_id="usr_a")
     subject.add_interview(interview)
-    interview.review_status = ReviewStatus.CONFIRMED
-    interview.memo = "기여 범위를 다음 면접에서 확인할 것."
-    interview.reviewed_at = utcnow()
 
-    subject.save_interview(interview)
+    confirmed = subject.update_review(interview.id, ReviewStatus.CONFIRMED, None)
+    noted = subject.update_review(interview.id, None, "기여 범위를 확인할 것.")
 
-    found = subject.get_interview(interview.id)
-    assert found is not None
-    assert (found.review_status, found.memo, found.reviewed_at) == (
+    assert confirmed is not None and noted is not None
+    assert confirmed.reviewed_at is not None
+    assert (noted.review_status, noted.memo, noted.reviewed_at) == (
         ReviewStatus.CONFIRMED,
-        "기여 범위를 다음 면접에서 확인할 것.",
-        interview.reviewed_at,
+        "기여 범위를 확인할 것.",
+        confirmed.reviewed_at,
     )
     [(listed, _, _)] = subject.list_interviews("usr_a")
-    assert (listed.review_status, listed.memo) == (ReviewStatus.CONFIRMED, found.memo)
+    assert (listed.review_status, listed.memo) == (ReviewStatus.CONFIRMED, noted.memo)
 
 
-def test_saving_an_unknown_interview_creates_nothing(subject: Store):
-    subject.save_interview(Interview(interviewer_id="usr_a"))
+def test_confirming_again_keeps_the_first_confirmation(subject: Store):
+    interview = Interview(interviewer_id="usr_a")
+    subject.add_interview(interview)
+    first = subject.update_review(interview.id, ReviewStatus.CONFIRMED, None)
 
+    again = subject.update_review(interview.id, ReviewStatus.CONFIRMED, "덧붙임")
+
+    assert first is not None and again is not None
+    assert again.reviewed_at == first.reviewed_at
+
+
+def test_leaving_confirmed_clears_the_confirmation(subject: Store):
+    interview = Interview(interviewer_id="usr_a")
+    subject.add_interview(interview)
+    subject.update_review(interview.id, ReviewStatus.CONFIRMED, None)
+
+    back = subject.update_review(interview.id, ReviewStatus.IN_REVIEW, None)
+
+    assert back is not None
+    assert (back.review_status, back.reviewed_at) == (ReviewStatus.IN_REVIEW, None)
+
+
+def test_updating_an_unknown_interview_creates_nothing(subject: Store):
+    assert subject.update_review("int_nope", ReviewStatus.CONFIRMED, "메모") is None
     assert subject.list_interviews("usr_a") == []
 
 
@@ -1493,12 +1531,14 @@ def test_giving_up_empties_the_analysis(subject: Store):
 
 def test_mark_roundtrip(subject: Store):
     session = _seed(subject)
-    mark = ReviewMark(
-        session_id=session.id, item_id=FINDING["findingId"], state=FindingState.ADOPTED
+
+    mark = subject.update_mark(
+        session.id, FINDING["findingId"], state=FindingState.ADOPTED
     )
 
-    subject.save_mark(mark)
-
+    assert mark == ReviewMark(
+        session_id=session.id, item_id=FINDING["findingId"], state=FindingState.ADOPTED
+    )
     assert subject.list_marks(session.id) == [mark]
 
 
@@ -1508,20 +1548,21 @@ def test_a_new_mark_is_proposed_and_not_bookmarked():
     assert (mark.state, mark.bookmarked) == (FindingState.PROPOSED, False)
 
 
-def test_saving_a_mark_again_replaces_it(subject: Store):
+def test_updating_a_mark_keeps_the_field_not_sent(subject: Store):
+    """채택과 북마크를 따로 보내도 서로를 지우지 않는다 — 한 문장 UPSERT 다."""
     session = _seed(subject)
-    subject.save_mark(ReviewMark(session_id=session.id, item_id="mom_x"))
+    subject.update_mark(session.id, "mom_x", state=FindingState.ADOPTED)
 
-    again = ReviewMark(session_id=session.id, item_id="mom_x", bookmarked=True)
-    subject.save_mark(again)
+    mark = subject.update_mark(session.id, "mom_x", bookmarked=True)
 
-    assert subject.list_marks(session.id) == [again]
+    assert (mark.state, mark.bookmarked) == (FindingState.ADOPTED, True)
+    assert subject.list_marks(session.id) == [mark]
 
 
 def test_marks_do_not_leak_between_sessions(subject: Store):
     one = _seed(subject)
     two = _seed(subject)
-    subject.save_mark(ReviewMark(session_id=one.id, item_id="mom_x"))
+    subject.update_mark(one.id, "mom_x", bookmarked=True)
 
     assert subject.list_marks(two.id) == []
 
@@ -1546,7 +1587,7 @@ def test_deleting_the_interview_takes_its_transcript_and_suggestions():
         subject.upsert_utterance(_utterance(session))
         subject.add_suggestion(_suggestion(session))
         _opened(subject, session)
-        subject.save_mark(ReviewMark(session_id=session.id, item_id="mom_x"))
+        subject.update_mark(session.id, "mom_x", bookmarked=True)
 
         with subject._pool.connection() as conn:  # pyright: ignore[reportPrivateUsage]
             conn.execute("DELETE FROM interview WHERE id = %s", (session.interview_id,))

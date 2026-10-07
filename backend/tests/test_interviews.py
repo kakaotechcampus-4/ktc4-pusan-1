@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.domain.models import (
     FindingState,
-    ReviewMark,
     ReviewStatus,
     SummaryStatus,
     User,
@@ -190,17 +189,12 @@ def test_a_ready_row_counts_like_the_detail(client: TestClient, store: InMemoryS
     session_id = _ended(client, interview_id)
     _prepared(store, interview_id)
     _analysed(store, session_id)
-    store.save_mark(
-        ReviewMark(
-            session_id,
-            DEMO["review"]["findings"][0]["findingId"],
-            state=FindingState.ADOPTED,
-        )
+    store.update_mark(
+        session_id,
+        DEMO["review"]["findings"][0]["findingId"],
+        state=FindingState.ADOPTED,
     )
-    interview = store.get_interview(interview_id)
-    assert interview is not None
-    interview.review_status = ReviewStatus.IN_REVIEW
-    store.save_interview(interview)
+    store.update_review(interview_id, ReviewStatus.IN_REVIEW, None)
 
     [item] = client.get("/api/v1/interviews").json()["items"]
 

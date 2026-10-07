@@ -23,7 +23,6 @@ from app.domain.models import (
     Context,
     FindingState,
     InterviewPrep,
-    ReviewMark,
     SummaryStatus,
     User,
 )
@@ -126,7 +125,7 @@ def test_a_ready_review_carries_the_computed_parts(
     session_id = _ended_session(client, interview_id)
     _prepared(store, interview_id)
     _analysed(store, session_id)
-    store.save_mark(ReviewMark(session_id, "mom_qa_utt_TR_a_0007", bookmarked=True))
+    store.update_mark(session_id, "mom_qa_utt_TR_a_0007", bookmarked=True)
 
     response = get_review(client, interview_id)
 
@@ -190,7 +189,7 @@ def test_a_failed_summary_still_opens_with_an_empty_analysis(
     session_id = _ended_session(client, interview_id)
     _prepared(store, interview_id)
     store.fail_summary(session_id)
-    store.save_mark(ReviewMark(session_id, "fnd_x", state=FindingState.ADOPTED))
+    store.update_mark(session_id, "fnd_x", state=FindingState.ADOPTED)
 
     response = get_review(client, interview_id)
 
