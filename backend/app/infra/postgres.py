@@ -25,6 +25,9 @@ from app.domain.models import (
     DocKind,
     DocStatus,
     Interview,
+    InterviewPrep,
+    Job,
+    JobKind,
     Resume,
     Role,
     Session,
@@ -368,6 +371,173 @@ class PostgresStore:
         # 한도를 안 넘겼거나 누가 먼저 끝냈다. 지금 값을 그대로 준다.
         return self.get_summary(session_id)
 
+    # ── 면접 전 분석 (#162) ─────────────────────────────────
+
+    def ensure_prep(self, prep: InterviewPrep) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO interview_prep (
+                    interview_id, status, competencies, resume_claims, model,
+                    requested_at, completed_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (interview_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    competencies = EXCLUDED.competencies,
+                    resume_claims = EXCLUDED.resume_claims,
+                    model = EXCLUDED.model,
+                    requested_at = EXCLUDED.requested_at,
+                    completed_at = EXCLUDED.completed_at
+                WHERE interview_prep.status = %s
+                """,
+                (
+                    prep.interview_id,
+                    prep.status.value,
+                    Jsonb(prep.competencies),
+                    Jsonb(prep.resume_claims),
+                    prep.model,
+                    prep.requested_at,
+                    prep.completed_at,
+                    SummaryStatus.FAILED.value,
+                ),
+            )
+
+    def restart_prep(self, interview_id: str) -> None:
+        """UPDATE 라 자리가 없으면 0행이다 — 세션을 만들 때 열린다."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE interview_prep
+                   SET status = %s,
+                       competencies = '[]'::jsonb,
+                       resume_claims = '[]'::jsonb,
+                       model = '',
+                       requested_at = %s,
+                       completed_at = NULL
+                 WHERE interview_id = %s
+                """,
+                (SummaryStatus.PROCESSING.value, utcnow(), interview_id),
+            )
+
+    def get_prep(self, interview_id: str) -> InterviewPrep | None:
+        row = self._one(
+            """
+            SELECT interview_id, status, competencies, resume_claims, model,
+                   requested_at, completed_at
+            FROM interview_prep WHERE interview_id = %s
+            """,
+            (interview_id,),
+        )
+        if row is None:
+            return None
+        return InterviewPrep(
+            interview_id=row["interview_id"],
+            status=SummaryStatus(row["status"]),
+            competencies=list(row["competencies"]),
+            resume_claims=list(row["resume_claims"]),
+            model=row["model"],
+            requested_at=row["requested_at"],
+            completed_at=row["completed_at"],
+        )
+
+    def finish_prep(self, prep: InterviewPrep) -> bool:
+        """요청 시각 대조와 「FAILED 는 READY 를 덮지 않는다」가 `WHERE` 안에 있다."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE interview_prep
+                   SET status = %s,
+                       competencies = %s,
+                       resume_claims = %s,
+                       model = %s,
+                       completed_at = %s
+                 WHERE interview_id = %s
+                   AND requested_at = %s
+                   AND NOT (%s = %s AND status = %s)
+                """,
+                (
+                    prep.status.value,
+                    Jsonb(prep.competencies),
+                    Jsonb(prep.resume_claims),
+                    prep.model,
+                    prep.completed_at,
+                    prep.interview_id,
+                    prep.requested_at,
+                    prep.status.value,
+                    SummaryStatus.FAILED.value,
+                    SummaryStatus.READY.value,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def next_prep(self, limit: timedelta, parse_limit: timedelta) -> Job | None:
+        """만료 UPDATE 한 번, 고르는 SELECT 한 번이다.
+
+        시각은 `expire_summary` 처럼 앱이 찍는다. 「추출 중」은 `shown_status` 와 같은
+        판정이다 — PARSING 이고 한도 안에 올라온 문서.
+        """
+        moment = utcnow()
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE interview_prep
+                   SET status = %s, completed_at = %s
+                 WHERE status = %s AND requested_at < %s
+                """,
+                (
+                    SummaryStatus.FAILED.value,
+                    moment,
+                    SummaryStatus.PROCESSING.value,
+                    moment - limit,
+                ),
+            )
+        reading_since = moment - parse_limit
+        row = self._one(
+            """
+            SELECT p.interview_id, p.requested_at, s.id AS session_id
+            FROM interview_prep p
+            JOIN interview i ON i.id = p.interview_id
+            JOIN LATERAL (
+                SELECT id FROM session
+                WHERE session.interview_id = p.interview_id
+                ORDER BY session.created_at DESC
+                LIMIT 1
+            ) s ON TRUE
+            WHERE p.status = %s
+              AND NOT EXISTS (
+                  SELECT 1 FROM interview_resume r
+                  WHERE r.interview_id = p.interview_id
+                    AND r.status = %s AND r.created_at >= %s
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM context c
+                  JOIN context_doc d ON d.context_id = c.id
+                  WHERE c.owner_id = i.interviewer_id
+                    AND d.category = %s
+                    AND d.status = %s AND d.created_at >= %s
+              )
+            ORDER BY p.requested_at
+            LIMIT 1
+            """,
+            (
+                SummaryStatus.PROCESSING.value,
+                DocStatus.PARSING.value,
+                reading_since,
+                DocCategory.JD.value,
+                DocStatus.PARSING.value,
+                reading_since,
+            ),
+        )
+        if row is None:
+            return None
+        return Job(
+            kind=JobKind.PREP,
+            session_id=row["session_id"],
+            interview_id=row["interview_id"],
+            requested_at=row["requested_at"],
+        )
+
     # ── 내부 ────────────────────────────────────────────────
 
     @staticmethod
@@ -692,14 +862,16 @@ class PostgresStore:
                 """
                 INSERT INTO utterance (
                     session_id, stage, utterance_id,
-                    speaker, text, started_at_ms, ended_at_ms
+                    speaker, text, started_at_ms, ended_at_ms, track_id, seq
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id, stage, utterance_id) DO UPDATE SET
                     speaker = EXCLUDED.speaker,
                     text = EXCLUDED.text,
                     started_at_ms = EXCLUDED.started_at_ms,
-                    ended_at_ms = EXCLUDED.ended_at_ms
+                    ended_at_ms = EXCLUDED.ended_at_ms,
+                    track_id = EXCLUDED.track_id,
+                    seq = EXCLUDED.seq
                 """,
                 (
                     utterance.session_id,
@@ -709,6 +881,8 @@ class PostgresStore:
                     utterance.text,
                     utterance.started_at_ms,
                     utterance.ended_at_ms,
+                    utterance.track_id,
+                    utterance.seq,
                 ),
             )
 
@@ -718,7 +892,7 @@ class PostgresStore:
         rows = self._all(
             """
             SELECT session_id, stage, utterance_id,
-                   speaker, text, started_at_ms, ended_at_ms
+                   speaker, text, started_at_ms, ended_at_ms, track_id, seq
             FROM utterance
             WHERE session_id = %s AND stage = %s
             ORDER BY started_at_ms,
@@ -736,6 +910,8 @@ class PostgresStore:
                 started_at_ms=row["started_at_ms"],
                 ended_at_ms=row["ended_at_ms"],
                 stage=TranscriptStage(row["stage"]),
+                track_id=row["track_id"],
+                seq=row["seq"],
             )
             for row in rows
         ]

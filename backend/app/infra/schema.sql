@@ -4,8 +4,6 @@
 -- 것이라 `CREATE TABLE IF NOT EXISTS` 로 따라붙고, 기존 테이블에 컬럼을 더할
 -- 때는 `ALTER ... ADD COLUMN IF NOT EXISTS` 로 버틴다 (session 의 원점이 그렇다).
 -- 컬럼의 **타입이나 키를 바꿔야** 할 때가 오면 그때 Alembic 을 넣는다.
--- 처음 닿을 자리는 전사에 seq 를 필수 컬럼으로 넣을 때다 (#76 ①). 보내는 쪽이
--- 붙기 전까지 utterance · suggestion 계열은 비어 있어서 지우고 다시 만들어도 된다.
 -- ⚠️ `CREATE INDEX IF NOT EXISTS` 는 이름이 같으면 정의를 바꿔도 기존 DB 에
 -- 반영되지 않는다. 인덱스를 고칠 때는 이름도 바꾼다.
 --
@@ -123,6 +121,24 @@ CREATE TABLE IF NOT EXISTS session_summary (
     completed_at TIMESTAMPTZ
 );
 
+-- 면접 전 분석 (#162) — JD 의 역량과 이력서의 주장. 면접 하나에 하나라 interview_id
+-- 가 그대로 PK 다. 세션을 만들 때 PROCESSING 으로 열고(FAILED 면 다시), 이력서를 다시
+-- 올리면 비우고 다시 연다. AI 폴러가 `PUT /internal/v1/interviews/{id}/prep` 로 써 넣으면 READY 다.
+--
+-- 역량 · 주장은 AI 의 Competency · ResumeClaim 을 camelCase JSON 그대로 둔다. BE 는
+-- id 로 조인만 한다. requested_at 은 결과가 어느 요청의 것인지 가리는 값이라, 다시
+-- 열 때마다 바뀐다 — 그 사이 늦게 온 옛 결과를 거절한다.
+CREATE TABLE IF NOT EXISTS interview_prep (
+    interview_id   TEXT        PRIMARY KEY REFERENCES interview (id) ON DELETE CASCADE,
+    -- SummaryStatus. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+    status         TEXT        NOT NULL,
+    competencies   JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    resume_claims  JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    model          TEXT        NOT NULL DEFAULT '',
+    requested_at   TIMESTAMPTZ NOT NULL,
+    completed_at   TIMESTAMPTZ
+);
+
 -- ── 사용자 ──────────────────────────────────────────────
 --
 -- 카카오 로그인으로 들어온 면접관 (#118). `user` 는 예약어라 app_user 다.
@@ -170,9 +186,14 @@ CREATE TABLE IF NOT EXISTS utterance (
     PRIMARY KEY (session_id, stage, utterance_id)
 );
 
+-- 트랙과 순번 (#137 2-1). PR #158 부터 Agent 가 보낸다. 면접 후 분석이 저장된 전사로
+-- AI 의 TranscriptSnapshot 을 다시 만들 때 쓴다. 그 전에 받은 행은 비어 있다.
+ALTER TABLE utterance ADD COLUMN IF NOT EXISTS track_id TEXT;
+ALTER TABLE utterance ADD COLUMN IF NOT EXISTS seq BIGINT;
+
 -- 말한 순서대로 읽는다. 같은 ms 면 면접관이 먼저, 그다음 id 순이다 — 질문이
--- 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. seq 가 전송 페이로드에 아직 없어서
--- (#76 ①) 여기서 정한다. 같은 ms 는 드물어 그 자리는 인덱스를 안 탄다.
+-- 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. seq 는 그 전에 받은 행이 비어 있어
+-- 순서에 쓰지 않는다. 같은 ms 는 드물어 그 자리는 인덱스를 안 탄다.
 CREATE INDEX IF NOT EXISTS utterance_order_idx
     ON utterance (session_id, stage, started_at_ms, utterance_id);
 
