@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app import seed_demo
 from app.core.config import settings
-from app.domain.models import Context, User
+from app.domain.models import Context, SessionSummary, SummaryStatus, User
 from app.domain.store import InMemoryStore
 from app.seed_demo import seed
 
@@ -83,3 +83,32 @@ def test_without_a_database_it_does_not_pretend(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(settings, "database_url", "")
 
     assert seed_demo.main(["--owner", "usr_x"]) == 1
+
+
+def test_a_seed_that_died_halfway_is_finished_by_the_next_run(
+    store: InMemoryStore, owner: User, monkeypatch: pytest.MonkeyPatch
+):
+    """쓰기가 여러 번이라 중간에 죽으면 반쪽 면접이 남는다. 다시 돌리면 마저 채운다
+    — 「면접이 있으면 건너뜀」이면 그 면접은 영원히 반쪽이다(ACID 감사에서 재현)."""
+    save_summary = store.save_summary
+    calls = 0
+
+    def dies_once(summary: SessionSummary) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("시드 도중 실패")
+        save_summary(summary)
+
+    monkeypatch.setattr(store, "save_summary", dies_once)
+    with pytest.raises(RuntimeError):
+        seed(store, owner.id)
+    monkeypatch.setattr(store, "save_summary", save_summary)
+
+    assert seed(store, owner.id) == 4
+    statuses = [
+        store.get_summary(session.id)
+        for _, session, _ in store.list_interviews(owner.id)
+        if session is not None
+    ]
+    assert [s.status for s in statuses if s is not None] == [SummaryStatus.READY] * 5
