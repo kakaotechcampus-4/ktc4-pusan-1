@@ -164,6 +164,8 @@ log "FE"
 # 올려 두었다. 같은 방식으로 SHA 를 구해 받아 온다 (#103). caddy 는
 # /home/ubuntu/fe 를 바인드 마운트로 읽으니 컨테이너는 건드리지 않는다.
 FRONTEND_SHA=$(git -C "$REPO" log -1 --format=%H -- frontend)
+# 버킷 이름은 cd.yml 과 같은 파일에서 읽는다.
+FE_BUCKET=$(cat "$REPO/infra/s3-bucket")
 FE_DIR=/home/ubuntu/fe
 if grep -qF "\"$FRONTEND_SHA\"" "$FE_DIR/version.json" 2>/dev/null; then
 	echo "  이미 ${FRONTEND_SHA::7} — 건너뜀"
@@ -174,7 +176,7 @@ else
 	# --user: root 로 받으면 하위 폴더가 root 소유가 되어 아래 rm 이 못 지운다.
 	if docker run --rm --network host --user "$(id -u):$(id -g)" -e HOME=/tmp \
 		-v "$FE_TMP:/fe" amazon/aws-cli:2.37.9 \
-		s3 cp "s3://ktc4-pusan-1-irya/fe/$FRONTEND_SHA/" /fe/ \
+		s3 cp "s3://$FE_BUCKET/fe/$FRONTEND_SHA/" /fe/ \
 		--recursive --region ap-northeast-2 --only-show-errors < /dev/null \
 		&& [ -f "$FE_TMP/version.json" ]; then
 		# 에셋 → index.html → version.json 순서로 바꾼다. 새 index.html 이 아직 없는

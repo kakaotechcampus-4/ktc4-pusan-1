@@ -43,10 +43,6 @@ concurrency:
   group: cd-server
   cancel-in-progress: false
 
-env:
-  # FE 빌드를 CI 와 서버 사이에 넘기는 자리 (#103). infra/deploy.sh 도 같은 값을 쓴다.
-  FE_BUCKET: ktc4-pusan-1-irya
-
 jobs:
   # FE 는 서버가 아니라 여기서 빌드한다 — 서버에는 node 가 없고, 서버 빌드는
   # 진행 중인 면접과 CPU(vCPU 2)를 나눠 쓴다. 결과는 S3 fe/<FRONTEND_SHA>/ 에
@@ -69,6 +65,13 @@ jobs:
       - name: FRONTEND_SHA
         id: sha
         run: echo "sha=$(git log -1 --format=%H -- frontend)" >> "$GITHUB_OUTPUT"
+
+      # FE 빌드를 CI 와 서버 사이에 넘기는 버킷 (#103). 서버의 deploy.sh 도 같은
+      # 파일을 읽는다 — 이름을 두 곳에 적어 두면 한쪽만 고치는 실수가 난다.
+      - name: FE 버킷
+        run: |
+          bucket=$(cat infra/s3-bucket)
+          echo "FE_BUCKET=$bucket" >> "$GITHUB_ENV"
 
       - name: AWS 자격 획득 (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
