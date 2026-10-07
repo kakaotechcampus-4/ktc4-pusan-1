@@ -1502,6 +1502,30 @@ def test_last_ended_session_is_the_latest_to_end(subject: Store):
     assert found.id == last.id
 
 
+def test_sessions_ending_at_the_same_moment_pick_the_same_one(subject: Store):
+    """목록과 상세가 같은 세션을 고르도록 동점도 순서를 정해 둔다."""
+    interview = Interview(interviewer_id="usr_a")
+    subject.add_interview(interview)
+    at = utcnow()
+    tied = [
+        Session(
+            id=f"ses_{n}",
+            interview_id=interview.id,
+            status=SessionStatus.ENDED,
+            ended_at=at,
+        )
+        for n in ("a", "c", "b")
+    ]
+    for session in tied:
+        subject.add_session(session)
+
+    found = subject.last_ended_session(interview.id)
+    [(_, listed, _)] = subject.list_interviews("usr_a")
+
+    assert found is not None and listed is not None
+    assert found.id == listed.id == "ses_c"
+
+
 def test_an_interview_never_ended_has_no_last_session(subject: Store):
     session = _seed(subject)
 
@@ -1521,7 +1545,7 @@ def test_summary_keeps_moments_and_findings(subject: Store):
     assert (found.moments, found.findings) == ([MOMENT], [FINDING])
 
 
-def test_giving_up_empties_the_analysis(subject: Store):
+def test_giving_up_empties_the_analysis():
     summary = SessionSummary(session_id="ses_x", moments=[MOMENT], findings=[FINDING])
 
     summary.give_up()

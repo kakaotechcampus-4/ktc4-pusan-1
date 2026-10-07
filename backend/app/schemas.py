@@ -9,10 +9,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.models import (
+    CoverageState,
     DocCategory,
     DocKind,
     DocStatus,
     FindingState,
+    FindingType,
     ReviewStatus,
     Role,
     SessionStatus,
@@ -50,6 +52,18 @@ class InterviewerSummary(Schema):
     nickname: str
 
 
+class ReviewCounts(Schema):
+    """목록 한 줄의 집계. 상세와 같은 계산(`app/services/review.py`)에서 나온다."""
+
+    coverage_confirmed: int = Field(alias="coverageConfirmed")
+    coverage_total: int = Field(alias="coverageTotal")
+    findings: int
+    needs_review: int = Field(
+        alias="needsReview", description="아직 채택도 반려도 안 한 검토 항목"
+    )
+    adopted: int
+
+
 class InterviewListItem(Schema):
     """`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다 (#137 1-1).
 
@@ -71,21 +85,9 @@ class InterviewListItem(Schema):
         serialization_alias="summaryStatus",
         description="한도를 넘긴 PROCESSING 은 FAILED 로 보인다(저장값은 그대로).",
     )
-    counts: "ReviewCounts | None" = Field(
+    counts: ReviewCounts | None = Field(
         description="검토 항목 집계. 요약이 READY 가 아니면 null 이다 (#137 1-1)."
     )
-
-
-class ReviewCounts(Schema):
-    """목록 한 줄의 집계. 상세와 같은 계산(`app/services/review.py`)에서 나온다."""
-
-    coverage_confirmed: int = Field(alias="coverageConfirmed")
-    coverage_total: int = Field(alias="coverageTotal")
-    findings: int
-    needs_review: int = Field(
-        alias="needsReview", description="아직 채택도 반려도 안 한 검토 항목"
-    )
-    adopted: int
 
 
 class InterviewListResponse(Schema):
@@ -172,6 +174,19 @@ class JoinResponse(Schema):
 # 그 id 로 녹화 API 를 부른다 (#163). 계산 규칙은 `app/services/review.py`.
 
 
+class SummaryContent(Schema):
+    """요약 본문. `status` 가 READY 일 때만 찬다.
+
+    모양은 FE 가 화면에 이미 그려 둔 것(`InterviewSummary['content']`)이고,
+    AI 쪽 `SummaryResult` 의 `summary` · `keyPoints` 와 그대로 맞는다.
+    """
+
+    overview: str = Field(description="면접 전체를 한 문단으로.")
+    key_points: list[str] = Field(
+        serialization_alias="keyPoints", description="지원자 답변에서 뽑은 핵심."
+    )
+
+
 class ReviewCandidate(Schema):
     name: str | None = Field(description="비어 있으면 FE 가 기본 라벨로 대체한다.")
     role: str = Field(description="컨텍스트의 직무. 아직 안 정했으면 빈 문자열.")
@@ -179,7 +194,7 @@ class ReviewCandidate(Schema):
 
 class ReviewCoverage(Schema):
     name: str = Field(description="역량 이름")
-    state: Literal["CONFIRMED", "PARTIAL", "MISSING"]
+    state: CoverageState
 
 
 class ReviewMoment(Schema):
@@ -201,13 +216,7 @@ class ReviewFinding(Schema):
     """검토 항목 하나 — AI 가 근거와 함께 낸 관찰. 판정이 아니다."""
 
     id: str
-    type: Literal[
-        "COMPETENCY_EVIDENCE",
-        "CLAIM_VERIFIED",
-        "CLAIM_CONTRADICTED",
-        "CLAIM_UNVERIFIED",
-        "GAP",
-    ]
+    type: FindingType
     competency: str | None
     source: str | None = Field(description="「지원서 · 단락」 또는 「면접 답변」")
     quote: str | None = Field(description="지원서의 문장")
@@ -225,7 +234,8 @@ class ReviewResponse(Schema):
     있어야 한다 (#163).
     """
 
-    status: Literal["READY"] = "READY"
+    # 기본값을 두지 않는다 — 두면 OpenAPI 에서 판별 필드가 선택으로 보인다.
+    status: Literal["READY"]
     summary_status: Literal["READY", "FAILED"] = Field(
         serialization_alias="summaryStatus"
     )
@@ -241,7 +251,7 @@ class ReviewResponse(Schema):
     review_status: ReviewStatus = Field(serialization_alias="reviewStatus")
     reviewed_at: datetime | None = Field(serialization_alias="reviewedAt")
     memo: str
-    summary: "SummaryContent | None"
+    summary: SummaryContent | None
     coverage: list[ReviewCoverage]
     moments: list[ReviewMoment]
     findings: list[ReviewFinding]
@@ -300,19 +310,6 @@ class ReviewProcessingResponse(Schema):
         default=None,
         serialization_alias="etaSec",
         description="남은 예상 시간. 추정할 근거가 없으면 비운다.",
-    )
-
-
-class SummaryContent(Schema):
-    """요약 본문. `status` 가 READY 일 때만 찬다.
-
-    모양은 FE 가 화면에 이미 그려 둔 것(`InterviewSummary['content']`)이고,
-    AI 쪽 `SummaryResult` 의 `summary` · `keyPoints` 와 그대로 맞는다.
-    """
-
-    overview: str = Field(description="면접 전체를 한 문단으로.")
-    key_points: list[str] = Field(
-        serialization_alias="keyPoints", description="지원자 답변에서 뽑은 핵심."
     )
 
 

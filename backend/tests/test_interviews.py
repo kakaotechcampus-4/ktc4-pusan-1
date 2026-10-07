@@ -12,8 +12,7 @@ from app.domain.models import (
     User,
 )
 from app.domain.store import InMemoryStore
-from tests.conftest import FakeMedia
-from tests.test_reviews import DEMO, _analysed, _prepared
+from tests.conftest import DEMO, FakeMedia, age, analysed, prepared
 
 
 def test_create_interview(client: TestClient, owner: User):
@@ -187,8 +186,8 @@ def test_a_ready_row_counts_like_the_detail(client: TestClient, store: InMemoryS
     """목록과 상세가 같은 계산을 쓴다 — 숫자가 어긋나지 않는다 (#137 1-1)."""
     interview_id = client.post("/api/v1/interviews", json={}).json()["interviewId"]
     session_id = _ended(client, interview_id)
-    _prepared(store, interview_id)
-    _analysed(store, session_id)
+    prepared(store, interview_id)
+    analysed(store, session_id)
     store.update_mark(
         session_id,
         DEMO["review"]["findings"][0]["findingId"],
@@ -215,8 +214,7 @@ def test_a_summary_past_its_limit_shows_failed_without_counts(
     뿐 쓰지 않는다 — 판정과 저장은 요약 · 상세 조회가 한다."""
     interview_id = client.post("/api/v1/interviews", json={}).json()["interviewId"]
     session_id = _ended(client, interview_id)
-    stored = store._summaries[session_id]  # pyright: ignore[reportPrivateUsage]
-    stored.requested_at -= settings.summary_timeout + timedelta(seconds=1)
+    age(store, session_id, settings.summary_timeout + timedelta(seconds=1))
 
     [item] = client.get("/api/v1/interviews").json()["items"]
 

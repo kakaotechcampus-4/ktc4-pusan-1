@@ -67,7 +67,7 @@ class Store(Protocol):
         """그 면접에서 가장 나중에 끝난 세션. 검토 화면의 기준 세션이다 (#163).
 
         목록(`list_interviews`)이 붙이는 세션과 같은 것이어야 목록과 상세가 어긋나지
-        않는다. 끝난 세션이 없으면 None.
+        않는다. 같은 시각에 끝났으면 id 가 큰 쪽이다. 끝난 세션이 없으면 None.
         """
         ...
 
@@ -385,7 +385,10 @@ class InMemoryStore:
             for s in self._sessions.values()
             if s.interview_id == interview_id and s.ended_at is not None
         ]
-        last = max(ended, key=lambda s: s.ended_at or s.created_at, default=None)
+        # 같은 시각에 끝났으면 id 가 큰 쪽 — Postgres 쿼리의 ORDER BY 와 같다.
+        last = max(
+            ended, key=lambda s: (s.ended_at or s.created_at, s.id), default=None
+        )
         return None if last is None else deepcopy(last)
 
     def add_session(self, session: Session) -> None:

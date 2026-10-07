@@ -5,16 +5,12 @@
 결과입니다」. 예시가 덮지 않는 갈래만 따로 본다.
 """
 
-import json
-from pathlib import Path
 from typing import Any
 
 from app.domain.models import FindingState, ReviewMark
 from app.services.review import build_review
+from tests.conftest import DEMO
 
-DEMO: dict[str, Any] = json.loads(
-    (Path(__file__).parents[1] / "app" / "demo_review.json").read_text(encoding="utf-8")
-)
 COMPETENCIES = DEMO["prep"]["competencies"]
 CLAIMS = DEMO["prep"]["resumeClaims"]
 MOMENTS = DEMO["review"]["moments"]

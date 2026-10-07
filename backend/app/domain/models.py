@@ -312,6 +312,14 @@ class SessionSummary:
             return False
         return (now or utcnow()) - self.requested_at > limit
 
+    def shown_status(self, limit: timedelta) -> SummaryStatus:
+        """한도를 넘긴 PROCESSING 은 FAILED 로 보인다. 저장값은 바꾸지 않는다.
+
+        `ContextDoc.shown_status` 와 같다 — 보여 주기만 한다. 전이와 저장은
+        `Store.expire_summary` 가 한 문장으로 한다.
+        """
+        return SummaryStatus.FAILED if self.overdue(limit) else self.status
+
     def complete(
         self,
         overview: str,
@@ -336,6 +344,24 @@ class SessionSummary:
         self.moments = []
         self.findings = []
         self.completed_at = utcnow()
+
+
+class FindingType(StrEnum):
+    """검토 항목의 종류 — AI `FindingType` 의 어휘 (#137 1-2)."""
+
+    COMPETENCY_EVIDENCE = "COMPETENCY_EVIDENCE"
+    CLAIM_VERIFIED = "CLAIM_VERIFIED"
+    CLAIM_CONTRADICTED = "CLAIM_CONTRADICTED"
+    CLAIM_UNVERIFIED = "CLAIM_UNVERIFIED"
+    GAP = "GAP"
+
+
+class CoverageState(StrEnum):
+    """역량 하나가 면접에서 얼마나 확인됐나 (#137 1-2 「coverage 규칙」)."""
+
+    CONFIRMED = "CONFIRMED"
+    PARTIAL = "PARTIAL"
+    MISSING = "MISSING"
 
 
 class FindingState(StrEnum):

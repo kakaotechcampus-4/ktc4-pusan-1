@@ -119,6 +119,16 @@
         "title": "ContextResponse",
         "type": "object"
       },
+      "CoverageState": {
+        "description": "역량 하나가 면접에서 얼마나 확인됐나 (#137 1-2 「coverage 규칙」).",
+        "enum": [
+          "CONFIRMED",
+          "PARTIAL",
+          "MISSING"
+        ],
+        "title": "CoverageState",
+        "type": "string"
+      },
       "CreateInterviewRequest": {
         "properties": {
           "candidateName": {
@@ -300,6 +310,18 @@
           "REJECTED"
         ],
         "title": "FindingState",
+        "type": "string"
+      },
+      "FindingType": {
+        "description": "검토 항목의 종류 — AI `FindingType` 의 어휘 (#137 1-2).",
+        "enum": [
+          "COMPETENCY_EVIDENCE",
+          "CLAIM_VERIFIED",
+          "CLAIM_CONTRADICTED",
+          "CLAIM_UNVERIFIED",
+          "GAP"
+        ],
+        "title": "FindingType",
         "type": "string"
       },
       "HTTPValidationError": {
@@ -692,13 +714,7 @@
             "type": "string"
           },
           "state": {
-            "enum": [
-              "CONFIRMED",
-              "PARTIAL",
-              "MISSING"
-            ],
-            "title": "State",
-            "type": "string"
+            "$ref": "#/components/schemas/CoverageState"
           }
         },
         "required": [
@@ -781,15 +797,7 @@
             "title": "Transcript"
           },
           "type": {
-            "enum": [
-              "COMPETENCY_EVIDENCE",
-              "CLAIM_VERIFIED",
-              "CLAIM_CONTRADICTED",
-              "CLAIM_UNVERIFIED",
-              "GAP"
-            ],
-            "title": "Type",
-            "type": "string"
+            "$ref": "#/components/schemas/FindingType"
           }
         },
         "required": [
@@ -966,7 +974,6 @@
           },
           "status": {
             "const": "READY",
-            "default": "READY",
             "title": "Status",
             "type": "string"
           },
@@ -990,6 +997,7 @@
           }
         },
         "required": [
+          "status",
           "summaryStatus",
           "interviewId",
           "sessionId",

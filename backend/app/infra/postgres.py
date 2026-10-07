@@ -152,7 +152,7 @@ class PostgresStore:
                    started_at, ended_at, transcript_origin_at
             FROM session
             WHERE interview_id = %s AND ended_at IS NOT NULL
-            ORDER BY ended_at DESC
+            ORDER BY ended_at DESC, id DESC
             LIMIT 1
             """,
             (interview_id,),
@@ -175,7 +175,7 @@ class PostgresStore:
             LEFT JOIN LATERAL (
                 SELECT * FROM session
                 WHERE session.interview_id = i.id AND session.ended_at IS NOT NULL
-                ORDER BY session.ended_at DESC
+                ORDER BY session.ended_at DESC, session.id DESC
                 LIMIT 1
             ) s ON TRUE
             LEFT JOIN session_summary ss ON ss.session_id = s.id

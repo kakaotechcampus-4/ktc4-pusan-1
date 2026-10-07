@@ -3,8 +3,11 @@
 라우터가 Protocol 에만 의존하므로 LiveKit 없이 전 구간을 돈다.
 """
 
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +15,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_kakao, get_media, get_store
 from app.core.auth import issue_token
 from app.core.errors import ApiError
-from app.domain.models import Role, User
+from app.domain.models import InterviewPrep, Role, SummaryStatus, User
 from app.domain.store import InMemoryStore
 from app.main import app
 from app.services import documents as documents_module
@@ -155,3 +158,44 @@ def session_id(client: TestClient) -> str:
     interview_id = interview.json()["interviewId"]
     created = client.post(f"/api/v1/interviews/{interview_id}/sessions")
     return created.json()["sessionId"]
+
+
+# ── 검토 화면 (#163) ─────────────────────────────────────
+
+#: 데모 시드와 같은 파일이다. 계산 규칙 · API · 시드 테스트가 같은 것을 읽는다.
+DEMO: dict[str, Any] = json.loads(
+    (Path(__file__).parents[1] / "app" / "demo_review.json").read_text(encoding="utf-8")
+)
+
+
+def prepared(store: InMemoryStore, interview_id: str) -> None:
+    """면접 전 분석을 데모 역량 · 주장으로 READY 로 둔다."""
+    opened = store.get_prep(interview_id) or InterviewPrep(interview_id=interview_id)
+    store.ensure_prep(opened)
+    opened.status = SummaryStatus.READY
+    opened.competencies = DEMO["prep"]["competencies"]
+    opened.resume_claims = DEMO["prep"]["resumeClaims"]
+    store.finish_prep(opened)
+
+
+def analysed(store: InMemoryStore, session_id: str) -> None:
+    """면접 후 분석을 데모 결과로 READY 로 둔다 (#164 가 붙기 전의 대역)."""
+    summary = store.get_summary(session_id)
+    assert summary is not None
+    review = DEMO["review"]
+    summary.complete(
+        review["summary"],
+        review["keyPoints"],
+        moments=review["moments"],
+        findings=review["findings"],
+    )
+    store.save_summary(summary)
+
+
+def age(store: InMemoryStore, session_id: str, delta: timedelta) -> None:
+    """요약을 실제로 기다리지 않고 기다린 것처럼 만든다."""
+    # `save_summary` 는 `requested_at` 을 지키므로(한도의 기준점) 저장소가 든
+    # 것을 직접 옮긴다. 인메모리 구현을 아는 테스트 전용 조작이라 여기 한 곳에 둔다.
+    stored = store._summaries.get(session_id)  # pyright: ignore[reportPrivateUsage]
+    assert stored is not None
+    stored.requested_at -= delta

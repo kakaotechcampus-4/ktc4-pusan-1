@@ -10,9 +10,7 @@
 모아 그 규칙에 넘기는지, 갈래가 맞는지를 본다.
 """
 
-import json
 from datetime import timedelta
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,17 +20,13 @@ from app.core.config import settings
 from app.domain.models import (
     Context,
     FindingState,
-    InterviewPrep,
-    SummaryStatus,
     User,
 )
 from app.domain.store import InMemoryStore
 from app.services.review import build_review
+from tests.conftest import DEMO, age, analysed, prepared
 
 V1 = "/api/v1"
-DEMO: dict[str, Any] = json.loads(
-    (Path(__file__).parents[1] / "app" / "demo_review.json").read_text(encoding="utf-8")
-)
 
 
 def _interview(client: TestClient, name: str | None = "김도현") -> str:
@@ -49,30 +43,6 @@ def _ended_session(client: TestClient, interview_id: str, *, start: bool = True)
         client.post(f"{V1}/sessions/{session_id}/start")
     client.post(f"{V1}/sessions/{session_id}/end")
     return session_id
-
-
-def _prepared(store: InMemoryStore, interview_id: str) -> None:
-    """면접 전 분석을 데모 역량 · 주장으로 READY 로 둔다."""
-    opened = store.get_prep(interview_id) or InterviewPrep(interview_id=interview_id)
-    store.ensure_prep(opened)
-    opened.status = SummaryStatus.READY
-    opened.competencies = DEMO["prep"]["competencies"]
-    opened.resume_claims = DEMO["prep"]["resumeClaims"]
-    store.finish_prep(opened)
-
-
-def _analysed(store: InMemoryStore, session_id: str) -> None:
-    """면접 후 분석을 데모 결과로 READY 로 둔다 (#164 가 붙기 전의 대역)."""
-    summary = store.get_summary(session_id)
-    assert summary is not None
-    review = DEMO["review"]
-    summary.complete(
-        review["summary"],
-        review["keyPoints"],
-        moments=review["moments"],
-        findings=review["findings"],
-    )
-    store.save_summary(summary)
 
 
 def get_review(client: TestClient, interview_id: str):
@@ -103,8 +73,7 @@ def test_a_summary_past_its_limit_is_judged_here_too(
     """요약 API 와 같은 판정이다. 아무도 요약 화면을 안 열어도 상세는 열린다."""
     interview_id = _interview(client)
     session_id = _ended_session(client, interview_id)
-    stored = store._summaries[session_id]  # pyright: ignore[reportPrivateUsage]
-    stored.requested_at -= settings.summary_timeout + timedelta(seconds=1)
+    age(store, session_id, settings.summary_timeout + timedelta(seconds=1))
 
     response = get_review(client, interview_id)
 
@@ -123,8 +92,8 @@ def test_a_ready_review_carries_the_computed_parts(
     store.save_context(context)
     interview_id = _interview(client)
     session_id = _ended_session(client, interview_id)
-    _prepared(store, interview_id)
-    _analysed(store, session_id)
+    prepared(store, interview_id)
+    analysed(store, session_id)
     store.update_mark(session_id, "mom_qa_utt_TR_a_0007", bookmarked=True)
 
     response = get_review(client, interview_id)
@@ -187,7 +156,7 @@ def test_a_failed_summary_still_opens_with_an_empty_analysis(
     """AI 결과가 없어도 메모 · 검토 확정은 해야 한다. 역량은 전부 MISSING 이다."""
     interview_id = _interview(client)
     session_id = _ended_session(client, interview_id)
-    _prepared(store, interview_id)
+    prepared(store, interview_id)
     store.fail_summary(session_id)
     store.update_mark(session_id, "fnd_x", state=FindingState.ADOPTED)
 
@@ -351,8 +320,8 @@ MOMENT_ID = DEMO["review"]["moments"][2]["momentId"]
 def _ready(client: TestClient, store: InMemoryStore) -> tuple[str, str]:
     interview_id = _interview(client)
     session_id = _ended_session(client, interview_id)
-    _prepared(store, interview_id)
-    _analysed(store, session_id)
+    prepared(store, interview_id)
+    analysed(store, session_id)
     return interview_id, session_id
 
 

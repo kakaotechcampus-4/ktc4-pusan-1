@@ -133,8 +133,8 @@ def _shown_summary(
 ) -> tuple[SummaryStatus | None, ReviewCounts | None]:
     """보여 줄 요약 상태와 집계. 집계는 READY 일 때만, 상세와 같은 계산으로.
 
-    한도를 넘긴 PROCESSING 은 FAILED 로 **보여 줄 뿐** 쓰지 않는다 — 문서의
-    `shown_status` 와 같다. 판정과 저장은 요약 · 상세 조회가 한다.
+    한도를 넘긴 PROCESSING 은 FAILED 로 **보여 줄 뿐** 쓰지 않는다
+    (`SessionSummary.shown_status`). 판정과 저장은 요약 · 상세 조회가 한다.
     """
     # ponytail: READY 한 줄마다 쿼리 3개(N+1). 수백 건이면 LATERAL 로 한 번에 읽는다.
     if status is not SummaryStatus.PROCESSING and status is not SummaryStatus.READY:
@@ -142,10 +142,9 @@ def _shown_summary(
     summary = store.get_summary(session.id)
     if summary is None:
         return status, None
-    if summary.overdue(settings.summary_timeout):
-        return SummaryStatus.FAILED, None
-    if summary.status is not SummaryStatus.READY:
-        return summary.status, None
+    shown = summary.shown_status(settings.summary_timeout)
+    if shown is not SummaryStatus.READY:
+        return shown, None
     prep = store.get_prep(interview.id) or InterviewPrep(interview_id=interview.id)
     counts = build_review(
         prep.competencies,
@@ -154,7 +153,7 @@ def _shown_summary(
         summary.findings,
         store.list_marks(session.id),
     ).counts()
-    return summary.status, ReviewCounts.model_validate(counts)
+    return shown, ReviewCounts.model_validate(counts)
 
 
 def _timing(session: Session | None) -> tuple[datetime | None, int | None]:
@@ -313,6 +312,7 @@ def get_review(
     )
     began, duration = _timing(session)
     return ReviewResponse(
+        status="READY",
         summary_status="READY" if ready else "FAILED",
         interview_id=interview.id,
         session_id=session.id,

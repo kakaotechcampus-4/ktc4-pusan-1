@@ -15,11 +15,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.models import FindingState, ReviewMark
+from app.domain.models import CoverageState, FindingState, FindingType, ReviewMark
 
 JsonList = list[dict[str, Any]]
 
-_CONFIRMING = frozenset({"CLAIM_VERIFIED", "COMPETENCY_EVIDENCE"})
+_CONFIRMING = frozenset({FindingType.CLAIM_VERIFIED, FindingType.COMPETENCY_EVIDENCE})
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,9 @@ class Review:
         """목록 한 줄의 집계 (#137 1-1). 반려한 항목은 검토할 것에서 빠진다."""
         states = [f["state"] for f in self.findings]
         return {
-            "coverageConfirmed": sum(c["state"] == "CONFIRMED" for c in self.coverage),
+            "coverageConfirmed": sum(
+                c["state"] == CoverageState.CONFIRMED for c in self.coverage
+            ),
             "coverageTotal": len(self.coverage),
             "findings": len(self.findings),
             "needsReview": states.count(FindingState.PROPOSED.value),
@@ -88,16 +90,16 @@ def build_review(
     )
 
 
-def _coverage(competency_id: str, findings: JsonList) -> str:
+def _coverage(competency_id: str, findings: JsonList) -> CoverageState:
     """역량 하나의 상태 (#137 1-2 「coverage 규칙」). 모순이 근거를 덮는다."""
     types = {f["type"] for f in findings if f.get("competencyId") == competency_id}
-    if "CLAIM_CONTRADICTED" in types:
-        return "PARTIAL"
+    if FindingType.CLAIM_CONTRADICTED in types:
+        return CoverageState.PARTIAL
     if types & _CONFIRMING:
-        return "CONFIRMED"
-    if "CLAIM_UNVERIFIED" in types:
-        return "PARTIAL"
-    return "MISSING"
+        return CoverageState.CONFIRMED
+    if FindingType.CLAIM_UNVERIFIED in types:
+        return CoverageState.PARTIAL
+    return CoverageState.MISSING
 
 
 def _competencies_in(
@@ -128,7 +130,7 @@ def _source(finding: dict[str, Any], claims: dict[str, Any]) -> dict[str, Any]:
             "source": f"지원서 · {section}" if section else "지원서",
             "quote": claim.get("quote"),
         }
-    if finding["type"] == "GAP":
+    if finding["type"] == FindingType.GAP:
         return {"source": None, "quote": None}
     return {"source": "면접 답변", "quote": None}
 
