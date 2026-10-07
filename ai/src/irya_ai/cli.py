@@ -21,6 +21,8 @@ from pydantic import TypeAdapter, ValidationError
 
 from irya_ai.analysis import ContextAnalysisAgent
 from irya_ai.config import Settings
+from irya_ai.findings import ExtractiveFindingsGenerator, FindingsAgent
+from irya_ai.openai_findings import OpenAIFindingsGenerator
 from irya_ai.openai_prep import OpenAIPrepGenerator
 from irya_ai.openai_summary import OpenAISummarizer
 from irya_ai.openai_timeline import OpenAITimelineGenerator
@@ -347,6 +349,65 @@ def cmd_prep(args: argparse.Namespace) -> int:
     return asyncio.run(_prep(args))
 
 
+async def _findings(args: argparse.Namespace) -> int:
+    try:
+        payload = json.loads(Path(args.context).read_text(encoding="utf-8"))
+        utterances = payload.pop("utterances", [])
+        context = InterviewContext.model_validate(payload)
+        snapshot = (
+            load_chunks(Path(args.input))
+            if args.input
+            else TranscriptSnapshot(
+                session_id=context.session_id, utterances=utterances
+            )
+        )
+    except (
+        OSError,
+        UnicodeError,
+        ValidationError,
+        ValueError,
+        TypeError,
+        AttributeError,
+    ):
+        print(
+            json.dumps(
+                {"error": {"code": "INVALID_FINDINGS_INPUT", "retryable": False}}
+            )
+        )
+        return 2
+    if args.backend == "extractive":
+        result = await FindingsAgent(
+            ExtractiveFindingsGenerator(), model="extractive-baseline"
+        ).run(context, snapshot)
+    else:
+        settings = _llm_settings()
+        if isinstance(settings, str):
+            print(json.dumps({"error": {"code": settings, "retryable": False}}))
+            return 2
+        async with AsyncOpenAI(
+            api_key=settings.llm_api_key.get_secret_value(),
+            base_url=settings.llm_base_url,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=0,
+        ) as client:
+            generator = OpenAIFindingsGenerator(
+                client,
+                model=args.model or settings.llm_model,
+                reasoning_effort=settings.llm_reasoning_effort,
+            )
+            result = await FindingsAgent(
+                generator,
+                model=generator.model,
+                timeout_seconds=settings.llm_timeout_seconds,
+            ).run(context, snapshot)
+    print(result.model_dump_json(by_alias=True, indent=2))
+    return 1 if result.status in {"failed", "partial"} else 0
+
+
+def cmd_findings(args: argparse.Namespace) -> int:
+    return asyncio.run(_findings(args))
+
+
 def _add_simulator_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--split-sentences",
@@ -413,6 +474,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analyze.add_argument("--model", choices=["gpt-4o-mini", "gpt-4o"])
     analyze.set_defaults(func=cmd_analyze)
+
+    findings = sub.add_parser(
+        "findings", help="ground findings from prep context and FINALs"
+    )
+    findings.add_argument(
+        "context", help="prepared context or BE context response JSON"
+    )
+    findings.add_argument(
+        "input", nargs="?", help="separate transcript snapshot or chunks"
+    )
+    findings.add_argument("--backend", choices=["llm", "extractive"], default="llm")
+    findings.add_argument("--model", help="override LLM_MODEL")
+    findings.set_defaults(func=cmd_findings)
 
     timeline = sub.add_parser(
         "timeline", help="build the review timeline from STT chunks"

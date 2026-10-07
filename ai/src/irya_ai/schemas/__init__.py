@@ -30,6 +30,7 @@ from irya_ai.schemas.context import (
     ResumeClaim,
     Rubric,
 )
+from irya_ai.schemas.findings import FindingDraft, FindingsDraft, FindingsResult
 from irya_ai.schemas.prep import (
     CompetencyDraft,
     PrepDraft,
@@ -87,6 +88,9 @@ __all__ = [
     "Competency",
     "CompetencyDraft",
     "Finding",
+    "FindingDraft",
+    "FindingsDraft",
+    "FindingsResult",
     "FindingState",
     "FindingType",
     "Evidence",
