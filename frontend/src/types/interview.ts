@@ -164,8 +164,9 @@ export interface Review {
   durationSec: number;
   /**
    * ⚠️ 서명된 master.m3u8 을 받는다고 가정했다. 만료 시간 · 보관 기간 · 열람 권한은 미정이다.
+   * 실제 BE 는 녹화를 상세에 싣지 않아 null 이다(#163) — 녹화 API 전환 전까지.
    */
-  recording: { hlsUrl: string };
+  recording: { hlsUrl: string } | null;
   moments: Moment[];
   /** 전사 · 지원서 · JD 를 근거로 쓴 서술. 합격 여부는 없다. */
   aiReview: { paragraphs: string[] };

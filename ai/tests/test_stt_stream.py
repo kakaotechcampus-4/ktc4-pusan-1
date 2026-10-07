@@ -34,11 +34,8 @@ def ok(text: str, end_s: float = 1.0) -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "_result": {"status": "ok", "reason": None},
-            "transcript": {
-                "text": text,
-                "chunks": [{"timestamp": [0.0, end_s], "text": text}],
-            },
+            "text": text,
+            "segments": [{"id": 0, "start": 0.0, "end": end_s, "text": text}],
         },
     )
 
@@ -416,10 +413,8 @@ async def test_an_unbounded_integer_timestamp_does_not_end_a_live_consumer() -> 
             return httpx.Response(
                 200,
                 json={
-                    "transcript": {
-                        "text": "값이 너무 큽니다",
-                        "chunks": [{"timestamp": huge[index]}],
-                    }
+                    "text": "값이 너무 큽니다",
+                    "segments": [{"start": huge[index][0], "end": huge[index][1]}],
                 },
             )
         return ok("그 다음 문장은 살아남습니다")

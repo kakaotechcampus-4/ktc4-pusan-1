@@ -42,7 +42,7 @@ export default function ReviewTimelinePage() {
   });
 
   const review = data?.status === 'READY' ? data : undefined;
-  const { videoRef, seekTo, failed } = useHlsPlayer(review?.recording.hlsUrl);
+  const { videoRef, seekTo, failed } = useHlsPlayer(review?.recording?.hlsUrl);
 
   // 처음에는 아무것도 고르지 않는다. 미리 골라 두면 영상은 00:00 인데 오버레이는
   // 다른 시점의 문답을 보여주는 어긋난 상태로 시작한다.

@@ -1,6 +1,26 @@
 # IRYA AI
 
-LiveKit 마이크 트랙을 Elice Whisper로 실시간 전사해 면접관에게 표시하고, 전사 기반 Q&A·근거·요약을 제공하는 파트입니다. BE 전송(전사 WebSocket·꼬리질문)은 클라이언트만 있고 워커에 아직 붙지 않았습니다. 현재 구현·수명·측정 정의는 [STT 파이프라인](docs/stt-pipeline.md), 검증 범위는 [STT 리뷰 기록](docs/stt-review.md)을 참고하세요.
+LiveKit 마이크 트랙을 Elice Whisper로 실시간 전사해 면접관에게 표시하고, 전사 기반 Q&A·근거·요약을 제공하는 파트입니다. FINAL 전사는 워커에서 BE WebSocket으로 송신하고, 꼬리질문도 같은 워커가 만들어 BE로 보냅니다. 현재 구현·수명·측정 정의는 [STT 파이프라인](docs/stt-pipeline.md), 검증 범위는 [STT 리뷰 기록](docs/stt-review.md)을 참고하세요.
+
+## FINAL 전사 BE 송신 (#157, #137)
+
+워커는 자막과 별도로 FINAL 발화를 세션별 `TranscriptRunner`에 넣습니다.
+큐 입력은 네트워크를 기다리지 않고, 배경 태스크가 기존 `TranscriptChannel`로
+`WS /internal/v1/sessions/{sessionId}/transcripts`에 전송합니다. `participantId`는
+사람의 LiveKit identity(INTERVIEWER/CANDIDATE)이고 `trackId`는 트랙 SID,
+`seq`는 원래 발화의 세션 정렬 키입니다. INTERIM은 보내지 않습니다.
+
+로컬은 `BACKEND_BASE_URL`·`BACKEND_API_KEY`를 설정합니다. 주소가 없으면 자막만
+유지하고 송신을 끕니다. compose는 내부 BE 주소와 `INTERNAL_API_KEY`를 전달합니다.
+큐와 채널 미ACK 버퍼는 각각 `TRANSCRIPT_MAX_PENDING`개로 제한합니다(기본 각 200).
+초과·영구 거부는 누락 수, NACK은 거부 ID, 종료 시 미ACK는 개수로 기록합니다.
+발화 본문과 키는 로그에 넣지 않습니다. 종료는 송신 큐에 최대 5초, 이후 채널의
+ACK 대기 한도를 줍니다. 이는 마지막 STT 꼬리 발화 완료나 REVIEW 시작 장벽이 아닙니다.
+
+현재 BE develop은 text·화자·상대 시각을 저장하고 ACK하지만 `seq`·`trackId`는
+무시합니다. #137의 BE 보존·조회 확장, #125의 공통 원점, #151의 재시작 ID 유일성은
+후속입니다. 워커 재배정·findings 생성은 여기에 없습니다. 꼬리질문 배선(#83)은 같은
+fan-out에 붙어 있고 아래 워커 절에서 설명합니다.
 
 ## Requirements
 
@@ -37,10 +57,10 @@ chmod 600 .env
 | `ELICE_API_KEY` | 서버 측 Elice STT API Key | 없음 |
 | `ELICE_STT_BASE_URL` | Elice STT 배포 주소. 비공개 값이라 커밋하지 않습니다 | 없음 |
 | `ELICE_STT_MODEL` | STT 모델 이름 | `whisper-large-v3` |
-| `ELICE_STT_LANGUAGE` | 전사 언어. ISO 코드가 아니라 단어입니다 | `korean` |
+| `ELICE_STT_LANGUAGE` | 전사 언어. ISO 639-1 코드입니다 (2026-10-06 배포 교체 전에는 단어 `korean`) | `ko` |
 | `ELICE_STT_TIMEOUT_SECONDS` | STT 요청 제한 시간(초), 0 초과 300 이하 | `60` |
 | `BACKEND_BASE_URL` | 백엔드 `/internal/v1` 주소. 비공개 값이라 커밋하지 않습니다 | 없음 |
-| `BACKEND_API_KEY` | 백엔드 내부 API 인증 키. 인증 방식은 백엔드와 미확정이며, 비워 두면 `Authorization` 헤더를 보내지 않습니다 | 없음 |
+| `BACKEND_API_KEY` | 백엔드 내부 API 인증 키. `Authorization: Bearer`로 전달하며, compose에서는 `INTERNAL_API_KEY`와 공유합니다. 비워 두면 인증 헤더를 보내지 않습니다 | 없음 |
 | `BACKEND_TIMEOUT_SECONDS` | 백엔드 HTTP 요청 제한 시간(초), 0 초과 60 이하. 전사 WebSocket의 접속 제한 시간으로도 씁니다 | `10` |
 | `TRANSCRIPT_ACK_TIMEOUT_SECONDS` | 전사 프레임 ACK 대기 시간(초), 0 초과 120 이하. **백엔드와 미합의한 잠정값** | `5` |
 | `TRANSCRIPT_MAX_PENDING` | ACK를 못 받은 발화를 몇 개까지 들고 있을지, 0 초과 10000 이하. **백엔드와 미합의한 잠정값** | `200` |
@@ -70,6 +90,16 @@ uv run python -m irya_ai.worker start
 
 Docker 배포에서는 `infra/docker-compose.yml`의 `ai` 서비스가 같은 작업을 합니다.
 
+릴리스된 발화는 `irya_ai.sinks.FanOutSink`를 거쳐 면접관 자막, FINAL 전사 송신,
+꼬리질문 루프에 차례로 전달됩니다. 한 소비자가 실패하면 로그만 남고 다른 소비자와 트랙은 계속 갑니다.
+꼬리질문 루프(`suggestion_runner.py`)는 `BACKEND_BASE_URL`이 있을 때만 켜지며, 세션당
+큐 하나·태스크 하나가 발화를 `LiveSuggestionAgent`에 넣고 채택된 제안을
+`POST /internal/v1/sessions/{sessionId}/suggestions`로 보냅니다. `BACKEND_API_KEY`는 BE의
+`INTERNAL_API_KEY`와 같은 값이어야 합니다. 생성기는 `LLM_BASE_URL`·`LLM_API_KEY`가 모두
+있으면 프로젝트 LLM, 아니면 추출형이고, 라운드 상한은 10초이며 전송 실패는 재전송하지
+않습니다. LLM·BE 호출은 이 태스크 안에서만 일어나므로 오디오 경로는 모델을 기다리지
+않습니다. BE는 받은 제안을 저장합니다(#85). 면접관 화면까지 보내는 경로는 아직 없습니다.
+
 FE·BE 없이 확인하려면 `scripts/livekit_e2e.py`를 씁니다. LiveKit 개발 서버(`livekit/livekit-server --dev`)에
 워커를 붙인 뒤, 스크립트가 빈 방을 먼저 만들고 지원자로 WAV(16kHz mono, 실제 한국어 음성)를
 발행하며 면접관으로 text stream을 받아 결과 JSON을 냅니다. 실행 순서는 스크립트 독스트링에 있습니다.
@@ -86,13 +116,19 @@ LiveKit text stream에는 영구 저장이 없으므로 이 경로는 면접 중
 
 자막의 `at`은 현재 방에서 처음 확인한 사람의 LiveKit 입장 시각을 기준으로 한 잠정
 표시값입니다. 녹화 0프레임과의 offset 및 최종 seek 기준은 아직 팀 계약이 아니므로,
-이 값을 확정 전사나 영상 탐색 기준으로 저장하지 않습니다.
+BE에는 이 잠정 원점을 기준으로 한 상대 시각을 전달합니다. 녹화 영상 탐색 기준과의 정합성은 후속 검증이 필요합니다.
 
 ### 로그와 배포 주소
 
 `httpx`는 요청 한 건마다 대상 URL을 INFO로, `httpcore`는 접속 호스트를 DEBUG로 남깁니다. 기본값인 `LOG_LEVEL=INFO`에서 그대로 두면 비공개인 `ELICE_STT_BASE_URL`이 애플리케이션 로그에 찍힙니다. `EliceSttClient`는 생성 시점에 자기 `base_url`의 호스트를 `irya_ai.stt.http_logging`에 등록해, 그 두 라이브러리의 기록에서 해당 호스트만 `<redacted-host>`로 가립니다. `build_client()`로 만들든 직접 만든 `httpx.AsyncClient`를 넘기든 동일하며, 호출자가 로깅을 따로 설정할 필요는 없습니다. 메서드·경로·상태 코드와 다른 호스트의 로그는 건드리지 않습니다. `BackendClient`도 생성 시점에 같은 방식으로 `BACKEND_BASE_URL`의 호스트를 등록합니다. 전사 WebSocket은 `aiohttp`를 쓰는데, 이 라이브러리는 요청 한 건씩 남기지는 않지만 연결을 닫다 실패하거나 쿠키를 받을 때 같은 호스트를 기록합니다. 그래서 `irya_ai.transcripts.TranscriptChannel`도 생성 시점에 자기 URL의 호스트를 등록하고, `aiohttp`의 로거 여섯 개가 같은 필터를 받습니다.
 
 보호 범위는 등록한 호스트가 포함된 `httpx`·`httpcore` 메시지까지입니다. `protect_host()`는 다른 라이브러리나 애플리케이션 자체 로거에 필터를 설치하지 않으므로, 그런 로그는 해당 경로에서 별도로 가려야 합니다. 호스트 등록은 프로세스 동안 유지되며 `clear_protected_hosts()`는 요청 중 호출하지 않습니다. 키 값을 이 장치에 넘기지 않습니다. 기본 요청의 `Authorization` 값과 본문은 라이브러리가 기록하지 않지만, httpcore DEBUG에는 응답 헤더가 나타날 수 있습니다. 이 필터를 임의 헤더·경로·쿼리·사용자 정의 로그의 비밀값 제거 장치로 사용하지 않습니다.
+
+### 전사 연결 종료 코드
+
+BE는 `1000`을 전사 송신 종료 신호로 사용합니다(#164). 워커의 실제 종료는
+ACK 대기 후 `1000`으로 닫고, ACK 지연·정정·연결 교체에 따른 재접속은
+`4001`로 닫습니다. 재접속을 면접 후 분석 시작 신호로 해석하지 않습니다.
 
 ## 면접 컨텍스트 분석 MVP
 
@@ -182,8 +218,8 @@ data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데�
 
 실시간 자막과 STT는 Elice Whisper입니다 (2026-09-22 회의: 프로젝트 기본 제공 모델로 MVP).
 기존 요약은 OpenAI 경로를, 리뷰 타임라인은 별도의 Elice LLM 경로를 사용합니다.
-분석 모듈은 `TranscriptSnapshot`을 받으며, 워커의 `Utterance`를 꼬리질문 에이전트와 BE 전송에
-잇는 배선은 후속 작업(#83)입니다.
+분석 모듈은 `TranscriptSnapshot`을 받습니다. 워커의 `Utterance`를 꼬리질문 에이전트와 BE 전송에
+잇는 배선은 `worker.py`에 있습니다(#83, #157).
 
 2026-09-13 AI 회의에서 **전사 문장의 LLM 교정·재작성 후처리를 제외**하기로 했습니다.
 Q&A 구조화·근거 검증·면접 요약은 별도 분석 범위로 유지하고 자막 표시 전에 기다리지 않습니다.

@@ -17,18 +17,27 @@
 다시 보낸다 — 끝나지 않는다. 여기서 막으면 그 발화 하나만 NACK 으로 버려진다.
 """
 
+from datetime import datetime
 from typing import Annotated, Final, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_validator,
+)
+from pydantic.alias_generators import to_camel
 
-from app.domain.models import Role
+from app.domain.models import JobKind, Role
 
 FRAME_UPSERT: Final = "transcript.upsert"
 FRAME_ACK: Final = "transcript.ack"
 FRAME_NACK: Final = "transcript.nack"
 
-#: BIGINT 의 상한. 발화 시각은 이 컬럼에 들어간다 (`schema.sql`).
-MAX_MS: Final = 2**63 - 1
+#: BIGINT 의 상한. 발화 시각과 순번(`seq`)은 이 컬럼에 들어간다 (`schema.sql`).
+BIGINT_MAX: Final = 2**63 - 1
 
 
 def _no_nul(value: str) -> str:
@@ -39,6 +48,9 @@ def _no_nul(value: str) -> str:
 
 #: DB 의 TEXT 에 들어갈 문자열. 비어 있을 수 없다.
 PgText = Annotated[str, Field(min_length=1), AfterValidator(_no_nul)]
+
+#: 비어 있어도 되는 쪽. JSONB 도 NUL(`\u0000`)을 못 넣는다.
+PgAnyText = Annotated[str, AfterValidator(_no_nul)]
 
 
 def _dedupe(ids: list[str]) -> list[str]:
@@ -73,8 +85,11 @@ class TranscriptUpsert(InternalSchema):
     participant_id: PgText = Field(alias="participantId")
     speaker: Role
     text: PgText
-    started_at_ms: int = Field(alias="startedAtMs", ge=0, le=MAX_MS)
-    ended_at_ms: int = Field(alias="endedAtMs", ge=0, le=MAX_MS)
+    started_at_ms: int = Field(alias="startedAtMs", ge=0, le=BIGINT_MAX)
+    ended_at_ms: int = Field(alias="endedAtMs", ge=0, le=BIGINT_MAX)
+    # PR #158 부터 온다. 그 전 Agent 의 프레임도 받도록 비워 둘 수 있다.
+    track_id: PgText | None = Field(default=None, alias="trackId")
+    seq: int | None = Field(default=None, ge=0, le=BIGINT_MAX)
 
     @model_validator(mode="after")
     def _check_range(self) -> "TranscriptUpsert":
@@ -102,7 +117,11 @@ class TranscriptNack(InternalSchema):
 
 
 class SuggestionCreate(InternalSchema):
-    """`POST /internal/v1/sessions/{sessionId}/suggestions` 의 본문."""
+    """꼬리질문 하나: suggestionId · content · evidenceUtteranceIds.
+
+    `POST /internal/v1/sessions/{sessionId}/suggestions` 는 꼬리질문만 받아
+    type 구분자를 두지 않는다. 세션은 URL 로 식별한다.
+    """
 
     suggestion_id: PgText = Field(alias="suggestionId")
     content: PgText
@@ -136,3 +155,63 @@ class ReviewUpsert(InternalSchema):
         if self.status in ("completed", "partial") and not self.summary.strip():
             raise ValueError("completed/partial 이면 summary 가 비어 있을 수 없다")
         return self
+
+
+# ── AI 분석 작업 (#162) ─────────────────────────────────────
+
+
+class AiShape(InternalSchema):
+    """AI 의 `CamelModel` 과 같은 모양 — 파이썬은 snake_case, JSON 은 camelCase.
+
+    필드가 많아 하나하나 alias 를 달지 않고 규칙으로 맞춘다.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel)
+
+
+class PendingJob(AiShape):
+    """`GET /internal/v1/jobs/pending` — 할 일 하나 (#137 2-2).
+
+    `requestedAt` 은 결과를 보낼 때 그대로 돌려줘야 한다. 그 사이 다시 요청된
+    작업이면 결과를 409 로 거절한다.
+    """
+
+    kind: JobKind
+    session_id: str
+    interview_id: str
+    requested_at: datetime
+
+
+class Competency(AiShape):
+    """AI `Competency` (`schemas/context.py`). 이대로 JSON 으로 저장해 돌려준다."""
+
+    competency_id: PgText
+    jd_id: PgText
+    name: PgText
+    required: bool = True
+    description: PgAnyText | None = None
+
+
+class ResumeClaim(AiShape):
+    """AI `ResumeClaim`. `quote` 는 이력서 본문에 그대로 있는 문장이다."""
+
+    claim_id: PgText
+    resume_id: PgText
+    quote: PgText
+    section: PgAnyText | None = None
+
+
+class PrepUpsert(AiShape):
+    """`PUT /internal/v1/interviews/{interviewId}/prep` — AI `PrepResult` (PR #156).
+
+    `sessionId` · `rejections` · `warnings` · `usage` 같은 나머지는 받고 버린다.
+
+    `requestedAt` 은 받은 작업의 것을 그대로 돌려받는다. 시간대가 없으면 저장된 값과
+    비교할 수 없어 422 다.
+    """
+
+    status: Literal["completed", "partial", "empty", "failed"]
+    requested_at: AwareDatetime
+    model: PgAnyText = ""
+    competencies: list[Competency] = Field(default_factory=list)
+    resume_claims: list[ResumeClaim] = Field(default_factory=list)

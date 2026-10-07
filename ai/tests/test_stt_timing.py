@@ -47,11 +47,8 @@ def ok(text: str = "문장") -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "_result": {"status": "ok", "reason": None},
-            "transcript": {
-                "text": text,
-                "chunks": [{"timestamp": [0.0, 1.0], "text": text}],
-            },
+            "text": text,
+            "segments": [{"id": 0, "start": 0.0, "end": 1.0, "text": text}],
         },
     )
 
@@ -232,7 +229,7 @@ async def test_a_segment_that_failed_is_timed_too() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         clock.now += 0.5
         if segment_index(request) == 0:
-            return httpx.Response(500, json={"_result": {"status": "error"}})
+            return httpx.Response(500, json={"error": {"message": "decode failed"}})
         return ok("살아남은 문장")
 
     stream = stream_for(handler, clock)

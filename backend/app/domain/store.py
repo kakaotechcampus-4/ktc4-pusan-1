@@ -15,10 +15,17 @@ from typing import Protocol
 from app.domain.models import (
     Context,
     ContextDoc,
+    DocCategory,
     DocStatus,
+    FindingState,
     Interview,
+    InterviewPrep,
+    Job,
+    JobKind,
     Recording,
     Resume,
+    ReviewMark,
+    ReviewStatus,
     Role,
     Session,
     SessionStatus,
@@ -28,6 +35,7 @@ from app.domain.models import (
     TranscriptStage,
     User,
     Utterance,
+    utcnow,
 )
 
 
@@ -42,6 +50,25 @@ class Store(Protocol):
         """그 면접관의 면접을 최신순으로, 마지막으로 끝난 세션과 그 요약 상태와 함께.
 
         끝난 세션이 없는 면접은 둘 다 None 이다 (#137 1-1).
+        """
+        ...
+
+    def update_review(
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
+    ) -> Interview | None:
+        """면접관의 검토를 받고 **저장된 면접**을 돌려준다. None 은 그대로 둔다.
+
+        규칙은 `Interview.update_review` 와 같다. 판정과 갱신은 한 문장이다 — 읽은
+        객체를 통째로 덮어쓰면, 메모만 보낸 요청과 확정만 보낸 요청이 겹칠 때 보내지
+        않은 값이 읽어 둔 옛 값으로 돌아간다. 없는 면접이면 None.
+        """
+        ...
+
+    def last_ended_session(self, interview_id: str) -> Session | None:
+        """그 면접에서 가장 나중에 끝난 세션. 검토 화면의 기준 세션이다 (#163).
+
+        목록(`list_interviews`)이 붙이는 세션과 같은 것이어야 목록과 상세가 어긋나지
+        않는다. 같은 시각에 끝났으면 id 가 큰 쪽이다. 끝난 세션이 없으면 None.
         """
         ...
 
@@ -186,6 +213,75 @@ class Store(Protocol):
         """합칠 차례인 세션 — 녹화가 PROCESSING 이고 세션이 끝났다."""
         ...
 
+    # ── 면접 전 분석 (#162) ─────────────────────────────────
+
+    def ensure_prep(self, prep: InterviewPrep) -> None:
+        """면접 전 분석 자리를 연다. 이미 있으면 **그대로 둔다** — FAILED 만 다시 연다.
+
+        세션을 만들 때 부른다. 세션을 또 만들어도 요청 시각이 밀리지 않아야 한도가
+        연장되지 않는다 — `ensure_summary` 와 같은 이유다. FAILED 는 다시 연다. 폴러가
+        한도 넘게 멈춰 실패한 면접을 이력서 재업로드 말고도 되살릴 길이다.
+        """
+        ...
+
+    def restart_prep(self, interview_id: str) -> None:
+        """이력서가 바뀌었다. 자리를 비우고 새 요청 시각으로 다시 PROCESSING 으로 연다.
+
+        자리가 없으면 아무것도 하지 않는다. FE 는 세션보다 이력서를 먼저 올리는데,
+        세션이 없으면 AI 가 읽을 컨텍스트도 없다 — 자리는 세션을 만들 때 연다.
+
+        면접이 끝났으면(끝난 세션이 있으면) 아무것도 하지 않는다(#163). 검토 중에
+        역량 · 주장이 비면 상세의 coverage · 근거가 사라진다. 「끝났는가」는 같은
+        문장에서 본다 — 종료와 이력서 업로드가 겹쳐도 뚫리지 않게.
+        """
+        ...
+
+    def get_prep(self, interview_id: str) -> InterviewPrep | None: ...
+
+    def finish_prep(self, prep: InterviewPrep) -> bool:
+        """AI 의 결과를 받는다. 썼으면 True.
+
+        저장된 요청 시각이 `prep.requested_at` 과 같을 때만 쓴다. 다르면 이력서를
+        다시 올리는 사이 늦게 온 옛 결과다. FAILED 는 READY 를 덮지 않는다 (#132).
+        판정과 갱신은 한 문장이다.
+        """
+        ...
+
+    def next_prep(self, limit: timedelta, parse_limit: timedelta) -> Job | None:
+        """AI 폴러에게 내줄 PREP 하나. 요청이 오래된 것부터, 없으면 None.
+
+        먼저 한도(`limit`)를 넘긴 PROCESSING 을 FAILED 로 넘긴다. 폴러가 죽어 결과가
+        안 오는 작업이 큐를 영원히 막지 않게 한다.
+
+        그 면접의 이력서나 면접관의 JD 문서가 아직 본문을 뽑는 중이면 건너뛴다 — 빈
+        이력서로 분석하면 주장이 비어 버린다. 추출이 `parse_limit` 을 넘겨 멈춘 문서는
+        화면과 같이 실패로 보고 기다리지 않는다.
+
+        세션은 그 면접의 가장 최근 것을 싣는다. 컨텍스트를 세션으로 읽기 때문이다.
+        """
+        ...
+
+    # ── 검토 표시 (#163) ─────────────────────────────────
+
+    def update_mark(
+        self,
+        session_id: str,
+        item_id: str,
+        *,
+        state: FindingState | None = None,
+        bookmarked: bool | None = None,
+    ) -> ReviewMark:
+        """채택 · 북마크를 바꾸고 **저장된 표시**를 돌려준다. None 은 그대로 둔다.
+
+        한 문장 UPSERT 다. 채택과 북마크를 따로 보내는 요청이 겹쳐도 서로를 지우지
+        않는다. 행이 없으면 「제안됨 · 북마크 없음」에서 시작한다.
+        """
+        ...
+
+    def list_marks(self, session_id: str) -> list[ReviewMark]:
+        """그 세션의 표시 전부. 순서는 정하지 않는다 — 부르는 쪽이 id 로 찾는다."""
+        ...
+
     # ── 사용자 ──────────────────────────────────────────
 
     def upsert_user(self, user: User) -> User:
@@ -213,8 +309,8 @@ class Store(Protocol):
     ) -> list[Utterance]:
         """말한 순서대로. 같은 ms 에 시작했으면 면접관이 먼저, 그다음 id 순이다.
 
-        질문이 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. `seq` 가 전송
-        페이로드에 없어서 (#76 ①) 여기서 정한다.
+        질문이 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. `seq` 는 PR #158 부터
+        오지만 그 전에 받은 발화는 비어 있어 순서는 여기서 정한다.
         """
         ...
 
@@ -251,6 +347,10 @@ class InMemoryStore:
         self._texts: dict[object, str] = {}
 
         self._summaries: dict[str, SessionSummary] = {}
+        #: interview_id -> 면접 전 분석
+        self._preps: dict[str, InterviewPrep] = {}
+        #: (session_id, item_id) -> 채택 · 북마크
+        self._marks: dict[tuple[str, str], ReviewMark] = {}
         self._recordings: dict[str, Recording] = {}
         self._users: dict[str, User] = {}
 
@@ -260,7 +360,7 @@ class InMemoryStore:
         self._suggestions: dict[tuple[str, str], Suggestion] = {}
 
     def add_interview(self, interview: Interview) -> None:
-        self._interviews[interview.id] = interview
+        self._interviews[interview.id] = deepcopy(interview)
 
     def get_interview(self, interview_id: str) -> Interview | None:
         found = self._interviews.get(interview_id)
@@ -280,7 +380,7 @@ class InMemoryStore:
         )
         listed: list[tuple[Interview, Session | None, SummaryStatus | None]] = []
         for interview in mine:
-            session = self._last_ended_session(interview.id)
+            session = self.last_ended_session(interview.id)
             summary = None if session is None else self._summaries.get(session.id)
             listed.append(
                 (
@@ -291,13 +391,25 @@ class InMemoryStore:
             )
         return listed
 
-    def _last_ended_session(self, interview_id: str) -> Session | None:
+    def update_review(
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
+    ) -> Interview | None:
+        stored = self._interviews.get(interview_id)
+        if stored is None:
+            return None
+        stored.update_review(status, memo)
+        return deepcopy(stored)
+
+    def last_ended_session(self, interview_id: str) -> Session | None:
         ended = [
             s
             for s in self._sessions.values()
             if s.interview_id == interview_id and s.ended_at is not None
         ]
-        last = max(ended, key=lambda s: s.ended_at or s.created_at, default=None)
+        # 같은 시각에 끝났으면 id 가 큰 쪽 — Postgres 쿼리의 ORDER BY 와 같다.
+        last = max(
+            ended, key=lambda s: (s.ended_at or s.created_at, s.id), default=None
+        )
         return None if last is None else deepcopy(last)
 
     def add_session(self, session: Session) -> None:
@@ -461,6 +573,95 @@ class InMemoryStore:
             and session.status is SessionStatus.ENDED
         ]
 
+    # ── 면접 전 분석 (#162) ─────────────────────────────────
+
+    def ensure_prep(self, prep: InterviewPrep) -> None:
+        stored = self._preps.get(prep.interview_id)
+        if stored is None or stored.status is SummaryStatus.FAILED:
+            self._preps[prep.interview_id] = deepcopy(prep)
+
+    def restart_prep(self, interview_id: str) -> None:
+        if (
+            interview_id in self._preps
+            and self.last_ended_session(interview_id) is None
+        ):
+            self._preps[interview_id] = InterviewPrep(interview_id=interview_id)
+
+    def get_prep(self, interview_id: str) -> InterviewPrep | None:
+        found = self._preps.get(interview_id)
+        return None if found is None else deepcopy(found)
+
+    def finish_prep(self, prep: InterviewPrep) -> bool:
+        stored = self._preps.get(prep.interview_id)
+        if stored is None or stored.requested_at != prep.requested_at:
+            return False
+        if prep.status is SummaryStatus.FAILED and stored.status is SummaryStatus.READY:
+            return False
+        self._preps[prep.interview_id] = deepcopy(prep)
+        return True
+
+    def next_prep(self, limit: timedelta, parse_limit: timedelta) -> Job | None:
+        now = utcnow()
+        waiting = [
+            p for p in self._preps.values() if p.status is SummaryStatus.PROCESSING
+        ]
+        for prep in waiting:
+            if now - prep.requested_at > limit:
+                prep.status = SummaryStatus.FAILED
+                prep.completed_at = now
+
+        jobs: list[Job] = []
+        for prep in waiting:
+            session = self._latest_session(prep.interview_id)
+            if (
+                prep.status is SummaryStatus.PROCESSING
+                and session is not None
+                and not self._reading_inputs(prep.interview_id, parse_limit)
+            ):
+                jobs.append(
+                    Job(JobKind.PREP, session.id, prep.interview_id, prep.requested_at)
+                )
+        return min(jobs, key=lambda j: j.requested_at, default=None)
+
+    def _latest_session(self, interview_id: str) -> Session | None:
+        mine = [s for s in self._sessions.values() if s.interview_id == interview_id]
+        return max(mine, key=lambda s: s.created_at, default=None)
+
+    def _reading_inputs(self, interview_id: str, parse_limit: timedelta) -> bool:
+        """그 면접의 이력서나 면접관의 JD 가 아직 본문을 뽑는 중인가."""
+        resume = self._resumes.get(interview_id)
+        if resume and resume[0].shown_status(parse_limit) is DocStatus.PARSING:
+            return True
+        interviewer = self._interviews[interview_id].interviewer_id
+        return any(
+            doc.category is DocCategory.JD
+            and doc.shown_status(parse_limit) is DocStatus.PARSING
+            and self._contexts[doc.context_id].owner_id == interviewer
+            for doc, _ in self._docs.values()
+        )
+
+    # ── 검토 표시 (#163) ─────────────────────────────────
+
+    def update_mark(
+        self,
+        session_id: str,
+        item_id: str,
+        *,
+        state: FindingState | None = None,
+        bookmarked: bool | None = None,
+    ) -> ReviewMark:
+        mark = self._marks.setdefault(
+            (session_id, item_id), ReviewMark(session_id=session_id, item_id=item_id)
+        )
+        if state is not None:
+            mark.state = state
+        if bookmarked is not None:
+            mark.bookmarked = bookmarked
+        return deepcopy(mark)
+
+    def list_marks(self, session_id: str) -> list[ReviewMark]:
+        return [deepcopy(m) for (sid, _), m in self._marks.items() if sid == session_id]
+
     # ── 사용자 ──────────────────────────────────────────
 
     def upsert_user(self, user: User) -> User:
@@ -517,6 +718,8 @@ class InMemoryStore:
         self._texts.clear()
 
         self._summaries.clear()
+        self._preps.clear()
+        self._marks.clear()
         self._recordings.clear()
         self._users.clear()
 

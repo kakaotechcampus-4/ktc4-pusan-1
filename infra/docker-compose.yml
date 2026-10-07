@@ -81,8 +81,8 @@ services:
       # 못 보게 됩니다. 대신 APP_ENV=production 이면 BE 가 기동을 거부합니다
       # (`app/api/internal/deps.py`).
       #
-      # ⚠️ ai 서비스가 들어오면 같은 값을 BACKEND_API_KEY 로도 줘야 합니다.
-      #    다르면 Agent 가 BACKEND_AUTH_FAILED 로 붙지 못합니다.
+      # ai 서비스가 같은 값을 BACKEND_API_KEY 로 받습니다 (아래).
+      # 다르면 Agent 가 BACKEND_AUTH_FAILED 로 붙지 못합니다.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
       # 카카오 로그인입니다. Redirect URI 는 FE 콜백이라 도메인에 묶여 여기 고정합니다 —
       # 카카오 콘솔에 등록한 값과 글자까지 같아야 토큰 교환이 됩니다.
@@ -142,7 +142,7 @@ services:
     logging: *logging
     # LiveKit AgentServer 가 방마다 별도 작업 프로세스를 만들고, 각 작업이
     # 사람의 마이크 트랙을 직접 구독해 Elice Whisper 로 전사한다. BE 는 음성을
-    # 중계하지 않는다. 전사는 LiveKit text stream 으로 면접관에게만 간다.
+    # 중계하지 않는다. 자막은 면접관에게, FINAL 전사와 꼬리질문은 BE 로 간다.
     environment:
       APP_ENV: production
       LOG_LEVEL: INFO
@@ -157,6 +157,16 @@ services:
       # 비어 있으면 워커가 STT 미설정으로 방을 떠나므로 기동 자체는 막지 않는다.
       ELICE_STT_BASE_URL: ${STT_API_BASE_URL:-}
       ELICE_API_KEY: ${STT_API_KEY:-}
+      # BE 내부 API(/internal/v1). FINAL 전사 저장 채널과 꼬리질문 전송이 같이 쓴다.
+      # 같은 compose 네트워크라 서비스 이름으로 부른다. 비어 있으면 워커는 자막만 한다.
+      BACKEND_BASE_URL: http://backend:8000
+      # backend 의 INTERNAL_API_KEY 와 같은 값이어야 한다. 다르면 BACKEND_AUTH_FAILED.
+      BACKEND_API_KEY: ${INTERNAL_API_KEY:-}
+      # 꼬리질문 생성용 프로젝트 LLM(Elice, OpenAI 호환). 둘 다 있어야 쓰고,
+      # 아니면 추출형 생성기로 돈다. 기동은 막지 않는다.
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-5.6-luna}
     depends_on:
       livekit:
         condition: service_started

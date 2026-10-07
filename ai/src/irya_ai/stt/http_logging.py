@@ -30,7 +30,10 @@ traceable in the log. Records naming any other host - a second
 time - pass through untouched. Muting the application's whole HTTP logging to
 protect one endpoint would cost more than it buys.
 
-Only the host is registered, read from the client's ``base_url``. The default
+Only the host is registered, read from the client's ``base_url`` - except
+through :func:`protect_base_url`, which registers the host together with the
+base URL's path for a deployment that is identified by its path on a shared
+host, as the project LLM gateway is. The default
 request logging does not print the request's ``Authorization`` value or body.
 However, httpcore DEBUG records can include response headers. This filter
 redacts registered hosts, not arbitrary secrets in headers, paths or queries.
@@ -127,12 +130,35 @@ def protect_host(base_url: object) -> str | None:
         # no ``base_url`` has nothing to hide here anyway: it is not the one
         # aimed at the deployment.
         return None
+    return _register(host)
 
+
+def protect_base_url(base_url: object) -> str | None:
+    """Hide ``base_url``'s host *and path prefix* from the HTTP client loggers.
+
+    For a deployment that lives on a shared host and is told apart by its
+    path - the project LLM gateway is ``https://<shared-host>/<deployment-id>/v1``
+    - the host alone is public and the path is the secret. The whole prefix
+    is registered as one string, so ``HTTP Request: POST
+    https://<shared-host>/<deployment-id>/v1/chat/completions`` logs as
+    ``https://<redacted-host>/chat/completions``: the route and status stay,
+    the id goes. A base URL with no path registers the host, like
+    :func:`protect_host`.
+    """
+
+    host = _host_of(base_url)
+    if not host:
+        return None
+    path = _path_of(base_url)
+    return _register(host + path if path else host)
+
+
+def _register(target: str) -> str:
     global _pattern
     with _lock:
-        if host in _hosts:
-            return host
-        _hosts.add(host)
+        if target in _hosts:
+            return target
+        _hosts.add(target)
         _pattern = re.compile(
             "|".join(re.escape(known) for known in sorted(_hosts)),
             re.IGNORECASE,
@@ -141,7 +167,7 @@ def protect_host(base_url: object) -> str | None:
             # ``addFilter`` is a no-op when the filter is already attached,
             # so repeated clients do not stack copies of it.
             logging.getLogger(name).addFilter(_FILTER)
-    return host
+    return target
 
 
 def protected_hosts() -> frozenset[str]:
@@ -166,6 +192,18 @@ def clear_protected_hosts() -> None:
         _pattern = None
         for name in HTTP_CLIENT_LOGGERS:
             logging.getLogger(name).removeFilter(_FILTER)
+
+
+def _path_of(base_url: object) -> str:
+    """The path of a URL or ``httpx.URL`` without its trailing slash; "" for none."""
+
+    path = getattr(base_url, "path", None)
+    if path is None:
+        text = str(base_url).strip()
+        if "//" not in text:
+            text = "//" + text
+        path = urlsplit(text).path
+    return str(path).strip().rstrip("/")
 
 
 def _host_of(base_url: object) -> str:

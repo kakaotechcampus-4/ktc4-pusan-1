@@ -24,9 +24,15 @@ from app.domain.models import (
     DocCategory,
     DocKind,
     DocStatus,
+    FindingState,
     Interview,
+    InterviewPrep,
+    Job,
+    JobKind,
     Recording,
     Resume,
+    ReviewMark,
+    ReviewStatus,
     Role,
     Session,
     SessionStatus,
@@ -82,31 +88,77 @@ class PostgresStore:
         with self._pool.connection() as conn:
             conn.execute(
                 """
-                INSERT INTO interview (id, interviewer_id, candidate_name, created_at)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO interview (
+                    id, interviewer_id, candidate_name, created_at,
+                    review_status, memo, reviewed_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     interview.id,
                     interview.interviewer_id,
                     interview.candidate_name,
                     interview.created_at,
+                    interview.review_status.value,
+                    interview.memo,
+                    interview.reviewed_at,
                 ),
             )
 
     def get_interview(self, interview_id: str) -> Interview | None:
         row = self._one(
-            "SELECT id, interviewer_id, candidate_name, created_at"
-            " FROM interview WHERE id = %s",
+            "SELECT id, interviewer_id, candidate_name, created_at,"
+            " review_status, memo, reviewed_at FROM interview WHERE id = %s",
             (interview_id,),
         )
-        if row is None:
-            return None
-        return Interview(
-            id=row["id"],
-            interviewer_id=row["interviewer_id"],
-            candidate_name=row["candidate_name"],
-            created_at=row["created_at"],
+        return None if row is None else self._to_interview(row)
+
+    def update_review(
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
+    ) -> Interview | None:
+        """`Interview.update_review` 의 규칙을 한 문장으로 옮긴 것이다.
+
+        `SET` 의 식은 모두 바뀌기 전 행을 본다. 그래서 확정 시각은 「상태가 바뀔 때만」
+        을 지금 저장된 상태와 비교해 판정하고, 보내지 않은 값(NULL)은 그대로 둔다.
+        """
+        row = self._one(
+            """
+            UPDATE interview
+               SET memo = COALESCE(%(memo)s, memo),
+                   reviewed_at = CASE
+                       WHEN %(status)s::text IS NULL
+                         OR %(status)s::text = review_status THEN reviewed_at
+                       WHEN %(status)s::text = %(confirmed)s THEN %(now)s
+                       ELSE NULL
+                   END,
+                   review_status = COALESCE(%(status)s::text, review_status)
+             WHERE id = %(id)s
+         RETURNING id, interviewer_id, candidate_name, created_at,
+                   review_status, memo, reviewed_at
+            """,
+            {
+                "memo": memo,
+                "status": None if status is None else status.value,
+                "confirmed": ReviewStatus.CONFIRMED.value,
+                "now": utcnow(),
+                "id": interview_id,
+            },
         )
+        return None if row is None else self._to_interview(row)
+
+    def last_ended_session(self, interview_id: str) -> Session | None:
+        row = self._one(
+            """
+            SELECT id, interview_id, status, created_at,
+                   started_at, ended_at, transcript_origin_at
+            FROM session
+            WHERE interview_id = %s AND ended_at IS NOT NULL
+            ORDER BY ended_at DESC, id DESC
+            LIMIT 1
+            """,
+            (interview_id,),
+        )
+        return None if row is None else self._to_session(row)
 
     def list_interviews(
         self, interviewer_id: str
@@ -115,6 +167,7 @@ class PostgresStore:
         rows = self._all(
             """
             SELECT i.id, i.interviewer_id, i.candidate_name, i.created_at,
+                   i.review_status, i.memo, i.reviewed_at,
                    s.id AS s_id, s.status AS s_status, s.created_at AS s_created_at,
                    s.started_at AS s_started_at, s.ended_at AS s_ended_at,
                    s.transcript_origin_at AS s_transcript_origin_at,
@@ -123,7 +176,7 @@ class PostgresStore:
             LEFT JOIN LATERAL (
                 SELECT * FROM session
                 WHERE session.interview_id = i.id AND session.ended_at IS NOT NULL
-                ORDER BY session.ended_at DESC
+                ORDER BY session.ended_at DESC, session.id DESC
                 LIMIT 1
             ) s ON TRUE
             LEFT JOIN session_summary ss ON ss.session_id = s.id
@@ -134,12 +187,7 @@ class PostgresStore:
         )
         return [
             (
-                Interview(
-                    id=row["id"],
-                    interviewer_id=row["interviewer_id"],
-                    candidate_name=row["candidate_name"],
-                    created_at=row["created_at"],
-                ),
+                self._to_interview(row),
                 None
                 if row["s_id"] is None
                 else Session(
@@ -182,8 +230,10 @@ class PostgresStore:
             """,
             (session_id,),
         )
-        if row is None:
-            return None
+        return None if row is None else self._to_session(row)
+
+    @staticmethod
+    def _to_session(row: dict[str, Any]) -> Session:
         return Session(
             id=row["id"],
             interview_id=row["interview_id"],
@@ -192,6 +242,18 @@ class PostgresStore:
             started_at=row["started_at"],
             ended_at=row["ended_at"],
             transcript_origin_at=row["transcript_origin_at"],
+        )
+
+    @staticmethod
+    def _to_interview(row: dict[str, Any]) -> Interview:
+        return Interview(
+            id=row["id"],
+            interviewer_id=row["interviewer_id"],
+            candidate_name=row["candidate_name"],
+            created_at=row["created_at"],
+            review_status=ReviewStatus(row["review_status"]),
+            memo=row["memo"],
+            reviewed_at=row["reviewed_at"],
         )
 
     def save_session(
@@ -257,9 +319,9 @@ class PostgresStore:
                 """
                 INSERT INTO session_summary (
                     session_id, status, overview, key_points,
-                    requested_at, completed_at
+                    requested_at, completed_at, moments, findings
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id) DO NOTHING
                 """,
                 self._summary_values(summary),
@@ -272,7 +334,7 @@ class PostgresStore:
         row = self._one(
             """
             SELECT session_id, status, overview, key_points,
-                   requested_at, completed_at
+                   requested_at, completed_at, moments, findings
             FROM session_summary WHERE session_id = %s
             """,
             (session_id,),
@@ -289,7 +351,9 @@ class PostgresStore:
                    SET status = %s,
                        overview = %s,
                        key_points = %s,
-                       completed_at = %s
+                       completed_at = %s,
+                       moments = %s,
+                       findings = %s
                  WHERE session_id = %s
                 """,
                 (
@@ -297,6 +361,8 @@ class PostgresStore:
                     summary.overview,
                     Jsonb(summary.key_points),
                     summary.completed_at,
+                    Jsonb(summary.moments),
+                    Jsonb(summary.findings),
                     summary.session_id,
                 ),
             )
@@ -311,6 +377,8 @@ class PostgresStore:
                    SET status = %s,
                        overview = '',
                        key_points = '[]'::jsonb,
+                       moments = '[]'::jsonb,
+                       findings = '[]'::jsonb,
                        completed_at = %s
                  WHERE session_id = %s
                    AND status <> %s
@@ -349,12 +417,14 @@ class PostgresStore:
                SET status = %s,
                    overview = '',
                    key_points = '[]'::jsonb,
+                   moments = '[]'::jsonb,
+                   findings = '[]'::jsonb,
                    completed_at = %s
              WHERE session_id = %s
                AND status = %s
                AND requested_at < %s
          RETURNING session_id, status, overview, key_points,
-                   requested_at, completed_at
+                   requested_at, completed_at, moments, findings
             """,
             (
                 SummaryStatus.FAILED.value,
@@ -369,6 +439,178 @@ class PostgresStore:
         # 한도를 안 넘겼거나 누가 먼저 끝냈다. 지금 값을 그대로 준다.
         return self.get_summary(session_id)
 
+    # ── 면접 전 분석 (#162) ─────────────────────────────────
+
+    def ensure_prep(self, prep: InterviewPrep) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO interview_prep (
+                    interview_id, status, competencies, resume_claims, model,
+                    requested_at, completed_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (interview_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    competencies = EXCLUDED.competencies,
+                    resume_claims = EXCLUDED.resume_claims,
+                    model = EXCLUDED.model,
+                    requested_at = EXCLUDED.requested_at,
+                    completed_at = EXCLUDED.completed_at
+                WHERE interview_prep.status = %s
+                """,
+                (
+                    prep.interview_id,
+                    prep.status.value,
+                    Jsonb(prep.competencies),
+                    Jsonb(prep.resume_claims),
+                    prep.model,
+                    prep.requested_at,
+                    prep.completed_at,
+                    SummaryStatus.FAILED.value,
+                ),
+            )
+
+    def restart_prep(self, interview_id: str) -> None:
+        """UPDATE 라 자리가 없으면 0행이다 — 세션을 만들 때 열린다. 끝난 면접인지도
+        같은 문장의 `WHERE` 가 본다."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE interview_prep
+                   SET status = %s,
+                       competencies = '[]'::jsonb,
+                       resume_claims = '[]'::jsonb,
+                       model = '',
+                       requested_at = %s,
+                       completed_at = NULL
+                 WHERE interview_id = %s
+                   AND NOT EXISTS (
+                       SELECT 1 FROM session
+                       WHERE session.interview_id = %s AND session.ended_at IS NOT NULL
+                   )
+                """,
+                (SummaryStatus.PROCESSING.value, utcnow(), interview_id, interview_id),
+            )
+
+    def get_prep(self, interview_id: str) -> InterviewPrep | None:
+        row = self._one(
+            """
+            SELECT interview_id, status, competencies, resume_claims, model,
+                   requested_at, completed_at
+            FROM interview_prep WHERE interview_id = %s
+            """,
+            (interview_id,),
+        )
+        if row is None:
+            return None
+        return InterviewPrep(
+            interview_id=row["interview_id"],
+            status=SummaryStatus(row["status"]),
+            competencies=list(row["competencies"]),
+            resume_claims=list(row["resume_claims"]),
+            model=row["model"],
+            requested_at=row["requested_at"],
+            completed_at=row["completed_at"],
+        )
+
+    def finish_prep(self, prep: InterviewPrep) -> bool:
+        """요청 시각 대조와 「FAILED 는 READY 를 덮지 않는다」가 `WHERE` 안에 있다."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE interview_prep
+                   SET status = %s,
+                       competencies = %s,
+                       resume_claims = %s,
+                       model = %s,
+                       completed_at = %s
+                 WHERE interview_id = %s
+                   AND requested_at = %s
+                   AND NOT (%s = %s AND status = %s)
+                """,
+                (
+                    prep.status.value,
+                    Jsonb(prep.competencies),
+                    Jsonb(prep.resume_claims),
+                    prep.model,
+                    prep.completed_at,
+                    prep.interview_id,
+                    prep.requested_at,
+                    prep.status.value,
+                    SummaryStatus.FAILED.value,
+                    SummaryStatus.READY.value,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def next_prep(self, limit: timedelta, parse_limit: timedelta) -> Job | None:
+        """만료 UPDATE 한 번, 고르는 SELECT 한 번이다.
+
+        시각은 `expire_summary` 처럼 앱이 찍는다. 「추출 중」은 `shown_status` 와 같은
+        판정이다 — PARSING 이고 한도 안에 올라온 문서.
+        """
+        moment = utcnow()
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE interview_prep
+                   SET status = %s, completed_at = %s
+                 WHERE status = %s AND requested_at < %s
+                """,
+                (
+                    SummaryStatus.FAILED.value,
+                    moment,
+                    SummaryStatus.PROCESSING.value,
+                    moment - limit,
+                ),
+            )
+        reading_since = moment - parse_limit
+        row = self._one(
+            """
+            SELECT p.interview_id, p.requested_at, s.id AS session_id
+            FROM interview_prep p
+            JOIN interview i ON i.id = p.interview_id
+            JOIN LATERAL (
+                SELECT id FROM session
+                WHERE session.interview_id = p.interview_id
+                ORDER BY session.created_at DESC
+                LIMIT 1
+            ) s ON TRUE
+            WHERE p.status = %s
+              AND NOT EXISTS (
+                  SELECT 1 FROM interview_resume r
+                  WHERE r.interview_id = p.interview_id
+                    AND r.status = %s AND r.created_at >= %s
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM context c
+                  JOIN context_doc d ON d.context_id = c.id
+                  WHERE c.owner_id = i.interviewer_id
+                    AND d.category = %s
+                    AND d.status = %s AND d.created_at >= %s
+              )
+            ORDER BY p.requested_at
+            LIMIT 1
+            """,
+            (
+                SummaryStatus.PROCESSING.value,
+                DocStatus.PARSING.value,
+                reading_since,
+                DocCategory.JD.value,
+                DocStatus.PARSING.value,
+                reading_since,
+            ),
+        )
+        if row is None:
+            return None
+        return Job(
+            kind=JobKind.PREP,
+            session_id=row["session_id"],
+            interview_id=row["interview_id"],
+            requested_at=row["requested_at"],
+        )
+
     # ── 내부 ────────────────────────────────────────────────
 
     @staticmethod
@@ -380,6 +622,8 @@ class PostgresStore:
             Jsonb(summary.key_points),
             summary.requested_at,
             summary.completed_at,
+            Jsonb(summary.moments),
+            Jsonb(summary.findings),
         )
 
     @staticmethod
@@ -474,10 +718,12 @@ class PostgresStore:
             key_points=list(row["key_points"]),
             requested_at=row["requested_at"],
             completed_at=row["completed_at"],
+            moments=list(row["moments"]),
+            findings=list(row["findings"]),
         )
 
     def _one(
-        self, query: LiteralString, params: tuple[Any, ...]
+        self, query: LiteralString, params: tuple[Any, ...] | dict[str, Any]
     ) -> dict[str, Any] | None:
         conn: Connection[dict[str, Any]]
         with self._pool.connection() as conn:
@@ -710,6 +956,58 @@ class PostgresStore:
         )
         return None if row is None else row["text"]
 
+    # ── 검토 표시 (#163) ─────────────────────────────────
+
+    def update_mark(
+        self,
+        session_id: str,
+        item_id: str,
+        *,
+        state: FindingState | None = None,
+        bookmarked: bool | None = None,
+    ) -> ReviewMark:
+        """한 문장 UPSERT. 보내지 않은 값(NULL)은 저장된 것, 없으면 기본값을 쓴다."""
+        row = self._one(
+            """
+            INSERT INTO review_mark (session_id, item_id, state, bookmarked)
+            VALUES (
+                %(session)s, %(item)s,
+                COALESCE(%(state)s::text, %(proposed)s),
+                COALESCE(%(bookmarked)s::boolean, false)
+            )
+            ON CONFLICT (session_id, item_id) DO UPDATE SET
+                state = COALESCE(%(state)s::text, review_mark.state),
+                bookmarked = COALESCE(%(bookmarked)s::boolean, review_mark.bookmarked)
+            RETURNING session_id, item_id, state, bookmarked
+            """,
+            {
+                "session": session_id,
+                "item": item_id,
+                "state": None if state is None else state.value,
+                "proposed": FindingState.PROPOSED.value,
+                "bookmarked": bookmarked,
+            },
+        )
+        assert row is not None  # INSERT … RETURNING 은 늘 한 행이다
+        return self._to_mark(row)
+
+    def list_marks(self, session_id: str) -> list[ReviewMark]:
+        rows = self._all(
+            "SELECT session_id, item_id, state, bookmarked"
+            " FROM review_mark WHERE session_id = %s",
+            (session_id,),
+        )
+        return [self._to_mark(row) for row in rows]
+
+    @staticmethod
+    def _to_mark(row: dict[str, Any]) -> ReviewMark:
+        return ReviewMark(
+            session_id=row["session_id"],
+            item_id=row["item_id"],
+            state=FindingState(row["state"]),
+            bookmarked=row["bookmarked"],
+        )
+
     # ── 사용자 ──────────────────────────────────────────────
 
     def upsert_user(self, user: User) -> User:
@@ -755,14 +1053,16 @@ class PostgresStore:
                 """
                 INSERT INTO utterance (
                     session_id, stage, utterance_id,
-                    speaker, text, started_at_ms, ended_at_ms
+                    speaker, text, started_at_ms, ended_at_ms, track_id, seq
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id, stage, utterance_id) DO UPDATE SET
                     speaker = EXCLUDED.speaker,
                     text = EXCLUDED.text,
                     started_at_ms = EXCLUDED.started_at_ms,
-                    ended_at_ms = EXCLUDED.ended_at_ms
+                    ended_at_ms = EXCLUDED.ended_at_ms,
+                    track_id = EXCLUDED.track_id,
+                    seq = EXCLUDED.seq
                 """,
                 (
                     utterance.session_id,
@@ -772,6 +1072,8 @@ class PostgresStore:
                     utterance.text,
                     utterance.started_at_ms,
                     utterance.ended_at_ms,
+                    utterance.track_id,
+                    utterance.seq,
                 ),
             )
 
@@ -781,7 +1083,7 @@ class PostgresStore:
         rows = self._all(
             """
             SELECT session_id, stage, utterance_id,
-                   speaker, text, started_at_ms, ended_at_ms
+                   speaker, text, started_at_ms, ended_at_ms, track_id, seq
             FROM utterance
             WHERE session_id = %s AND stage = %s
             ORDER BY started_at_ms,
@@ -799,6 +1101,8 @@ class PostgresStore:
                 started_at_ms=row["started_at_ms"],
                 ended_at_ms=row["ended_at_ms"],
                 stage=TranscriptStage(row["stage"]),
+                track_id=row["track_id"],
+                seq=row["seq"],
             )
             for row in rows
         ]

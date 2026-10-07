@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Any
 from uuid import uuid4
 
 
@@ -106,12 +107,38 @@ class User:
     created_at: datetime = field(default_factory=utcnow)
 
 
+class ReviewStatus(StrEnum):
+    """면접관의 검토 진행 상태 (#137 1-3). 한글 표시는 FE 가 한다."""
+
+    PENDING = "PENDING"
+    IN_REVIEW = "IN_REVIEW"
+    CONFIRMED = "CONFIRMED"
+
+
 @dataclass
 class Interview:
     interviewer_id: str
     candidate_name: str | None = None
     id: str = field(default_factory=lambda: _new_id("int"))
     created_at: datetime = field(default_factory=utcnow)
+    #: 검토는 면접 단위다 — 세션이 바뀌어도 메모와 확정은 남는다 (#163).
+    review_status: ReviewStatus = ReviewStatus.PENDING
+    memo: str = ""
+    #: `CONFIRMED` 가 된 시각. 다른 상태로 돌아가면 비운다.
+    reviewed_at: datetime | None = None
+
+    def update_review(self, status: ReviewStatus | None, memo: str | None) -> None:
+        """면접관의 검토를 받는다. None 은 「보내지 않음」이라 그대로 둔다.
+
+        확정 시각은 상태가 **바뀔 때만** 움직인다 — 메모를 저장하며 같은 상태가
+        실려 와도 처음 확정한 시각이 밀리지 않는다.
+        """
+        if memo is not None:
+            self.memo = memo
+        if status is None or status is self.review_status:
+            return
+        self.review_status = status
+        self.reviewed_at = utcnow() if status is ReviewStatus.CONFIRMED else None
 
 
 @dataclass
@@ -270,6 +297,10 @@ class SessionSummary:
     key_points: list[str] = field(default_factory=list)
     requested_at: datetime = field(default_factory=utcnow)
     completed_at: datetime | None = None
+    #: AI 의 `Moment` · `Finding` 을 camelCase JSON 그대로 둔다 (#137 2-5).
+    #: BE 는 id 로 조인 · 집계만 한다(#163). 써 넣는 길은 #164 다.
+    moments: list[dict[str, Any]] = field(default_factory=list)
+    findings: list[dict[str, Any]] = field(default_factory=list)
 
     def overdue(self, limit: timedelta, now: datetime | None = None) -> bool:
         """기다린 시간이 한도를 넘었나. 이미 끝난 요약은 언제 봐도 False 다.
@@ -281,11 +312,28 @@ class SessionSummary:
             return False
         return (now or utcnow()) - self.requested_at > limit
 
-    def complete(self, overview: str, key_points: list[str]) -> None:
+    def shown_status(self, limit: timedelta) -> SummaryStatus:
+        """한도를 넘긴 PROCESSING 은 FAILED 로 보인다. 저장값은 바꾸지 않는다.
+
+        `ContextDoc.shown_status` 와 같다 — 보여 주기만 한다. 전이와 저장은
+        `Store.expire_summary` 가 한 문장으로 한다.
+        """
+        return SummaryStatus.FAILED if self.overdue(limit) else self.status
+
+    def complete(
+        self,
+        overview: str,
+        key_points: list[str],
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+    ) -> None:
         """Agent 가 만든 요약을 받는다."""
         self.status = SummaryStatus.READY
         self.overview = overview
         self.key_points = list(key_points)
+        self.moments = list(moments or [])
+        self.findings = list(findings or [])
         self.completed_at = utcnow()
 
     def give_up(self) -> None:
@@ -293,6 +341,8 @@ class SessionSummary:
         self.status = SummaryStatus.FAILED
         self.overview = ""
         self.key_points = []
+        self.moments = []
+        self.findings = []
         self.completed_at = utcnow()
 
 
@@ -313,6 +363,50 @@ class Recording:
     egress_started_at: datetime | None = None
     duration_ms: int = 0
     completed_at: datetime | None = None
+
+
+class FindingType(StrEnum):
+    """검토 항목의 종류 — AI `FindingType` 의 어휘 (#137 1-2)."""
+
+    COMPETENCY_EVIDENCE = "COMPETENCY_EVIDENCE"
+    CLAIM_VERIFIED = "CLAIM_VERIFIED"
+    CLAIM_CONTRADICTED = "CLAIM_CONTRADICTED"
+    CLAIM_UNVERIFIED = "CLAIM_UNVERIFIED"
+    GAP = "GAP"
+
+
+class CoverageState(StrEnum):
+    """역량 하나가 면접에서 얼마나 확인됐나 (#137 1-2 「coverage 규칙」)."""
+
+    CONFIRMED = "CONFIRMED"
+    PARTIAL = "PARTIAL"
+    MISSING = "MISSING"
+
+
+class FindingState(StrEnum):
+    """검토 항목에 대한 면접관의 판단 (#137 1-4). AI `FindingState` 의 어휘다.
+
+    AI 쪽에는 `EDITED` 도 있지만 면접관이 고르는 값은 이 셋이다.
+    """
+
+    PROPOSED = "PROPOSED"
+    ADOPTED = "ADOPTED"
+    REJECTED = "REJECTED"
+
+
+@dataclass
+class ReviewMark:
+    """검토 항목(finding) 하나의 채택 여부, 또는 문답(moment) 하나의 북마크.
+
+    키는 `(session_id, item_id)` 다. id 는 AI 가 결정적으로 만들어서 재분석해도
+    대부분 이어진다(#137 3장). 사라진 id 의 표시는 상세에 나오지 않을 뿐 지우지
+    않는다. 행이 없으면 `PROPOSED` · 북마크 없음이다.
+    """
+
+    session_id: str
+    item_id: str
+    state: FindingState = FindingState.PROPOSED
+    bookmarked: bool = False
 
 
 class TranscriptStage(StrEnum):
@@ -340,6 +434,9 @@ class Utterance:
 
     `participantId` 는 받지만 두지 않는다. BE 가 identity 를 역할 문자열로
     고정해서 `speaker` 와 같은 값이다 (#76 ②).
+
+    `track_id` · `seq` 는 PR #158 부터 온다. 면접 후 분석이 저장된 전사로 AI 의
+    `TranscriptSnapshot` 을 다시 만들 때 쓴다 (#137 2-1). 그 전에 받은 발화는 비어 있다.
     """
 
     session_id: str
@@ -349,6 +446,53 @@ class Utterance:
     started_at_ms: int
     ended_at_ms: int
     stage: TranscriptStage = TranscriptStage.LIVE
+    track_id: str | None = None
+    seq: int | None = None
+
+
+class JobKind(StrEnum):
+    """AI 폴러가 받는 작업의 종류 (#137 2-2).
+
+    PREP    면접 전 분석 — 역량 · 이력서 주장 (#162)
+    REVIEW  면접 후 분석 — 요약 · 타임라인 · findings (#164)
+    """
+
+    PREP = "PREP"
+    REVIEW = "REVIEW"
+
+
+@dataclass(frozen=True)
+class Job:
+    """AI 폴러에게 내주는 할 일 하나. `requested_at` 은 결과에 그대로 돌아와야 한다."""
+
+    kind: JobKind
+    session_id: str
+    interview_id: str
+    requested_at: datetime
+
+
+@dataclass
+class InterviewPrep:
+    """면접 전 분석 — JD 의 역량과 이력서의 주장 (#162).
+
+    면접 하나에 하나다. 세션을 만들 때 PROCESSING 으로 열고(실패했으면 다시),
+    이력서를 다시 올리면 비우고 다시 연다. AI 폴러가 결과를 써 넣으면 READY 다.
+    상태 기계는 요약과 같아서 `SummaryStatus` 를 쓴다.
+
+    역량 · 주장은 AI 의 `Competency` · `ResumeClaim` 을 camelCase JSON 그대로 둔다.
+    BE 는 id 로 조인만 하고(#163) 안을 해석하지 않는다.
+
+    `requested_at` 은 결과가 어느 요청의 것인지 가린다. 이력서를 다시 올리면 바뀌어서,
+    그 사이 늦게 온 옛 결과를 거절할 수 있다.
+    """
+
+    interview_id: str
+    status: SummaryStatus = SummaryStatus.PROCESSING
+    competencies: list[dict[str, Any]] = field(default_factory=list)
+    resume_claims: list[dict[str, Any]] = field(default_factory=list)
+    model: str = ""
+    requested_at: datetime = field(default_factory=utcnow)
+    completed_at: datetime | None = None
 
 
 class SuggestionStatus(StrEnum):

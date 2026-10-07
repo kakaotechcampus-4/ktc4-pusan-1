@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.domain.models import SummaryStatus
 from app.domain.store import InMemoryStore
+from tests.conftest import age
 
 V1 = "/api/v1"
 
@@ -30,15 +31,6 @@ def ended(client: TestClient, session_id: str) -> str:
     client.post(f"{V1}/sessions/{session_id}/start")
     client.post(f"{V1}/sessions/{session_id}/end")
     return session_id
-
-
-def age(store: InMemoryStore, session_id: str, delta: timedelta) -> None:
-    """실제로 기다리지 않고 기다린 것처럼 만든다."""
-    # `save_summary` 는 `requested_at` 을 지키므로(한도의 기준점) 저장소가 든
-    # 것을 직접 옮긴다. 인메모리 구현을 아는 테스트 전용 조작이다.
-    stored = store._summaries.get(session_id)  # pyright: ignore[reportPrivateUsage]
-    assert stored is not None
-    stored.requested_at -= delta
 
 
 # ── 자리가 생기는 시점 ────────────────────────────────────────

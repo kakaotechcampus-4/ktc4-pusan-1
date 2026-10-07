@@ -222,7 +222,6 @@ def test_the_backend_host_is_registered_for_log_redaction() -> None:
 
 SUGGESTION = SuggestionPayload(
     suggestion_id="sug_001",
-    type="FOLLOW_UP",
     content="말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
     evidence_utterance_ids=["utt_001", "utt_002"],
 )
@@ -241,7 +240,6 @@ async def test_a_suggestion_goes_to_the_agreed_route_with_the_agreed_body() -> N
     assert seen[0].url.path == "/internal/v1/sessions/ses_123/suggestions"
     assert json.loads(seen[0].content) == {
         "suggestionId": "sug_001",
-        "type": "FOLLOW_UP",
         "content": "말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
         "evidenceUtteranceIds": ["utt_001", "utt_002"],
     }
