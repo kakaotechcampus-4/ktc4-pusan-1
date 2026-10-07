@@ -163,10 +163,14 @@ async def create_session(
     session = Session(interview_id=interview.id)
     await media.ensure_room(session.room_name)
     # 저장소는 동기다. async 라우트가 그대로 부르면 그동안 이벤트 루프가 멈춘다 (#133).
-    await run_in_threadpool(store.add_session, session)
     # 면접 전 분석을 요청한다(#162). 이미 있으면 그대로다 — 세션을 다시 만들 때마다
     # 다시 돌리지 않는다. 실패했으면 다시 요청하고, 이력서를 바꾸면 다시 돈다.
+    #
+    # 세션보다 먼저 연다. 거꾸로면 세션 저장과 이 줄 사이에 죽었을 때 자리가 영영 안
+    # 열린다 — 이력서 재요청은 UPDATE 라 없는 자리를 못 연다. 자리만 있고 세션이
+    # 없으면 작업이 나가지 않으니(할 일 조회가 세션을 조인한다) 먼저 열어도 된다.
     await run_in_threadpool(store.ensure_prep, InterviewPrep(interview_id=interview.id))
+    await run_in_threadpool(store.add_session, session)
 
     return CreateSessionResponse(
         session_id=session.id,

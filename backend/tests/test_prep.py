@@ -373,3 +373,23 @@ def test_the_key_is_required(
 ) -> None:
     got = client.request(method, f"{INTERNAL}{path}", json=PREP_RESULT)
     assert got.status_code == 401
+
+
+def test_the_prep_slot_opens_even_if_adding_the_session_fails(
+    client: TestClient,
+    interview_id: str,
+    store: InMemoryStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """자리를 세션보다 먼저 연다. 거꾸로면 그 사이에 죽었을 때 자리가 영영 안 열린다 —
+    이력서 재요청은 UPDATE 라 없는 자리를 못 연다(ACID 감사). 자리만 있고 세션이
+    없으면 작업이 나가지 않는다(할 일 조회가 세션을 조인한다)."""
+
+    def fails(_session: object) -> None:
+        raise RuntimeError("세션 저장 실패")
+
+    monkeypatch.setattr(store, "add_session", fails)
+    with pytest.raises(RuntimeError):
+        open_session(client, interview_id)
+
+    assert store.get_prep(interview_id) is not None
