@@ -7,6 +7,7 @@ return them, and the tests pin what survives and why the rest does not.
 import asyncio
 import json
 import re
+import unicodedata
 
 import pytest
 
@@ -197,6 +198,42 @@ def test_whitespace_in_names_and_sections_is_collapsed() -> None:
     assert competencies[0].name == "성능 개선"
     assert competencies[0].description == "병목을 찾은 경험"
     assert claims[0].section == "프로젝트"
+
+
+def test_nfd_input_is_measured_and_stored_in_nfc() -> None:
+    """A decomposed (NFD) draft passes the same length checks as its NFC twin.
+
+    Length limits are counted after NFC. Counted on the raw string, a name
+    that is exactly 20 characters in NFC is over the limit in NFD, so the same
+    competency would survive from one client and vanish from another while
+    its id said it was the same.
+    """
+
+    name_nfc = "대용량트래픽처리경험과장애대응역량정리법"
+    assert len(name_nfc) == 20
+    name_nfd = unicodedata.normalize("NFD", name_nfc)
+    assert len(name_nfd) > 20
+    quote_nfd = unicodedata.normalize("NFD", CACHE_QUOTE)
+    section_nfd = unicodedata.normalize("NFD", "프로젝트")
+
+    composed = draft_of([competency(name_nfc)], [claim(CACHE_QUOTE, "프로젝트")])
+    decomposed = draft_of(
+        [competency(name_nfd, description=unicodedata.normalize("NFD", "병목 개선"))],
+        [claim(quote_nfd, section_nfd)],
+    )
+
+    nfc_competencies, nfc_claims, nfc_rejections = build_prep(make_context(), composed)
+    nfd_competencies, nfd_claims, nfd_rejections = build_prep(
+        make_context(), decomposed
+    )
+
+    assert nfc_rejections == [] and nfd_rejections == []
+    assert nfd_competencies[0].name == name_nfc
+    assert nfd_competencies[0].competency_id == nfc_competencies[0].competency_id
+    assert nfd_competencies[0].description == "병목 개선"
+    assert nfd_claims[0].quote == CACHE_QUOTE
+    assert nfd_claims[0].section == "프로젝트"
+    assert nfd_claims[0].claim_id == nfc_claims[0].claim_id
 
 
 def test_a_blank_section_becomes_none() -> None:

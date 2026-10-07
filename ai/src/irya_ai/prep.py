@@ -31,7 +31,6 @@ position in the list the model returned, never by what it said.
 
 import asyncio
 import hashlib
-import re
 from time import perf_counter
 from typing import Protocol, runtime_checkable
 
@@ -59,7 +58,6 @@ MIN_COMPETENCIES_WARNING = 3
 DEFAULT_MAX_CLAIMS = 12
 
 _ID_HEX_CHARS = 8
-_COLLAPSE = re.compile(r"\s+")
 
 
 class PrepError(Exception):
@@ -107,7 +105,16 @@ def claim_id(quote: str) -> str:
 
 
 def _clean(text: str) -> str:
-    return _COLLAPSE.sub(" ", text).strip()
+    """The one normalisation every field goes through before it is measured.
+
+    NFC and whitespace runs, via the same :func:`normalize` the ids and the
+    quote check use. Length limits are counted on this form: a Hangul name
+    arriving decomposed (NFD, as macOS writes it) has more code points than
+    the same name composed, and measuring the raw string would reject it
+    while its id - a hash of the normalised form - says it is the same name.
+    """
+
+    return normalize(text)
 
 
 def _resume_text(context: InterviewContext) -> str:
