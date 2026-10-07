@@ -31,6 +31,7 @@ position in the list the model returned, never by what it said.
 
 import asyncio
 import hashlib
+import re
 from time import perf_counter
 from typing import Protocol, runtime_checkable
 
@@ -42,8 +43,10 @@ from irya_ai.schemas.prep import (
     CLAIM_SECTION_MAX_CHARS,
     COMPETENCY_DESCRIPTION_MAX_CHARS,
     COMPETENCY_NAME_MAX_CHARS,
+    CompetencyDraft,
     PrepDraft,
     PrepResult,
+    ResumeClaimDraft,
 )
 from irya_ai.schemas.summary import AnalysisError
 from irya_ai.schemas.timeline import LlmUsage
@@ -58,6 +61,11 @@ MIN_COMPETENCIES_WARNING = 3
 DEFAULT_MAX_CLAIMS = 12
 
 _ID_HEX_CHARS = 8
+# List markers a resume line starts with. They are layout, not wording: the
+# same sentence quoted with and without its bullet is the same claim, and
+# must hash to the same id. Numbered markers ("1.", "2)") are left alone,
+# since a bare number can also start a real sentence.
+_LIST_MARKER = re.compile(r"^[-*•·∙▪◦–—]+\s*")
 
 
 class PrepError(Exception):
@@ -98,10 +106,16 @@ def competency_id(name: str) -> str:
 def claim_id(quote: str) -> str:
     """``clm_`` plus a hash of the normalised quote. Stable across runs."""
 
-    return f"clm_{_digest(normalize(quote))}"
+    return f"clm_{_digest(_unbulleted(quote))}"
 
 
 # --- verification ------------------------------------------------------------
+
+
+def _unbulleted(quote: str) -> str:
+    """A quote without the list marker the resume line began with."""
+
+    return _LIST_MARKER.sub("", normalize(quote), count=1).strip()
 
 
 def _clean(text: str) -> str:
@@ -200,7 +214,7 @@ def build_prep(
             # wrote here did not come from the candidate.
             rejections.append(f"{label}: no resume text to quote")
             continue
-        quote = normalize(d.quote)
+        quote = _unbulleted(d.quote)
         if not quote:
             rejections.append(f"{label}: empty quote")
             continue
@@ -252,6 +266,42 @@ class PrepGenerator(Protocol):
     """Writes the draft. Implementations must quote the resume, never restate it."""
 
     async def generate(self, context: InterviewContext) -> PrepDraft: ...
+
+
+_SENTENCE_END = re.compile(r"(?<=[.?!])\s+|\n+")
+
+
+def _sentences(text: str) -> list[str]:
+    return [part.strip() for part in _SENTENCE_END.split(text) if part.strip()]
+
+
+class ExtractivePrepGenerator:
+    """Offline baseline: the job description and the resume, sentence by sentence.
+
+    Adds no information, so every claim it drafts is grounded by construction:
+    each one is a whole sentence of the resume, and each competency is a
+    sentence of the job description under a name cut from its first words.
+    It lets the pipeline run without a key and gives a model a floor to beat;
+    the names it produces are not ones anybody would put on a screen.
+    """
+
+    async def generate(self, context: InterviewContext) -> PrepDraft:
+        competencies = [
+            CompetencyDraft(
+                name=sentence[:COMPETENCY_NAME_MAX_CHARS],
+                required=True,
+                description=sentence[:COMPETENCY_DESCRIPTION_MAX_CHARS],
+            )
+            for sentence in _sentences(context.job_description.description)
+        ][:DEFAULT_MAX_COMPETENCIES]
+        claims: list[ResumeClaimDraft] = []
+        if context.resume is not None and context.resume.text:
+            claims = [
+                ResumeClaimDraft(quote=sentence, section=None)
+                for sentence in _sentences(context.resume.text)
+                if CLAIM_QUOTE_MIN_CHARS <= len(sentence) <= CLAIM_QUOTE_MAX_CHARS
+            ][:DEFAULT_MAX_CLAIMS]
+        return PrepDraft(competencies=competencies, resume_claims=claims)
 
 
 class FakePrepGenerator:
@@ -335,6 +385,10 @@ class PrepAgent:
         served_model = getattr(self.generator, "last_model", None)
         if served_model:
             result.model = served_model
+        if getattr(self.generator, "last_truncated", False):
+            # The generator saw only the head of a body; what it did not see
+            # it could not quote, so a short claim list is expected here.
+            result.warnings.append("INPUT_TRUNCATED")
 
         competencies, claims, rejections = build_prep(
             context,

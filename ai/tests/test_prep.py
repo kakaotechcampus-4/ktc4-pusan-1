@@ -405,6 +405,46 @@ def test_limits_must_be_positive(field: str) -> None:
         build_prep(make_context(), draft_of(), **{field: 0})
 
 
+def test_a_leading_list_marker_is_not_part_of_the_quote() -> None:
+    """Resume lines come as bullets; the bullet is layout, not the claim."""
+
+    context = make_context(
+        resume_text="프로젝트\n- " + CACHE_QUOTE + "\n• " + LOAD_QUOTE
+    )
+    draft = draft_of(claims=[claim("- " + CACHE_QUOTE), claim(LOAD_QUOTE)])
+
+    _, claims, rejections = build_prep(context, draft)
+
+    assert rejections == []
+    assert [c.quote for c in claims] == [CACHE_QUOTE, LOAD_QUOTE]
+    assert claims[0].claim_id == claim_id(CACHE_QUOTE) == claim_id("- " + CACHE_QUOTE)
+
+
+def test_bulleted_and_plain_quotes_of_one_sentence_are_one_claim() -> None:
+    context = make_context(resume_text="- " + CACHE_QUOTE)
+
+    _, claims, rejections = build_prep(
+        context, draft_of(claims=[claim("- " + CACHE_QUOTE), claim(CACHE_QUOTE)])
+    )
+
+    assert len(claims) == 1
+    assert rejections == ["claim 2: duplicate of an earlier claim"]
+
+
+async def test_the_extractive_baseline_is_grounded_by_construction() -> None:
+    from irya_ai.prep import ExtractivePrepGenerator
+
+    result = await PrepAgent(ExtractivePrepGenerator(), model="extractive").run(
+        make_context()
+    )
+
+    assert result.status == "completed"
+    assert result.rejections == []
+    assert 1 <= len(result.competencies) <= 6
+    assert result.resume_claims, "every resume sentence of a usable length is a claim"
+    assert all(10 <= len(c.quote) <= 200 for c in result.resume_claims)
+
+
 # --- agent -----------------------------------------------------------------------
 
 
