@@ -1,0 +1,16 @@
+{
+  "Rules": [
+    {
+      "ID": "db-30d",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "db/" },
+      "Expiration": { "Days": 30 }
+    },
+    {
+      "ID": "abort-incomplete-upload-7d",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+    }
+  ]
+}
