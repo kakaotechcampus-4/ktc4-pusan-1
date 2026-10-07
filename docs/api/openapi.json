@@ -2364,7 +2364,7 @@
     },
     "/api/v1/interviews/{interviewId}/review/marks/{itemId}": {
       "put": {
-        "description": "검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).\n\n`itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면\n404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도\n없다 (#163 결정). 표시는 기준 세션에 남는다.",
+        "description": "검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).\n\n`itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면\n404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도\n없다 (#163 결정). 문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중\n하나」). 표시는 기준 세션에 남는다.",
         "operationId": "put_mark_api_v1_interviews__interviewId__review_marks__itemId__put",
         "parameters": [
           {

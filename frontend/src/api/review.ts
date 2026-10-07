@@ -1,7 +1,8 @@
 /**
  * 면접 기록 API (S3).
  *
- * 실제 BE는 현재 PROCESSING을 반환한다. READY는 기존 시연 화면의 모델이다.
+ * 실제 BE 는 끝난 면접이면 READY(새 모양, #163)를, 준비 전이면 202 PROCESSING 을 준다.
+ * 화면은 아직 옛 READY 모양이라 `lib/reviewCompat.ts` 가 옮겨 받는다.
  */
 
 import { toLegacyReview, type ReviewReadyBody } from '../lib/reviewCompat';

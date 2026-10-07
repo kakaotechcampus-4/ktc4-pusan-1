@@ -51,7 +51,7 @@ from app.schemas import (
     ReviewUpdateResponse,
     SummaryContent,
 )
-from app.services.review import build_review
+from app.services.review import build_review, item_kinds
 
 router = APIRouter(prefix="/interviews", tags=["면접"])
 
@@ -120,7 +120,7 @@ def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListRespo
         shown, counts = (
             (summary, None)
             if session is None
-            else _shown_summary(store, interview, session, summary)
+            else _list_summary(store, interview, session, summary)
         )
         items.append(
             _to_list_item(interview, session, shown, counts, role, interviewer)
@@ -128,7 +128,7 @@ def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListRespo
     return InterviewListResponse(items=items)
 
 
-def _shown_summary(
+def _list_summary(
     store: Store, interview: Interview, session: Session, status: SummaryStatus | None
 ) -> tuple[SummaryStatus | None, ReviewCounts | None]:
     """보여 줄 요약 상태와 집계. 집계는 READY 일 때만, 상세와 같은 계산으로.
@@ -145,13 +145,8 @@ def _shown_summary(
     shown = summary.shown_status(settings.summary_timeout)
     if shown is not SummaryStatus.READY:
         return shown, None
-    prep = store.get_prep(interview.id) or InterviewPrep(interview_id=interview.id)
     counts = build_review(
-        prep.competencies,
-        prep.resume_claims,
-        summary.moments,
-        summary.findings,
-        store.list_marks(session.id),
+        store.get_prep(interview.id), summary, store.list_marks(session.id)
     ).counts()
     return shown, ReviewCounts.model_validate(counts)
 
@@ -298,22 +293,17 @@ def get_review(
     )
     if summary.status is SummaryStatus.PROCESSING:
         summary = store.expire_summary(session.id, settings.summary_timeout) or summary
-    if summary.status is SummaryStatus.PROCESSING:
+    shown = summary.status
+    if shown is SummaryStatus.PROCESSING:
         return _processing()
 
-    ready = summary.status is SummaryStatus.READY
-    prep = store.get_prep(interview.id) or InterviewPrep(interview_id=interview.id)
     review = build_review(
-        prep.competencies,
-        prep.resume_claims,
-        summary.moments if ready else [],
-        summary.findings if ready else [],
-        store.list_marks(session.id),
+        store.get_prep(interview.id), summary, store.list_marks(session.id)
     )
     began, duration = _timing(session)
     return ReviewResponse(
         status="READY",
-        summary_status="READY" if ready else "FAILED",
+        summary_status=shown,
         interview_id=interview.id,
         session_id=session.id,
         candidate=ReviewCandidate(
@@ -327,7 +317,7 @@ def get_review(
         reviewed_at=interview.reviewed_at,
         memo=interview.memo,
         summary=SummaryContent(overview=summary.overview, key_points=summary.key_points)
-        if ready
+        if shown is SummaryStatus.READY
         else None,
         coverage=[ReviewCoverage.model_validate(c) for c in review.coverage],
         moments=[ReviewMoment.model_validate(m) for m in review.moments],
@@ -353,20 +343,29 @@ def put_mark(
 
     `itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면
     404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도
-    없다 (#163 결정). 표시는 기준 세션에 남는다.
+    없다 (#163 결정). 문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중
+    하나」). 표시는 기준 세션에 남는다.
     """
     session = store.last_ended_session(interview.id)
     summary = None if session is None else store.get_summary(session.id)
-    items = (
-        set()
+    kinds = (
+        {}
         if summary is None or summary.status is not SummaryStatus.READY
-        else {m["momentId"] for m in summary.moments}
-        | {f["findingId"] for f in summary.findings}
+        else item_kinds(summary)
     )
-    if session is None or item_id not in items:
+    kind = kinds.get(item_id)
+    if session is None or kind is None:
         raise ApiError(ErrorCode.NOT_FOUND, 404, "검토 항목을 찾을 수 없습니다.")
+    if (kind == "moment" and body.state is not None) or (
+        kind == "finding" and body.bookmarked is not None
+    ):
+        raise ApiError(
+            ErrorCode.VALIDATION_ERROR,
+            422,
+            "문답은 bookmarked 만, 검토 항목은 state 만 받습니다.",
+        )
 
-    # 보낸 것만 한 문장으로 바꾼다 — 채택과 북마크가 겹쳐도 서로를 지우지 않는다.
+    # 보낸 것만 한 문장으로 바꾼다.
     mark = store.update_mark(
         session.id, item_id, state=body.state, bookmarked=body.bookmarked
     )

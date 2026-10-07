@@ -7,14 +7,29 @@
 
 from typing import Any
 
-from app.domain.models import FindingState, ReviewMark
-from app.services.review import build_review
+from app.domain.models import FindingState, InterviewPrep, ReviewMark, SessionSummary
+from app.services.review import Review, build_review
 from tests.conftest import DEMO
 
 COMPETENCIES = DEMO["prep"]["competencies"]
 CLAIMS = DEMO["prep"]["resumeClaims"]
 MOMENTS = DEMO["review"]["moments"]
 FINDINGS = DEMO["review"]["findings"]
+
+
+def computed(
+    competencies: list[dict[str, Any]],
+    claims: list[dict[str, Any]],
+    moments: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+    marks: list[ReviewMark],
+) -> Review:
+    """저장된 그대로의 면접 전 분석 · 요약을 만들어 계산에 넘긴다."""
+    prep = InterviewPrep(
+        interview_id="int_demo", competencies=competencies, resume_claims=claims
+    )
+    summary = SessionSummary(session_id="ses_demo", moments=moments, findings=findings)
+    return build_review(prep, summary, marks)
 
 
 def kim_marks() -> list[ReviewMark]:
@@ -35,7 +50,7 @@ def _mark_fields(mark: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_the_137_example_comes_out_as_written() -> None:
-    review = build_review(COMPETENCIES, CLAIMS, MOMENTS, FINDINGS, kim_marks())
+    review = computed(COMPETENCIES, CLAIMS, MOMENTS, FINDINGS, kim_marks())
 
     assert review.coverage == [
         {"name": "서비스 설계", "state": "CONFIRMED"},
@@ -166,7 +181,7 @@ def test_the_interviewers_marks_show_and_count() -> None:
         ReviewMark("ses_demo", "fnd_gone", state=FindingState.ADOPTED),
     ]
 
-    review = build_review(COMPETENCIES, CLAIMS, MOMENTS, FINDINGS, marks)
+    review = computed(COMPETENCIES, CLAIMS, MOMENTS, FINDINGS, marks)
 
     assert [f["state"] for f in review.findings[:2]] == ["ADOPTED", "REJECTED"]
     counts = review.counts()
@@ -176,7 +191,7 @@ def test_the_interviewers_marks_show_and_count() -> None:
 
 def test_no_analysis_means_every_competency_is_missing() -> None:
     """요약이 FAILED 인 면접(#163 결정) — 분석은 비어도 역량은 보인다."""
-    review = build_review(COMPETENCIES, CLAIMS, [], [], [])
+    review = computed(COMPETENCIES, CLAIMS, [], [], [])
 
     assert [c["state"] for c in review.coverage] == ["MISSING"] * 4
     assert (review.moments, review.findings) == ([], [])
@@ -185,14 +200,14 @@ def test_no_analysis_means_every_competency_is_missing() -> None:
 def test_a_verified_claim_confirms_its_competency() -> None:
     verified = FINDINGS[1] | {"type": "CLAIM_VERIFIED"}
 
-    review = build_review(COMPETENCIES, CLAIMS, [], [verified], [])
+    review = computed(COMPETENCIES, CLAIMS, [], [verified], [])
 
     assert review.coverage[1] == {"name": "성능 개선", "state": "CONFIRMED"}
 
 
 def test_ids_the_prep_no_longer_has_do_not_break_the_join() -> None:
     """면접 전 분석이 다시 돌아 역량 · 주장 id 가 바뀐 경우. 500 이 아니라 빈 값이다."""
-    review = build_review([], [], MOMENTS, FINDINGS[:1], [])
+    review = computed([], [], MOMENTS, FINDINGS[:1], [])
 
     [finding] = review.findings
     assert (finding["competency"], finding["source"], finding["quote"]) == (
@@ -206,7 +221,7 @@ def test_ids_the_prep_no_longer_has_do_not_break_the_join() -> None:
 def test_a_claim_without_a_section_is_just_the_resume() -> None:
     claims = [CLAIMS[0] | {"section": None}]
 
-    review = build_review(COMPETENCIES, claims, [], FINDINGS[:1], [])
+    review = computed(COMPETENCIES, claims, [], FINDINGS[:1], [])
 
     assert review.findings[0]["source"] == "지원서"
 
@@ -219,7 +234,7 @@ def test_evidence_on_the_edge_of_a_moment_belongs_to_it() -> None:
         FINDINGS[3] | {"evidenceTMs": last["endMs"]},
     ]
 
-    review = build_review(COMPETENCIES, CLAIMS, MOMENTS, on_edges, [])
+    review = computed(COMPETENCIES, CLAIMS, MOMENTS, on_edges, [])
 
     assert review.moments[0]["competencies"] == ["서비스 설계"]
     assert review.moments[1]["competencies"] == ["협업"]

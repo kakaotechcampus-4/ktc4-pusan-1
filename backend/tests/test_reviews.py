@@ -100,12 +100,10 @@ def test_a_ready_review_carries_the_computed_parts(
 
     assert response.status_code == 200
     body = response.json()
+    summary = store.get_summary(session_id)
+    assert summary is not None
     expected = build_review(
-        DEMO["prep"]["competencies"],
-        DEMO["prep"]["resumeClaims"],
-        DEMO["review"]["moments"],
-        DEMO["review"]["findings"],
-        store.list_marks(session_id),
+        store.get_prep(interview_id), summary, store.list_marks(session_id)
     )
     assert (body["coverage"], body["moments"], body["findings"]) == (
         expected.coverage,
@@ -348,15 +346,33 @@ def test_adopting_a_finding_shows_in_the_detail(
     assert {f["id"]: f["state"] for f in findings}[FINDING_ID] == "ADOPTED"
 
 
-def test_only_the_sent_field_changes(client: TestClient, store: InMemoryStore):
+def test_a_moment_is_bookmarked(client: TestClient, store: InMemoryStore):
     interview_id, _ = _ready(client, store)
-    put_mark(client, interview_id, MOMENT_ID, {"bookmarked": True})
 
-    body = put_mark(client, interview_id, MOMENT_ID, {"state": "REJECTED"}).json()
+    body = put_mark(client, interview_id, MOMENT_ID, {"bookmarked": True}).json()
 
-    assert (body["state"], body["bookmarked"]) == ("REJECTED", True)
+    assert (body["itemId"], body["bookmarked"]) == (MOMENT_ID, True)
     moments = get_review(client, interview_id).json()["moments"]
     assert {m["id"]: m["bookmarked"] for m in moments}[MOMENT_ID] is True
+
+
+@pytest.mark.parametrize(
+    ("item", "body"),
+    [
+        (MOMENT_ID, {"state": "ADOPTED"}),
+        (FINDING_ID, {"bookmarked": True}),
+        (FINDING_ID, {"state": "ADOPTED", "bookmarked": True}),
+    ],
+)
+def test_a_field_the_item_does_not_have_is_refused(
+    client: TestClient, store: InMemoryStore, item: str, body: dict[str, Any]
+):
+    """문답은 북마크만, 검토 항목은 채택만 한다(#137 1-4 「둘 중 하나」). 다른 것을
+    받으면 상세에 나오지 않는 행이 쌓인다."""
+    interview_id, session_id = _ready(client, store)
+
+    assert put_mark(client, interview_id, item, body).status_code == 422
+    assert store.list_marks(session_id) == []
 
 
 def test_an_item_the_detail_does_not_have_is_404(

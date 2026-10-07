@@ -236,7 +236,7 @@ class ReviewResponse(Schema):
 
     # 기본값을 두지 않는다 — 두면 OpenAPI 에서 판별 필드가 선택으로 보인다.
     status: Literal["READY"]
-    summary_status: Literal["READY", "FAILED"] = Field(
+    summary_status: Literal[SummaryStatus.READY, SummaryStatus.FAILED] = Field(
         serialization_alias="summaryStatus"
     )
     interview_id: str = Field(serialization_alias="interviewId")

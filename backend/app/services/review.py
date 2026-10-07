@@ -13,11 +13,21 @@ coverage · 문답의 역량 · findings 조인 · 목록 집계를 한 곳에�
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
-from app.domain.models import CoverageState, FindingState, FindingType, ReviewMark
+from app.domain.models import (
+    CoverageState,
+    FindingState,
+    FindingType,
+    InterviewPrep,
+    ReviewMark,
+    SessionSummary,
+)
 
 JsonList = list[dict[str, Any]]
+
+#: 표시 대상의 종류. 문답(moment)은 북마크, 검토 항목(finding)은 채택을 받는다.
+ItemKind = Literal["moment", "finding"]
 
 _CONFIRMING = frozenset({FindingType.CLAIM_VERIFIED, FindingType.COMPETENCY_EVIDENCE})
 
@@ -45,12 +55,16 @@ class Review:
 
 
 def build_review(
-    competencies: JsonList,
-    claims: JsonList,
-    moments: JsonList,
-    findings: JsonList,
-    marks: Iterable[ReviewMark],
+    prep: InterviewPrep | None, summary: SessionSummary, marks: Iterable[ReviewMark]
 ) -> Review:
+    """면접 전 분석 · 요약 · 표시를 상세의 계산된 부분으로.
+
+    요약이 READY 가 아니면 moments · findings 가 비어 있다(FAILED 로 갈 때 비운다).
+    그때도 coverage 는 면접 전 분석의 역량 전부를 MISSING 으로 보인다.
+    """
+    competencies = [] if prep is None else prep.competencies
+    claims = [] if prep is None else prep.resume_claims
+    moments, findings = summary.moments, summary.findings
     names = {c["competencyId"]: c["name"] for c in competencies}
     claim_by_id = {c["claimId"]: c for c in claims}
     mark_by_id = {m.item_id: m for m in marks}
@@ -68,7 +82,8 @@ def build_review(
                 "question": m["question"],
                 "answer": m["answer"],
                 "competencies": _competencies_in(m, findings, names),
-                "bookmarked": _mark(mark_by_id, m["momentId"]).bookmarked,
+                "bookmarked": m["momentId"] in mark_by_id
+                and mark_by_id[m["momentId"]].bookmarked,
             }
             for m in moments
         ],
@@ -83,7 +98,10 @@ def build_review(
                 "atSec": None
                 if f.get("evidenceTMs") is None
                 else f["evidenceTMs"] / 1000,
-                "state": _mark(mark_by_id, f["findingId"]).state.value,
+                # 표시가 없으면 「제안됨」이다.
+                "state": mark_by_id[f["findingId"]].state
+                if f["findingId"] in mark_by_id
+                else FindingState.PROPOSED,
             }
             for f in findings
         ],
@@ -135,6 +153,8 @@ def _source(finding: dict[str, Any], claims: dict[str, Any]) -> dict[str, Any]:
     return {"source": "면접 답변", "quote": None}
 
 
-def _mark(marks: dict[str, ReviewMark], item_id: str) -> ReviewMark:
-    """표시가 없으면 「제안됨 · 북마크 없음」이다."""
-    return marks.get(item_id) or ReviewMark(session_id="", item_id=item_id)
+def item_kinds(summary: SessionSummary) -> dict[str, ItemKind]:
+    """상세에 나오는 표시 대상 id 와 그 종류. 문답은 북마크, 검토 항목은 채택이다."""
+    kinds: dict[str, ItemKind] = {m["momentId"]: "moment" for m in summary.moments}
+    kinds.update((f["findingId"], "finding") for f in summary.findings)
+    return kinds
