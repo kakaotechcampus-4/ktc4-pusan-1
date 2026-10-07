@@ -36,8 +36,8 @@ FRAME_UPSERT: Final = "transcript.upsert"
 FRAME_ACK: Final = "transcript.ack"
 FRAME_NACK: Final = "transcript.nack"
 
-#: BIGINT 의 상한. 발화 시각은 이 컬럼에 들어간다 (`schema.sql`).
-MAX_MS: Final = 2**63 - 1
+#: BIGINT 의 상한. 발화 시각과 순번(`seq`)은 이 컬럼에 들어간다 (`schema.sql`).
+BIGINT_MAX: Final = 2**63 - 1
 
 
 def _no_nul(value: str) -> str:
@@ -85,11 +85,11 @@ class TranscriptUpsert(InternalSchema):
     participant_id: PgText = Field(alias="participantId")
     speaker: Role
     text: PgText
-    started_at_ms: int = Field(alias="startedAtMs", ge=0, le=MAX_MS)
-    ended_at_ms: int = Field(alias="endedAtMs", ge=0, le=MAX_MS)
+    started_at_ms: int = Field(alias="startedAtMs", ge=0, le=BIGINT_MAX)
+    ended_at_ms: int = Field(alias="endedAtMs", ge=0, le=BIGINT_MAX)
     # PR #158 부터 온다. 그 전 Agent 의 프레임도 받도록 비워 둘 수 있다.
     track_id: PgText | None = Field(default=None, alias="trackId")
-    seq: int | None = Field(default=None, ge=0, le=MAX_MS)
+    seq: int | None = Field(default=None, ge=0, le=BIGINT_MAX)
 
     @model_validator(mode="after")
     def _check_range(self) -> "TranscriptUpsert":
