@@ -63,9 +63,12 @@ DEFAULT_MAX_CLAIMS = 12
 _ID_HEX_CHARS = 8
 # List markers a resume line starts with. They are layout, not wording: the
 # same sentence quoted with and without its bullet is the same claim, and
-# must hash to the same id. Numbered markers ("1.", "2)") are left alone,
-# since a bare number can also start a real sentence.
-_LIST_MARKER = re.compile(r"^[-*•·∙▪◦–—]+\s*")
+# must hash to the same id. A marker is only a marker when whitespace
+# follows it: "- 10도" is a bullet, "-10도" is a temperature, and a quote
+# that starts with a sign or a dash-joined word keeps it. Numbered markers
+# ("1.", "2)") are left alone, since a bare number can also start a real
+# sentence.
+_LIST_MARKER = re.compile(r"^[-*•·∙▪◦–—]+\s+")
 
 
 class PrepError(Exception):

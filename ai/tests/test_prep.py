@@ -420,6 +420,43 @@ def test_a_leading_list_marker_is_not_part_of_the_quote() -> None:
     assert claims[0].claim_id == claim_id(CACHE_QUOTE) == claim_id("- " + CACHE_QUOTE)
 
 
+@pytest.mark.parametrize(
+    ("quoted", "stored"),
+    [
+        # A sign is part of the number, not a bullet.
+        (
+            "-10도에서도 동작하는 센서 펌웨어를 개발",
+            "-10도에서도 동작하는 센서 펌웨어를 개발",
+        ),
+        # A real bullet in front of that same sentence is still removed.
+        (
+            "- -10도에서도 동작하는 센서 펌웨어를 개발",
+            "-10도에서도 동작하는 센서 펌웨어를 개발",
+        ),
+        # A dash-joined token at the start is wording, not layout.
+        (
+            "--dry-run 옵션을 붙여 배포 전 검증을 자동화",
+            "--dry-run 옵션을 붙여 배포 전 검증을 자동화",
+        ),
+    ],
+)
+def test_a_leading_sign_or_dash_without_a_space_is_kept(
+    quoted: str, stored: str
+) -> None:
+    """Only a marker followed by whitespace is layout; ``-10도`` keeps its sign."""
+
+    context = make_context(
+        resume_text="경력\n- -10도에서도 동작하는 센서 펌웨어를 개발\n"
+        "- --dry-run 옵션을 붙여 배포 전 검증을 자동화"
+    )
+
+    _, claims, rejections = build_prep(context, draft_of(claims=[claim(quoted)]))
+
+    assert rejections == []
+    assert claims[0].quote == stored
+    assert claims[0].claim_id == claim_id(stored)
+
+
 def test_bulleted_and_plain_quotes_of_one_sentence_are_one_claim() -> None:
     context = make_context(resume_text="- " + CACHE_QUOTE)
 
