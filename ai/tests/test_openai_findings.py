@@ -88,6 +88,10 @@ async def test_supported_parameters_and_grounded_output():
         assert body["stream"] is False
         assert body["reasoning_effort"] == "low"
         assert body["max_completion_tokens"] <= 2000
+        user = body["messages"][1]["content"]
+        assert user == json.dumps(
+            json.loads(user), ensure_ascii=False, separators=(",", ":")
+        )
         assert body["response_format"]["json_schema"]["strict"] is True
         return httpx.Response(200, json=response())
 

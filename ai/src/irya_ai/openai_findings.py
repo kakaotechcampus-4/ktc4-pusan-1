@@ -114,7 +114,9 @@ class OpenAIFindingsGenerator:
                 {
                     "role": "user",
                     "content": json.dumps(
-                        build_payload(context, finals), ensure_ascii=False
+                        build_payload(context, finals),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
                     ),
                 },
             ],
