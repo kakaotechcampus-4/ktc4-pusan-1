@@ -31,7 +31,7 @@ import type { ContextDoc, UploadRejection } from '../types/interview';
 
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
   'empty-file': '내용이 있는 파일을 선택해주세요.',
-  'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
+  'unsupported-type': 'PDF 만 올릴 수 있습니다.',
   'too-large': '50MB 이하 파일만 올릴 수 있습니다.',
 };
 
@@ -208,7 +208,7 @@ export default function InterviewCreatePage() {
               </div>
             </SectionCard>
 
-            <SectionCard icon="upload_file" title="지원자 이력서" badge="PDF · DOCX · 50MB 이하">
+            <SectionCard icon="upload_file" title="지원자 이력서" badge="PDF · 50MB 이하">
               {doc ? (
                 <DocCard
                   doc={doc}

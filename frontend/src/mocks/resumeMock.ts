@@ -30,8 +30,11 @@ export async function handleMockResumeUpload(
   return {
     id: `resume_${Date.now()}`,
     name: file.name,
-    kind: file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx',
+    // 서버가 PDF 만 받으므로 목도 PDF 로만 만든다.
+    kind: 'pdf',
     sizeBytes: file.size,
+    // 이력서는 기업 컨텍스트의 칸에 들어가지 않는다.
+    category: null,
     // 목은 파싱을 흉내내지 않는다 — 이 화면은 파싱 결과를 보여주지 않는다.
     status: 'ready',
   };
