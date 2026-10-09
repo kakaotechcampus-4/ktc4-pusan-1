@@ -23,6 +23,7 @@ from app.domain.models import (
 )
 from app.domain.store import InMemoryStore
 from app.services import recording
+from tests.conftest import loop_spy
 
 WEBHOOK = "/api/v1/livekit/webhook"
 CAMERA, MIC = TrackSource.CAMERA, TrackSource.MICROPHONE
@@ -255,7 +256,8 @@ def test_merges_tracks_aligned_by_their_start(
         "rec/s/i.ogg": _make("-f lavfi -i sine -t 3 -c:a libopus", tmp_path / "i.ogg"),
     }
     s3 = FakeS3(src, tmp_path / "merged.webm")
-    monkeypatch.setattr(recording, "_s3", lambda: s3)
+    on_loop: list[str] = []
+    monkeypatch.setattr(recording, "_s3", loop_spy("_s3", lambda: s3, on_loop))
     t0 = 1_790_000_000 * S
     media.egress_infos = [
         _info(COMPLETE, "rec/s/v2.webm", t0 + 4 * S, 2 * S),
@@ -273,6 +275,8 @@ def test_merges_tracks_aligned_by_their_start(
     assert done.egress_started_at.timestamp() == 1_790_000_000
     assert done.duration_ms == 6000
     assert s3.uploaded == {done.s3_key: "video/webm"}
+    # 클라이언트를 처음 만들 때 자격증명을 찾으러 간다. 루프 밖에서 만든다 (#183).
+    assert on_loop == []
 
     def packets(stream: str) -> list[float]:
         probe = subprocess.run(
