@@ -20,6 +20,7 @@ from irya_ai.stt.elice import (
     build_client,
     build_http_client,
     is_hallucinated,
+    is_stock_phrase,
     parse_response,
 )
 from irya_ai.stt.http_logging import (
@@ -76,6 +77,7 @@ __all__ = [
     "clear_protected_hosts",
     "frame_rms",
     "is_hallucinated",
+    "is_stock_phrase",
     "parse_response",
     "protect_base_url",
     "protect_host",

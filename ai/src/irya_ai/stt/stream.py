@@ -59,7 +59,13 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable
 
 from irya_ai.schemas.transcript import PassType, SpeakerRole, Utterance
-from irya_ai.stt.elice import EliceSttClient, SttError, Transcription, is_hallucinated
+from irya_ai.stt.elice import (
+    EliceSttClient,
+    SttError,
+    Transcription,
+    is_hallucinated,
+    is_stock_phrase,
+)
 from irya_ai.stt.segmentation import (
     PCM_WIDTH,
     AudioSegment,
@@ -98,9 +104,10 @@ class RejectedSegment:
     project has no agreed retention policy to hold them under.
 
     ``reason`` is the coarse category: ``EMPTY``, ``TIMESTAMP_OVERRUN``,
-    ``REQUEST_FAILED`` or ``OVERLOADED``. ``code`` carries the transcription
-    error's stable code when there was one, so a malformed body and a refused
-    key stay distinguishable without either being re-read from a log.
+    ``STOCK_PHRASE``, ``REQUEST_FAILED`` or ``OVERLOADED``. ``code`` carries
+    the transcription error's stable code when there was one, so a malformed
+    body and a refused key stay distinguishable without either being re-read
+    from a log.
 
     Spans are on the session clock, the same one ``seq`` is built from.
     """
@@ -671,6 +678,10 @@ class TranscriptionStream:
             # the result describes audio this segment never carried, which
             # is enough to stop it from entering the transcript.
             return self._reject(segment, "TIMESTAMP_OVERRUN", timing)
+        if is_stock_phrase(transcription.text):
+            # The same failure with a span that happens to fit: a subtitle
+            # credit nobody in the room said.
+            return self._reject(segment, "STOCK_PHRASE", timing)
 
         utterance = Utterance(
             utterance_id=f"utt_{self.track_id}_{segment.index:04d}",

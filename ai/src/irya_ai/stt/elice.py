@@ -47,6 +47,7 @@ import asyncio
 import dataclasses
 import logging
 import math
+import re
 import time
 from collections.abc import Mapping
 from email.utils import parsedate_to_datetime
@@ -78,6 +79,38 @@ TIMESTAMP_TOLERANCE_MS = 500
 # rather than a late timestamp. The hallucination guard handles plausible
 # overruns; this only rejects values that cannot be a time at all.
 MAX_TIMESTAMP_SECONDS = 24 * 60 * 60
+
+# What Whisper learned from subtitle credits and channel outros, and says over
+# room tone. The timestamp guard catches it when the span runs past the audio;
+# these catch it when the span happens to fit. Each is a whole-utterance
+# match, never a substring: nobody in an interview thanks anyone for watching
+# or asks for a subscription, but they do say "감사합니다", and a sentence that
+# merely contains one of these is speech. Written without spaces or
+# punctuation, because that is what comparison strips.
+STOCK_PHRASES = (
+    "시청해주셔서감사합니다",
+    "시청해주셔서고맙습니다",
+    "끝까지시청해주셔서감사합니다",
+    "오늘도시청해주셔서감사합니다",
+    "구독과좋아요부탁드립니다",
+    "구독과좋아요알림설정부탁드립니다",
+    "구독좋아요알림설정부탁드립니다",
+    "좋아요와구독부탁드립니다",
+    "다음영상에서만나요",
+    "다음영상에서뵙겠습니다",
+    "자막제공및자막편집",
+)
+# A broadcast sign-off, "MBC 뉴스 홍길동입니다": the reporter's name varies,
+# which is why it is a pattern and not one more phrase.
+_NEWS_SIGNOFF = r"(?:MBC|KBS|SBS|YTN|JTBC)뉴스[가-힣]{2,4}입니다"
+# One or more stock pieces back to back and nothing else - Whisper chains them
+# ("시청해 주셔서 감사합니다. 구독과 좋아요 부탁드립니다.").
+_STOCK_TEXT = re.compile(
+    "(?:" + "|".join([*map(re.escape, STOCK_PHRASES), _NEWS_SIGNOFF]) + ")+"
+)
+# Everything comparison ignores: whitespace, punctuation, symbols. Hangul and
+# Latin letters are word characters and survive.
+_NOT_A_LETTER = re.compile(r"[\W_]+")
 
 # HTTP statuses worth another attempt. Everything else 4xx is a request this
 # client will keep getting wrong, so retrying it is a storm, not a recovery.
@@ -250,6 +283,18 @@ def is_hallucinated(transcription: Transcription, audio_duration_ms: int) -> boo
     if transcription.span_end_ms is None:
         return False
     return transcription.span_end_ms > audio_duration_ms + TIMESTAMP_TOLERANCE_MS
+
+
+def is_stock_phrase(text: str) -> bool:
+    """Whether the whole text is one of Whisper's stock outros and nothing else.
+
+    The other half of :func:`is_hallucinated`, for the fabricated sentence
+    stamped inside the real span. Only the exact training-data credits are
+    recognised, so speech that uses the same words is never thrown away.
+    """
+
+    letters = _NOT_A_LETTER.sub("", text)
+    return bool(letters) and _STOCK_TEXT.fullmatch(letters) is not None
 
 
 def _status_error(status_code: int) -> SttError:

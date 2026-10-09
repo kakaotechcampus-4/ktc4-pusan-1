@@ -132,10 +132,13 @@ async def test_each_guard_drops_its_own_kind_of_bad_result() -> None:
             return ok("시청해주셔서 감사합니다", end_s=29.98)
         if index == 3:
             return httpx.Response(500)
+        if index == 4:
+            # The same outro with a span that fits the segment.
+            return ok("구독과 좋아요 부탁드립니다", end_s=1.2)
         return ok("실제 발화입니다")
 
     stream = stream_for(handler)
-    stream.push(TURN * 4)
+    stream.push(TURN * 5)
     stream.close()
 
     utterances = await stream.drain()
@@ -145,6 +148,7 @@ async def test_each_guard_drops_its_own_kind_of_bad_result() -> None:
         "EMPTY",
         "TIMESTAMP_OVERRUN",
         "REQUEST_FAILED",
+        "STOCK_PHRASE",
     ]
 
 
