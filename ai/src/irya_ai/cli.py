@@ -7,6 +7,7 @@ uv run irya-ai segment <script> [--split-sentences]
 uv run irya-ai ground <findings.json> <script>
 uv run irya-ai analyze <snapshot.json> [--backend extractive]
 uv run irya-ai timeline <chunks.json> [--backend extractive] [--frontend]
+uv run irya-ai realign --session <id> --origin-ms <ms> <IDENTITY-SID.ogg@ms> ...
 """
 
 import argparse
@@ -28,6 +29,8 @@ from irya_ai.schemas.context import InterviewContext
 from irya_ai.schemas.transcript import TranscriptSnapshot, Utterance
 from irya_ai.simulator import TranscriptSimulator, load_script
 from irya_ai.simulator.script import TranscriptScript
+from irya_ai.stt.elice import SttError, build_client
+from irya_ai.stt.realign import RealignError, RecordedTrack, realign
 from irya_ai.summarize import ExtractiveSummarizer
 from irya_ai.timeline import (
     DEFAULT_MAX_MOMENTS,
@@ -287,6 +290,50 @@ def cmd_timeline(args: argparse.Namespace) -> int:
     return asyncio.run(_timeline(args))
 
 
+def _recorded_track(spec: str) -> RecordedTrack:
+    """``rec/ses_1/CANDIDATE-TR_x.ogg@1760000000000`` - a file and its start (ms)."""
+
+    path, sep, started_ms = spec.rpartition("@")
+    if not sep or not started_ms.isdigit():
+        raise argparse.ArgumentTypeError("expected FILE@STARTED_MS")
+    try:
+        return RecordedTrack.from_egress(Path(path), int(started_ms) * 1_000_000)
+    except RealignError as exc:
+        raise argparse.ArgumentTypeError(exc.code) from None
+
+
+async def _realign(args: argparse.Namespace) -> int:
+    try:
+        stt = build_client(Settings())
+    except (ValidationError, SttError):
+        print(json.dumps({"error": {"code": "INVALID_SETTINGS", "retryable": False}}))
+        return 2
+    async with stt.client:
+        try:
+            result = await realign(
+                stt,
+                session_id=args.session,
+                origin_ms=args.origin_ms,
+                tracks=args.tracks,
+                concurrency=args.concurrency,
+            )
+        except RealignError as exc:
+            print(json.dumps({"error": {"code": exc.code, "retryable": False}}))
+            return 2
+    for span in result.dropped:
+        print(
+            f"dropped {span.track_id} {_format_ms(span.start_ms)}"
+            f"-{_format_ms(span.end_ms)} {span.reason} {span.code or ''}",
+            file=sys.stderr,
+        )
+    print(result.snapshot.model_dump_json(by_alias=True, indent=2))
+    return 0 if result.complete else 1
+
+
+def cmd_realign(args: argparse.Namespace) -> int:
+    return asyncio.run(_realign(args))
+
+
 def _add_simulator_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--split-sentences",
@@ -375,6 +422,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="print only the moments in the frontend Moment shape (atSec)",
     )
     timeline.set_defaults(func=cmd_timeline)
+
+    realigned = sub.add_parser(
+        "realign", help="transcribe recorded tracks into a REALIGNED snapshot"
+    )
+    realigned.add_argument("--session", required=True, help="session id")
+    realigned.add_argument(
+        "--origin-ms", type=int, required=True, help="session t=0, epoch ms"
+    )
+    realigned.add_argument("--concurrency", type=int, default=2)
+    realigned.add_argument(
+        "tracks",
+        nargs="+",
+        type=_recorded_track,
+        help="IDENTITY-TRACKSID.ogg@STARTED_MS (egress file and its started_at)",
+    )
+    realigned.set_defaults(func=cmd_realign)
     return parser
 
 
