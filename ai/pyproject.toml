@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "aiohttp~=3.14.3",
+    "av~=18.1.0",
     "httpx~=0.28.1",
     "livekit-agents~=1.8.0",
     "openai~=2.54.0",
