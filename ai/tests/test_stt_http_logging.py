@@ -20,12 +20,15 @@ import pathlib
 import aiohttp
 import httpcore
 import httpx
+import openai._base_client
 import pytest
+from openai import AsyncOpenAI
 
 from irya_ai.config import Settings
 from irya_ai.stt.elice import EliceSttClient, SttError, build_client
 from irya_ai.stt.http_logging import (
     HTTP_CLIENT_LOGGERS,
+    LLM_CLIENT_LOGGERS,
     REDACTED_HOST,
     clear_protected_hosts,
     protect_base_url,
@@ -397,3 +400,69 @@ def test_every_logger_the_installed_http_stack_writes_to_is_protected() -> None:
 
     assert declared
     assert declared <= set(HTTP_CLIENT_LOGGERS)
+
+
+def test_the_logger_the_openai_sdk_writes_requests_to_is_protected() -> None:
+    """The SDK names it with ``__name__``, which the syntax-tree check cannot read."""
+
+    assert openai._base_client.log.name in LLM_CLIENT_LOGGERS
+
+
+async def test_an_llm_call_at_debug_logs_no_prompt_and_no_deployment() -> None:
+    """``LOG_LEVEL=DEBUG`` on a worker, one suggestion request through the SDK.
+
+    The SDK dumps the request options - the prompt, which is transcript - and
+    the full URL before httpx sees the request. Both have to stay out; the
+    route and status should still be readable.
+    """
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "test",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "{}"},
+                    }
+                ],
+            },
+        )
+
+    client = AsyncOpenAI(
+        api_key=KEY,
+        base_url=f"https://{SHARED_HOST}{DEPLOYMENT_PATH}/v1",
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(answer)),
+    )
+    protect_base_url(client.base_url)
+
+    with Captured(logging.DEBUG) as log:
+        await client.chat.completions.create(
+            model="test",
+            messages=[{"role": "user", "content": TRANSCRIPT}],
+        )
+    await client.close()
+
+    assert TRANSCRIPT not in log.text
+    assert DEPLOYMENT_PATH not in log.text
+    assert KEY not in log.text
+    assert f"https://{REDACTED_HOST}/chat/completions" in log.text
+    assert "200 OK" in log.text
+
+
+def test_clearing_takes_the_llm_filters_back_off() -> None:
+    before = {
+        name: list(logging.getLogger(name).filters) for name in LLM_CLIENT_LOGGERS
+    }
+
+    protect_base_url(f"https://{SHARED_HOST}{DEPLOYMENT_PATH}/v1")
+    clear_protected_hosts()
+
+    for name in LLM_CLIENT_LOGGERS:
+        assert logging.getLogger(name).filters == before[name]
