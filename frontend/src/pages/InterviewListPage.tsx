@@ -15,7 +15,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listInterviews } from '../api/interview';
-import type { InterviewListItem, ReviewStatus } from '../types/interview';
+import { durationLabel, pendingReason } from '../lib/interviewList';
+import type { ReviewStatus } from '../types/interview';
 
 /** 검토 상태의 한글 표시. 서버는 값만 주고 말은 FE 가 정한다 (#137 1-3). */
 const STATUS_LABEL: Record<ReviewStatus, string> = {
@@ -45,19 +46,6 @@ const dateLabel = (value: string) =>
     minute: '2-digit',
   }).format(new Date(value));
 
-/**
- * 숫자 칸 대신 보여 줄 말.
- *
- * `counts` 는 요약이 READY 일 때만 온다. 그 전에는 셀 것이 아직 없다는 뜻이라
- * 0 을 적지 않는다 — 0 은 「세어 봤더니 없다」로 읽히기 때문이다.
- */
-function pendingReason(item: InterviewListItem): string | null {
-  if (item.counts) return null;
-  if (item.interviewedAt === null) return '면접 전';
-  if (item.summaryStatus === 'FAILED') return '정리 실패';
-  return '정리 중';
-}
-
 export default function InterviewListPage() {
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['interviews'],
@@ -70,15 +58,25 @@ export default function InterviewListPage() {
 
   const items = useMemo(() => data?.items ?? [], [data]);
 
-  const filtered = useMemo(() => {
+  /**
+   * 검색만 적용한 결과. 상태 필터와 따로 두는 이유는 칩의 숫자 때문이다 —
+   * 칩이 검색을 무시하고 전체를 세면 표에 한 줄만 남은 채 「전체 10」이 떠서
+   * 나머지 아홉이 어디로 갔는지 알 수 없다.
+   *
+   * 직무로는 찾지 않는다. 서버가 `role` 을 내 컨텍스트에서 한 번 읽어 모든 줄에 같은
+   * 값으로 주므로(`list_interviews`), 직무 검색은 전체가 통과하거나 전무가 된다.
+   */
+  const searched = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('ko-KR');
-    const result = items.filter((item) => {
-      const matchesFilter = filter === 'all' || item.reviewStatus === filter;
-      const matchesSearch =
-        !query ||
-        `${item.candidateName ?? ''} ${item.role}`.toLocaleLowerCase('ko-KR').includes(query);
-      return matchesFilter && matchesSearch;
-    });
+    if (!query) return items;
+    return items.filter((item) =>
+      (item.candidateName ?? '').toLocaleLowerCase('ko-KR').includes(query),
+    );
+  }, [items, search]);
+
+  const filtered = useMemo(() => {
+    const result =
+      filter === 'all' ? searched : searched.filter((item) => item.reviewStatus === filter);
 
     // 서버가 최신순으로 주므로 'recent' 는 받은 순서 그대로 둔다.
     if (sort === 'recent') return result;
@@ -88,10 +86,10 @@ export default function InterviewListPage() {
       }
       return (right.counts?.needsReview ?? 0) - (left.counts?.needsReview ?? 0);
     });
-  }, [items, filter, search, sort]);
+  }, [searched, filter, sort]);
 
   const countFor = (id: Filter) =>
-    id === 'all' ? items.length : items.filter((item) => item.reviewStatus === id).length;
+    id === 'all' ? searched.length : searched.filter((item) => item.reviewStatus === id).length;
 
   return (
     <div className="min-h-full bg-[#121316] text-[#eaecef]">
@@ -120,7 +118,11 @@ export default function InterviewListPage() {
           </div>
         )}
 
-        {data && items.length === 0 && (
+        {/*
+          조회가 한 번 성공한 뒤 재조회가 실패하면 v5 는 앞의 data 를 그대로 들고 있다.
+          그러면 오류 배너와 「아직 만든 면접이 없습니다」가 같이 떠서 서로 다른 말을 한다.
+        */}
+        {data && !isError && items.length === 0 && (
           <section className="mt-8 rounded-lg border border-[#272a33] bg-[#18191f] p-6">
             <h2 className="text-sm font-semibold">아직 만든 면접이 없습니다</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#9498a4]">
@@ -166,13 +168,13 @@ export default function InterviewListPage() {
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <label className="sr-only" htmlFor="candidate-search">
-                  이름 또는 직무 검색
+                  지원자 이름 검색
                 </label>
                 <input
                   id="candidate-search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="이름 또는 직무 검색"
+                  placeholder="지원자 이름 검색"
                   className="min-w-0 rounded border border-[#2e323c] bg-[#17191f] px-3 py-2 text-xs text-[#eaecef] placeholder:text-[#686c7b] sm:w-56"
                 />
                 <label className="sr-only" htmlFor="candidate-sort">
@@ -202,7 +204,7 @@ export default function InterviewListPage() {
                       '확인 항목',
                       '확인 필요',
                       '근거 채택',
-                      '답변 분량',
+                      '면접 길이',
                     ].map((label) => (
                       <th
                         key={label}
@@ -217,6 +219,7 @@ export default function InterviewListPage() {
                 <tbody>
                   {filtered.map((item) => {
                     const reason = pendingReason(item);
+                    const duration = durationLabel(item.durationSec);
                     return (
                       <tr
                         key={item.interviewId}
@@ -278,11 +281,7 @@ export default function InterviewListPage() {
                           </>
                         )}
                         <td className="px-3 py-4 font-mono whitespace-nowrap">
-                          {item.durationSec === null ? (
-                            <span className="text-[#686c7b]">—</span>
-                          ) : (
-                            `${Math.round(item.durationSec / 60)}분`
-                          )}
+                          {duration === null ? <span className="text-[#686c7b]">—</span> : duration}
                         </td>
                       </tr>
                     );
