@@ -9,6 +9,9 @@
 - ``session``: puts a session's several tracks on one timeline, which is what
   makes their utterance ``seq`` comparable across speakers.
 - ``stream``: connects them and emits utterances in spoken order.
+- ``realign``: the same STT once more over the recorded tracks after the
+  interview, for the ``REALIGNED`` stage. Imported on its own, because it
+  decodes audio files and the live path does not.
 """
 
 from irya_ai.stt.elice import (
