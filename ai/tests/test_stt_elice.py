@@ -11,7 +11,9 @@ import httpx
 import pytest
 
 from irya_ai.config import Settings
+from irya_ai.stt import elice
 from irya_ai.stt.elice import (
+    MAX_RETRY_AFTER_SECONDS,
     RESPONSE_FORMAT,
     TIMESTAMP_TOLERANCE_MS,
     EliceSttClient,
@@ -374,6 +376,80 @@ async def test_a_closed_client_is_a_final_typed_error() -> None:
     assert caught.value.retryable is False
     assert caught.value.__cause__ is None
     assert seen == []
+
+
+def recorded_sleeps(monkeypatch) -> list[float]:
+    slept: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(elice.asyncio, "sleep", fake_sleep)
+    return slept
+
+
+@pytest.mark.parametrize(
+    "retry_after",
+    ["7", "Wed, 21 Oct 2099 07:28:00 GMT"],
+    ids=["seconds", "http_date"],
+)
+async def test_a_retry_waits_at_least_what_retry_after_asked(
+    monkeypatch, retry_after: str
+) -> None:
+    """Retrying sooner than asked only adds to the load being shed."""
+
+    slept = recorded_sleeps(monkeypatch)
+    monkeypatch.setattr(elice, "MAX_RETRY_AFTER_SECONDS", float("inf"))
+    answers = iter(
+        [
+            httpx.Response(429, headers={"Retry-After": retry_after}),
+            httpx.Response(200, json=body("다시 받았습니다")),
+        ]
+    )
+
+    result = await client_for(lambda request: next(answers), retries=2).transcribe(WAV)
+
+    assert result.text == "다시 받았습니다"
+    assert len(slept) == 1 and slept[0] >= 7.0
+
+
+async def test_a_retry_after_longer_than_a_caption_lasts_fails_now(
+    monkeypatch,
+) -> None:
+    slept = recorded_sleeps(monkeypatch)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        wait = str(int(MAX_RETRY_AFTER_SECONDS) + 1)
+        return httpx.Response(503, headers={"Retry-After": wait})
+
+    with pytest.raises(SttError) as caught:
+        await client_for(handler, retries=2).transcribe(WAV)
+
+    assert caught.value.code == "STT_REQUEST_FAILED"
+    assert len(seen) == 1
+    assert slept == []
+
+
+@pytest.mark.parametrize(
+    "retry_after", [b"soon", b"-3", "\u0661\u0662".encode(), b"Wed, 21 Oct 1999"]
+)
+async def test_a_retry_after_that_is_not_a_wait_is_ignored(
+    monkeypatch, retry_after: bytes
+) -> None:
+    slept = recorded_sleeps(monkeypatch)
+    answers = iter(
+        [
+            httpx.Response(429, headers=[(b"Retry-After", retry_after)]),
+            httpx.Response(200, json=body("다시 받았습니다")),
+        ]
+    )
+
+    result = await client_for(lambda request: next(answers), retries=1).transcribe(WAV)
+
+    assert result.text == "다시 받았습니다"
+    assert slept == [0.0]
 
 
 async def test_a_cancelled_request_is_not_reported_as_a_provider_failure() -> None:

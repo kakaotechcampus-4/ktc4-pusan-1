@@ -49,6 +49,7 @@ import logging
 import math
 import time
 from collections.abc import Mapping
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -81,6 +82,12 @@ MAX_TIMESTAMP_SECONDS = 24 * 60 * 60
 # HTTP statuses worth another attempt. Everything else 4xx is a request this
 # client will keep getting wrong, so retrying it is a storm, not a recovery.
 RETRYABLE_STATUSES = frozenset({408, 409, 425, 429})
+
+# The longest ``Retry-After`` worth waiting out. A deployment asking for more
+# is not coming back within a live caption's lifetime, so the request fails
+# now rather than sleeping into a result nobody will read - and retrying
+# sooner than it asked would only add to the load it is shedding.
+MAX_RETRY_AFTER_SECONDS = 10.0
 
 
 class SttError(RuntimeError):
@@ -262,6 +269,28 @@ def _status_error(status_code: int) -> SttError:
     return SttError("STT_REQUEST_FAILED", retryable=True)
 
 
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """The wait a 429 or 503 asked for, or ``None`` when it asked for none.
+
+    Both forms RFC 9110 allows: delay-seconds and an HTTP-date. A header that
+    is neither is ignored rather than trusted, and a date already past is no
+    wait at all.
+    """
+
+    value = response.headers.get("Retry-After", "").strip()
+    if not value:
+        return None
+    if value.isascii() and value.isdigit():
+        return float(value)
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        return None
+    return max(0.0, when.timestamp() - time.time())
+
+
 def _decode(response: httpx.Response) -> object:
     """JSON out of a 200, or a typed error.
 
@@ -342,6 +371,7 @@ class EliceSttClient:
         failure = SttError("STT_REQUEST_FAILED", retryable=True)
         started = time.perf_counter()
         for attempt in range(self.retries + 1):
+            asked: float | None = None
             try:
                 response = await self.client.post(
                     "/v1/audio/transcriptions",
@@ -355,6 +385,7 @@ class EliceSttClient:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 failure = _status_error(exc.response.status_code)
+                asked = _retry_after_seconds(exc.response)
             except (httpx.HTTPError, httpx.InvalidURL):
                 # Transport-level: timeouts, DNS, refused connections. All of
                 # them can answer differently on the next attempt.
@@ -371,7 +402,9 @@ class EliceSttClient:
 
             if not failure.retryable or attempt == self.retries:
                 break
-            await asyncio.sleep(self.backoff_seconds * 2**attempt)
+            if asked is not None and asked > MAX_RETRY_AFTER_SECONDS:
+                break
+            await asyncio.sleep(max(self.backoff_seconds * 2**attempt, asked or 0.0))
 
         raise failure
 
