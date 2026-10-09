@@ -360,6 +360,22 @@ async def test_a_transport_failure_is_retryable() -> None:
     assert len(seen) == 2
 
 
+async def test_a_closed_client_is_a_final_typed_error() -> None:
+    """``httpx`` says it with a bare ``RuntimeError``; callers catch ``SttError``."""
+
+    seen: list[httpx.Request] = []
+    client = client_for(lambda request: seen.append(request), retries=2)
+    await client.client.aclose()
+
+    with pytest.raises(SttError) as caught:
+        await client.transcribe(WAV)
+
+    assert caught.value.code == "STT_CLIENT_CLOSED"
+    assert caught.value.retryable is False
+    assert caught.value.__cause__ is None
+    assert seen == []
+
+
 async def test_a_cancelled_request_is_not_reported_as_a_provider_failure() -> None:
     """Cancellation is the caller leaving, not the deployment failing."""
 

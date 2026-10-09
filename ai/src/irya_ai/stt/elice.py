@@ -359,6 +359,12 @@ class EliceSttClient:
                 # Transport-level: timeouts, DNS, refused connections. All of
                 # them can answer differently on the next attempt.
                 failure = SttError("STT_REQUEST_FAILED", retryable=True)
+            except RuntimeError:
+                # ``httpx`` refuses to send on a closed client with a bare
+                # ``RuntimeError``, which would otherwise leave as something
+                # other than an :class:`SttError` and end the caller's track.
+                # Nothing will send on that client again, so it is final.
+                raise SttError("STT_CLIENT_CLOSED") from None
             else:
                 latency_ms = round((time.perf_counter() - started) * 1000)
                 return parse_response(_decode(response), latency_ms=latency_ms)
