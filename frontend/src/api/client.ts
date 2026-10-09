@@ -68,7 +68,8 @@ export function uploadFile(
     const xhr = new XMLHttpRequest();
     const form = new FormData();
     form.append('file', file);
-    // 이력서에는 칸이 없다. 보내지 않으면 서버가 기본값(internal)을 쓴다.
+    // 이력서에는 칸이 없다. 이력서 업로드는 category 를 받는 Form 필드 자체가 없어
+    // 응답도 category 없이 오므로(= null), internal 로 떨어지는 게 아니다.
     if (category) form.append('category', category);
     xhr.open('POST', `${API_BASE}${path}`);
     xhr.setRequestHeader('Authorization', `Bearer ${accessToken ?? ''}`);

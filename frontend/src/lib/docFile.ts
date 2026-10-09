@@ -55,7 +55,12 @@ export function parseContextDoc(raw: string): ContextDoc | null {
       kind: doc.kind,
       sizeBytes: doc.sizeBytes,
       status: doc.status,
-      // 이력서는 칸이 없어 null 로 온다. 모르는 값이 와도 문서는 살린다 — 분류만 잃는다.
+      // 이력서는 칸이 없어 null 로 온다.
+      //
+      // 컨텍스트 문서에 모르는 값이 오면 분류를 잃고 두 칸(JD · 사내 자료) 어디에도
+      // 안 보인다 — 지울 수도 없다. 여기서 internal 로 떨어뜨리면 이력서가 사내
+      // 자료 칸에 섞이므로 그러지 않는다. 서버가 `category NOT NULL DEFAULT 'internal'`
+      // 로 막고 있어 오늘은 도달하지 않는다. DocCategory 에 값을 더하면 화면도 같이 늘려야 한다.
       category: doc.category === 'jd' || doc.category === 'internal' ? doc.category : null,
     };
   } catch {
