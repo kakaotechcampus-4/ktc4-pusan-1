@@ -41,6 +41,58 @@ export interface Interview {
   createdAt: string;
 }
 
+/**
+ * 면접관의 검토 진행 상태.
+ *
+ * 한글 표시는 FE 가 한다 — 서버는 값만 준다 (#137 1-3).
+ */
+export type ReviewStatus = 'PENDING' | 'IN_REVIEW' | 'CONFIRMED';
+
+/**
+ * 목록 한 줄의 검토 항목 집계.
+ *
+ * 상세 화면과 같은 계산에서 나오므로 두 화면의 숫자가 어긋나지 않는다.
+ */
+export interface ReviewCounts {
+  /** 확인된 항목 수 / 전체 */
+  coverageConfirmed: number;
+  coverageTotal: number;
+  /** AI 가 짚은 항목 전체 */
+  findings: number;
+  /** 아직 채택도 반려도 안 한 항목 */
+  needsReview: number;
+  adopted: number;
+}
+
+/**
+ * GET /api/v1/interviews 의 한 줄 (#137 1-1).
+ *
+ * 기준은 그 면접의 **마지막으로 끝난 세션**이다. 끝난 세션이 없으면 거기서 오는 값
+ * (`interviewedAt` · `durationSec` · `summaryStatus`)이 모두 null 이다 — 만들어 놓고
+ * 아직 안 본 면접이 그렇다.
+ */
+export interface InterviewListItem {
+  interviewId: string;
+  candidateName: string | null;
+  /** 내 컨텍스트의 직무. 아직 안 정했으면 빈 문자열 */
+  role: string;
+  /** 면접관은 늘 나다. 서버가 토큰의 사용자를 넣어 준다 */
+  interviewer: { nickname: string };
+  /** 「면접 시작」 시각. 비어 있으면 첫 입장 시각 */
+  interviewedAt: string | null;
+  durationSec: number | null;
+  reviewStatus: ReviewStatus;
+  /** 한도를 넘긴 PROCESSING 은 FAILED 로 온다 */
+  summaryStatus: SummaryStatus | null;
+  /** 요약이 READY 가 아니면 null 이다 — 셀 수 있는 것이 아직 없다 */
+  counts: ReviewCounts | null;
+}
+
+/** GET /api/v1/interviews */
+export interface InterviewListResponse {
+  items: InterviewListItem[];
+}
+
 /** POST /api/v1/interviews/{interviewId}/sessions */
 export interface CreateSessionResponse {
   sessionId: string;
