@@ -13,6 +13,7 @@ from irya_ai.backend import BackendClient
 from irya_ai.pipeline.qa_segmentation import segment_qa
 from irya_ai.schemas import (
     CitationDraft,
+    LlmUsage,
     QAPair,
     SpeakerRole,
     SuggestionBatchDraft,
@@ -665,6 +666,29 @@ async def test_a_generator_failure_becomes_a_typed_error_not_an_exception() -> N
     assert result.error is not None
     assert result.error.code == "LLM_RATE_LIMITED"
     assert result.error.retryable is True
+
+
+async def test_a_call_that_fails_after_answering_still_reports_its_usage() -> None:
+    class AnsweredThenRejected:
+        last_usage = None
+        last_model = ""
+
+        async def generate(self, pair, sources, context=None, history=None):
+            self.last_usage = LlmUsage(prompt_tokens=1234, completion_tokens=200)
+            self.last_model = "served-model"
+            raise SuggestionError("LLM_INCOMPLETE_OUTPUT", retryable=True)
+
+    live = agent(generator=AnsweredThenRejected())
+    source = utterance()
+    result = await live.run_round(pair_for(source))
+
+    assert result.status == "failed"
+    assert result.error is not None
+    assert result.error.code == "LLM_INCOMPLETE_OUTPUT"
+    assert result.usage is not None
+    assert result.usage.prompt_tokens == 1234
+    assert result.usage.completion_tokens == 200
+    assert result.model == "served-model"
 
 
 async def test_a_generator_that_hangs_times_out_as_a_retryable_error() -> None:
