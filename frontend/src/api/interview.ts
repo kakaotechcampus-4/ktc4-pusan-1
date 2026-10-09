@@ -92,10 +92,13 @@ const FAILURE_BY_CODE: Record<string, JoinFailure> = {
   NOT_FOUND: 'not-found',
   SESSION_ENDED: 'ended',
   ROOM_FULL: 'room-full',
+  // 로그인은 됐는데 이 면접의 주인이 아니다 (#141). 다시 시도해도 같은 결과다.
+  ROLE_NOT_ALLOWED: 'not-allowed',
 };
 
 /** 코드를 못 읽었을 때만 쓴다 (구버전 서버·프록시 오류 등) */
 const FAILURE_BY_STATUS: Record<number, JoinFailure> = {
+  403: 'not-allowed',
   404: 'not-found',
   409: 'unavailable',
 };

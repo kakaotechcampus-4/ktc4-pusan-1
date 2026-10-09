@@ -12,6 +12,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { getSessionState, getSummary } from '../api/interview';
+import { ApiError } from '../api/client';
 import { fmt } from '../lib/format';
 
 /** 생성 중일 때 다시 물어보는 간격 */
@@ -22,6 +23,7 @@ export default function InterviewSummaryPage() {
   const {
     data: summary,
     isError,
+    error,
     isFetching,
     refetch,
   } = useQuery({
@@ -37,6 +39,7 @@ export default function InterviewSummaryPage() {
   const {
     data: session,
     isError: sessionError,
+    error: sessionErrorValue,
     isFetching: sessionFetching,
     refetch: refetchSession,
   } = useQuery({
@@ -47,6 +50,12 @@ export default function InterviewSummaryPage() {
   const reviewPath = session ? `/review/${session.interviewId}` : null;
 
   const failed = isError;
+  // 404 는 없는 세션이거나 남의 세션이다 (#145). 기다린다고 생기지 않으므로
+  // 「잠시 후 다시」가 아니라 링크·계정을 확인하라고 안내한다.
+  const missing = error instanceof ApiError && error.status === 404;
+  // 세션 조회도 같은 이유로 404 다. 요약 쪽 「다시 확인」을 감췄으면서 이 버튼만
+  // 남겨 두면 눌러도 같은 결과인 길을 하나 열어 두는 셈이 된다.
+  const sessionMissing = sessionErrorValue instanceof ApiError && sessionErrorValue.status === 404;
   const processing = !failed && (summary === undefined || summary.status === 'PROCESSING');
 
   return (
@@ -69,19 +78,25 @@ export default function InterviewSummaryPage() {
 
         {(failed || summary?.status === 'FAILED') && (
           <div className="mt-7 rounded-xl bg-white/[0.06] p-6">
-            <p className="text-[15px] text-[#FFC46B]">요약을 만들지 못했습니다.</p>
+            <p className="text-[15px] text-[#FFC46B]">
+              {missing ? '없거나 볼 수 없는 면접입니다.' : '요약을 만들지 못했습니다.'}
+            </p>
             <p className="mt-1.5 text-sm leading-relaxed text-white/55">
-              면접 기록은 남아 있습니다. 잠시 후 다시 확인해주세요.
+              {missing
+                ? '링크가 올바른지, 이 면접을 만든 계정으로 로그인했는지 확인해주세요.'
+                : '면접 기록은 남아 있습니다. 잠시 후 다시 확인해주세요.'}
             </p>
             {/* 다시 생성하는 API는 없다. 결과 조회만 다시 시도한다. */}
-            <button
-              type="button"
-              onClick={() => void refetch()}
-              disabled={isFetching}
-              className="mt-3 text-sm text-white underline disabled:opacity-50"
-            >
-              다시 확인
-            </button>
+            {!missing && (
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                disabled={isFetching}
+                className="mt-3 text-sm text-white underline disabled:opacity-50"
+              >
+                다시 확인
+              </button>
+            )}
           </div>
         )}
 
@@ -111,7 +126,7 @@ export default function InterviewSummaryPage() {
         )}
 
         <div className="mt-7 flex flex-wrap gap-2.5">
-          {sessionError && (
+          {sessionError && !sessionMissing && (
             <button
               type="button"
               onClick={() => void refetchSession()}

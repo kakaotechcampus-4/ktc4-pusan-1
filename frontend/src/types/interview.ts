@@ -222,6 +222,8 @@ export interface JoinSessionResponse {
 export type JoinFailure =
   /** 존재하지 않는 세션 */
   | 'not-found'
+  /** 로그인은 했지만 이 면접의 주인이 아니다 — 다시 시도해도 같다 (#150) */
+  | 'not-allowed'
   /** 이미 종료된 세션 */
   | 'ended'
   /** 정원이 찬 세션 */

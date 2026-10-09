@@ -17,6 +17,9 @@ import type { JoinFailure, JoinSessionResponse, Role } from '../types/interview'
 
 const FAILURE_MESSAGE: Record<JoinFailure, string> = {
   'not-found': '유효하지 않은 링크입니다. 면접관에게 링크를 다시 요청해주세요.',
+  // 다시 눌러도 같다 — 계정을 바꾸거나 지원자로 들어와야 한다.
+  'not-allowed':
+    '이 면접의 면접관만 면접관으로 입장할 수 있습니다. 로그인한 계정을 확인해주세요. 지원자라면 받으신 초대 링크로 들어와주세요.',
   ended: '이미 종료된 면접입니다. 면접관에게 문의해주세요.',
   'room-full': '이미 다른 참가자가 입장해 있습니다. 면접관에게 문의해주세요.',
   // 409 인데 코드를 못 읽은 경우. 두 사유를 구분할 수 없으므로 합쳐서 안내한다.
