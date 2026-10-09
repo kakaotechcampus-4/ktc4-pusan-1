@@ -114,6 +114,17 @@ RECONNECT_BACKOFF_CAP_SECONDS = 5.0
 # each failure buys it twice the patience, up to this, until an ACK resets it.
 ACK_PATIENCE_DOUBLINGS = 3
 
+# How many connections one utterance may take down, written alone each time,
+# before another utterance is tried alone in its place. Backend answers an
+# upsert it fails to store by closing the socket rather than with a NACK, and
+# it reads frames in order, so one frame it can never store would otherwise be
+# written first on every reconnect and keep everything behind it from being
+# stored. The frame is dropped only once a different frame gets an answer on
+# its own and the frame then dies alone once more - a Backend that fails every
+# upsert for a while kills the other frame too, and nothing is dropped for an
+# outage.
+POISON_STRIKES = 2
+
 
 def transcript_url(base_url: str, session_id: str) -> str:
     """The session's transcript WebSocket address, derived from the HTTP base URL.
@@ -156,6 +167,11 @@ class _Pending:
     # the socket.
     exposed: bool = False
     written_at: float | None = None
+    # Connections that died with this frame the only one written on them,
+    # and whether another frame has since been stored on its own - after
+    # which one more lone death is the last.
+    strikes: int = 0
+    witnessed: bool = False
 
 
 class TranscriptChannel:
@@ -223,7 +239,15 @@ class TranscriptChannel:
         # Utterances Backend refused with a NACK, by id, with the reason it
         # gave. They leave the buffer for good: a frame the contract rejects
         # gets the same answer however often it is sent. The text is not kept.
+        # One that kept killing the connection while another got through is
+        # here too, as ``UNDELIVERABLE``.
         self.refused: dict[str, str] = {}
+        # The frame being written alone after a connection died with several
+        # in flight, and nothing else is written until it is answered: Backend
+        # reads in order, so the oldest unanswered frame is the one to suspect.
+        # After ``POISON_STRIKES`` lone deaths the next frame goes alone
+        # instead, as the witness that decides between the frame and Backend.
+        self._suspect: str | None = None
         self._session: aiohttp.ClientSession | None = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._reader: asyncio.Task[None] | None = None
@@ -542,10 +566,11 @@ class TranscriptChannel:
                 ws = self._ws
                 if ws is None:  # pragma: no cover - _ensure_connection sets it
                     raise BackendError("BACKEND_REQUEST_FAILED", retryable=True)
+                writable = self._writable()
                 queue = [
                     (utterance_id, entry)
                     for utterance_id, entry in self._pending.items()
-                    if entry.written_at is None
+                    if entry.written_at is None and utterance_id in writable
                 ]
 
             for utterance_id, entry in queue:
@@ -648,6 +673,7 @@ class TranscriptChannel:
                         reason,
                     )
                 self._pending.pop(utterance_id, None)
+                self._settle_suspect(utterance_id)
                 # Backend answered, so whatever was failing has stopped: the
                 # next reconnect starts from the base delay again. Not on
                 # connect - a Backend that accepts the socket and then fails
@@ -656,7 +682,9 @@ class TranscriptChannel:
                 self._retry_at = 0.0
                 if not self._pending:
                     self._drained.set()
-                    self._wake.set()
+                # Frames held back behind a suspect, or the end of the buffer:
+                # either way the recovery has something new to look at.
+                self._wake.set()
         except Exception as exc:  # noqa: BLE001 - parked, then reported
             # ``asyncio.CancelledError`` is a ``BaseException``, so a drop
             # cancelling this task does not land here.
@@ -685,6 +713,7 @@ class TranscriptChannel:
                     # still wanted: a failure, and the one that matters most
                     # for pacing - a Backend that accepts every socket and
                     # closes it on the first upsert never fails a handshake.
+                    self._note_death()
                     self._note_failure()
                     self._start_recovery()
 
@@ -755,6 +784,8 @@ class TranscriptChannel:
             if not self._pending:
                 return
             overdue = self._ack_overdue()
+            if overdue:
+                self._note_death()
 
         try:
             if overdue:
@@ -926,10 +957,13 @@ class TranscriptChannel:
         a flush now rather than a wait; ``None`` when nothing is buffered.
         """
 
+        writable = self._writable()
         written = []
-        for entry in self._pending.values():
+        for utterance_id, entry in self._pending.items():
             if entry.written_at is None:
-                return 0.0
+                if utterance_id in writable:
+                    return 0.0
+                continue
             written.append(entry.written_at)
         if not written:
             return None
@@ -952,6 +986,100 @@ class TranscriptChannel:
 
         doublings = min(self._failures, ACK_PATIENCE_DOUBLINGS)
         return self.ack_timeout_seconds * 2**doublings
+
+    def _writable(self) -> set[str]:
+        """The buffered frames a flush may write now.
+
+        All of them, unless a connection died with several in flight: then
+        only the suspect, or - once it has taken down ``POISON_STRIKES``
+        connections on its own - the oldest frame behind it, as the witness.
+        With nothing behind it the suspect is all there is to write.
+        """
+
+        if self._suspect is None:
+            return set(self._pending)
+        suspect = self._pending.get(self._suspect)
+        if suspect is None:  # pragma: no cover - answers clear it first
+            self._suspect = None
+            return set(self._pending)
+        if suspect.strikes >= POISON_STRIKES and not suspect.witnessed:
+            for utterance_id in self._pending:
+                if utterance_id != self._suspect:
+                    return {utterance_id}
+        return {self._suspect}
+
+    def _note_death(self) -> None:
+        """Account a connection that died with frames unanswered on it.
+
+        Called before the connection is detached, while ``exposed`` still says
+        what it carried. A death with other frames buffered makes the oldest
+        the suspect - one frame alone is only a dead connection until
+        something is stuck behind it. After that, the suspect alone in flight
+        is a strike against it, and the witness alone in flight means Backend
+        is failing everything, so the suspect's strikes start over.
+
+        A suspect that dies alone again after the witness was stored is what
+        gets dropped: Backend stores other frames and not this one. Waiting
+        for that last death, rather than dropping on the witness's answer, is
+        what keeps an outage that ends just as the witness goes out from
+        costing the suspect.
+        """
+
+        in_flight = [uid for uid, entry in self._pending.items() if entry.exposed]
+        if not in_flight:
+            return
+        if self._suspect is None:
+            if len(self._pending) > 1:
+                self._suspect = next(iter(self._pending))
+                logger.info(
+                    "Transcript connection died with %d frame(s) buffered; "
+                    "writing %s alone",
+                    len(self._pending),
+                    self._suspect,
+                )
+            return
+        if len(in_flight) > 1:  # pragma: no cover - a suspect goes out alone
+            return
+        (only,) = in_flight
+        suspect = self._pending.get(self._suspect)
+        if suspect is None:  # pragma: no cover - answers clear it first
+            self._suspect = None
+            return
+        if only != self._suspect:
+            suspect.strikes = 0
+            suspect.witnessed = False
+            return
+        suspect.strikes += 1
+        if not suspect.witnessed:
+            return
+        self._pending.pop(only)
+        self._suspect = None
+        self.refused[only] = "UNDELIVERABLE"
+        if not self._pending:
+            self._drained.set()
+        # The id and the count are enough to find it; the text is not logged.
+        logger.error(
+            "Transcript utterance %s dropped: %d connections died on it alone "
+            "while other utterances were stored",
+            only,
+            suspect.strikes,
+        )
+
+    def _settle_suspect(self, answered: str) -> None:
+        """Note an answer while a suspect is being written alone.
+
+        The suspect's own answer clears it. The witness's, once the suspect
+        has used up its strikes, gives the suspect its last lone attempt.
+        """
+
+        if self._suspect is None:
+            return
+        if answered == self._suspect:
+            self._suspect = None
+            return
+        suspect = self._pending.get(self._suspect)
+        if suspect is not None and suspect.strikes >= POISON_STRIKES:
+            suspect.witnessed = True
 
     def _report_reader_failure(self) -> None:
         """Log and clear whatever stopped the reader task."""

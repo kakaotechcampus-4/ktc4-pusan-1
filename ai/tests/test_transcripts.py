@@ -77,7 +77,9 @@ class FakeBackend:
     and ``stall`` leaves the upgrade unanswered until the test releases it -
     the ways the real one can behave that this client has to survive. ``ack``
     and ``refuse_with`` are read per request, so a test can let a Backend
-    recover mid-run. ``ack_delay`` holds every ACK back that long.
+    recover mid-run. ``ack_delay`` holds every ACK back that long, and
+    ``poison`` hangs up with 1011 on any frame whose id is in it, the way the
+    real one answers an upsert it fails to store.
     """
 
     def __init__(
@@ -92,8 +94,10 @@ class FakeBackend:
         nack: dict[str, str | None] | None = None,
         reply: Callable[[dict], dict | None] | None = None,
         ack_delay: float = 0.0,
+        poison: set[str] | None = None,
     ) -> None:
         self.ack = ack
+        self.poison = poison or set()
         self.ack_delay = ack_delay
         # Overrides every reply: whatever this returns is sent for a frame,
         # ``None`` meaning silence. For answers the contract does not produce.
@@ -161,6 +165,9 @@ class FakeBackend:
             self.received.append(Received(connection, frame))
             carried += 1
             utterance_id = frame["utteranceId"]
+            if utterance_id in self.poison:
+                await ws.close(code=1011)
+                break
             if self.reply is not None:
                 answer = self.reply(frame)
                 if answer is not None:
@@ -629,6 +636,67 @@ async def test_a_backend_slower_than_the_ack_timeout_still_catches_up() -> None:
             "utt_001",
             "utt_002",
         }
+
+
+def isolating_channel(backend: FakeBackend) -> TranscriptChannel:
+    """Fast reconnects, so a test can watch several strikes go by."""
+
+    return channel_for(backend, reconnect_backoff_cap_seconds=0.1)
+
+
+async def test_an_utterance_backend_cannot_store_does_not_block_the_rest() -> None:
+    """Backend closes on an upsert it fails instead of NACKing it, in order."""
+
+    async with FakeBackend(poison={"utt_bad"}) as backend:
+        async with closing_quickly(isolating_channel(backend)) as channel:
+            for utterance_id in ("utt_bad", "utt_002", "utt_003"):
+                with contextlib.suppress(BackendError):
+                    await channel.send(payload(utterance_id))
+
+            await eventually(lambda: channel.unacknowledged == 0, timeout=5.0)
+
+            assert channel.refused == {"utt_bad": "UNDELIVERABLE"}
+            stored = {item.frame["utteranceId"] for item in backend.received}
+            assert {"utt_002", "utt_003"} <= stored
+
+
+async def test_an_outage_that_fails_every_upsert_drops_nothing() -> None:
+    """Every frame dies alone while it lasts, the witness included."""
+
+    async with FakeBackend(ack=False, drop_after=1, close_code=1011) as backend:
+        async with closing_quickly(isolating_channel(backend)) as channel:
+            for utterance_id in ("utt_001", "utt_002", "utt_003"):
+                with contextlib.suppress(BackendError):
+                    await channel.send(payload(utterance_id))
+
+            # Enough deaths for the suspect to use up its strikes and for the
+            # witness to be tried alone, more than once.
+            await eventually(lambda: backend.connections >= 12, timeout=5.0)
+            assert channel.refused == {}
+            assert channel.unacknowledged == 3
+
+            backend.ack = True
+            backend.drop_after = None
+            await eventually(lambda: channel.unacknowledged == 0, timeout=5.0)
+
+        assert channel.refused == {}
+        assert {item.frame["utteranceId"] for item in backend.received} == {
+            "utt_001",
+            "utt_002",
+            "utt_003",
+        }
+
+
+async def test_an_unstorable_utterance_with_nothing_behind_it_stays_buffered() -> None:
+    """Without a second frame there is no telling it from an outage."""
+
+    async with FakeBackend(poison={"utt_bad"}) as backend:
+        async with closing_quickly(isolating_channel(backend)) as channel:
+            await channel.send(payload("utt_bad"))
+
+            await eventually(lambda: backend.connections >= 6, timeout=5.0)
+            assert channel.refused == {}
+            assert channel.unacknowledged == 1
 
 
 async def test_a_full_buffer_refuses_the_utterance_rather_than_pretending() -> None:
