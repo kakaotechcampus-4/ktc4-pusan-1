@@ -48,7 +48,9 @@ import asyncio
 import contextlib
 import json
 import logging
+import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import aiohttp
@@ -99,6 +101,18 @@ WRITE_TIMEOUT_SECONDS = 5.0
 # hot loop; the reconnect backoff is what paces this in a real run, and this is
 # what paces it when the channel is configured without one.
 RECOVERY_MIN_INTERVAL_SECONDS = 0.05
+
+# The ceiling the reconnect backoff doubles up to. Every failure without an ACK
+# in between doubles the window the next attempt is drawn from, so a Backend
+# that accepts and then fails every upsert is not hammered at a fixed rate; the
+# ceiling is what bounds how late a recovered Backend is noticed.
+RECONNECT_BACKOFF_CAP_SECONDS = 5.0
+
+# How many times the ACK timeout may double while Backend answers nothing. A
+# Backend whose ACKs are merely slower than the timeout would otherwise be
+# dropped before the head frame's ACK lands, every time, and never catch up;
+# each failure buys it twice the patience, up to this, until an ACK resets it.
+ACK_PATIENCE_DOUBLINGS = 3
 
 
 def transcript_url(base_url: str, session_id: str) -> str:
@@ -180,6 +194,8 @@ class TranscriptChannel:
         max_pending: int = 200,
         reconnect_backoff_seconds: float = 0.5,
         connect_timeout_seconds: float = 10.0,
+        reconnect_backoff_cap_seconds: float = RECONNECT_BACKOFF_CAP_SECONDS,
+        jitter: Callable[[], float] = random.random,
     ) -> None:
         if ack_timeout_seconds <= 0:
             raise ValueError("ack_timeout_seconds must be positive")
@@ -189,6 +205,8 @@ class TranscriptChannel:
             raise ValueError("reconnect_backoff_seconds must not be negative")
         if connect_timeout_seconds <= 0:
             raise ValueError("connect_timeout_seconds must be positive")
+        if reconnect_backoff_cap_seconds < 0:
+            raise ValueError("reconnect_backoff_cap_seconds must not be negative")
 
         protect_host(url)
 
@@ -197,6 +215,8 @@ class TranscriptChannel:
         self.max_pending = max_pending
         self.reconnect_backoff_seconds = reconnect_backoff_seconds
         self.connect_timeout_seconds = connect_timeout_seconds
+        self.reconnect_backoff_cap_seconds = reconnect_backoff_cap_seconds
+        self._jitter = jitter
 
         self._headers = dict(headers or {})
         self._pending: dict[str, _Pending] = {}
@@ -208,13 +228,19 @@ class TranscriptChannel:
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._reader: asyncio.Task[None] | None = None
         self._reader_failure: BaseException | None = None
-        # The reconnect a stopped reader starts on its own. At most one runs
-        # at a time, and :meth:`aclose` is what ends it.
+        # The background task that owns delivery while anything is pending:
+        # it watches for ACKs falling due and reconnects after a failure. At
+        # most one runs at a time, and :meth:`aclose` is what ends it.
         self._recovery: asyncio.Task[None] | None = None
-        # Raised by a reader that stops while a recovery is already running:
-        # that recovery opened the socket which just died, so it is the one
-        # that has to go round again rather than leave the notice unanswered.
-        self._recovery_wanted = False
+        # Failures since Backend last answered a frame, and the earliest
+        # moment the next connection may be opened because of them. Only
+        # failures count: a reconnect this side chose - a correction's fresh
+        # socket, say - is not a reason to wait.
+        self._failures = 0
+        self._retry_at = 0.0
+        # Set whenever the recovery has something new to look at: a reader
+        # that ended, a frame admitted, the buffer drained.
+        self._wake = asyncio.Event()
         # Sockets a cancelled :meth:`_discard` could not stay to close.
         self._abandoned: set[asyncio.Task[None]] = set()
         self._closed = False
@@ -280,7 +306,6 @@ class TranscriptChannel:
                 raise self._closed_error()
             self._report_reader_failure()
             admitted, isolate_revision = self._admit(utterance_id, frame)
-            overdue = self._ack_overdue() if admitted else False
 
         if not admitted:
             # The cap is checked against a buffer that only Backend can
@@ -295,13 +320,17 @@ class TranscriptChannel:
                 if self._closed:
                     raise self._closed_error()
                 admitted, isolate_revision = self._admit(utterance_id, frame)
-                overdue = self._ack_overdue() if admitted else False
             if not admitted:
                 logger.warning(
                     "Transcript buffer full (%d unacknowledged); dropping utterance",
                     self.unacknowledged,
                 )
                 raise BackendError("BACKEND_TRANSCRIPT_BUFFER_FULL", retryable=False)
+
+        # From here until its ACK the frame is the recovery's as much as this
+        # call's: if this write does not land, or the ACK never comes, that is
+        # what writes it again - without waiting for the next utterance.
+        self._start_recovery()
 
         if isolate_revision:
             # ACKs carry only utteranceId. Once an earlier revision has begun
@@ -310,13 +339,19 @@ class TranscriptChannel:
             # from the old revision cannot clear it from the buffer.
             logger.info("Transcript correction requires a fresh connection")
             await self._drop_connection()
-        elif overdue:
-            # The socket is open and Backend is not answering on it. That is
-            # indistinguishable from a half-open connection from here, so it
-            # is treated as one: drop it and let the reconnect below write
-            # everything still pending onto the new socket.
-            logger.warning("Transcript ACK overdue; reopening the channel")
-            await self._drop_connection()
+
+        if (
+            self._failures
+            and not self._usable()
+            and (self._connect_lock.locked() or time.monotonic() < self._retry_at)
+        ):
+            # Backend is already failing, and a connect is under way or the
+            # backoff says not yet. Waiting here would hold the caller - the
+            # media path - for a handshake or a backoff it cannot shorten; the
+            # frame is buffered and the recovery writes it as soon as there is
+            # a connection to write it on. A healthy channel never gets here,
+            # so its sends still wait out an ordinary connect as before.
+            raise BackendError("BACKEND_REQUEST_FAILED", retryable=True)
 
         await self._ensure_connection()
         try:
@@ -328,8 +363,8 @@ class TranscriptChannel:
             # also rewrites everything still pending, and then the caller
             # hears about it. A refused *connect* is deliberately not retried
             # here: Backend being down is not something an immediate second
-            # attempt changes, and this call is standing in the media path
-            # while it waits.
+            # attempt changes, and the recovery is already retrying it on its
+            # own backoff.
             await self._drop_connection()
             await self._ensure_connection()
             await self._flush()
@@ -350,7 +385,6 @@ class TranscriptChannel:
         # Set first, so a reader ending from here on does not start a
         # reconnect behind the shutdown; this one is already on its way out.
         recovery, self._recovery = self._recovery, None
-        self._recovery_wanted = False
         if recovery is not None:
             recovery.cancel()
             await asyncio.wait({recovery})
@@ -392,6 +426,10 @@ class TranscriptChannel:
         queued behind the old socket's close, the backoff and the handshake
         one after another. The state lock is taken for the bookkeeping at each
         end of that, which is where "one connection" is actually decided.
+
+        Nothing here waits out the backoff either. A connection asked for
+        before ``_retry_at`` is refused as retryable, and the recovery - the
+        one caller with nothing better to do - is what sleeps until then.
         """
 
         if self._usable():
@@ -403,12 +441,11 @@ class TranscriptChannel:
                 return
 
             async with self._lock:
-                reconnecting = self._session is not None
                 ws, reader = self._detach()
             await self._discard(ws, reader)
 
-            if reconnecting and self.reconnect_backoff_seconds:
-                await asyncio.sleep(self.reconnect_backoff_seconds)
+            if time.monotonic() < self._retry_at:
+                raise BackendError("BACKEND_REQUEST_FAILED", retryable=True)
 
             async with self._lock:
                 if self._session is None and not self._closed:
@@ -444,6 +481,7 @@ class TranscriptChannel:
                 # refused upgrade classifies exactly like a refused POST.
                 failure = status_error(exc.status)
                 logger.warning("Transcript handshake refused: %s", failure.code)
+                self._note_failure()
                 if not failure.retryable:
                     # Authentication, route and request failures do not change
                     # by reconnecting. Remember the exact failure so later
@@ -459,6 +497,7 @@ class TranscriptChannel:
                 # ``OSError`` is not redundant: ``ConnectionResetError`` and
                 # ``TimeoutError`` reach here without being ``ClientError``s.
                 logger.warning("Transcript connect failed: %s", type(exc).__name__)
+                self._note_failure()
                 raise BackendError("BACKEND_REQUEST_FAILED", retryable=True) from None
 
             # Until the install lands, this socket exists only as a local:
@@ -533,12 +572,14 @@ class TranscriptChannel:
                     # is one. The frame is half on the wire at best, so the
                     # socket is not reusable and does not get handed back.
                     logger.warning("Transcript send stalled; dropping the connection")
+                    self._note_failure()
                     await self._drop_connection()
                     raise BackendError(
                         "BACKEND_REQUEST_FAILED", retryable=True
                     ) from None
                 except (aiohttp.ClientError, OSError) as exc:
                     logger.warning("Transcript send failed: %s", type(exc).__name__)
+                    self._note_failure()
                     await self._drop_connection()
                     raise BackendError(
                         "BACKEND_REQUEST_FAILED", retryable=True
@@ -607,8 +648,15 @@ class TranscriptChannel:
                         reason,
                     )
                 self._pending.pop(utterance_id, None)
+                # Backend answered, so whatever was failing has stopped: the
+                # next reconnect starts from the base delay again. Not on
+                # connect - a Backend that accepts the socket and then fails
+                # every upsert is exactly the one that must keep backing off.
+                self._failures = 0
+                self._retry_at = 0.0
                 if not self._pending:
                     self._drained.set()
+                    self._wake.set()
         except Exception as exc:  # noqa: BLE001 - parked, then reported
             # ``asyncio.CancelledError`` is a ``BaseException``, so a drop
             # cancelling this task does not land here.
@@ -633,46 +681,63 @@ class TranscriptChannel:
                         "Transcript channel closed by Backend policy (%d)", close_code
                     )
                 else:
+                    # Backend, or the network, ended a connection this side
+                    # still wanted: a failure, and the one that matters most
+                    # for pacing - a Backend that accepts every socket and
+                    # closes it on the first upsert never fails a handshake.
+                    self._note_failure()
                     self._start_recovery()
 
     def _start_recovery(self) -> None:
-        """Reconnect in the background, if there is anything left to deliver."""
+        """Make sure the recovery is watching, if there is anything to deliver."""
 
         if self._closed or not self._pending:
             return
-        # Raised before the single-flight check, not instead of it. A recovery
-        # that is still running opened the socket that just died, so returning
-        # here without the flag would drop the only notice of that death and
-        # leave the buffer waiting for an utterance that may never come.
-        self._recovery_wanted = True
+        # Before the single-flight check, not instead of it: a recovery already
+        # running may be waiting on the socket that just died.
+        self._wake.set()
         if self._recovery is not None and not self._recovery.done():
             return
         self._recovery = asyncio.create_task(self._recover())
 
     async def _recover(self) -> None:
-        """The background half of a reconnect: nobody is awaiting this.
+        """Own delivery in the background until the buffer is empty.
 
-        Which is the whole reason it exists, and also why nothing escapes it -
-        an exception here would be reported by the loop as never retrieved,
-        long after the moment it belonged to.
+        Nobody is awaiting this, which is the whole reason it exists, and also
+        why nothing escapes it - an exception here would be reported by the
+        loop as never retrieved, long after the moment it belonged to.
 
-        Goes round again only for a connection that was opened and then died,
-        which is a full handshake's worth of work per round rather than a spin,
-        and never sooner than ``RECOVERY_MIN_INTERVAL_SECONDS``. A round that
-        ends in a refused *connect* raises no notice, so a Backend that is down
-        stops this after one attempt rather than retrying it forever.
+        While a usable connection carries everything, this only watches: it
+        sleeps until the oldest unanswered frame falls due and treats a frame
+        still unanswered then as a dead connection. Otherwise it reconnects
+        and writes everything again, as often as it takes, paced by the
+        reconnect backoff - which doubles while Backend answers nothing and
+        starts over at the first ACK - and never sooner than
+        ``RECOVERY_MIN_INTERVAL_SECONDS``. It stops when the buffer empties or
+        the channel closes, including closing for good on a refusal that
+        reconnecting cannot change.
         """
 
         try:
-            while not self._closed:
-                # Cleared before the attempt, so a death during it counts.
-                # Nothing between the check below and this task completing
-                # awaits, so a notice can never fall into that gap.
-                self._recovery_wanted = False
+            while not self._closed and self._pending:
+                # Cleared before the state is read, so a notice that lands
+                # while this round waits is not lost.
+                self._wake.clear()
+                if self._usable():
+                    due = self._ack_due_in()
+                    if due is not None and due > 0:
+                        with contextlib.suppress(TimeoutError):
+                            await asyncio.wait_for(self._wake.wait(), due)
+                        continue
+                else:
+                    wait = self._retry_at - time.monotonic()
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                        continue
+
                 await self._deliver_buffered()
-                if self._closed or not self._pending or not self._recovery_wanted:
-                    return
-                await asyncio.sleep(RECOVERY_MIN_INTERVAL_SECONDS)
+                if not self._usable():
+                    await asyncio.sleep(RECOVERY_MIN_INTERVAL_SECONDS)
         except Exception as exc:  # noqa: BLE001 - nothing is awaiting this task
             logger.warning("Transcript recovery stopped: %s", type(exc).__name__)
 
@@ -680,9 +745,10 @@ class TranscriptChannel:
         """Give what is already buffered one attempt at Backend, failure and all.
 
         The callers are the two places where a failure is not the caller's to
-        hear about: the background reconnect, which nobody is awaiting, and
-        :meth:`send` clearing the way for a full buffer, where the error that
-        matters is the one about the new utterance.
+        hear about: the background recovery, which nobody is awaiting and which
+        reads the outcome off the channel's state instead, and :meth:`send`
+        clearing the way for a full buffer, where the error that matters is
+        the one about the new utterance.
         """
 
         async with self._lock:
@@ -692,6 +758,11 @@ class TranscriptChannel:
 
         try:
             if overdue:
+                # The socket is open and Backend is not answering on it. That
+                # is indistinguishable from a half-open connection from here,
+                # so it is treated as one.
+                logger.warning("Transcript ACK overdue; reopening the channel")
+                self._note_failure()
                 await self._drop_connection()
             await self._ensure_connection()
             await self._flush()
@@ -825,6 +896,45 @@ class TranscriptChannel:
             )
         return BackendError("BACKEND_TRANSCRIPT_CHANNEL_CLOSED", retryable=False)
 
+    def _note_failure(self) -> None:
+        """Count a failure and push the next connection out by the backoff."""
+
+        self._failures += 1
+        self._retry_at = time.monotonic() + self._backoff(self._failures)
+
+    def _backoff(self, attempt: int) -> float:
+        """How long to wait after the ``attempt``-th failure since an ACK.
+
+        Doubles from the configured base up to the cap, with equal jitter so
+        that sessions cut off by the same Backend restart do not all come
+        back in the same instant. The base never counts as less than
+        ``RECOVERY_MIN_INTERVAL_SECONDS``, so a channel configured without a
+        backoff still backs off rather than reconnecting in a hot loop.
+        """
+
+        base = max(self.reconnect_backoff_seconds, RECOVERY_MIN_INTERVAL_SECONDS)
+        window = min(
+            self.reconnect_backoff_cap_seconds, base * 2 ** min(attempt - 1, 32)
+        )
+        jittered = window * (0.5 + 0.5 * self._jitter())
+        return max(RECOVERY_MIN_INTERVAL_SECONDS, jittered)
+
+    def _ack_due_in(self) -> float | None:
+        """Seconds until the oldest written frame is overdue.
+
+        Zero when something is buffered but not written yet, since that wants
+        a flush now rather than a wait; ``None`` when nothing is buffered.
+        """
+
+        written = []
+        for entry in self._pending.values():
+            if entry.written_at is None:
+                return 0.0
+            written.append(entry.written_at)
+        if not written:
+            return None
+        return min(written) + self._ack_patience() - time.monotonic()
+
     def _ack_overdue(self) -> bool:
         """Whether the oldest written-but-unacknowledged frame has waited too long."""
 
@@ -835,7 +945,13 @@ class TranscriptChannel:
         ]
         if not written:
             return False
-        return time.monotonic() - min(written) > self.ack_timeout_seconds
+        return time.monotonic() - min(written) > self._ack_patience()
+
+    def _ack_patience(self) -> float:
+        """The ACK timeout, doubled per failure since the last ACK, capped."""
+
+        doublings = min(self._failures, ACK_PATIENCE_DOUBLINGS)
+        return self.ack_timeout_seconds * 2**doublings
 
     def _report_reader_failure(self) -> None:
         """Log and clear whatever stopped the reader task."""
