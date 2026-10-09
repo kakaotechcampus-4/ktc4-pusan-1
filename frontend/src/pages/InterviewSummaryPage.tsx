@@ -53,8 +53,8 @@ export default function InterviewSummaryPage() {
   // 404 는 없는 세션이거나 남의 세션이다 (#145). 기다린다고 생기지 않으므로
   // 「잠시 후 다시」가 아니라 링크·계정을 확인하라고 안내한다.
   const missing = error instanceof ApiError && error.status === 404;
-  // 세션 조회도 같은 이유로 404 다. 요약 쪽 「다시 확인」을 감췄으면서 이 버튼만
-  // 남겨 두면 눌러도 같은 결과인 길을 하나 열어 두는 셈이 된다.
+  // 세션 조회의 404 는 **없는 세션뿐**이다 — `GET /sessions/{id}` 는 주인을 보지 않아
+  // 남의 세션도 200 을 준다. 그래도 기다려서 생기는 건 아니라 「다시 확인」은 감춘다.
   const sessionMissing = sessionErrorValue instanceof ApiError && sessionErrorValue.status === 404;
   const processing = !failed && (summary === undefined || summary.status === 'PROCESSING');
 
@@ -136,8 +136,13 @@ export default function InterviewSummaryPage() {
               기록 링크 다시 확인
             </button>
           )}
-          {/* 요약이 실패해도 녹화와 기록은 따로 만들어지므로 기록으로 가는 길은 열어 둔다. */}
-          {reviewPath && (
+          {/*
+            요약이 실패해도 녹화와 기록은 따로 만들어지므로 기록으로 가는 길은 열어 둔다.
+            단 missing 은 다르다 — 남의 세션이면 세션 조회가 200 이라 reviewPath 가 생기는데,
+            기록 조회는 주인만 보므로 눌러도 똑같이 거절된다. "볼 수 없는 면접"이라고
+            말한 화면에 같은 거절로 가는 주 버튼을 남기면 안 된다 (#150).
+          */}
+          {reviewPath && !missing && (
             <Link
               to={reviewPath}
               className="rounded-lg bg-[#2B44D6] px-5 py-3 text-[15px] font-medium text-white transition hover:bg-[#243AB8]"
