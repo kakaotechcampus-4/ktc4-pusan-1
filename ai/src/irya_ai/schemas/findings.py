@@ -10,7 +10,7 @@ from irya_ai.schemas.summary import AnalysisError, DraftModel
 from irya_ai.schemas.timeline import LlmUsage
 from irya_ai.schemas.transcript import TranscriptStage
 
-SUMMARY_MAX_CHARS = 240
+SUMMARY_MAX_CHARS = 120
 
 
 class FindingDraft(DraftModel):

@@ -7,7 +7,11 @@ import pytest
 from openai import AsyncOpenAI
 
 from irya_ai.findings import FindingsAgent, FindingsError
-from irya_ai.openai_findings import OpenAIFindingsGenerator, build_payload
+from irya_ai.openai_findings import (
+    SYSTEM_PROMPT,
+    OpenAIFindingsGenerator,
+    build_payload,
+)
 from irya_ai.schemas.findings import FindingsDraft
 from irya_ai.schemas.transcript import TranscriptSnapshot
 from test_findings import context, draft, utterance
@@ -83,6 +87,7 @@ async def test_supported_parameters_and_grounded_output():
         }
         assert body["stream"] is False
         assert body["reasoning_effort"] == "low"
+        assert body["max_completion_tokens"] <= 2000
         assert body["response_format"]["json_schema"]["strict"] is True
         return httpx.Response(200, json=response())
 
@@ -93,7 +98,7 @@ async def test_supported_parameters_and_grounded_output():
             TranscriptSnapshot(session_id="ses_test", utterances=[utterance()]),
         )
     assert result.status == "completed"
-    assert result.model == "served-model@findings-v1"
+    assert result.model == "served-model@findings-v2"
     assert result.usage.prompt_tokens == 100
     assert result.findings[0].evidence_t_ms == 1000
 
@@ -159,3 +164,10 @@ async def test_malformed_or_refused_output_returns_failure(body):
     assert result.status == "failed"
     assert result.findings == []
     assert "private" not in result.model_dump_json()
+
+
+def test_prompt_asks_for_no_more_than_the_code_keeps():
+    # The gateway caps output at 2,000 tokens; asking for more findings or
+    # longer summaries than the code accepts only spends them on rejects.
+    assert "최대 8개" in SYSTEM_PROMPT
+    assert "120자 이내" in SYSTEM_PROMPT

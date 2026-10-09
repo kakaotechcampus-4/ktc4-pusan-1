@@ -30,7 +30,7 @@ from irya_ai.schemas.transcript import (
     Utterance,
 )
 
-DEFAULT_MAX_FINDINGS = 24
+DEFAULT_MAX_FINDINGS = 8
 _CLAIM_TYPES = {
     FindingType.CLAIM_VERIFIED,
     FindingType.CLAIM_CONTRADICTED,
