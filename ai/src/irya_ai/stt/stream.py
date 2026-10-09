@@ -550,7 +550,11 @@ class TranscriptionStream:
                     )
             except TimeoutError:
                 # Only the deadline's own expiry becomes this: a cancel from
-                # :meth:`aclose` still arrives as ``CancelledError``.
+                # :meth:`aclose` still arrives as ``CancelledError``. Only
+                # this side can tell the two apart, so this side tells the
+                # client's breaker; a deployment that never answers is
+                # otherwise invisible to it.
+                self.client.note_deadline_exceeded()
                 raise SttError("STT_DEADLINE_EXCEEDED", retryable=True) from None
             finally:
                 timing.request_ended_at = self._clock()

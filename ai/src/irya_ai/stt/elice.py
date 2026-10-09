@@ -54,6 +54,7 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 
+from irya_ai.stt.circuit import Admission, CircuitBreaker
 from irya_ai.stt.http_logging import protect_host
 
 logger = logging.getLogger(__name__)
@@ -297,6 +298,19 @@ def is_stock_phrase(text: str) -> bool:
     return bool(letters) and _STOCK_TEXT.fullmatch(letters) is not None
 
 
+# Failures that say the deployment is unwell, as opposed to this one request
+# being wrong (``STT_CLIENT_ERROR``) or this client being closed. A malformed
+# body counts: a gateway answering 200 with an error page is an outage.
+_BREAKER_FAILURES = frozenset(
+    {
+        "STT_AUTH_FAILED",
+        "STT_REQUEST_FAILED",
+        "STT_MALFORMED_RESPONSE",
+        "STT_PROVIDER_ERROR",
+    }
+)
+
+
 def _status_error(status_code: int) -> SttError:
     """Classify an HTTP status into a typed error, without the body.
 
@@ -366,6 +380,12 @@ class EliceSttClient:
     kept out of the HTTP libraries' own log records for as long as the
     process runs. The client itself stays caller-owned: this does not close
     it, and it does not read its headers.
+
+    ``breaker`` is off unless passed. The live path wants it: a deployment
+    that has stopped answering otherwise holds every segment for its full
+    deadline. A batch caller that can afford to wait for each segment does
+    not, because fail-fast would drop segments a retry would have recovered.
+    See :mod:`irya_ai.stt.circuit` for what it counts and what it costs.
     """
 
     def __init__(
@@ -376,6 +396,7 @@ class EliceSttClient:
         language: str = DEFAULT_LANGUAGE,
         retries: int = 2,
         backoff_seconds: float = 1.0,
+        breaker: CircuitBreaker | None = None,
     ) -> None:
         # Checked here rather than discovered later: a negative ``retries``
         # makes the request loop run zero times and raise the placeholder
@@ -401,6 +422,7 @@ class EliceSttClient:
         self.language = language
         self.retries = retries
         self.backoff_seconds = backoff_seconds
+        self.breaker = breaker
 
     async def transcribe(
         self, pcm_wav: bytes, *, filename: str = "segment.wav"
@@ -410,12 +432,62 @@ class EliceSttClient:
         Raises :class:`SttError` and nothing else. Retries only what could
         plausibly answer differently next time; a rejected key or a request
         this client builds wrong fails on the first attempt rather than three
-        times over.
+        times over. With a breaker that is open, raises ``STT_CIRCUIT_OPEN``
+        without sending.
         """
 
+        breaker = self.breaker
+        if breaker is None:
+            return await self._send(pcm_wav, filename=filename, retries=self.retries)
+
+        admission = breaker.admit()
+        if admission is Admission.REFUSE:
+            raise SttError("STT_CIRCUIT_OPEN", retryable=True)
+        probe = admission is Admission.PROBE
+        settled = False
+        try:
+            # A probe asks once: its job is a verdict, and retrying a
+            # deployment that is already known to be failing is the storm
+            # the breaker exists to stop.
+            result = await self._send(
+                pcm_wav, filename=filename, retries=0 if probe else self.retries
+            )
+        except SttError as exc:
+            if exc.code in _BREAKER_FAILURES:
+                breaker.record_failure(trip=exc.code == "STT_AUTH_FAILED")
+                settled = True
+            raise
+        else:
+            breaker.record_success()
+            settled = True
+            return result
+        finally:
+            # Cancelled - by the stream's deadline or by its close - or
+            # refused for a reason that says nothing about the deployment.
+            # The slot has to come back either way. A deadline is still
+            # counted, by the stream, through :meth:`note_deadline_exceeded`.
+            if probe and not settled:
+                breaker.release_probe()
+
+    def note_deadline_exceeded(self) -> None:
+        """Count a call the caller gave up on as a failure of the deployment.
+
+        The stream bounds each request with its own deadline, shorter than
+        the HTTP timeout, so a deployment that accepts the connection and
+        never answers is seen here only as a cancellation - and a
+        cancellation from closing the stream looks the same from inside.
+        The caller knows which it was; this is how it says so.
+        """
+
+        if self.breaker is not None:
+            self.breaker.record_failure()
+
+    async def _send(
+        self, pcm_wav: bytes, *, filename: str, retries: int
+    ) -> Transcription:
         failure = SttError("STT_REQUEST_FAILED", retryable=True)
         started = time.perf_counter()
-        for attempt in range(self.retries + 1):
+        for attempt in range(retries + 1):
             asked: float | None = None
             try:
                 response = await self.client.post(
@@ -445,9 +517,13 @@ class EliceSttClient:
                 latency_ms = round((time.perf_counter() - started) * 1000)
                 return parse_response(_decode(response), latency_ms=latency_ms)
 
-            if not failure.retryable or attempt == self.retries:
+            if not failure.retryable or attempt == retries:
                 break
             if asked is not None and asked > MAX_RETRY_AFTER_SECONDS:
+                break
+            # Another call has opened the breaker meanwhile: this one's
+            # retries would be the requests the breaker is there to stop.
+            if self.breaker is not None and self.breaker.is_open:
                 break
             await asyncio.sleep(max(self.backoff_seconds * 2**attempt, asked or 0.0))
 
@@ -461,14 +537,19 @@ class EliceSttClient:
         to scale down again or to route the interview somewhere else.
         """
 
+        # Around the breaker rather than through it: the deployment scales
+        # to zero, so a warm-up failing is expected, and it must not leave
+        # the breaker part-way to open before the interview has started.
         try:
-            await self.transcribe(probe, filename="warmup.wav")
+            await self._send(probe, filename="warmup.wav", retries=self.retries)
         except SttError as exc:
             logger.warning(
                 "STT warm-up failed (%s); a cold start may still be ahead",
                 exc.code,
             )
             return False
+        if self.breaker is not None:
+            self.breaker.record_success()
         return True
 
 
@@ -495,7 +576,10 @@ def build_http_client(
 
 
 def build_client(
-    settings, *, transport: httpx.AsyncBaseTransport | None = None
+    settings,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+    breaker: CircuitBreaker | None = None,
 ) -> EliceSttClient:
     """Assemble the STT client described by ``settings``."""
 
@@ -503,4 +587,5 @@ def build_client(
         build_http_client(settings, transport=transport),
         model=settings.elice_stt_model,
         language=settings.elice_stt_language,
+        breaker=breaker,
     )

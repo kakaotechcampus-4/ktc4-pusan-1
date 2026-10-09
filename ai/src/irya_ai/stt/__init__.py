@@ -4,6 +4,8 @@
   request on audio that holds no speech. Pure, deterministic, no network.
 - ``elice``: the Elice prediction-service client, plus the guard that spots a
   transcription describing more audio than was sent.
+- ``circuit``: the breaker that makes a failing deployment fail fast instead
+  of holding every segment for its full deadline. Off unless passed in.
 - ``http_logging``: keeps the deployment host out of the records ``httpx`` and
   ``httpcore`` write about those requests. The client wires it up itself.
 - ``session``: puts a session's several tracks on one timeline, which is what
@@ -11,6 +13,7 @@
 - ``stream``: connects them and emits utterances in spoken order.
 """
 
+from irya_ai.stt.circuit import CircuitBreaker
 from irya_ai.stt.elice import (
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL,
@@ -60,6 +63,7 @@ __all__ = [
     "DEFAULT_MODEL",
     "REDACTED_HOST",
     "AudioSegment",
+    "CircuitBreaker",
     "CutReason",
     "EliceSttClient",
     "NoiseFloor",
