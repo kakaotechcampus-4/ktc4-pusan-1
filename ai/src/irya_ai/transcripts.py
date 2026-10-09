@@ -428,11 +428,17 @@ class TranscriptChannel:
                 raise self._closed_error()
 
             try:
-                ws = await session.ws_connect(
-                    self.url,
-                    headers=self._headers,
-                    timeout=aiohttp.ClientWSTimeout(ws_close=CLOSE_TIMEOUT_SECONDS),
-                )
+                # The session's ``connect`` covers reaching the host, not the
+                # upgrade answer: a Backend that accepts TCP and then never
+                # answers would hold this - and the connect lock, and every
+                # send queued behind it - with nothing to end it. The whole
+                # handshake shares one bound instead.
+                async with asyncio.timeout(self.connect_timeout_seconds):
+                    ws = await session.ws_connect(
+                        self.url,
+                        headers=self._headers,
+                        timeout=aiohttp.ClientWSTimeout(ws_close=CLOSE_TIMEOUT_SECONDS),
+                    )
             except aiohttp.WSServerHandshakeError as exc:
                 # The handshake is an HTTP response until it is not, so a
                 # refused upgrade classifies exactly like a refused POST.

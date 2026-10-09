@@ -894,6 +894,37 @@ async def test_a_stalled_handshake_does_not_hold_up_closing() -> None:
                 await sending
 
 
+async def test_an_unanswered_upgrade_fails_within_the_connect_timeout() -> None:
+    """TCP accepted, upgrade never answered: the send still comes back.
+
+    The session's ``connect`` timeout ends at the TCP handshake, so without a
+    bound of its own this send holds the connect lock indefinitely and every
+    later utterance queues behind it in the media path.
+    """
+
+    stall = asyncio.Event()
+    async with FakeBackend(stall=stall) as backend:
+        channel = channel_for(backend, connect_timeout_seconds=0.3)
+        try:
+            started = time.monotonic()
+            with pytest.raises(BackendError) as caught:
+                await asyncio.wait_for(channel.send(payload()), 5.0)
+
+            assert time.monotonic() - started < 0.3 + 0.5
+            assert caught.value.code == "BACKEND_REQUEST_FAILED"
+            assert caught.value.retryable is True
+            assert channel.unacknowledged == 1
+
+            # The abandoned handshake must not wedge the session it ran on.
+            stall.set()
+            await channel.send(payload("utt_002"))
+            await eventually(lambda: channel.unacknowledged == 0)
+        finally:
+            stall.set()
+            channel.ack_timeout_seconds = 0.01
+            await channel.aclose()
+
+
 async def test_closing_waits_for_the_outstanding_acks() -> None:
     async with FakeBackend() as backend:
         channel = channel_for(backend)
