@@ -228,6 +228,48 @@ docker exec irya-restore psql -U postgres -Atc 'select count(*) from interview' 
 docker rm -f irya-restore
 ```
 
+## 녹화 재생 (CloudFront)
+
+녹화 재생 URL 을 CloudFront 서명 URL 로 줄 수 있습니다 (#197). 스위치가 꺼져 있으면 지금처럼 10분짜리 S3 서명 URL 입니다. 버킷은 비공개 그대로이고, 버킷 정책으로는 아래 배포 하나에만 `rec/*` 읽기를 엽니다. S3 서명 URL 은 인스턴스 역할의 임시 자격증명으로 서명해서, 유효 시간을 길게 줘도 그 자격증명이 만료되면 같이 죽습니다.
+
+| 자원 | 값 |
+| --- | --- |
+| 배포 | `E19ZXUPLO7V11T` (`d2w9ro1cjqpjqa.cloudfront.net`) — HTTPS · GET/HEAD 만, 서명된 요청만(키 그룹 `irya-rec`), 캐시 정책 `CachingOptimized`, OAC `irya-rec-oac` |
+| 서명 키 | 키 그룹 `irya-rec` 의 공개키 `K234BORO5X6102` (RSA 2048). 개인키는 서버 `.env` 에만 있습니다 |
+| 버킷 정책 | `s3-bucket-policy.json` — 이 배포에만 `rec/*` 읽기를 허용합니다 |
+
+스위치는 셋이고, 켤 때는 이 순서입니다. 끌 때는 거꾸로 — 서버 `.env` 의 도메인을 비우고 backend 를 다시 만들면(`docker compose up -d backend`) 10분 S3 서명으로 돌아갑니다. `.env` 만 고쳐서는 바뀌지 않습니다.
+
+1. 버킷 정책을 겁니다. 정책도 수명주기처럼 버킷에 하나라 걸 때마다 통째로 바뀝니다. 그래서 먼저 걸린 정책이 있는지 보고, 있으면 그 규칙을 이 파일에 합친 뒤 겁니다. 계정 ID 는 저장소에 두지 않고 걸 때 채웁니다.
+
+   ```bash
+   aws s3api get-bucket-policy --bucket ktc4-pusan-1-irya   # NoSuchBucketPolicy 면 그대로 겁니다
+   ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+   sed "s/\${ACCOUNT_ID}/$ACCOUNT_ID/" infra/s3-bucket-policy.json > /tmp/rec-policy.json
+   aws s3api put-bucket-policy --bucket ktc4-pusan-1-irya --policy file:///tmp/rec-policy.json
+   ```
+
+2. 배포를 켭니다 (CloudFront 콘솔에서 `E19ZXUPLO7V11T` 활성화). 몇 분 뒤 `Deployed` 가 됩니다. 서명 없이 부르면 서명을 요구하는 `MissingKey` 가 와야 합니다. 서명 검사는 원본보다 앞이라 아무 경로나 됩니다.
+
+   ```bash
+   curl -s https://d2w9ro1cjqpjqa.cloudfront.net/rec/x | grep -o MissingKey
+   ```
+
+3. 서버 `.env` 에 키 ID 와 개인키가 있는지 먼저 봅니다. 값은 찍지 않고 개수만 봅니다. 그다음 `RECORDING_CDN_DOMAIN=d2w9ro1cjqpjqa.cloudfront.net` 을 넣고 backend 를 다시 만듭니다. 키가 틀리면 backend 가 뜨지 않아 **API 전체가 멈춥니다.** 로그를 보고, 바로 못 고치면 도메인을 비우고 다시 `up -d backend` 합니다.
+
+   ```bash
+   cd ~/ktc4-pusan-1/infra
+   grep -c '^RECORDING_CDN_KEY_ID=K' .env; grep -c '^RECORDING_CDN_PRIVATE_KEY=.' .env   # 1, 1
+   docker compose up -d backend && docker compose logs --tail 40 backend
+   ```
+
+   뜨면 서명 URL 로 206 을 확인합니다. 로그인 없이 컨테이너 안에서 서명하고, 찍히는 URL 은 파일 하나를 3시간 볼 수 있는 값이라 공유하지 않습니다.
+
+   ```bash
+   URL=$(docker compose exec -T backend python -c "from app.services.recording import presign; print(presign('rec/<세션>/merged.webm')[0])")
+   curl -s -o /dev/null -w '%{http_code}\n' -r 0-1 "$URL"   # 206
+   ```
+
 ## 비밀
 
 `infra/.env` 에 한 곳에 모여 있고 **서버에만 있습니다.** 저장소에는 `.env.example` 의 빈 자리와 출처 설명만 들어갑니다.

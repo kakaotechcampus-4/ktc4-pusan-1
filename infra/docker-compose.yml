@@ -105,6 +105,10 @@ services:
       # 비우면 녹화를 걸지 않습니다 — 컨테이너가 인스턴스 역할을 받도록(IMDS 홉 2)
       # 하고 역할에 rec/ 권한을 준 뒤 .env 에 넣어 켭니다. 자격증명은 넣지 않습니다.
       RECORDING_BUCKET: ${RECORDING_BUCKET:-}
+      # 녹화 재생 CloudFront 서명 (#197) — 켜는 법은 .env.example · README 「녹화 재생」.
+      RECORDING_CDN_DOMAIN: ${RECORDING_CDN_DOMAIN:-}
+      RECORDING_CDN_KEY_ID: ${RECORDING_CDN_KEY_ID:-}
+      RECORDING_CDN_PRIVATE_KEY: ${RECORDING_CDN_PRIVATE_KEY:-}
       # 비우면 인메모리로 떨어집니다. 서버에서는 반드시 채웁니다 —
       # 재시작할 때마다 진행 중인 면접 상태가 사라집니다.
       DATABASE_URL: postgresql://${POSTGRES_USER:-irya}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-irya}
