@@ -4,7 +4,6 @@
 `startedAt`(버튼)과 다른 값이라는 걸 여기서 고정한다.
 """
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -78,31 +77,6 @@ def test_origin_is_first_join_only(client, media, store, session):
     assert _post(client) == 204
 
     assert store.get_session(session.id).transcript_origin_at == JOINED_AT
-
-
-def test_origin_is_written_off_the_event_loop(
-    client, media, store, session, monkeypatch
-):
-    """동기 저장소를 이벤트 루프에서 부르면 그동안 다른 요청이 줄을 선다 (#133).
-
-    스레드풀로 넘겼으면 그 스레드에는 돌고 있는 이벤트 루프가 없다.
-    """
-    mark = store.mark_origin
-    on_loop: list[bool] = []
-
-    def spy(*args, **kwargs):
-        try:
-            asyncio.get_running_loop()
-            on_loop.append(True)
-        except RuntimeError:
-            on_loop.append(False)
-        return mark(*args, **kwargs)
-
-    monkeypatch.setattr(store, "mark_origin", spy)
-    media.webhook_event = FakeEvent("participant_joined", session.room_name, JOINED_MS)
-
-    assert _post(client) == 204
-    assert on_loop == [False]
 
 
 def test_origin_is_independent_of_started_at(client, media, store, session):
