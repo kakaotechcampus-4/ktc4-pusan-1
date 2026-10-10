@@ -35,7 +35,10 @@ one that says transcripts are now being dropped.
 The ACK timeout, the buffer cap and the reconnect backoff are provisional.
 They are the contract's open item 3 - "ACK 대기 시간·버퍼 상한·재연결 정책" -
 which is not agreed with Backend yet; the defaults in :mod:`irya_ai.config`
-keep a local run honest rather than settle anything.
+keep a local run honest rather than settle anything. Closing is the one part of
+that settled with Backend: it keeps reconnecting and writing what is buffered
+for up to ``SHUTDOWN_DRAIN_SECONDS``, because Backend still stores a frame for a
+session that has ended.
 
 Suggestion, Context and Review stay on HTTP in :mod:`irya_ai.backend`. This
 module borrows that module's :func:`~irya_ai.backend.status_error`,
@@ -125,6 +128,14 @@ ACK_PATIENCE_DOUBLINGS = 3
 # outage.
 POISON_STRIKES = 2
 
+# How long :meth:`TranscriptChannel.aclose` keeps delivering what is buffered -
+# reconnecting on the usual backoff if it has to - before it gives up on it.
+# The room is already gone by then and Backend stores frames for an ended
+# session, so the only cost of waiting is a job that ends later; the cost of
+# not waiting is the end of the interview missing from the transcript whenever
+# Backend happened to be restarting as the room closed.
+SHUTDOWN_DRAIN_SECONDS = 30.0
+
 
 def transcript_url(base_url: str, session_id: str) -> str:
     """The session's transcript WebSocket address, derived from the HTTP base URL.
@@ -211,6 +222,7 @@ class TranscriptChannel:
         reconnect_backoff_seconds: float = 0.5,
         connect_timeout_seconds: float = 10.0,
         reconnect_backoff_cap_seconds: float = RECONNECT_BACKOFF_CAP_SECONDS,
+        shutdown_drain_seconds: float = SHUTDOWN_DRAIN_SECONDS,
         jitter: Callable[[], float] = random.random,
     ) -> None:
         if ack_timeout_seconds <= 0:
@@ -223,6 +235,8 @@ class TranscriptChannel:
             raise ValueError("connect_timeout_seconds must be positive")
         if reconnect_backoff_cap_seconds < 0:
             raise ValueError("reconnect_backoff_cap_seconds must not be negative")
+        if shutdown_drain_seconds < 0:
+            raise ValueError("shutdown_drain_seconds must not be negative")
 
         protect_host(url)
 
@@ -232,6 +246,7 @@ class TranscriptChannel:
         self.reconnect_backoff_seconds = reconnect_backoff_seconds
         self.connect_timeout_seconds = connect_timeout_seconds
         self.reconnect_backoff_cap_seconds = reconnect_backoff_cap_seconds
+        self.shutdown_drain_seconds = shutdown_drain_seconds
         self._jitter = jitter
 
         self._headers = dict(headers or {})
@@ -267,6 +282,10 @@ class TranscriptChannel:
         self._wake = asyncio.Event()
         # Sockets a cancelled :meth:`_discard` could not stay to close.
         self._abandoned: set[asyncio.Task[None]] = set()
+        # Set by :meth:`aclose` before its drain: no new utterance is taken,
+        # while the recovery goes on delivering the ones already buffered.
+        # ``_closed`` is what stops the recovery itself.
+        self._closing = False
         self._closed = False
         self._terminal_failure: BackendError | None = None
         self._lock = asyncio.Lock()
@@ -306,7 +325,7 @@ class TranscriptChannel:
         The caller is in the media path. It must catch this.
         """
 
-        if self._closed:
+        if self._closing or self._closed:
             raise self._closed_error()
 
         frame: dict[str, object] = {
@@ -326,7 +345,7 @@ class TranscriptChannel:
             # may have passed the fast check above just before that happened,
             # so admission needs the same check inside the critical section or
             # shutdown can finish with a newly buffered, undeliverable frame.
-            if self._closed:
+            if self._closing or self._closed:
                 raise self._closed_error()
             self._report_reader_failure()
             admitted, isolate_revision = self._admit(utterance_id, frame)
@@ -394,20 +413,61 @@ class TranscriptChannel:
             await self._flush()
 
     async def aclose(self) -> None:
-        """Close the channel, giving Backend the ACK timeout to answer.
+        """Close the channel once what is buffered is delivered, or time is up.
 
-        Idempotent. Anything still unacknowledged when the wait runs out is
-        reported as a count and then abandoned - what the Agent should do with
-        it is part of the contract's open item 3, not something to decide in a
-        shutdown path.
+        New utterances are refused from the start. What is already buffered
+        gets up to ``shutdown_drain_seconds``: the recovery keeps reconnecting
+        and writing it exactly as it does mid-session, so a Backend that is
+        restarting as the room ends still receives the last utterances. Only
+        then does the socket close with ``CLOSE_COMPLETE``, and anything still
+        unacknowledged is reported as a count and abandoned. A refusal that
+        reconnecting cannot change ends the wait at once.
+
+        Idempotent; a second call while the first is draining returns at once.
         """
 
-        if self._closed and self._session is None:
+        if self._closing:
             return
-        self._closed = True
+        self._closing = True
 
-        # Set first, so a reader ending from here on does not start a
-        # reconnect behind the shutdown; this one is already on its way out.
+        try:
+            await self._drain()
+        finally:
+            # Set before the recovery is cancelled, so a reader ending from
+            # here on does not start a reconnect behind the shutdown.
+            self._closed = True
+            await self._finish_close()
+
+    async def _drain(self) -> None:
+        """Wait for the buffer to empty, for up to ``shutdown_drain_seconds``."""
+
+        async with self._lock:
+            self._report_reader_failure()
+        if self._closed or not self._pending:
+            return
+
+        # The recovery owns delivery, so the drain is only a matter of making
+        # sure one is running and waiting for it - for the buffer to empty, or
+        # for it to stop on its own, which is a refusal that sets ``_closed``
+        # without ever draining the buffer.
+        self._start_recovery()
+        recovery = self._recovery
+        drained = asyncio.create_task(self._drained.wait())
+        try:
+            waiting: set[asyncio.Future[object]] = {drained}
+            if recovery is not None:
+                waiting.add(recovery)
+            await asyncio.wait(
+                waiting,
+                timeout=self.shutdown_drain_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            drained.cancel()
+
+    async def _finish_close(self) -> None:
+        """Stop the recovery, close the socket as complete, close the session."""
+
         recovery, self._recovery = self._recovery, None
         if recovery is not None:
             recovery.cancel()
@@ -415,11 +475,6 @@ class TranscriptChannel:
 
         async with self._lock:
             self._report_reader_failure()
-            draining = bool(self._pending) and self._usable()
-
-        if draining:
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._drained.wait(), self.ack_timeout_seconds)
 
         if self._pending:
             logger.warning(

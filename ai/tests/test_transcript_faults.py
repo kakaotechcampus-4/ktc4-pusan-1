@@ -182,6 +182,7 @@ async def test_a_backend_that_is_not_listening_costs_no_caption(caplog) -> None:
         reconnect_backoff_seconds=0.0,
         connect_timeout_seconds=0.5,
         ack_timeout_seconds=0.2,
+        shutdown_drain_seconds=0.3,
     )
     pipeline = Pipeline(channel)
     await pipeline.speak(5)
@@ -287,13 +288,16 @@ async def test_a_backend_that_never_acks_is_bounded_at_shutdown(caplog) -> None:
         return None
 
     async with Backend(silent) as backend:
-        channel = channel_for(backend, ack_timeout_seconds=0.3)
+        channel = channel_for(
+            backend, ack_timeout_seconds=0.3, shutdown_drain_seconds=0.3
+        )
         pipeline = Pipeline(channel)
         await pipeline.speak(3)
         await eventually(lambda: len(backend.frames) >= 3)
         took = await pipeline.stop()
 
-        # Production: stop's 5 s join, or ack_timeout (5 s) + ws_close (1 s).
+        # Production: stop's 5 s join, then the shutdown drain (30 s) +
+        # ws_close (1 s).
         assert took < 0.3 + 1.0 + 0.5
         assert pipeline.captions == ["utt_0", "utt_1", "utt_2"]
         assert "unacknowledged" in caplog.text

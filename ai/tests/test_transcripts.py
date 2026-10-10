@@ -210,16 +210,16 @@ def channel_for(backend: FakeBackend, session_id: str = "ses_123", **kwargs):
 async def closing_quickly(channel: TranscriptChannel):
     """Shut a channel down without sitting through a drain nobody will answer.
 
-    ``aclose`` gives Backend the ACK timeout to catch up, which is right in
-    production and five wasted seconds in a test whose Backend is silent on
-    purpose. The body still runs at the real timeout, so nothing about the
-    behaviour under test is shortened - only the teardown.
+    ``aclose`` keeps delivering what is buffered for ``shutdown_drain_seconds``,
+    which is right in production and thirty wasted seconds in a test whose
+    Backend is silent on purpose. The body still runs at the real timeouts, so
+    nothing about the behaviour under test is shortened - only the teardown.
     """
 
     try:
         yield channel
     finally:
-        channel.ack_timeout_seconds = 0.01
+        channel.shutdown_drain_seconds = 0
         await channel.aclose()
 
 
@@ -308,7 +308,7 @@ async def test_a_refused_upgrade_is_classified_like_a_refused_post(
     """One status means one code on both transports."""
 
     async with FakeBackend(refuse_with=status) as backend:
-        async with channel_for(backend) as channel:
+        async with channel_for(backend, shutdown_drain_seconds=0) as channel:
             with pytest.raises(BackendError) as caught:
                 await channel.send(payload())
 
@@ -355,6 +355,7 @@ async def test_a_backend_that_is_not_listening_is_retryable() -> None:
         transcript_url("http://127.0.0.1:1", "ses_123"),
         reconnect_backoff_seconds=0.0,
         connect_timeout_seconds=2.0,
+        shutdown_drain_seconds=0,
     )
     try:
         with pytest.raises(BackendError) as caught:
@@ -370,7 +371,7 @@ async def test_a_refused_utterance_is_still_kept_for_the_next_connection() -> No
     """A raise is not a lost utterance while there is room in the buffer."""
 
     async with FakeBackend(refuse_with=500) as backend:
-        async with channel_for(backend) as channel:
+        async with channel_for(backend, shutdown_drain_seconds=0) as channel:
             with pytest.raises(BackendError):
                 await channel.send(payload())
 
@@ -528,7 +529,7 @@ async def test_a_send_does_not_wait_behind_a_failing_connect() -> None:
             assert len(backend.handshakes) <= handshakes + 1
         finally:
             stall.set()
-            channel.ack_timeout_seconds = 0.01
+            channel.shutdown_drain_seconds = 0
             await channel.aclose()
 
 
@@ -926,7 +927,7 @@ async def test_a_cancelled_send_propagates_and_keeps_the_utterance() -> None:
             assert channel.unacknowledged == 1
         finally:
             stall.set()
-            channel.ack_timeout_seconds = 0.01
+            channel.shutdown_drain_seconds = 0
             await channel.aclose()
 
 
@@ -1053,7 +1054,7 @@ async def test_a_stalled_write_does_not_hold_up_closing() -> None:
     try:
         await socket.writing.wait()
 
-        channel.ack_timeout_seconds = 0.01
+        channel.shutdown_drain_seconds = 0
         await asyncio.wait_for(channel.aclose(), 2.0)
 
         assert socket.closed
@@ -1076,7 +1077,10 @@ async def test_a_stalled_handshake_does_not_hold_up_closing() -> None:
 
     stall = asyncio.Event()
     async with FakeBackend(stall=stall) as backend:
-        channel = channel_for(backend, connect_timeout_seconds=30.0)
+        # No drain budget: what is under test is the lock, not the drain.
+        channel = channel_for(
+            backend, connect_timeout_seconds=30.0, shutdown_drain_seconds=0
+        )
         sending = asyncio.create_task(channel.send(payload()))
         try:
             await eventually(lambda: bool(backend.handshakes))
@@ -1122,7 +1126,7 @@ async def test_an_unanswered_upgrade_fails_within_the_connect_timeout() -> None:
             await eventually(lambda: channel.unacknowledged == 0)
         finally:
             stall.set()
-            channel.ack_timeout_seconds = 0.01
+            channel.shutdown_drain_seconds = 0
             await channel.aclose()
 
 
@@ -1135,11 +1139,13 @@ async def test_closing_waits_for_the_outstanding_acks() -> None:
         assert channel.unacknowledged == 0
 
 
-async def test_closing_gives_up_after_the_ack_timeout() -> None:
+async def test_closing_gives_up_after_the_drain_budget() -> None:
     """A Backend that never answers must not hold the shutdown open."""
 
     async with FakeBackend(ack=False) as backend:
-        channel = channel_for(backend, ack_timeout_seconds=0.05)
+        channel = channel_for(
+            backend, ack_timeout_seconds=0.05, shutdown_drain_seconds=0.2
+        )
         await channel.send(payload())
 
         started = time.monotonic()
@@ -1147,6 +1153,72 @@ async def test_closing_gives_up_after_the_ack_timeout() -> None:
 
         assert channel.unacknowledged == 1
         assert time.monotonic() - started < 1.0
+
+
+async def test_closing_reconnects_to_deliver_what_an_outage_held_back() -> None:
+    """Backend down as the room ends still gets the last utterances.
+
+    Backend stores frames for an ended session, so the close keeps
+    reconnecting rather than abandoning the buffer the moment it finds no
+    connection - and only the final close says the delivery is complete.
+    """
+
+    async with FakeBackend(refuse_with=503) as backend:
+        channel = channel_for(
+            backend, reconnect_backoff_cap_seconds=0.1, shutdown_drain_seconds=5.0
+        )
+        with pytest.raises(BackendError, match="BACKEND_REQUEST_FAILED"):
+            await channel.send(payload())
+
+        closing = asyncio.create_task(channel.aclose())
+        await asyncio.sleep(0.3)
+        assert not closing.done()
+        backend.refuse_with = None
+        await asyncio.wait_for(closing, 3.0)
+
+        assert channel.unacknowledged == 0
+        assert [item.frame["utteranceId"] for item in backend.received] == ["utt_001"]
+        await eventually(lambda: bool(backend.closed_codes))
+        assert backend.closed_codes == [(1, 1000)]
+
+
+async def test_a_send_while_closing_is_refused_and_the_drain_goes_on() -> None:
+    async with FakeBackend(ack=False) as backend:
+        channel = channel_for(
+            backend, ack_timeout_seconds=0.05, shutdown_drain_seconds=5.0
+        )
+        await channel.send(payload())
+        closing = asyncio.create_task(channel.aclose())
+        await eventually(lambda: channel._closing)
+
+        with pytest.raises(BackendError, match="BACKEND_TRANSCRIPT_CHANNEL_CLOSED"):
+            await channel.send(payload("utt_002"))
+        assert channel.unacknowledged == 1
+
+        backend.ack = True
+        await asyncio.wait_for(closing, 3.0)
+
+        assert channel.unacknowledged == 0
+        assert "utt_002" not in {item.frame["utteranceId"] for item in backend.received}
+
+
+async def test_a_policy_close_while_closing_ends_the_drain_at_once() -> None:
+    """Reconnecting cannot change a policy refusal, so it is not waited out."""
+
+    async with FakeBackend(ack=False) as backend:
+        channel = channel_for(
+            backend, ack_timeout_seconds=0.05, shutdown_drain_seconds=10.0
+        )
+        await channel.send(payload())
+        await eventually(lambda: len(backend.received) == 1)
+
+        backend.drop_after = 1
+        backend.close_code = 1008
+        started = time.monotonic()
+        await asyncio.wait_for(channel.aclose(), 3.0)
+
+        assert time.monotonic() - started < 2.0
+        assert channel.unacknowledged == 1
 
 
 async def test_closing_twice_is_harmless() -> None:
@@ -1175,7 +1247,7 @@ async def test_closing_does_not_admit_a_send_that_was_waiting_for_state() -> Non
     await asyncio.sleep(0)
 
     closing = asyncio.create_task(channel.aclose())
-    await eventually(lambda: channel._closed)
+    await eventually(lambda: channel._closing)
     channel._lock.release()
 
     with pytest.raises(BackendError, match="BACKEND_TRANSCRIPT_CHANNEL_CLOSED"):
@@ -1239,6 +1311,7 @@ def test_a_session_id_that_would_rewrite_the_path_is_refused(session_id: str) ->
         {"max_pending": 0},
         {"reconnect_backoff_seconds": -1.0},
         {"connect_timeout_seconds": 0},
+        {"shutdown_drain_seconds": -1.0},
     ],
 )
 def test_a_channel_refuses_settings_it_could_not_act_on(kwargs: dict) -> None:
@@ -1292,7 +1365,7 @@ async def test_reconnecting_does_not_signal_transcript_completion(
             assert {code for _, code in backend.closed_codes} == {4001}
             assert backend.connections >= 2
         finally:
-            channel.ack_timeout_seconds = 0.01
+            channel.shutdown_drain_seconds = 0
             await channel.aclose()
         await eventually(lambda: len(backend.closed_codes) == 2)
         assert backend.closed_codes[-1] == (2, 1000)
