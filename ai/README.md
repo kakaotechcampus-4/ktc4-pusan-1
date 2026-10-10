@@ -172,6 +172,19 @@ Moment는 기본 최대 8개이며 `--max-moments`는 1~8 범위만 허용합니
 프로젝트 LLM은 OpenAI 호환 게이트웨이(Elice ML API)이며 **지원 목록 밖 파라미터를 400으로
 거절**합니다. 실호출 절차와 결과는 [타임라인 검증 기록](docs/timeline-eval.md)에 적습니다.
 
+## 면접 후 findings
+
+사전 가공 컨텍스트와 저장된 FINAL 전사로 기존 Finding 목록을 만듭니다.
+모델은 초안만 만들고 참조 ID·지원자 원문 인용·시각·PROPOSED 상태를 코드가 검증합니다.
+
+```bash
+uv run irya-ai findings data/samples/findings_context.json --backend extractive
+uv run irya-ai findings context.json stored-finals.json
+```
+
+외부 호출 없는 baseline은 정확히 같은 이력서 문장의 면접 답변 내 언급만 찾습니다.
+실제 LLM 품질·BE 저장·폴러 통합은 후속입니다. [계약과 검증 범위](docs/findings.md).
+
 ## Verify
 
 ```bash
