@@ -180,6 +180,33 @@ uv run irya-ai prep data/samples/context_backend_junior.json --backend extractiv
 - 환경변수는 리뷰 타임라인과 같은 `LLM_BASE_URL`·`LLM_API_KEY`·`LLM_MODEL`입니다.
   실호출 결과는 [docs/prep-eval.md](docs/prep-eval.md)에 있습니다.
 
+## 사전 가공 폴러 (#176, #137)
+
+분석은 BE가 DB 행으로 남긴 할 일을 AI가 가져가 처리합니다(#137). `irya-ai-poller`는
+`GET /internal/v1/jobs/pending`으로 가장 오래된 `PREP` 작업을 받아 그 세션의 컨텍스트
+(`GET /internal/v1/sessions/{sessionId}/context`)를 읽고, 위의 사전 가공을 돌려
+`PUT /internal/v1/interviews/{interviewId}/prep`에 넣습니다(#162).
+
+```bash
+uv run irya-ai-poller        # BACKEND_BASE_URL·BACKEND_API_KEY, LLM_* 필요
+```
+
+- **한 번에 한 작업.** BE의 할 일 조회는 작업을 잡아 두지 않아 결과를 넣기 전까지
+  같은 작업을 계속 내줍니다. 그래서 한 작업을 끝까지 처리한 뒤 다시 묻습니다.
+- **`requestedAt`을 그대로 돌려보냅니다.** 할 일 응답의 값을 PUT 본문에 붙이고,
+  409(`PREP_OUTDATED`)면 그 결과는 버리고 다음 할 일로 갑니다(이력서 재업로드).
+- **다시 될 수 있는 실패는 저장하지 않습니다.** `failed`는 BE에 FAILED로 남아 큐에서
+  빠지므로, 모델 타임아웃·429처럼 `retryable`인 실패는 `PREP_RETRY_AFTER_SECONDS`
+  (기본 30초) 동안 그 작업을 쉬었다가 다시 시도합니다. 반복될 실패(역량 0개, 거부)는
+  바로 FAILED로 저장합니다. 컨텍스트를 읽을 수 없는 작업은 10분 동안 건너뛰고 BE의
+  한도(기본 6분)가 먼저 FAILED로 넘깁니다.
+- 컨텍스트 응답의 `utterances`는 떼고 `InterviewContext`로 읽습니다. `REVIEW` 작업은
+  #164·#170이 붙기 전까지 건너뜁니다.
+- 작업마다 `agent=`(모델 호출)와 `total=`(조회부터 저장까지) 소요를 INFO로 남깁니다.
+  이력서 본문과 지원자 이름은 로그에 없습니다. LLM이 없으면 추출형 기준선으로 돌되
+  경고를 남깁니다.
+- compose에서는 `ai`와 같은 이미지를 쓰는 `ai-poller` 서비스로 뜹니다.
+
 ## 리뷰 타임라인 (면접 기록 화면)
 
 STT가 청크마다 쌓아 둔 `Utterance` JSON을 면접 종료 후 한꺼번에 읽어, 면접 기록 화면(S3)의
@@ -229,7 +256,8 @@ src/irya_ai/
 │   ├── analysis.py    QAPair · Finding · SuggestedQuestion · ReviewReport
 │   ├── summary.py     SummaryPoint · SummaryResult · AnalysisResult
 │   ├── timeline.py    Moment · TimelineResult (리뷰 타임라인)
-│   └── prep.py        PrepDraft · PrepResult (면접 전 사전 가공)
+│   ├── prep.py        PrepDraft · PrepResult (면접 전 사전 가공)
+│   └── jobs.py        PendingJob (BE 할 일 큐)
 ├── pipeline/          Q&A 구조화 · 근거 접지
 ├── stt/               LiveKit 브리지 · PCM 청킹 · Elice HTTP · 세션 정렬 · 비동기 전사 스트림
 ├── analysis.py        Snapshot 한 건의 분석과 상태 처리
@@ -239,6 +267,8 @@ src/irya_ai/
 ├── openai_timeline.py 프로젝트 LLM(Luna/Terra) 타임라인 초안
 ├── prep.py            JD·이력서 초안 검증 → Competency · ResumeClaim (면접 전 사전 가공)
 ├── openai_prep.py     프로젝트 LLM(Luna) 사전 가공 초안
+├── prep_poller.py     BE 할 일 큐 → PrepAgent → 결과 저장 (irya-ai-poller)
+├── backend.py         BE 내부 API(/internal/v1) HTTP 클라이언트
 └── simulator/         대본 JSON을 STT 이벤트 스트림으로 재생
 data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데이터)
 ```
