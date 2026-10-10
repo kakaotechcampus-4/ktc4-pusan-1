@@ -25,16 +25,26 @@ onto a WebSocket, which is :mod:`irya_ai.transcripts`; Suggestion, Context and
 Review stay here on HTTP. :meth:`BackendClient.send` is public rather than
 private because it is the class's entry point, and every route method here is
 the path it builds plus that one call.
+
+The poller's three routes (#162, #176) read as well as write: the pending job
+and the session context come back as JSON. They go through the same retry
+loop (:meth:`BackendClient.request_json`), and a body that is not the JSON
+the contract promises is ``BACKEND_MALFORMED_RESPONSE`` - not retried, since
+the same bytes would come back again.
 """
 
 import asyncio
+import json
 import logging
+from typing import Any
 
 import httpx
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from irya_ai.config import Settings
 from irya_ai.schemas.base import CamelModel
+from irya_ai.schemas.jobs import PendingJob
+from irya_ai.schemas.prep import PrepResult
 from irya_ai.schemas.wire import SuggestionPayload
 from irya_ai.stt.http_logging import protect_host
 
@@ -112,6 +122,63 @@ class BackendClient:
             payload,
         )
 
+    async def get_pending_job(self) -> PendingJob | None:
+        """Ask ``GET /internal/v1/jobs/pending`` for the oldest waiting job.
+
+        ``None`` when the queue is empty - Backend answers that with a 200 and
+        a ``null`` body, not with a 404. Asking does not claim the job: until
+        a result is put back, every call returns the same one (#165), which is
+        why the poller works one job through before asking again.
+        """
+
+        body = await self.request_json("GET", "/internal/v1/jobs/pending")
+        if body is None:
+            return None
+        try:
+            return PendingJob.model_validate(body)
+        except ValidationError:
+            logger.warning("Backend pending job did not match the contract")
+            raise BackendError("BACKEND_MALFORMED_RESPONSE", retryable=False) from None
+
+    async def get_context(self, session_id: str) -> dict[str, Any]:
+        """Read ``GET /internal/v1/sessions/{sessionId}/context`` as it is.
+
+        Returned raw rather than as an :class:`InterviewContext`: the response
+        carries the session's utterances alongside the context, and which of
+        the two a caller wants is the caller's business (the prep poller
+        drops them; a review job will need them). A body that is not a JSON
+        object is ``BACKEND_MALFORMED_RESPONSE``.
+        """
+
+        body = await self.request_json(
+            "GET", f"/internal/v1/sessions/{path_segment(session_id)}/context"
+        )
+        if not isinstance(body, dict):
+            logger.warning("Backend context was not a JSON object")
+            raise BackendError("BACKEND_MALFORMED_RESPONSE", retryable=False)
+        return body
+
+    async def put_prep(
+        self, interview_id: str, result: PrepResult, *, requested_at: str
+    ) -> None:
+        """Store one preparation run at ``PUT .../interviews/{id}/prep``.
+
+        The body is the :class:`PrepResult` as it stands plus ``requestedAt``
+        copied from the job, which is how Backend matches the result to the
+        request it answers. A ``BACKEND_CONFLICT`` (409) means a newer request
+        replaced that one while this ran: the result is for a resume nobody
+        has any more, and the right move is to drop it and ask for the next
+        job, which will be the replacement.
+        """
+
+        body = result.model_dump(by_alias=True, mode="json")
+        body["requestedAt"] = requested_at
+        await self.request_json(
+            "PUT",
+            f"/internal/v1/interviews/{path_segment(interview_id)}/prep",
+            body=body,
+        )
+
     async def send(self, method: str, path: str, payload: CamelModel) -> None:
         """Send one payload to one ``/internal/v1`` route.
 
@@ -123,7 +190,20 @@ class BackendClient:
 
         # ``by_alias`` is the whole point of the wire models - the agreed
         # contract is camelCase, and the field names are snake_case here.
-        body = payload.model_dump(by_alias=True, mode="json")
+        await self.request_json(
+            method, path, body=payload.model_dump(by_alias=True, mode="json")
+        )
+
+    async def request_json(
+        self, method: str, path: str, *, body: Any | None = None
+    ) -> Any:
+        """One ``/internal/v1`` call, retried, with its JSON body decoded.
+
+        Returns ``None`` for an empty answer (a 204, or a 200 with nothing in
+        it). Raises :class:`BackendError` and nothing else: a status is
+        classified by :func:`status_error`, a transport failure retries, and
+        a 2xx whose body is not JSON is ``BACKEND_MALFORMED_RESPONSE``.
+        """
 
         failure = BackendError("BACKEND_REQUEST_FAILED", retryable=True)
         for attempt in range(self.retries + 1):
@@ -137,7 +217,7 @@ class BackendClient:
                 # one of them can answer differently on the next attempt.
                 failure = BackendError("BACKEND_REQUEST_FAILED", retryable=True)
             else:
-                return
+                return _decode(response)
 
             if not failure.retryable or attempt == self.retries:
                 break
@@ -145,6 +225,19 @@ class BackendClient:
 
         logger.warning("Backend call failed (%s %s): %s", method, path, failure.code)
         raise failure
+
+
+def _decode(response: httpx.Response) -> Any:
+    """The JSON of a 2xx answer, or ``None`` when there is no body to read."""
+
+    if response.status_code == 204 or not response.content.strip():
+        return None
+    try:
+        return response.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # The body is Backend's and may hold anything; only the fact is logged.
+        logger.warning("Backend answered 2xx with a body that is not JSON")
+        raise BackendError("BACKEND_MALFORMED_RESPONSE", retryable=False) from None
 
 
 def status_error(status_code: int) -> BackendError:
@@ -156,6 +249,10 @@ def status_error(status_code: int) -> BackendError:
         return BackendError("BACKEND_CLIENT_ERROR", retryable=False)
     if status_code in (401, 403):
         return BackendError("BACKEND_AUTH_FAILED", retryable=False)
+    if status_code == 409:
+        # Backend's state moved on from what this request assumed. The same
+        # bytes will be refused again; the caller has to re-read and decide.
+        return BackendError("BACKEND_CONFLICT", retryable=False)
     if status_code in RETRYABLE_STATUSES or status_code >= 500:
         return BackendError("BACKEND_REQUEST_FAILED", retryable=True)
     if 400 <= status_code < 500:

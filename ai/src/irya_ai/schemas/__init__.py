@@ -30,6 +30,7 @@ from irya_ai.schemas.context import (
     ResumeClaim,
     Rubric,
 )
+from irya_ai.schemas.jobs import PendingJob
 from irya_ai.schemas.prep import (
     CompetencyDraft,
     PrepDraft,
@@ -97,6 +98,7 @@ __all__ = [
     "MomentDraft",
     "MomentEvidence",
     "PassType",
+    "PendingJob",
     "PointDraft",
     "PrepDraft",
     "PrepResult",
