@@ -7,7 +7,7 @@
 import { handleMock, USE_MOCK_API } from '../mocks/mockApi';
 import { clearAccessToken, readAccessToken } from '../lib/authToken';
 import { parseContextDoc } from '../lib/docFile';
-import type { ContextDoc } from '../types/interview';
+import type { ContextDoc, DocCategory } from '../types/interview';
 
 export const API_BASE =
   import.meta.env.VITE_API_BASE?.trim() || (import.meta.env.DEV ? 'http://localhost:8000' : '');
@@ -61,12 +61,16 @@ export function uploadFile(
   path: string,
   file: File,
   onProgress: (ratio: number) => void,
+  category?: DocCategory,
 ): Promise<ContextDoc> {
   const accessToken = readAccessToken();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const form = new FormData();
     form.append('file', file);
+    // 이력서에는 칸이 없다. 이력서 업로드는 category 를 받는 Form 필드 자체가 없어
+    // 응답도 category 없이 오므로(= null), internal 로 떨어지는 게 아니다.
+    if (category) form.append('category', category);
     xhr.open('POST', `${API_BASE}${path}`);
     xhr.setRequestHeader('Authorization', `Bearer ${accessToken ?? ''}`);
     xhr.upload.onprogress = (e) => {
@@ -100,7 +104,7 @@ export function uploadFile(
 export function uploadErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 413) return '50MB 이하 파일만 올릴 수 있습니다.';
-    if (error.status === 415) return 'PDF 와 DOCX 만 올릴 수 있습니다.';
+    if (error.status === 415) return 'PDF 만 올릴 수 있습니다.';
     if (error.status === 422) return '빈 파일인지, 파일 이름이 올바른지 확인해주세요.';
     if (error.status === 401) return '로그인 상태를 다시 확인해주세요.';
   }

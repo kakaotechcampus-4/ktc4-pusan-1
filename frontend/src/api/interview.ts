@@ -92,10 +92,18 @@ const FAILURE_BY_CODE: Record<string, JoinFailure> = {
   NOT_FOUND: 'not-found',
   SESSION_ENDED: 'ended',
   ROOM_FULL: 'room-full',
+  // 로그인은 됐는데 이 면접의 주인이 아니다 (#141). 다시 시도해도 같은 결과다.
+  ROLE_NOT_ALLOWED: 'not-allowed',
+  // 토큰이 없거나 만료됐다. client.ts 가 이미 지웠으므로 로그인 말고는 길이 없다.
+  UNAUTHORIZED: 'signed-out',
 };
 
 /** 코드를 못 읽었을 때만 쓴다 (구버전 서버·프록시 오류 등) */
 const FAILURE_BY_STATUS: Record<number, JoinFailure> = {
+  // 401 이 빠지면 'failed' 로 떨어져 「잠시 후 다시」가 된다. 기다려서 되는 일이
+  // 아닌데 그렇게 말하면 로그인하면 된다는 걸 아무도 알려주지 않는다 (#150).
+  401: 'signed-out',
+  403: 'not-allowed',
   404: 'not-found',
   409: 'unavailable',
 };

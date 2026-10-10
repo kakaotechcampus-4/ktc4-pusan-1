@@ -5,7 +5,7 @@
  * 서버가 없으면 만들어서 돌려주므로, FE 는 "아직 안 만들었다" 와 "비어 있다" 를 구분하지 않는다.
  */
 
-import type { CompanyContext, ContextDoc } from '../types/interview';
+import type { CompanyContext, ContextDoc, DocCategory } from '../types/interview';
 import { handleMockUpload, USE_MOCK_API } from '../mocks/mockApi';
 import { request, uploadFile } from './client';
 
@@ -31,9 +31,10 @@ export function uploadDoc(
   contextId: string,
   file: File,
   onProgress: (ratio: number) => void,
+  category: DocCategory,
 ): Promise<ContextDoc> {
   // ⚠️ 프로토타입 임시 분기. XHR 은 request() 를 거치지 않으므로 여기서 따로 가른다.
-  if (USE_MOCK_API) return handleMockUpload(file, onProgress);
+  if (USE_MOCK_API) return handleMockUpload(file, onProgress, category);
 
-  return uploadFile(`${V1}/contexts/${contextId}/docs`, file, onProgress);
+  return uploadFile(`${V1}/contexts/${contextId}/docs`, file, onProgress, category);
 }

@@ -7,16 +7,20 @@
 
 import type { ContextDoc, DocKind, UploadRejection } from '../types/interview';
 
-/** BE도 파일 확장자로 판별한다. MIME만 믿으면 .txt가 업로드 단계에서 거절된다. */
+/**
+ * BE도 파일 확장자로 판별한다. MIME만 믿으면 .txt가 업로드 단계에서 거절된다.
+ *
+ * **PDF 만 받는다** (#149). 본문을 뽑는 Helpy Document Vision 이 DOCX 를 읽지 못해서,
+ * 올려 두기만 하면 AI 가 쓰지 못하는 문서가 된다. 서버도 `.pdf` 외에는 415 다.
+ */
 const BY_EXTENSION: Record<string, DocKind> = {
   pdf: 'pdf',
-  docx: 'docx',
 };
 
 export const MAX_BYTES = 50 * 1024 * 1024;
 
 /** `<input accept>` 에 넣는 값 */
-export const ACCEPT_ATTR = '.pdf,.docx';
+export const ACCEPT_ATTR = '.pdf';
 
 export type DocCheck = { ok: true; kind: DocKind } | { ok: false; reason: UploadRejection };
 
@@ -51,6 +55,13 @@ export function parseContextDoc(raw: string): ContextDoc | null {
       kind: doc.kind,
       sizeBytes: doc.sizeBytes,
       status: doc.status,
+      // 이력서는 칸이 없어 null 로 온다.
+      //
+      // 컨텍스트 문서에 모르는 값이 오면 분류를 잃고 두 칸(JD · 사내 자료) 어디에도
+      // 안 보인다 — 지울 수도 없다. 여기서 internal 로 떨어뜨리면 이력서가 사내
+      // 자료 칸에 섞이므로 그러지 않는다. 서버가 `category NOT NULL DEFAULT 'internal'`
+      // 로 막고 있어 오늘은 도달하지 않는다. DocCategory 에 값을 더하면 화면도 같이 늘려야 한다.
+      category: doc.category === 'jd' || doc.category === 'internal' ? doc.category : null,
     };
   } catch {
     return null;
