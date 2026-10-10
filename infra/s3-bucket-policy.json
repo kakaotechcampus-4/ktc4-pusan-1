@@ -9,7 +9,7 @@
       "Resource": "arn:aws:s3:::ktc4-pusan-1-irya/rec/*",
       "Condition": {
         "StringEquals": {
-          "AWS:SourceArn": "arn:aws:cloudfront::${ACCOUNT_ID}:distribution/E19ZXUPLO7V11T"
+          "AWS:SourceArn": "arn:aws:cloudfront::${ACCOUNT_ID}:distribution/${DISTRIBUTION_ID}"
         }
       }
     }

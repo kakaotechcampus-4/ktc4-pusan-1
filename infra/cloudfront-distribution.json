@@ -1,0 +1,57 @@
+{
+  "CallerReference": "${CALLER_REFERENCE}",
+  "Comment": "IRYA recording playback (#197)",
+  "Enabled": false,
+  "PriceClass": "PriceClass_200",
+  "HttpVersion": "http2and3",
+  "IsIPV6Enabled": true,
+  "Origins": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "Id": "s3-irya",
+        "DomainName": "ktc4-pusan-1-irya.s3.ap-northeast-2.amazonaws.com",
+        "OriginAccessControlId": "${OAC_ID}",
+        "S3OriginConfig": {
+          "OriginAccessIdentity": ""
+        }
+      }
+    ]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "s3-irya",
+    "ViewerProtocolPolicy": "https-only",
+    "AllowedMethods": {
+      "Quantity": 2,
+      "Items": [
+        "GET",
+        "HEAD"
+      ],
+      "CachedMethods": {
+        "Quantity": 2,
+        "Items": [
+          "GET",
+          "HEAD"
+        ]
+      }
+    },
+    "Compress": false,
+    "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+    "TrustedKeyGroups": {
+      "Enabled": true,
+      "Quantity": 1,
+      "Items": [
+        "${KEY_GROUP_ID}"
+      ]
+    }
+  },
+  "ViewerCertificate": {
+    "CloudFrontDefaultCertificate": true
+  },
+  "Restrictions": {
+    "GeoRestriction": {
+      "RestrictionType": "none",
+      "Quantity": 0
+    }
+  }
+}
