@@ -15,6 +15,8 @@ import type {
   ContextDoc,
   CreateSessionResponse,
   Interview,
+  InterviewListItem,
+  InterviewListResponse,
   InterviewSummary,
   JoinSessionResponse,
   ReviewResponse,
@@ -158,18 +160,37 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
 
   if (path === '/api/v1/interviews' && method === 'POST') {
     await delay(400);
-    const body = JSON.parse(String(init?.body ?? '{}')) as {
-      interviewerId?: string;
-      candidateName?: string;
-    };
+    const body = JSON.parse(String(init?.body ?? '{}')) as { candidateName?: string };
     const interview: Interview = {
       interviewId: nextId('int'),
-      interviewerId: body.interviewerId ?? 'user_mock',
+      // 주인은 서버가 토큰에서 정한다. 목에는 토큰이 없어 목 사용자로 둔다.
+      interviewerId: MOCK_USER.id,
       candidateName: body.candidateName?.trim() || null,
       createdAt: new Date().toISOString(),
     };
     interviews.set(interview.interviewId, interview);
     return interview;
+  }
+
+  /* 내 면접 목록 — 만든 면접을 최신순으로 돌려준다.
+     목은 면접을 끝까지 돌리지 않으므로 끝난 세션에서 오는 값은 전부 null 이다.
+     그 상태(「면접 전」)가 화면에 어떻게 보이는지 확인하는 용도다. */
+  if (path === '/api/v1/interviews' && method === 'GET') {
+    await delay(300);
+    const items: InterviewListItem[] = [...interviews.values()]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((interview) => ({
+        interviewId: interview.interviewId,
+        candidateName: interview.candidateName,
+        role: contextProfile.role,
+        interviewer: { nickname: MOCK_USER.nickname },
+        interviewedAt: null,
+        durationSec: null,
+        reviewStatus: 'PENDING',
+        summaryStatus: null,
+        counts: null,
+      }));
+    return { items } satisfies InterviewListResponse;
   }
 
   const getInterview = /^\/api\/v1\/interviews\/([^/]+)$/.exec(path);

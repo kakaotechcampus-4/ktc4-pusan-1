@@ -1,3 +1,10 @@
+/**
+ * 지원자 검토 샘플 (`/demo/candidates`).
+ *
+ * 가공한 자료로 검토 화면의 동작만 보여준다 — 경력 · 질문 수 · 나란히 비교처럼
+ * 서버에 아직 없는 것까지 들어 있다. 실제 목록은 `InterviewListPage` 다.
+ */
+
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { InterviewerHeader } from '../components/layout/InterviewerHeader';
@@ -70,8 +77,8 @@ function exportRows(candidates: DemoCandidate[]) {
   URL.revokeObjectURL(url);
 }
 
-export default function CandidateListPage({ demo = false }: { demo?: boolean }) {
-  const [candidates] = useState<DemoCandidate[]>(() => (demo ? loadDemoCandidates() : []));
+export default function CandidateListPage() {
+  const [candidates] = useState<DemoCandidate[]>(loadDemoCandidates);
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<Sort>('recent');
@@ -125,30 +132,6 @@ export default function CandidateListPage({ demo = false }: { demo?: boolean }) 
     setNotice('');
     setSelected([...selected, id]);
   };
-
-  if (!demo) {
-    return (
-      <div className="min-h-full bg-[#121316] text-[#eaecef]">
-        <main className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
-          <p className="font-mono text-xs text-[#686c7b]">지원자 검토</p>
-          <h1 className="mt-2 text-2xl font-bold">지원자 목록</h1>
-          <section className="mt-8 rounded-lg border border-[#272a33] bg-[#18191f] p-6">
-            <h2 className="text-sm font-semibold">목록 API가 아직 연결되지 않았습니다</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#9498a4]">
-              실제 지원자 자료를 불러올 수 없어 이 화면에는 표시하지 않습니다. 화면 동작은 가공
-              샘플로 확인할 수 있습니다.
-            </p>
-            <Link
-              to="/demo/candidates"
-              className="mt-5 inline-flex rounded border border-[#3f4452] bg-[#202229] px-3 py-2 text-xs font-semibold text-[#eaecef] hover:bg-[#282b34]"
-            >
-              샘플 검토 화면 열기
-            </Link>
-          </section>
-        </main>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-full bg-[#121316] text-[#eaecef]">
