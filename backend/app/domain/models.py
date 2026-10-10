@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Any
 from uuid import uuid4
 
 
@@ -32,9 +33,10 @@ class DocStatus(StrEnum):
     FE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —
     서버는 업로드가 끝난 뒤에야 문서를 안다.
 
-    `PARSING` 은 아직 쓰지 않는다. 본문 추출을 누가 하는지가 안 정해져서(#70) 지금은
-    올라온 즉시 `READY` 다. 값은 미리 둔다 — 나중에 파싱이 붙을 때 FE 가 이미 이
-    분기를 갖고 있다.
+        PARSING --본문을 뽑음--> READY
+                --못 뽑음·한도 초과--> FAILED
+
+    올라온 순간 `PARSING` 이고, 백그라운드에서 Helpy 가 본문을 뽑으면 끝난다 (#143).
     """
 
     PARSING = "parsing"
@@ -47,6 +49,20 @@ class Role(StrEnum):
 
     INTERVIEWER = "INTERVIEWER"
     CANDIDATE = "CANDIDATE"
+
+
+class DocCategory(StrEnum):
+    """기업 컨텍스트 문서의 종류. FE 설정 화면의 두 칸이다.
+
+    AI 가 JD 와 사내 문서를 다르게 쓴다 — JD 는 「이 직무가 요구하는 것」이다.
+    """
+
+    JD = "jd"
+    INTERNAL = "internal"
+
+
+def _stalled(status: "DocStatus", created_at: datetime, limit: timedelta) -> bool:
+    return status is DocStatus.PARSING and utcnow() - created_at > limit
 
 
 #: LiveKit Room 이름 접두사. Webhook 이 방 이름만 주므로 여기서 세션을 되찾는다.
@@ -86,7 +102,17 @@ class User:
     nickname: str
     profile_image_url: str | None = None
     id: str = field(default_factory=lambda: _new_id("usr"))
+    #: access 토큰의 `ver` 클레임과 맞아야 한다. 올리면 발급된 토큰이 전부 끊긴다.
+    token_version: int = 0
     created_at: datetime = field(default_factory=utcnow)
+
+
+class ReviewStatus(StrEnum):
+    """면접관의 검토 진행 상태 (#137 1-3). 한글 표시는 FE 가 한다."""
+
+    PENDING = "PENDING"
+    IN_REVIEW = "IN_REVIEW"
+    CONFIRMED = "CONFIRMED"
 
 
 @dataclass
@@ -95,6 +121,24 @@ class Interview:
     candidate_name: str | None = None
     id: str = field(default_factory=lambda: _new_id("int"))
     created_at: datetime = field(default_factory=utcnow)
+    #: 검토는 면접 단위다 — 세션이 바뀌어도 메모와 확정은 남는다 (#163).
+    review_status: ReviewStatus = ReviewStatus.PENDING
+    memo: str = ""
+    #: `CONFIRMED` 가 된 시각. 다른 상태로 돌아가면 비운다.
+    reviewed_at: datetime | None = None
+
+    def update_review(self, status: ReviewStatus | None, memo: str | None) -> None:
+        """면접관의 검토를 받는다. None 은 「보내지 않음」이라 그대로 둔다.
+
+        확정 시각은 상태가 **바뀔 때만** 움직인다 — 메모를 저장하며 같은 상태가
+        실려 와도 처음 확정한 시각이 밀리지 않는다.
+        """
+        if memo is not None:
+            self.memo = memo
+        if status is None or status is self.review_status:
+            return
+        self.review_status = status
+        self.reviewed_at = utcnow() if status is ReviewStatus.CONFIRMED else None
 
 
 @dataclass
@@ -131,18 +175,6 @@ class Session:
         self.started_at = utcnow()
         return True
 
-    def mark_origin(self, at: datetime) -> bool:
-        """전사 원점을 첫 참가자 입장 시각으로 고정한다.
-
-        Webhook 은 재전송되고 두 참가자가 각각 이벤트를 만드므로 여러 번 불린다.
-        처음 한 번만 쓰고 이후는 무시한다 — 원점이 뒤로 밀리면 이미 찍힌
-        전사 타임스탬프가 전부 어긋난다.
-        """
-        if self.transcript_origin_at is not None:
-            return False
-        self.transcript_origin_at = at
-        return True
-
     def end(self) -> bool:
         """종료 상태로 전이. 이미 ENDED 면 False.
 
@@ -155,19 +187,6 @@ class Session:
         return True
 
 
-#: 컨텍스트의 기본 주인.
-#:
-#: FE 는 이 설정을 「조직당 하나」로 그린다 — 「조직 하나가 공유하는 면접 기준」
-#: (`ContextSettingsPage.tsx`). 그런데 조직도 로그인도 아직 없어서 조직을 가릴 방법이
-#: 없다. FE 도 같은 이유로 `contextId` 를 상수로 두고 있다 (「조직 컨텍스트를
-#: 알려주는 API 가 없어 contextId 를 상수로 둔다」).
-#:
-#: 그래서 지금은 주인이 하나뿐이고, 컨텍스트도 하나다. 로그인이 들어오면 토큰에서
-#: 주인을 정하게 되고 그때 이 상수가 사라진다 — 컬럼은 `owner_id` 로 두었으니
-#: 스키마는 그대로 쓴다.
-DEFAULT_CONTEXT_OWNER = "__default__"
-
-
 @dataclass
 class Context:
     """기업 컨텍스트 — 회사·직무·인재상과 올려 둔 문서.
@@ -176,7 +195,9 @@ class Context:
     설정에 한 번 넣고 계속 쓴다 (#79). 주인당 하나다.
     """
 
-    owner_id: str = DEFAULT_CONTEXT_OWNER
+    #: 로그인한 사용자 id (#130). FE 는 「조직당 하나」로 그리지만 조직이 아직 없어
+    #: 면접관 한 명에 하나다.
+    owner_id: str
     id: str = field(default_factory=lambda: _new_id("ctx"))
     company: str = ""
     team: str = ""
@@ -198,9 +219,23 @@ class ContextDoc:
     name: str
     kind: DocKind
     size_bytes: int
+    category: DocCategory = DocCategory.INTERNAL
     id: str = field(default_factory=lambda: _new_id("doc"))
-    status: DocStatus = DocStatus.READY
+    status: DocStatus = DocStatus.PARSING
     created_at: datetime = field(default_factory=utcnow)
+
+    def shown_status(self, limit: timedelta) -> DocStatus:
+        """추출이 한도를 넘겨 멈춰 있으면 FAILED 로 보인다.
+
+        저장값은 바꾸지 않는다. 서버가 추출 도중 재시작되면 `PARSING` 이 영영 안
+        끝나는데, FE 는 그동안 계속 다시 조회한다. 늦게라도 추출이 끝나면 그 값이
+        이긴다 — 조회가 써 버리면 그 결과를 덮는다 (#115 와 같은 종류).
+        """
+        return (
+            DocStatus.FAILED
+            if _stalled(self.status, self.created_at, limit)
+            else self.status
+        )
 
 
 @dataclass
@@ -219,8 +254,16 @@ class Resume:
     kind: DocKind
     size_bytes: int
     id: str = field(default_factory=lambda: _new_id("doc"))
-    status: DocStatus = DocStatus.READY
+    status: DocStatus = DocStatus.PARSING
     created_at: datetime = field(default_factory=utcnow)
+
+    def shown_status(self, limit: timedelta) -> DocStatus:
+        """`ContextDoc.shown_status` 와 같다."""
+        return (
+            DocStatus.FAILED
+            if _stalled(self.status, self.created_at, limit)
+            else self.status
+        )
 
 
 class SummaryStatus(StrEnum):
@@ -254,6 +297,10 @@ class SessionSummary:
     key_points: list[str] = field(default_factory=list)
     requested_at: datetime = field(default_factory=utcnow)
     completed_at: datetime | None = None
+    #: AI 의 `Moment` · `Finding` 을 camelCase JSON 그대로 둔다 (#137 2-5).
+    #: BE 는 id 로 조인 · 집계만 한다(#163). 써 넣는 길은 #164 다.
+    moments: list[dict[str, Any]] = field(default_factory=list)
+    findings: list[dict[str, Any]] = field(default_factory=list)
 
     def overdue(self, limit: timedelta, now: datetime | None = None) -> bool:
         """기다린 시간이 한도를 넘었나. 이미 끝난 요약은 언제 봐도 False 다.
@@ -265,11 +312,28 @@ class SessionSummary:
             return False
         return (now or utcnow()) - self.requested_at > limit
 
-    def complete(self, overview: str, key_points: list[str]) -> None:
+    def shown_status(self, limit: timedelta) -> SummaryStatus:
+        """한도를 넘긴 PROCESSING 은 FAILED 로 보인다. 저장값은 바꾸지 않는다.
+
+        `ContextDoc.shown_status` 와 같다 — 보여 주기만 한다. 전이와 저장은
+        `Store.expire_summary` 가 한 문장으로 한다.
+        """
+        return SummaryStatus.FAILED if self.overdue(limit) else self.status
+
+    def complete(
+        self,
+        overview: str,
+        key_points: list[str],
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+    ) -> None:
         """Agent 가 만든 요약을 받는다."""
         self.status = SummaryStatus.READY
         self.overview = overview
         self.key_points = list(key_points)
+        self.moments = list(moments or [])
+        self.findings = list(findings or [])
         self.completed_at = utcnow()
 
     def give_up(self) -> None:
@@ -277,7 +341,72 @@ class SessionSummary:
         self.status = SummaryStatus.FAILED
         self.overview = ""
         self.key_points = []
+        self.moments = []
+        self.findings = []
         self.completed_at = utcnow()
+
+
+@dataclass
+class Recording:
+    """세션 하나의 녹화 (#112). 첫 트랙의 녹화를 걸 때 PROCESSING 으로 생긴다.
+
+    상태는 요약과 같은 세 가지다 (테크스펙 「상태」). 트랙별 원본은 Egress 가 S3
+    `rec/{session_id}/` 에 올리고, 면접이 끝나면 BE 가 한 파일로 합친다. 원본 목록과
+    시작 시각은 LiveKit 이 끝난 뒤 24시간 들고 있어서 여기 두지 않는다.
+    """
+
+    session_id: str
+    status: SummaryStatus = SummaryStatus.PROCESSING
+    #: 합친 파일. READY 일 때만 찬다.
+    s3_key: str | None = None
+    #: 합친 파일의 0초가 가리키는 시각. 재생 오프셋 = 이것 − 전사 원점.
+    egress_started_at: datetime | None = None
+    duration_ms: int = 0
+    completed_at: datetime | None = None
+
+
+class FindingType(StrEnum):
+    """검토 항목의 종류 — AI `FindingType` 의 어휘 (#137 1-2)."""
+
+    COMPETENCY_EVIDENCE = "COMPETENCY_EVIDENCE"
+    CLAIM_VERIFIED = "CLAIM_VERIFIED"
+    CLAIM_CONTRADICTED = "CLAIM_CONTRADICTED"
+    CLAIM_UNVERIFIED = "CLAIM_UNVERIFIED"
+    GAP = "GAP"
+
+
+class CoverageState(StrEnum):
+    """역량 하나가 면접에서 얼마나 확인됐나 (#137 1-2 「coverage 규칙」)."""
+
+    CONFIRMED = "CONFIRMED"
+    PARTIAL = "PARTIAL"
+    MISSING = "MISSING"
+
+
+class FindingState(StrEnum):
+    """검토 항목에 대한 면접관의 판단 (#137 1-4). AI `FindingState` 의 어휘다.
+
+    AI 쪽에는 `EDITED` 도 있지만 면접관이 고르는 값은 이 셋이다.
+    """
+
+    PROPOSED = "PROPOSED"
+    ADOPTED = "ADOPTED"
+    REJECTED = "REJECTED"
+
+
+@dataclass
+class ReviewMark:
+    """검토 항목(finding) 하나의 채택 여부, 또는 문답(moment) 하나의 북마크.
+
+    키는 `(session_id, item_id)` 다. id 는 AI 가 결정적으로 만들어서 재분석해도
+    대부분 이어진다(#137 3장). 사라진 id 의 표시는 상세에 나오지 않을 뿐 지우지
+    않는다. 행이 없으면 `PROPOSED` · 북마크 없음이다.
+    """
+
+    session_id: str
+    item_id: str
+    state: FindingState = FindingState.PROPOSED
+    bookmarked: bool = False
 
 
 class TranscriptStage(StrEnum):
@@ -305,6 +434,9 @@ class Utterance:
 
     `participantId` 는 받지만 두지 않는다. BE 가 identity 를 역할 문자열로
     고정해서 `speaker` 와 같은 값이다 (#76 ②).
+
+    `track_id` · `seq` 는 PR #158 부터 온다. 면접 후 분석이 저장된 전사로 AI 의
+    `TranscriptSnapshot` 을 다시 만들 때 쓴다 (#137 2-1). 그 전에 받은 발화는 비어 있다.
     """
 
     session_id: str
@@ -314,6 +446,53 @@ class Utterance:
     started_at_ms: int
     ended_at_ms: int
     stage: TranscriptStage = TranscriptStage.LIVE
+    track_id: str | None = None
+    seq: int | None = None
+
+
+class JobKind(StrEnum):
+    """AI 폴러가 받는 작업의 종류 (#137 2-2).
+
+    PREP    면접 전 분석 — 역량 · 이력서 주장 (#162)
+    REVIEW  면접 후 분석 — 요약 · 타임라인 · findings (#164)
+    """
+
+    PREP = "PREP"
+    REVIEW = "REVIEW"
+
+
+@dataclass(frozen=True)
+class Job:
+    """AI 폴러에게 내주는 할 일 하나. `requested_at` 은 결과에 그대로 돌아와야 한다."""
+
+    kind: JobKind
+    session_id: str
+    interview_id: str
+    requested_at: datetime
+
+
+@dataclass
+class InterviewPrep:
+    """면접 전 분석 — JD 의 역량과 이력서의 주장 (#162).
+
+    면접 하나에 하나다. 세션을 만들 때 PROCESSING 으로 열고(실패했으면 다시),
+    이력서를 다시 올리면 비우고 다시 연다. AI 폴러가 결과를 써 넣으면 READY 다.
+    상태 기계는 요약과 같아서 `SummaryStatus` 를 쓴다.
+
+    역량 · 주장은 AI 의 `Competency` · `ResumeClaim` 을 camelCase JSON 그대로 둔다.
+    BE 는 id 로 조인만 하고(#163) 안을 해석하지 않는다.
+
+    `requested_at` 은 결과가 어느 요청의 것인지 가린다. 이력서를 다시 올리면 바뀌어서,
+    그 사이 늦게 온 옛 결과를 거절할 수 있다.
+    """
+
+    interview_id: str
+    status: SummaryStatus = SummaryStatus.PROCESSING
+    competencies: list[dict[str, Any]] = field(default_factory=list)
+    resume_claims: list[dict[str, Any]] = field(default_factory=list)
+    model: str = ""
+    requested_at: datetime = field(default_factory=utcnow)
+    completed_at: datetime | None = None
 
 
 class SuggestionStatus(StrEnum):

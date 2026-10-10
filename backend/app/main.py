@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,9 @@ from app.core.config import settings
 from app.core.errors import register_error_handlers
 from app.core.uploads import MAX_UPLOAD_BYTES, MULTIPART_SLACK_BYTES
 from app.domain import store as store_module
+from app.services import media as media_module
+from app.services import recording
+from app.services.documents import check_key_at_startup as check_parser_at_startup
 
 
 @asynccontextmanager
@@ -29,21 +33,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     check_key_at_startup()
     check_secret_at_startup()
+    check_parser_at_startup()
 
-    if not settings.database_url:
-        yield
-        return
+    postgres = None
+    if settings.database_url:
+        from app.infra.postgres import PostgresStore
 
-    from app.infra.postgres import PostgresStore
+        postgres = PostgresStore(settings.database_url)
+        postgres.open()
+        postgres.create_schema()
+        store_module.store = postgres
 
-    postgres = PostgresStore(settings.database_url)
-    postgres.open()
-    postgres.create_schema()
-    store_module.store = postgres
+    # 녹화 합치기 (#112). 버킷이 없으면 녹화를 걸지 않으니 띄우지 않는다.
+    merger = None
+    if settings.recording_bucket:
+        merger = asyncio.create_task(
+            recording.run(store_module.store, media_module.media)
+        )
     try:
         yield
     finally:
-        postgres.close()
+        if merger is not None:
+            merger.cancel()
+        if postgres is not None:
+            postgres.close()
 
 
 app = FastAPI(

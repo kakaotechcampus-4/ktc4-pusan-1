@@ -46,12 +46,12 @@ services:
       context: ../backend
       args:
         # deploy.sh 가 넘깁니다. 손으로 띄우면 unknown 입니다.
-        GIT_SHA: ${GIT_SHA:-unknown}
+        GIT_SHA: ${BACKEND_SHA:-unknown}
     # 이미지에 어느 커밋인지 남깁니다. Registry 를 쓰지 않아 태그가 없으므로,
     # `docker inspect irya-backend --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
     # 로 서버에 뜬 버전을 확인합니다.
     labels:
-      org.opencontainers.image.revision: ${GIT_SHA:-unknown}
+      org.opencontainers.image.revision: ${BACKEND_SHA:-unknown}
     container_name: irya-backend
     restart: unless-stopped
     logging: *logging
@@ -81,8 +81,8 @@ services:
       # 못 보게 됩니다. 대신 APP_ENV=production 이면 BE 가 기동을 거부합니다
       # (`app/api/internal/deps.py`).
       #
-      # ⚠️ ai 서비스가 들어오면 같은 값을 BACKEND_API_KEY 로도 줘야 합니다.
-      #    다르면 Agent 가 BACKEND_AUTH_FAILED 로 붙지 못합니다.
+      # ai 서비스가 같은 값을 BACKEND_API_KEY 로 받습니다 (아래).
+      # 다르면 Agent 가 BACKEND_AUTH_FAILED 로 붙지 못합니다.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
       # 카카오 로그인입니다. Redirect URI 는 FE 콜백이라 도메인에 묶여 여기 고정합니다 —
       # 카카오 콘솔에 등록한 값과 글자까지 같아야 토큰 교환이 됩니다.
@@ -92,10 +92,19 @@ services:
       # 로그인 토큰 서명 키입니다. INTERNAL_API_KEY 와 같은 이유로 `:?` 를 쓰지 않고,
       # 비어 있으면 BE 가 기동을 거부합니다 (`app/core/auth.py`).
       JWT_SECRET: ${JWT_SECRET:-}
+      # 문서 본문 추출 (#143). JWT_SECRET 과 같은 이유로 `:?` 를 쓰지 않고,
+      # 비어 있으면 BE 가 기동을 거부합니다 (`app/services/documents.py`).
+      # ai 의 STT 키(STT_API_KEY)와 헷갈리지 않게 .env 에서는 이름을 따로 둡니다.
+      ELICE_API_KEY: ${HELPY_API_KEY:-}
+      HELPY_DOC_BASE_URL: ${HELPY_DOC_BASE_URL:-}
       # 면접이 끝난 뒤 요약을 기다리는 한도(초)입니다. 넘기면 FAILED 로 넘어가
       # 화면이 멈춥니다. 비워 두면 3분입니다 — 요약 파이프라인이 붙은 뒤
       # 실제로 얼마나 걸리는지 보고 조정하라고 밖으로 빼 두었습니다.
       SUMMARY_TIMEOUT_SECONDS: ${SUMMARY_TIMEOUT_SECONDS:-180}
+      # 녹화 버킷입니다 (#112). 아래 egress 설정의 bucket 과 같아야 합니다.
+      # 비우면 녹화를 걸지 않습니다 — 컨테이너가 인스턴스 역할을 받도록(IMDS 홉 2)
+      # 하고 역할에 rec/ 권한을 준 뒤 .env 에 넣어 켭니다. 자격증명은 넣지 않습니다.
+      RECORDING_BUCKET: ${RECORDING_BUCKET:-}
       # 비우면 인메모리로 떨어집니다. 서버에서는 반드시 채웁니다 —
       # 재시작할 때마다 진행 중인 면접 상태가 사라집니다.
       DATABASE_URL: postgresql://${POSTGRES_USER:-irya}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-irya}
@@ -122,18 +131,18 @@ services:
       context: ../ai
       args:
         # deploy.sh 가 넘깁니다. 손으로 띄우면 unknown 입니다.
-        GIT_SHA: ${GIT_SHA:-unknown}
+        GIT_SHA: ${AI_SHA:-unknown}
     # backend 와 같은 방식으로 이미지에 커밋을 남깁니다.
     # `docker inspect irya-ai --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'`
     labels:
-      org.opencontainers.image.revision: ${GIT_SHA:-unknown}
+      org.opencontainers.image.revision: ${AI_SHA:-unknown}
     container_name: irya-ai
     restart: unless-stopped
     # 방마다 작업 프로세스가 뜨고 지연 로그를 남기므로 상한이 특히 필요합니다.
     logging: *logging
     # LiveKit AgentServer 가 방마다 별도 작업 프로세스를 만들고, 각 작업이
     # 사람의 마이크 트랙을 직접 구독해 Elice Whisper 로 전사한다. BE 는 음성을
-    # 중계하지 않는다. 전사는 LiveKit text stream 으로 면접관에게만 간다.
+    # 중계하지 않는다. 자막은 면접관에게, FINAL 전사와 꼬리질문은 BE 로 간다.
     environment:
       APP_ENV: production
       LOG_LEVEL: INFO
@@ -148,6 +157,16 @@ services:
       # 비어 있으면 워커가 STT 미설정으로 방을 떠나므로 기동 자체는 막지 않는다.
       ELICE_STT_BASE_URL: ${STT_API_BASE_URL:-}
       ELICE_API_KEY: ${STT_API_KEY:-}
+      # BE 내부 API(/internal/v1). FINAL 전사 저장 채널과 꼬리질문 전송이 같이 쓴다.
+      # 같은 compose 네트워크라 서비스 이름으로 부른다. 비어 있으면 워커는 자막만 한다.
+      BACKEND_BASE_URL: http://backend:8000
+      # backend 의 INTERNAL_API_KEY 와 같은 값이어야 한다. 다르면 BACKEND_AUTH_FAILED.
+      BACKEND_API_KEY: ${INTERNAL_API_KEY:-}
+      # 꼬리질문 생성용 프로젝트 LLM(Elice, OpenAI 호환). 둘 다 있어야 쓰고,
+      # 아니면 추출형 생성기로 돈다. 기동은 막지 않는다.
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-5.6-luna}
     depends_on:
       livekit:
         condition: service_started
@@ -191,6 +210,9 @@ services:
     logging: *logging
     # 이미지에 기본 CMD 가 없어 설정 경로를 직접 넘깁니다.
     command: --config /etc/livekit.yaml
+    # livekit.yaml 에 redis 가 있으면 redis 없이는 뜨지 않습니다 (#112).
+    depends_on:
+      - redis
     volumes:
       - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
     environment:
@@ -198,6 +220,9 @@ services:
       # 값은 .env 에 한 번만 적고 형식은 여기서 조립합니다. 콜론 뒤 공백이 필수입니다.
       # 값이 비어 있으면 기동 자체가 실패하도록 :? 를 씁니다.
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}"
+      # livekit.yaml 의 webhook.api_key 자리입니다 (설정 필드마다 생기는 env 오버라이드).
+      # LIVEKIT_KEYS 의 키 이름이라 같은 값을 넣고, yaml 에는 적지 않습니다 (#86).
+      LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
     ports:
       # 호스트와 컨테이너의 포트 번호를 같게 맞춥니다. LiveKit 이 advertise 하는
       # ICE 후보는 컨테이너 내부 포트라, 번호가 다르면 클라이언트가 엉뚱한 곳으로 붙습니다.
@@ -205,6 +230,52 @@ services:
       - "7882:7882/udp"  # 미디어
       # 7880(시그널링)은 퍼블리싱하지 않습니다. Caddy 가 같은 compose 네트워크에서
       # 서비스 이름으로 부르므로 외부에 열 필요가 없습니다.
+
+  # LiveKit 이 egress 에게 녹화 일을 넘기는 큐입니다 (#112). 둘이 같은 redis 를
+  # 봐야 합니다. LiveKit 의 방 상태와 녹화 목록(끝난 뒤 24시간)도 여기 있고, BE 는
+  # 합칠 때 이 목록을 읽습니다. 볼륨은 두지 않습니다 — 재시작은 저장했다 다시 읽지만,
+  # 컨테이너를 다시 만들면 비어서 그때 합치기를 기다리던 녹화는 FAILED 가 됩니다.
+  # Redis 7.4 부터 라이선스가 바뀌어(RSAL · SSPL) BSD 인 포크 Valkey 를 씁니다.
+  # 프로토콜이 같아 LiveKit 은 그대로 붙습니다.
+  redis:
+    image: valkey/valkey:8.1.10-alpine
+    container_name: irya-redis
+    restart: unless-stopped
+    logging: *logging
+
+  # 녹화 (#112). TrackEgress 라 트랙을 다시 인코딩하지 않고 S3 rec/ 로 바로 올립니다.
+  # 9/29 에 livekit v1.13.6 과 짝으로 잰 버전입니다.
+  egress:
+    image: livekit/egress:v1.13.0
+    container_name: irya-egress
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - redis
+      - livekit
+    environment:
+      # 설정 전체를 env 로 넘깁니다. 키를 파일에 적지 않으려는 것입니다.
+      # S3 키는 비웁니다 — 인스턴스 역할을 씁니다. bridge 네트워크 컨테이너가
+      # 역할을 받으려면 메타데이터 홉 제한이 2 여야 합니다 (README · 테크스펙 Q23).
+      #
+      # track_cpu_cost: egress 는 녹화를 받을 때마다 이만큼 CPU 를 15초간 잡아 두고,
+      # 잡힌 합이 CPU 수의 80% 를 넘으면 그 녹화를 미룹니다. 기본 0.5 면 vCPU 2 에서
+      # 15초에 트랙 3개(면접 하나)까지라, 면접 둘이 같이 시작하면 두 번째는 15초 늦게
+      # 녹화가 걸려 앞부분을 잃습니다 (로컬 재현). 실제 사용은 면접 하나(트랙 3개)에
+      # 약 8% 라(9/29 실측) 0.1 로 둡니다.
+      EGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+        api_secret: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
+        ws_url: ws://livekit:7880
+        redis:
+          address: redis:6379
+        storage:
+          s3:
+            region: ap-northeast-2
+            bucket: ktc4-pusan-1-irya
+        cpu_cost:
+          track_cpu_cost: 0.1
+        log_level: info
 
 volumes:
   caddy_data:

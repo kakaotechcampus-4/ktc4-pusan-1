@@ -4,8 +4,6 @@
 -- 것이라 `CREATE TABLE IF NOT EXISTS` 로 따라붙고, 기존 테이블에 컬럼을 더할
 -- 때는 `ALTER ... ADD COLUMN IF NOT EXISTS` 로 버틴다 (session 의 원점이 그렇다).
 -- 컬럼의 **타입이나 키를 바꿔야** 할 때가 오면 그때 Alembic 을 넣는다.
--- 처음 닿을 자리는 전사에 seq 를 필수 컬럼으로 넣을 때다 (#76 ①). 보내는 쪽이
--- 붙기 전까지 utterance · suggestion 계열은 비어 있어서 지우고 다시 만들어도 된다.
 -- ⚠️ `CREATE INDEX IF NOT EXISTS` 는 이름이 같으면 정의를 바꿔도 기존 DB 에
 -- 반영되지 않는다. 인덱스를 고칠 때는 이름도 바꾼다.
 --
@@ -20,6 +18,17 @@ CREATE TABLE IF NOT EXISTS interview (
     candidate_name TEXT,
     created_at     TIMESTAMPTZ NOT NULL
 );
+
+-- 내 면접 목록 (`GET /interviews`) 이 면접관별 최신순으로 읽는다.
+CREATE INDEX IF NOT EXISTS interview_interviewer_id_idx
+    ON interview (interviewer_id, created_at DESC);
+
+-- 검토 (#163). 면접 단위다 — 세션이 바뀌어도 메모와 확정은 남는다.
+-- review_status 는 ReviewStatus. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+-- reviewed_at 은 CONFIRMED 가 된 시각이고, 다른 상태로 돌아가면 비운다.
+ALTER TABLE interview ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'PENDING';
+ALTER TABLE interview ADD COLUMN IF NOT EXISTS memo TEXT NOT NULL DEFAULT '';
+ALTER TABLE interview ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS session (
     id           TEXT        PRIMARY KEY,
@@ -80,6 +89,12 @@ CREATE TABLE IF NOT EXISTS context_doc (
 
 CREATE INDEX IF NOT EXISTS context_doc_context_id_idx ON context_doc (context_id);
 
+-- 문서 본문 (#143). 올라오면 status=parsing 으로 들어가고, Helpy Document Vision 이
+-- 뽑은 평문이 text 에 찬다. 못 뽑으면 status=failed, text 는 NULL 이다.
+-- category 는 FE 설정 화면의 두 칸(jd · internal)이다.
+ALTER TABLE context_doc ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'internal';
+ALTER TABLE context_doc ADD COLUMN IF NOT EXISTS text TEXT;
+
 -- 지원자 이력서. 면접 한 건에 한 장이라 interview_id 가 기본키다 — 다시 올리면
 -- 덮어쓴다. 원본을 여기 두는 이유는 context_doc 과 같다.
 CREATE TABLE IF NOT EXISTS interview_resume (
@@ -92,6 +107,9 @@ CREATE TABLE IF NOT EXISTS interview_resume (
     content      BYTEA       NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL
 );
+
+-- 이력서 본문. context_doc.text 와 같다. 다시 올리면 NULL 로 돌아간다.
+ALTER TABLE interview_resume ADD COLUMN IF NOT EXISTS text TEXT;
 
 -- 세션 하나의 요약. 면접이 끝나는 순간 PROCESSING 으로 만들어지고, Agent 가
 -- `PUT /internal/v1/sessions/{id}/review` 로 결과를 써 넣으면 READY 가 된다.
@@ -110,6 +128,58 @@ CREATE TABLE IF NOT EXISTS session_summary (
     completed_at TIMESTAMPTZ
 );
 
+-- 세션 하나의 녹화 (#112). 첫 트랙의 녹화를 걸 때 PROCESSING 으로 생기고, 면접이
+-- 끝난 뒤 BE 가 트랙들을 한 파일로 합치면 READY 다. 트랙별 원본의 목록과 시작
+-- 시각은 LiveKit 이 끝난 뒤 24시간 들고 있어 따로 두지 않는다 — 원본 파일은
+-- S3 `rec/{session_id}/` 에 있다.
+CREATE TABLE IF NOT EXISTS recording (
+    session_id        TEXT        PRIMARY KEY REFERENCES session (id) ON DELETE CASCADE,
+    -- SummaryStatus. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+    status            TEXT        NOT NULL,
+    -- 합친 파일. READY 일 때만 찬다.
+    s3_key            TEXT,
+    -- 합친 파일의 0초가 가리키는 시각. 재생 오프셋 = 이것 − 전사 원점.
+    egress_started_at TIMESTAMPTZ,
+    duration_ms       BIGINT      NOT NULL DEFAULT 0,
+    completed_at      TIMESTAMPTZ
+);
+
+-- AI 의 Moment · Finding 을 camelCase JSON 그대로 둔다 (#137 2-5). BE 는 id 로 조인 ·
+-- 집계만 한다(#163). READY 일 때만 차고 FAILED 로 갈 때 다시 비운다. 써 넣는 길은 #164.
+ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS moments JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS findings JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- 면접관의 검토 표시 (#163) — finding 의 채택 여부(state)와 moment 의 북마크.
+-- 키의 item_id 는 AI 가 결정적으로 만드는 findingId · momentId 라 재분석해도 대부분
+-- 이어진다(#137 3장). 사라진 id 의 행은 지우지 않는다 — 상세에 안 나올 뿐이다.
+-- 세션이 지워지면 같이 간다.
+CREATE TABLE IF NOT EXISTS review_mark (
+    session_id  TEXT     NOT NULL REFERENCES session (id) ON DELETE CASCADE,
+    item_id     TEXT     NOT NULL,
+    -- FindingState. 같은 이유로 CHECK 를 걸지 않는다.
+    state       TEXT     NOT NULL DEFAULT 'PROPOSED',
+    bookmarked  BOOLEAN  NOT NULL DEFAULT false,
+    PRIMARY KEY (session_id, item_id)
+);
+
+-- 면접 전 분석 (#162) — JD 의 역량과 이력서의 주장. 면접 하나에 하나라 interview_id
+-- 가 그대로 PK 다. 세션을 만들 때 PROCESSING 으로 열고(FAILED 면 다시), 이력서를 다시
+-- 올리면 비우고 다시 연다. AI 폴러가 `PUT /internal/v1/interviews/{id}/prep` 로 써 넣으면 READY 다.
+--
+-- 역량 · 주장은 AI 의 Competency · ResumeClaim 을 camelCase JSON 그대로 둔다. BE 는
+-- id 로 조인만 한다. requested_at 은 결과가 어느 요청의 것인지 가리는 값이라, 다시
+-- 열 때마다 바뀐다 — 그 사이 늦게 온 옛 결과를 거절한다.
+CREATE TABLE IF NOT EXISTS interview_prep (
+    interview_id   TEXT        PRIMARY KEY REFERENCES interview (id) ON DELETE CASCADE,
+    -- SummaryStatus. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+    status         TEXT        NOT NULL,
+    competencies   JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    resume_claims  JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    model          TEXT        NOT NULL DEFAULT '',
+    requested_at   TIMESTAMPTZ NOT NULL,
+    completed_at   TIMESTAMPTZ
+);
+
 -- ── 사용자 ──────────────────────────────────────────────
 --
 -- 카카오 로그인으로 들어온 면접관 (#118). `user` 는 예약어라 app_user 다.
@@ -124,6 +194,10 @@ CREATE TABLE IF NOT EXISTS app_user (
     profile_image_url  TEXT,
     created_at         TIMESTAMPTZ NOT NULL
 );
+
+-- access 토큰의 `ver` 클레임과 맞아야 한다. 올리면 그 사람의 토큰이 전부 끊긴다
+-- (#119 리뷰 4번). 이미 만들어진 테이블에도 붙도록 ALTER 로 둔다.
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
 
 -- ── 전사·꼬리질문 (#85) ────────────────────────────────────
 --
@@ -153,9 +227,14 @@ CREATE TABLE IF NOT EXISTS utterance (
     PRIMARY KEY (session_id, stage, utterance_id)
 );
 
+-- 트랙과 순번 (#137 2-1). PR #158 부터 Agent 가 보낸다. 면접 후 분석이 저장된 전사로
+-- AI 의 TranscriptSnapshot 을 다시 만들 때 쓴다. 그 전에 받은 행은 비어 있다.
+ALTER TABLE utterance ADD COLUMN IF NOT EXISTS track_id TEXT;
+ALTER TABLE utterance ADD COLUMN IF NOT EXISTS seq BIGINT;
+
 -- 말한 순서대로 읽는다. 같은 ms 면 면접관이 먼저, 그다음 id 순이다 — 질문이
--- 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. seq 가 전송 페이로드에 아직 없어서
--- (#76 ①) 여기서 정한다. 같은 ms 는 드물어 그 자리는 인덱스를 안 탄다.
+-- 같은 순간의 답보다 앞에 와야 Q&A 로 읽힌다. seq 는 그 전에 받은 행이 비어 있어
+-- 순서에 쓰지 않는다. 같은 ms 는 드물어 그 자리는 인덱스를 안 탄다.
 CREATE INDEX IF NOT EXISTS utterance_order_idx
     ON utterance (session_id, stage, started_at_ms, utterance_id);
 

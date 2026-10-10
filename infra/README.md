@@ -6,7 +6,7 @@ LiveKit 서버 자체의 설정과 포트 요구사항은 [`livekit/README.md`](
 
 ## 무엇이 어디서 도나
 
-EC2 한 대에 컨테이너 넷입니다.
+EC2 한 대에서 docker compose 로 돕니다. 컨테이너 목록의 기준은 `docker-compose.yml` 입니다.
 
 ```
                      :80 :443
@@ -21,15 +21,16 @@ EC2 한 대에 컨테이너 넷입니다.
    /openapi.json        │             │
           │             │             │
      ┌────┴────┐  ┌─────┴─────┐  /home/ubuntu/fe
-     │ backend │  │  livekit  │  (호스트 디렉터리를 읽기 전용 마운트)
-     └────┬────┘  └───────────┘
-          │            :7881/tcp  :7882/udp  ← 미디어는 Caddy 를 거치지 않음
-     ┌────┴────┐
-     │   db    │  PostgreSQL 17
-     └─────────┘
+     │ backend │◀─│  livekit  │  (호스트 디렉터리를 읽기 전용 마운트,
+     └────┬────┘  └─────┬─────┘   CD 가 S3 에서 받아 채움)
+          │   webhook   │  :7881/tcp  :7882/udp  ← 미디어는 Caddy 를 거치지 않음
+     ┌────┴────┐  ┌─────┴─────┐
+     │   db    │  │    ai     │  자막 워커. 방마다 들어가 마이크를 Elice STT 로 보낸다
+     └─────────┘  └───────────┘
+   PostgreSQL 17
 ```
 
-밖에서 닿는 포트는 `80` · `443/tcp` · `443/udp`(HTTP/3) · `7881/tcp` · `7882/udp` 뿐입니다. `backend:8000` · `livekit:7880` · `db:5432` 는 퍼블리싱하지 않고 compose 네트워크 안에서 서비스 이름으로만 부릅니다.
+밖에서 닿는 포트는 보안 그룹 기준 `80` · `443/tcp` · `7881/tcp` · `7882/udp` 뿐입니다. compose 는 `443/udp`(HTTP/3)도 열어 두지만 보안 그룹에 없어서, 브라우저는 TCP 의 HTTP/2 로 붙습니다. `backend:8000` · `livekit:7880` · `db:5432` 는 퍼블리싱하지 않고 compose 네트워크 안에서 서비스 이름으로만 부릅니다. LiveKit 은 참가자 입장을 webhook 으로 `backend:8000` 에 알립니다 (#86).
 
 ## 배포가 도는 방식
 
@@ -38,7 +39,8 @@ EC2 한 대에 컨테이너 넷입니다.
 ```
 push develop
   → .github/workflows/cd.yml
-  → aws ssm send-command (22번 포트를 열지 않아 SSH 대신 SSM 입니다)
+      build-fe  FE 를 빌드해 S3 에 올린다 (아래 「FE 배포」)
+      deploy    aws ssm send-command (22번 포트를 열지 않아 SSH 대신 SSM 입니다)
   → 서버가 배포할 ref 에서 deploy.sh 를 꺼내 /tmp 에 쓰고 실행
 ```
 
@@ -49,7 +51,8 @@ push develop
 3. `docker compose build` — 먼저 빌드만 한다. 실패해도 돌던 컨테이너는 그대로다
 4. `docker compose up -d --remove-orphans`
 5. Caddy 는 **컨테이너가 든 설정이 레포와 다를 때만** 재시작한다
-6. `docker compose ps` 로 상태를 찍고, `/health` 가 200 을 줄 때까지 최대 60초 기다린다
+6. FE 는 S3 에서 이 커밋의 빌드를 받아 `/home/ubuntu/fe` 를 바꾼다. 이미 그 빌드면 건너뛴다 (아래 「FE 배포」)
+7. `docker compose ps` 로 상태를 찍고, `/health` 가 200 을 줄 때까지 최대 60초 기다린다
 
 **배포 절차를 워크플로 YAML 이 아니라 스크립트에 둔 이유**는 손으로 재현할 수 있어야 하기 때문입니다. 실패했을 때 GitHub Actions 로그만 보고 원인을 가릴 수 있는 배포는 많지 않습니다.
 
@@ -73,11 +76,25 @@ detach 면 로컬 브랜치가 움직이지 않아 어떤 ref 를 배포해도 �
 
 ### 어떤 커밋이 떠 있는지 확인하기
 
-`deploy.sh` 가 `GIT_SHA` 를 내보내고 compose 가 이미지 라벨에 박습니다.
+`deploy.sh` 가 서비스마다 **그 폴더를 마지막으로 바꾼 커밋**(`git log -1 -- backend`, `-- ai`)을 내보내고, compose 가 이미지 라벨에 박습니다.
 
 ```bash
 docker inspect irya-backend --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+docker inspect irya-ai --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
 ```
+
+코드가 그대로면 컨테이너도 그대로입니다 (#134, 베이스는 digest 고정). **`ai/` · `backend/` 나 베이스 digest 를 바꾸는 머지는 면접이 없는 시간에 합니다** — 다시 만들어진 워커는 진행 중인 방으로 돌아가지 않습니다.
+
+「그대로」는 빌드 캐시에도 기댑니다. 서버의 빌드 캐시가 비면(`docker builder prune` 등) 코드가 그대로여도 다음 배포에서 한 번 다시 만들어집니다.
+
+### 배포가 겹치면
+
+CD 는 한 번에 하나만 돕니다 (`concurrency: cd-server`). 수동 실행(롤백)도 같은 줄에 섭니다.
+
+- 도는 동안 들어온 실행은 기다립니다. 기다리는 실행은 **하나만** 남고, 더 들어오면 앞에서 기다리던 실행은 취소됩니다. 배포는 그 시점의 브랜치 최신을 올리므로 건너뛰어도 결과는 같습니다.
+- ⚠️ **롤백을 돌리는 동안에는 develop 머지를 멈추세요.** 기다리던 롤백이 새 머지에 밀려 취소되고 develop 이 대신 배포됩니다.
+- 도는 도중에 `frontend/` 를 바꾼 머지가 들어오면 그 실행은 외부 확인에서 실패할 수 있습니다. build-fe 가 빌드한 것보다 deploy.sh 가 받은 develop 이 새것이라서입니다. 기다리던 다음 실행이 바로 맞춥니다.
+- 서버에서 손으로 돌린 `deploy.sh` 는 이 줄 밖입니다. CD 가 도는 중에는 돌리지 마세요.
 
 ## 손으로 배포하기
 
@@ -136,20 +153,80 @@ git show origin/develop:infra/deploy.sh > /tmp/irya-deploy.sh
 bash /tmp/irya-deploy.sh rollback-0927
 ```
 
-## FE 는 CD 밖입니다
+## FE 배포
 
-`caddy` 가 호스트의 `/home/ubuntu/fe` 를 읽기 전용으로 마운트해 그대로 내보냅니다. **저장소에도 이미지에도 FE 빌드 결과가 들어 있지 않습니다** — 컨테이너가 보는 파일은 호스트 디렉터리입니다.
+`caddy` 가 호스트의 `/home/ubuntu/fe` 를 읽기 전용으로 마운트해 그대로 내보냅니다. **저장소에도 이미지에도 FE 빌드 결과가 들어 있지 않습니다** — 컨테이너가 보는 파일은 호스트 디렉터리입니다. 그 디렉터리를 CD 가 채웁니다 (#103).
 
-그래서 FE 를 고치면 손으로 올려야 합니다. 자동화는 #103 에서 다룹니다.
-
-```bash
-cd frontend && npm run build
-# dist/ 를 서버의 /home/ubuntu/fe 로 복사
+```
+develop push
+  → cd.yml build-fe: FRONTEND_SHA = frontend/ 를 마지막으로 바꾼 커밋
+       S3 fe/<FRONTEND_SHA>/version.json 이 있으면 건너뜀
+       없으면 빌드 → 검사 → fe/<FRONTEND_SHA>/ 에 업로드 (version.json 은 마지막)
+  → deploy.sh: 같은 FRONTEND_SHA 를 받아 /home/ubuntu/fe 교체
+       서버 version.json 이 이미 그 SHA 면 건너뜀
+  → 외부 확인: https://irya.cloud/version.json 의 commit 이 FRONTEND_SHA 인지
 ```
 
-⚠️ `cd.yml` 의 `paths` 에 `frontend/**` 가 있어서 **FE 만 바뀐 push 도 CD 를 돌립니다.** 그런데 FE 는 올라가지 않습니다 — caddy 가 서빙하지만 내용물이 `/home/ubuntu/fe` 라는 호스트 디렉터리에 있고, `deploy.sh` 는 거기를 건드리지 않습니다. 초록불을 「올라갔다」로 읽으면 안 됩니다.
+- 빌드는 CI 에서 합니다. 서버에는 node 가 없고, 서버 빌드는 진행 중인 면접과 CPU 를 나눠 씁니다.
+- 빌드에 넣는 값은 레포 Variable `KAKAO_CLIENT_ID` 와 목 끄기(`VITE_USE_MOCK_API=false`)입니다. `KAKAO_CLIENT_ID` 는 서버 `infra/.env` 의 값과 같아야 합니다. API 주소와 Redirect URI 는 비워 같은 오리진 기본값을 탑니다.
+- 교체는 에셋 → `index.html` → `version.json` 순서입니다. 옛 에셋은 지우지 않습니다 — 배포 전에 열어 둔 페이지가 lazy 조각을 받습니다.
+- 지금 운영 FE 가 어느 커밋인지는 `https://irya.cloud/version.json` 으로 봅니다.
 
-AI 워커는 다릅니다. compose 의 `ai` 서비스(#84)가 `backend` 와 같이 서버에서 빌드되어 `up -d` 로 올라갑니다. 워커는 LiveKit 컨테이너에 등록만 하고 공개 포트가 없어서, 올라갔는지는 `docker compose logs ai` 의 `joined room=` · `microphone subscribed` 로그로 봅니다.
+**FE 롤백**은 BE 롤백과 같습니다(위 「롤백」). 되돌릴 커밋을 브랜치로 push 하고 그 이름으로 CD 를 돌리면, build-fe 가 그 커밋의 FRONTEND_SHA 를 찾아 S3 에 이미 있으면 그대로 쓰고 deploy.sh 가 그것을 받습니다.
+
+손으로 돌린 배포(`deploy.sh` 를 직접 실행)에서 S3 에 그 SHA 가 없으면 경고만 남기고 지금 화면을 둡니다. #103 이전 커밋이 그렇습니다.
+
+### FE · BE · AI 는 배포 방식이 다릅니다
+
+| | FE | BE (`backend`) | AI 워커 (`ai`) |
+|---|---|---|---|
+| 빌드 | CI (`build-fe`) | 서버 (`docker compose build`) | 서버 (`docker compose build`) |
+| 버전 단위 | `frontend/` 를 마지막으로 바꾼 커밋 | `backend/` 를 마지막으로 바꾼 커밋 | `ai/` 를 마지막으로 바꾼 커밋 |
+| 결과물 | S3 `fe/<SHA>/` | 서버의 이미지 · 빌드 캐시 | 서버의 이미지 · 빌드 캐시 |
+| 코드가 그대로면 | 빌드 · 교체를 건너뜀 | 컨테이너 그대로 | 컨테이너 그대로 |
+| 떠 있는 버전 | `https://irya.cloud/version.json` | `docker inspect irya-backend` 라벨 | `docker inspect irya-ai` 라벨 |
+| 면접에 주는 영향 | 없음. Caddyfile 이 바뀔 때만 caddy 가 재시작해 시그널링이 끊김 | 다시 만들어지는 동안 API 가 잠깐 끊김 | 다시 만들어지면 진행 중인 방의 자막이 멈춤 |
+| 확인 | CD 로그의 「FE」 단계 | `docker compose logs backend` | `docker compose logs ai` 의 `joined room=` · `microphone subscribed` |
+
+워커는 LiveKit 에 등록만 하고 공개 포트가 없어서, 올라갔는지는 로그로만 봅니다. BE · AI 도 CI 에서 빌드하는 것은 #140 (ECR) 에서 다룹니다.
+
+## DB 백업
+
+`backup-db.sh` 가 매일 KST 새벽 4시에 `pg_dump` 를 떠서 S3 `ktc4-pusan-1-irya/db/` 에 올립니다. 30일 지난 덤프는 S3 수명주기(`s3-lifecycle.json`)가 지웁니다. cron 은 서버 `ubuntu` 사용자의 crontab 에 아래 한 줄로 걸어 둡니다 (`crontab -e`). 서버는 UTC 라 19시가 KST 새벽 4시입니다.
+
+```
+0 19 * * * $HOME/ktc4-pusan-1/infra/backup-db.sh >> $HOME/backup-db.log 2>&1
+```
+
+시연 · 평가 직전에는 손으로 한 번 더 돌립니다.
+
+```bash
+~/ktc4-pusan-1/infra/backup-db.sh
+```
+
+수명주기는 버킷에 하나뿐이라 걸 때마다 통째로 바뀝니다. 규칙을 더할 때는 `s3-lifecycle.json` 을 고치고 다시 겁니다.
+
+```bash
+aws s3api put-bucket-lifecycle-configuration --bucket ktc4-pusan-1-irya \
+  --lifecycle-configuration file://infra/s3-lifecycle.json
+```
+
+### 복구
+
+운영 DB 와 따로 빈 Postgres 를 띄워 거기에 풀어 봅니다. 서버에는 aws CLI 가 없어 컨테이너로 받고, `--network host` 를 빼면 인스턴스 역할 자격증명을 못 받습니다.
+
+```bash
+docker run --rm --network host -v "$PWD:/d" amazon/aws-cli:2.37.9 \
+  s3 cp s3://ktc4-pusan-1-irya/db/<이름>.dump /d/ --region ap-northeast-2
+
+docker run -d --name irya-restore -e POSTGRES_PASSWORD=x postgres:17-alpine
+# -h 127.0.0.1 로 본다. 초기화 중의 임시 서버는 소켓으로만 받아서, 소켓으로 보면 재시작 전에 준비됐다고 나온다
+until docker exec irya-restore pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done
+# 스키마 경고 몇 줄과 exit 1 이 나올 수 있다. 성공 여부는 아래 행 수로 판단한다
+docker exec -i irya-restore pg_restore -U postgres -d postgres --no-owner --no-privileges < <이름>.dump
+docker exec irya-restore psql -U postgres -Atc 'select count(*) from interview' -c 'select count(*) from session'
+docker rm -f irya-restore
+```
 
 ## 비밀
 
@@ -202,7 +279,17 @@ cd ~/ktc4-pusan-1/infra && docker compose restart livekit
 
 ```
 :?  POSTGRES_PASSWORD · LIVEKIT_API_KEY · LIVEKIT_API_SECRET
-:-  INTERNAL_API_KEY — 대신 APP_ENV=production 일 때 BE 가 기동을 거부합니다
+:-  INTERNAL_API_KEY · JWT_SECRET · HELPY_API_KEY · HELPY_DOC_BASE_URL
+      — 대신 APP_ENV=production 일 때 BE 가 기동을 거부합니다
+:-  STT_API_KEY · STT_API_BASE_URL — 비면 AI 워커가 방을 맡자마자 접속하지 않고 끝냅니다 (`STT is not configured` 로그)
+```
+
+⚠️ **새 키가 필요한 PR 은 서버 `.env` 에 키를 먼저 넣고 머지합니다.** `:-` 키는 compose 가 막지 않아 배포는 진행되고, BE 가 기동을 거부하며 재시작을 반복합니다. 10/5 #149 배포 직후 HELPY 키가 없어 운영 BE 가 내려간 일이 그랬습니다.
+
+키를 넣은 뒤에는 컨테이너를 다시 만듭니다. `restart` 는 `.env` 를 다시 읽지 않습니다.
+
+```bash
+cd ~/ktc4-pusan-1/infra && docker compose up -d --no-deps backend ai
 ```
 
 ### `/internal/v1` 은 Caddy 가 프록시하지 않습니다

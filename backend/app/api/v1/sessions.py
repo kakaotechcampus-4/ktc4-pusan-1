@@ -1,34 +1,53 @@
-"""세션 상태·입장 — 명세 `면접`·`진입` 카테고리."""
+"""세션 상태·입장 — 명세 `면접`·`진입` 카테고리.
+
+지원자는 로그인하지 않는다. 그래서 상태 조회와 입장은 열어 두고, 시작 · 종료 · 요약은
+그 면접의 주인만 부른다 (#130). 남의 세션은 없는 것과 같이 404 다.
+"""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Path
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import MediaDep, StoreDep
+from app.api.deps import (
+    MediaDep,
+    OptionalUserDep,
+    OwnedSessionDep,
+    StoreDep,
+    get_current_user,
+)
 from app.core.config import settings
-from app.core.errors import ApiError, ErrorCode, responses
+from app.core.errors import LOGIN_REQUIRED, ApiError, ErrorCode, responses
 from app.domain.models import (
+    Role,
     Session,
     SessionStatus,
     SessionSummary,
     SummaryStatus,
+    utcnow,
 )
 from app.domain.store import Store
 from app.schemas import (
     EndSessionResponse,
     JoinRequest,
     JoinResponse,
+    RecordingResponse,
+    ReviewProcessingResponse,
     SessionStateResponse,
     StartSessionResponse,
     SummaryContent,
     SummaryResponse,
 )
+from app.services import recording as recording_module
 
 router = APIRouter(prefix="/sessions", tags=["세션"])
 
 # 명세의 path 파라미터는 camelCase 다.
 # 파이썬 변수명은 snake_case 로 두고 alias 로 맞춘다.
 SessionIdPath = Annotated[str, Path(alias="sessionId")]
+
+_NOT_FOUND = (404, "Session을 찾을 수 없음 (남의 세션 포함)")
 
 
 def _load(store: Store, session_id: str) -> Session:
@@ -67,12 +86,18 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
     response_model=JoinResponse,
     summary="면접 입장",
     responses=responses(
+        (401, "면접관으로 입장하는데 로그인이 안 됨"),
+        (403, "면접관으로 입장하는데 이 면접의 주인이 아님"),
         (404, "Session을 찾을 수 없음"),
         (409, "이미 종료된 Session 등 현재 상태에서 입장할 수 없음"),
     ),
 )
 async def join_session(
-    session_id: SessionIdPath, body: JoinRequest, store: StoreDep, media: MediaDep
+    session_id: SessionIdPath,
+    body: JoinRequest,
+    user: OptionalUserDep,
+    store: StoreDep,
+    media: MediaDep,
 ) -> JoinResponse:
     """Session 입장 권한을 확인하고 LiveKit 접속 정보를 발급한다.
 
@@ -81,8 +106,24 @@ async def join_session(
     토큰만 발급할 뿐 실제 입장은 클라이언트가 `livekitUrl` + `token` 으로
     LiveKit 에 직접 붙으면서 이뤄진다. 여러 번 불러도 되며 그때마다 새 토큰이 나온다.
     """
-    session = _load(store, session_id)
-    interview = store.get_interview(session.interview_id)
+    # 저장소는 동기다. async 라우트가 그대로 부르면 그동안 이벤트 루프가 멈춘다 (#133).
+    session = await run_in_threadpool(_load, store, session_id)
+    interview = await run_in_threadpool(store.get_interview, session.interview_id)
+
+    # ponytail: 역할은 클라이언트가 고르고 서버는 INTERVIEWER 만 검증한다 (#130).
+    #   면접관이 여럿이 되거나 역할이 셋 이상이면 서버가 역할을 정하는 쪽으로 옮긴다.
+    # 상태 · 정원보다 먼저 본다 — 권한 없는 요청마다 LiveKit 을 부르지 않게.
+    if body.role is Role.INTERVIEWER:
+        # 토큰이 없거나 무효면 401 이다. FE 는 401 에만 토큰을 지우고 로그인으로
+        # 보내므로, 403 을 주면 만료된 토큰을 쥔 면접관이 빠져나갈 길이 없다.
+        owner = get_current_user(user)
+        if interview is None or interview.interviewer_id != owner.id:
+            raise ApiError(
+                ErrorCode.ROLE_NOT_ALLOWED,
+                403,
+                "이 면접의 면접관만 면접관으로 입장할 수 있습니다.",
+            )
+
     if session.status is SessionStatus.ENDED:
         raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
 
@@ -107,16 +148,15 @@ async def join_session(
     response_model=StartSessionResponse,
     summary="면접 시작",
     responses=responses(
-        (404, "Session을 찾을 수 없음"), (409, "현재 상태에서 시작할 수 없음")
+        LOGIN_REQUIRED, _NOT_FOUND, (409, "현재 상태에서 시작할 수 없음")
     ),
 )
-def start_session(session_id: SessionIdPath, store: StoreDep) -> StartSessionResponse:
+def start_session(session: OwnedSessionDep, store: StoreDep) -> StartSessionResponse:
     """Session 을 면접 진행 상태로 변경하고 시작 시각을 기록한다.
 
     동시에 여러 번 불려도 **하나만 200 을 받고 나머지는 409** 다. 버튼을 두 번
     눌렀거나 응답이 늦어 클라이언트가 재시도한 경우에 닿는다.
     """
-    session = _load(store, session_id)
     # 애초에 시작할 수 없는 상태(이미 끝난 면접 등)를 DB 를 건드리기 전에 거른다.
     if not session.start():
         raise ApiError(
@@ -139,11 +179,11 @@ def start_session(session_id: SessionIdPath, store: StoreDep) -> StartSessionRes
     response_model=EndSessionResponse,
     summary="면접 종료",
     responses=responses(
-        (404, "Session을 찾을 수 없음"), (409, "현재 상태에서 종료할 수 없음")
+        LOGIN_REQUIRED, _NOT_FOUND, (409, "현재 상태에서 종료할 수 없음")
     ),
 )
 async def end_session(
-    session_id: SessionIdPath, store: StoreDep, media: MediaDep
+    session: OwnedSessionDep, store: StoreDep, media: MediaDep
 ) -> EndSessionResponse:
     """Session 을 종료 상태로 변경하고 종료 시각을 기록한다.
 
@@ -151,7 +191,7 @@ async def end_session(
     이 API 를 불러야 종료된다. 반대로 여기서는 LiveKit Room 을 닫아
     남아 있는 참가자를 끊는다.
     """
-    session = _load(store, session_id)
+    read_status = session.status
     if not session.end():
         raise ApiError(
             ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 종료할 수 없습니다."
@@ -159,11 +199,23 @@ async def end_session(
     # LiveKit Room 을 닫기 전에 저장한다. close_room 이 실패해도 종료 상태는
     # 남아야 한다 — 방이 남는 건 정원 제한에 걸리는 정도지만, 상태가 안 남으면
     # 이미 끝난 면접에 다시 입장할 수 있게 된다.
-    store.save_session(session)
+    #
+    # 읽은 상태 그대로일 때만 쓴다. 그 사이에 시작이 먼저 저장됐으면 조건 없이
+    # 쓰는 순간 읽어 둔 값으로 시작 시각을 지운다 (#131). 상태가 같으면 시작 ·
+    # 종료 시각도 그대로이므로 나머지 컬럼을 같이 써도 덮을 것이 없다.
+    # ponytail: 시작과 겹치면 409 — 다시 누르면 끝난다. 자주 겹치면 종료가
+    #   status · ended_at 만 쓰는 조건부 UPDATE 로 옮긴다.
+    saved = await run_in_threadpool(
+        store.save_session, session, expected_status=read_status
+    )
+    if not saved:
+        raise ApiError(
+            ErrorCode.INVALID_SESSION_STATE, 409, "현재 상태에서 종료할 수 없습니다."
+        )
     # 요약을 기다리는 자리를 지금 만든다. 한도 판정의 기준점이 여기서 찍히므로
     # 조회 시점이 아니라 종료 시점이어야 한다 — 면접이 끝나고 한참 뒤에 화면을
     # 열었다고 해서 마감이 그때부터 다시 시작되면 안 된다.
-    store.ensure_summary(SessionSummary(session_id=session.id))
+    await run_in_threadpool(store.ensure_summary, SessionSummary(session_id=session.id))
     await media.close_room(session.room_name)
     assert session.ended_at is not None
     return EndSessionResponse(
@@ -176,11 +228,12 @@ async def end_session(
     response_model=SummaryResponse,
     summary="면접 요약 조회",
     responses=responses(
-        (404, "Session을 찾을 수 없음"),
+        LOGIN_REQUIRED,
+        _NOT_FOUND,
         (409, "아직 종료되지 않은 면접"),
     ),
 )
-def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
+def get_summary(session: OwnedSessionDep, store: StoreDep) -> SummaryResponse:
     """면접이 끝난 뒤의 짧은 요약을 조회한다.
 
     **상태는 저장된 값이다.** 면접이 끝나면 `PROCESSING` 으로 자리가 생기고,
@@ -193,8 +246,7 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
     요약을 만드는 쪽(#70)이 아직 안 붙어 있어도 이 경로는 그대로 돈다 — 한도까지
     기다렸다 `FAILED` 로 간다. 붙고 나면 같은 코드가 `READY` 를 낸다.
     """
-    session = _load(store, session_id)
-    summary = store.get_summary(session_id)
+    summary = store.get_summary(session.id)
 
     if summary is None:
         if session.status is not SessionStatus.ENDED:
@@ -205,7 +257,7 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
             )
         # 이 기능이 붙기 전에 끝난 세션이다. 지금 자리를 만들어 준다 — 그 면접의
         # 요약은 어차피 안 오므로 한도를 넘기고 FAILED 가 된다.
-        summary = store.ensure_summary(SessionSummary(session_id=session_id))
+        summary = store.ensure_summary(SessionSummary(session_id=session.id))
 
     # 한도 판정은 저장소가 한 문장으로 끝낸다. 여기서 읽고 판정하고 쓰면 그
     # 사이에 Agent 의 결과가 들어와 덮여 지워진다 (#115).
@@ -215,7 +267,7 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
     # 낡았더라도 손해는 없다 — PROCESSING 으로 낡았으면 아래에서 제대로 판정하고,
     # 종착 상태는 되돌아오지 않는다.
     if summary.status is SummaryStatus.PROCESSING:
-        summary = store.expire_summary(session_id, settings.summary_timeout) or summary
+        summary = store.expire_summary(session.id, settings.summary_timeout) or summary
 
     content = None
     if summary.status is SummaryStatus.READY:
@@ -227,6 +279,48 @@ def get_summary(session_id: SessionIdPath, store: StoreDep) -> SummaryResponse:
         status=summary.status,
         content=content,
         duration_sec=_duration_sec(session),
+    )
+
+
+@router.get(
+    "/{sessionId}/recording",
+    response_model=RecordingResponse,
+    summary="녹화 재생",
+    responses={
+        202: {"model": ReviewProcessingResponse, "description": "아직 합치는 중"},
+        **responses(
+            LOGIN_REQUIRED, (404, "Session 이 없거나(남의 세션 포함) 녹화가 없음")
+        ),
+    },
+)
+def get_recording(
+    session: OwnedSessionDep, store: StoreDep
+) -> RecordingResponse | JSONResponse:
+    """면접 녹화를 10분짜리 서명 URL 로 준다 (#112). 면접 주인만 본다.
+
+    면접 중이거나 합치는 중이면 검토 API 처럼 `202 {"status": "PROCESSING"}` 다.
+    녹화가 없거나 합치지 못했으면(FAILED) 404 — 화면은 둘 다 녹화 없이 전사로
+    검토한다.
+    """
+    recording = store.get_recording(session.id)
+    if recording is None or recording.status is SummaryStatus.FAILED:
+        raise ApiError(ErrorCode.NOT_FOUND, 404, "녹화가 없습니다.")
+    if recording.status is SummaryStatus.PROCESSING:
+        return JSONResponse(
+            ReviewProcessingResponse().model_dump(mode="json", by_alias=True),
+            status_code=202,
+        )
+    assert recording.s3_key is not None  # READY 면 찬다
+
+    origin, started = session.transcript_origin_at, recording.egress_started_at
+    offset_ms = 0
+    if origin is not None and started is not None:
+        offset_ms = int((started - origin).total_seconds() * 1000)
+    return RecordingResponse(
+        url=recording_module.presign(recording.s3_key),
+        expires_at=utcnow() + recording_module.URL_TTL,
+        offset_ms=offset_ms,
+        duration_sec=recording.duration_ms // 1000,
     )
 
 

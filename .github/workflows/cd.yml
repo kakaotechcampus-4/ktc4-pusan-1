@@ -44,8 +44,107 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # FE 는 서버가 아니라 여기서 빌드한다 — 서버에는 node 가 없고, 서버 빌드는
+  # 진행 중인 면접과 CPU(vCPU 2)를 나눠 쓴다. 결과는 S3 fe/<FRONTEND_SHA>/ 에
+  # 두고 deploy.sh 가 같은 SHA 를 계산해 받아 간다.
+  build-fe:
+    name: Build FE to S3
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          # FRONTEND_SHA 를 서버의 deploy.sh 와 같은 방식(frontend/ 를 마지막으로
+          # 바꾼 커밋)으로 구하려면 이력이 있어야 한다.
+          fetch-depth: 0
+
+      - name: FRONTEND_SHA
+        id: sha
+        run: echo "sha=$(git log -1 --format=%H -- frontend)" >> "$GITHUB_OUTPUT"
+
+      # FE 빌드를 CI 와 서버 사이에 넘기는 버킷 (#103). 서버의 deploy.sh 도 같은
+      # 파일을 읽는다 — 이름을 두 곳에 적어 두면 한쪽만 고치는 실수가 난다.
+      - name: FE 버킷
+        run: |
+          bucket=$(cat infra/s3-bucket)
+          echo "FE_BUCKET=$bucket" >> "$GITHUB_ENV"
+
+      - name: AWS 자격 획득 (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      # version.json 은 업로드의 마지막 파일이라, 있으면 그 SHA 는 다 올라간 것이다.
+      # 같은 SHA 는 다시 빌드하지도 덮어쓰지도 않는다 (BE · AI 만 바뀐 머지).
+      - name: 이미 올라간 SHA 인지
+        id: cached
+        env:
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          if aws s3api head-object --bucket "$FE_BUCKET" --key "fe/$SHA/version.json" >/dev/null 2>&1; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+            echo "fe/$SHA 가 이미 있어 빌드를 건너뜁니다."
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v7.0.0
+        if: steps.cached.outputs.hit != 'true'
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 빌드
+        if: steps.cached.outputs.hit != 'true'
+        working-directory: frontend
+        env:
+          # 번들에 실려 브라우저로 가는 공개값이라 Secret 이 아니라 Variable 이다.
+          # API 주소와 Redirect URI 는 비워 같은 오리진 기본값을 탄다.
+          VITE_KAKAO_CLIENT_ID: ${{ vars.KAKAO_CLIENT_ID }}
+          VITE_USE_MOCK_API: "false"
+        run: |
+          npm ci
+          npm run build
+
+      # 10/3 수동 배포 때 쓴 검사다. 하나라도 어긋나면 운영 화면이 깨진 채로 나간다.
+      - name: 빌드 검사
+        if: steps.cached.outputs.hit != 'true'
+        working-directory: frontend/dist
+        env:
+          KAKAO_CLIENT_ID: ${{ vars.KAKAO_CLIENT_ID }}
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [ -n "$KAKAO_CLIENT_ID" ] || { echo "레포 Variable KAKAO_CLIENT_ID 가 비어 있습니다"; exit 1; }
+          grep -rqF "$KAKAO_CLIENT_ID" assets || { echo "번들에 카카오 client ID 가 없습니다"; exit 1; }
+          if grep -rqF "localhost:8000" .; then echo "번들에 localhost:8000 이 남았습니다"; exit 1; fi
+          missing=$(grep -oE '(src|href)="/[^"]+"' index.html | sed -E 's/^[a-z]+="\///; s/"$//' \
+            | while read -r f; do [ -f "$f" ] || echo "$f"; done)
+          [ -z "$missing" ] || { echo "index.html 이 가리키는 파일이 없습니다:"; echo "$missing"; exit 1; }
+          printf '{"commit":"%s","builtAt":"%s","mock":false,"node":"%s"}\n' \
+            "$SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(node -v | tr -d v)" > version.json
+
+      - name: S3 업로드
+        if: steps.cached.outputs.hit != 'true'
+        working-directory: frontend/dist
+        env:
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # version.json 을 마지막에 올린다. 중간에 끊긴 업로드를 완료로 보지 않게.
+          aws s3 cp . "s3://$FE_BUCKET/fe/$SHA/" --recursive --exclude version.json --only-show-errors
+          aws s3 cp version.json "s3://$FE_BUCKET/fe/$SHA/version.json" --only-show-errors
+          echo "올림: s3://$FE_BUCKET/fe/$SHA/"
+
   deploy:
     name: Deploy to EC2
+    needs: build-fe
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -145,6 +244,8 @@ jobs:
           [ "$STATUS" = "Success" ]
 
       - name: 외부에서 확인
+        env:
+          FRONTEND_SHA: ${{ needs.build-fe.outputs.sha }}
         run: |
           set -euo pipefail
           # deploy.sh 가 서버 안에서 이미 확인했지만, 여기서는 인터넷을 거쳐
@@ -152,3 +253,12 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://irya.cloud/health)
           echo "https://irya.cloud/health → $code"
           [ "$code" = "200" ]
+
+          # deploy.sh 는 S3 에 빌드가 없으면 경고만 하고 지금 화면을 둔다 (손으로
+          # 돌린 배포를 위해서다). CD 에서는 build-fe 가 올려 두었으니 여기서 맞춘다.
+          fe=$(curl -s --max-time 10 https://irya.cloud/version.json)
+          echo "https://irya.cloud/version.json → $fe"
+          case "$fe" in
+            *"\"$FRONTEND_SHA\""*) ;;
+            *) echo "운영 FE 가 $FRONTEND_SHA 가 아닙니다"; exit 1 ;;
+          esac

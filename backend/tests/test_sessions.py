@@ -3,6 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.domain.models import Session, SessionStatus
 from app.domain.store import InMemoryStore
 from tests.conftest import FakeMedia
 
@@ -63,7 +64,7 @@ def test_join_returns_livekit_connection_info(client: TestClient, session_id: st
 def test_join_returns_candidate_name(client: TestClient):
     interview = client.post(
         "/api/v1/interviews",
-        json={"interviewerId": "user_123", "candidateName": "김지원"},
+        json={"candidateName": "김지원"},
     ).json()
     session = client.post(
         f"/api/v1/interviews/{interview['interviewId']}/sessions"
@@ -225,6 +226,39 @@ def test_end_twice_is_conflict(client: TestClient, session_id: str, media: FakeM
     assert response.json()["error"]["code"] == "INVALID_SESSION_STATE"
     # 두 번째 호출은 방을 다시 닫지 않는다.
     assert media.closed == [f"interview_{session_id}"]
+
+
+def test_end_losing_the_race_keeps_the_start(
+    client: TestClient,
+    session_id: str,
+    store: InMemoryStore,
+    media: FakeMedia,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """종료가 세션을 읽은 직후 시작이 먼저 저장된 경우 (#131).
+
+    조건 없이 쓰면 읽어 둔 WAITING 세션으로 덮어, 면접관이 200 을 받은 시작이
+    지워진다.
+    """
+    read = store.get_session
+
+    def read_then_start(sid: str) -> Session | None:
+        found = read(sid)
+        late = read(sid)
+        assert late is not None and late.start()
+        store.save_session(late, expected_status=SessionStatus.WAITING)
+        return found
+
+    monkeypatch.setattr(store, "get_session", read_then_start)
+    response = client.post(f"/api/v1/sessions/{session_id}/end")
+    monkeypatch.undo()
+
+    assert response.status_code == 409
+    stored = store.get_session(session_id)
+    assert stored is not None
+    assert stored.status is SessionStatus.INTERVIEWING
+    assert stored.started_at is not None
+    assert media.closed == []
 
 
 def test_end_before_start_is_allowed(client: TestClient, session_id: str):

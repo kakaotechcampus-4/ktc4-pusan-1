@@ -30,6 +30,12 @@ from irya_ai.schemas.context import (
     ResumeClaim,
     Rubric,
 )
+from irya_ai.schemas.prep import (
+    CompetencyDraft,
+    PrepDraft,
+    PrepResult,
+    ResumeClaimDraft,
+)
 from irya_ai.schemas.suggestion import (
     SuggestionBatchDraft,
     SuggestionDraft,
@@ -65,7 +71,6 @@ from irya_ai.schemas.transcript import (
 )
 from irya_ai.schemas.wire import (
     SuggestionPayload,
-    SuggestionType,
     TranscriptPayload,
     suggestion_payload,
     transcript_payload,
@@ -79,6 +84,7 @@ __all__ = [
     "CitationDraft",
     "Company",
     "Competency",
+    "CompetencyDraft",
     "Finding",
     "FindingState",
     "FindingType",
@@ -92,9 +98,12 @@ __all__ = [
     "MomentEvidence",
     "PassType",
     "PointDraft",
+    "PrepDraft",
+    "PrepResult",
     "QAPair",
     "Resume",
     "ResumeClaim",
+    "ResumeClaimDraft",
     "ReviewReport",
     "ReviewReportStatus",
     "Rubric",
@@ -105,7 +114,6 @@ __all__ = [
     "SuggestionDraft",
     "SuggestionPayload",
     "SuggestionResult",
-    "SuggestionType",
     "SummaryDraft",
     "SummaryPoint",
     "SummaryResult",

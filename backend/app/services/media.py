@@ -61,6 +61,16 @@ class MediaGateway(Protocol):
         """Webhook 본문의 서명을 확인한다. 실패하면 None."""
         ...
 
+    async def start_track_egress(
+        self, room: str, track_sid: str, filepath: str
+    ) -> None:
+        """트랙 하나를 S3 `filepath` 로 녹화하기 시작한다 (#112)."""
+        ...
+
+    async def list_egress(self, room: str) -> list[api.EgressInfo]:
+        """그 방의 녹화 전부. 끝난 것은 LiveKit 이 24시간 들고 있다."""
+        ...
+
 
 def _grants_for(room: str, role: Role) -> api.VideoGrants:
     """입장 토큰 권한.
@@ -157,6 +167,37 @@ class LiveKitGateway:
         client = self._client()
         try:
             await client.room.delete_room(api.DeleteRoomRequest(room=room))
+        finally:
+            await client.aclose()
+
+    async def start_track_egress(
+        self, room: str, track_sid: str, filepath: str
+    ) -> None:
+        """트랙을 다시 인코딩하지 않고 그대로 파일로 쓴다 (TrackEgress).
+
+        S3 는 egress 설정의 것을 쓴다 — 요청에 자격증명을 싣지 않는다. 확장자는
+        egress 가 코덱에 맞춰 붙인다(VP8 은 .webm, Opus 는 .ogg). 매니페스트는
+        끈다 — 같은 내용을 `list_egress` 로 읽는다.
+        """
+        client = self._client()
+        try:
+            await client.egress.start_track_egress(
+                api.TrackEgressRequest(
+                    room_name=room,
+                    track_id=track_sid,
+                    file=api.DirectFileOutput(filepath=filepath, disable_manifest=True),
+                )
+            )
+        finally:
+            await client.aclose()
+
+    async def list_egress(self, room: str) -> list[api.EgressInfo]:
+        client = self._client()
+        try:
+            result = await client.egress.list_egress(
+                api.ListEgressRequest(room_name=room)
+            )
+            return list(result.items)
         finally:
             await client.aclose()
 

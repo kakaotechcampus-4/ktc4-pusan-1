@@ -42,6 +42,7 @@ from irya_ai.schemas.suggestion import (
 )
 from irya_ai.schemas.timeline import LlmUsage
 from irya_ai.schemas.transcript import Utterance
+from irya_ai.stt.http_logging import protect_base_url
 from irya_ai.suggestions import DEFAULT_MAX_PER_ROUND, RoundHistory, SuggestionError
 
 ReasoningEffort = Literal["none", "low", "medium", "high"]
@@ -135,6 +136,10 @@ class OpenAISuggestionGenerator:
         max_suggestions: int = DEFAULT_MAX_PER_ROUND,
         reasoning_effort: ReasoningEffort | None = None,
     ) -> None:
+        # The gateway is told apart by the deployment id in its path, and the
+        # OpenAI client's httpx logs the full URL of every request. Register
+        # the prefix so a worker at LOG_LEVEL=INFO does not print it.
+        protect_base_url(getattr(client, "base_url", None) or "")
         self.client = client
         self.model = model
         self.max_completion_tokens = max_completion_tokens

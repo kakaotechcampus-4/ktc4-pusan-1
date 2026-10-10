@@ -5,12 +5,15 @@ FE 의 `api/context.ts` · `api/contextSettings.ts` 가 부르는 모양 그대�
 """
 
 import unicodedata
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.domain.models import Context
+from app.core.config import settings
+from app.domain.models import Context, ContextDoc, DocKind, utcnow
 from app.domain.store import InMemoryStore
+from tests.conftest import FakeParser
 
 V1 = "/api/v1"
 PDF = b"%PDF-1.7\nfake\n"
@@ -21,10 +24,17 @@ def context_id(client: TestClient) -> str:
     return client.get(f"{V1}/contexts/current").json()["id"]
 
 
-def upload(client: TestClient, context_id: str, name: str, body: bytes = PDF):
+def upload(
+    client: TestClient,
+    context_id: str,
+    name: str,
+    body: bytes = PDF,
+    category: str | None = None,
+):
     return client.post(
         f"{V1}/contexts/{context_id}/docs",
         files={"file": (name, body, "application/pdf")},
+        data={} if category is None else {"category": category},
     )
 
 
@@ -103,20 +113,77 @@ def test_upload_returns_fe_doc_shape(client: TestClient, context_id: str) -> Non
     got = upload(client, context_id, "jd.pdf")
     assert got.status_code == 201
     body = got.json()
-    assert set(body) == {"id", "name", "kind", "sizeBytes", "status"}
+    assert set(body) == {"id", "name", "kind", "sizeBytes", "status", "category"}
     assert body["kind"] == "pdf"
     assert body["sizeBytes"] == len(PDF)
-    # 파싱이 아직 없어 올라온 즉시 ready 다.
-    assert body["status"] == "ready"
+    # 본문 추출은 응답 뒤에 돈다. 응답 시점에는 항상 parsing 이다.
+    assert body["status"] == "parsing"
+    assert body["category"] == "internal"
 
 
 def test_uploaded_doc_appears_in_the_context(
     client: TestClient, context_id: str
 ) -> None:
-    upload(client, context_id, "jd.pdf")
-    upload(client, context_id, "회사소개.docx")
+    upload(client, context_id, "jd.pdf", category="jd")
+    upload(client, context_id, "회사소개.pdf")
     docs = client.get(f"{V1}/contexts/{context_id}").json()["docs"]
-    assert [d["name"] for d in docs] == ["jd.pdf", "회사소개.docx"]
+    assert [(d["name"], d["category"]) for d in docs] == [
+        ("jd.pdf", "jd"),
+        ("회사소개.pdf", "internal"),
+    ]
+
+
+def test_unknown_category_is_422(client: TestClient, context_id: str) -> None:
+    assert upload(client, context_id, "jd.pdf", category="resume").status_code == 422
+
+
+def test_extracted_text_is_stored_and_doc_becomes_ready(
+    client: TestClient, store: InMemoryStore, context_id: str, parser: FakeParser
+) -> None:
+    """TestClient 는 응답을 돌려주기 전에 BackgroundTasks 까지 돌린다."""
+    doc_id = upload(client, context_id, "jd.pdf", category="jd").json()["id"]
+
+    assert parser.calls == [("jd.pdf", PDF)]
+    assert store.get_doc_text(context_id, doc_id) == "추출한 본문"
+    doc = client.get(f"{V1}/contexts/{context_id}").json()["docs"][0]
+    assert doc["status"] == "ready"
+
+
+def test_doc_without_extractable_text_is_failed(
+    client: TestClient, store: InMemoryStore, context_id: str, parser: FakeParser
+) -> None:
+    """스캔이 비었거나 Helpy 가 실패했다. 지우고 다시 올리면 된다."""
+    parser.text = None
+    doc_id = upload(client, context_id, "scan.pdf").json()["id"]
+
+    assert store.get_doc_text(context_id, doc_id) is None
+    doc = client.get(f"{V1}/contexts/{context_id}").json()["docs"][0]
+    assert doc["status"] == "failed"
+
+
+def test_doc_stuck_in_parsing_shows_failed(
+    client: TestClient, store: InMemoryStore, context_id: str
+) -> None:
+    """추출 도중 서버가 재시작돼 parsing 에 멈춘 문서. FE 폴링이 끝나야 한다."""
+    stuck = ContextDoc(
+        context_id=context_id,
+        name="stuck.pdf",
+        kind=DocKind.PDF,
+        size_bytes=1,
+        created_at=utcnow() - settings.doc_parse_timeout - timedelta(seconds=1),
+    )
+    fresh = ContextDoc(
+        context_id=context_id, name="fresh.pdf", kind=DocKind.PDF, size_bytes=1
+    )
+    store.add_doc(stuck, b"x")
+    store.add_doc(fresh, b"x")
+
+    docs = client.get(f"{V1}/contexts/{context_id}").json()["docs"]
+
+    assert [(d["name"], d["status"]) for d in docs] == [
+        ("stuck.pdf", "failed"),
+        ("fresh.pdf", "parsing"),
+    ]
 
 
 def test_filename_is_normalized_to_nfc(client: TestClient, context_id: str) -> None:
@@ -130,7 +197,7 @@ def test_filename_is_normalized_to_nfc(client: TestClient, context_id: str) -> N
     assert stored == nfc
 
 
-@pytest.mark.parametrize("suffix", [".pdf", ".DOCX"])
+@pytest.mark.parametrize("suffix", [".pdf", ".PDF"])
 def test_overlong_name_keeps_its_suffix(
     client: TestClient, context_id: str, suffix: str
 ) -> None:
@@ -142,7 +209,7 @@ def test_overlong_name_keeps_its_suffix(
     assert name.endswith(suffix)
 
 
-@pytest.mark.parametrize("name", ["notes.txt", "sheet.xlsx", "noext"])
+@pytest.mark.parametrize("name", ["notes.txt", "sheet.xlsx", "noext", "회사소개.docx"])
 def test_unsupported_type_is_415(
     client: TestClient, context_id: str, name: str
 ) -> None:

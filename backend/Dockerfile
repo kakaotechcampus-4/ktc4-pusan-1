@@ -6,9 +6,13 @@
 # multi-stage 는 쓰지 않는다 — 여기서 걷어낼 게 uv 바이너리(약 30MB) 뿐이라
 # 스테이지를 나누는 값이 비용보다 크지 않다. 컴파일러가 필요한 의존성이
 # 생기면 그때 나눈다.
-FROM python:3.12-slim
+#
+# 베이스와 uv 는 digest 고정 — 갱신은 Dependabot PR (#134). uv 를 `FROM … AS uv`
+# 로 받는 건 Dependabot 이 FROM 줄만 읽어서다 (`COPY --from=<이미지>` 는 안 본다).
+FROM ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 AS uv
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -23,6 +27,12 @@ ENV PATH="/app/.venv/bin:$PATH" \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     PYTHONUNBUFFERED=1
+
+# 녹화 합치기(#112)가 명령으로 부른다. 데비안 패키지를 쓴다 — 서버에서 돌리기만
+# 하고 이미지를 배포하지 않으므로 라이선스 의무가 생기지 않는다 (테크스펙 「녹화」).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 # 의존성 레이어를 소스와 분리한다. app/ 만 바뀌면 uv sync 를 다시 돌지 않는다.
 COPY pyproject.toml uv.lock ./

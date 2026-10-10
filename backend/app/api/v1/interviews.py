@@ -1,25 +1,61 @@
-"""면접 · 세션 생성 — 명세 `면접` 카테고리."""
+"""면접 · 세션 생성 — 명세 `면접` 카테고리.
 
+전부 면접관 전용이라 로그인이 필요하고, 남의 면접은 없는 것과 같이 404 다 (#130).
+"""
+
+from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, File, Path, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Path, UploadFile, status
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import MediaDep, StoreDep
+from app.api.deps import (
+    CurrentUserDep,
+    MediaDep,
+    OwnedInterviewDep,
+    ParserDep,
+    StoreDep,
+)
 from app.core.config import settings
-from app.core.errors import ApiError, ErrorCode, responses
+from app.core.errors import LOGIN_REQUIRED, ApiError, ErrorCode, responses
 from app.core.uploads import read_upload
-from app.domain.models import Interview, Resume, Session
+from app.domain.models import (
+    Context,
+    Interview,
+    InterviewPrep,
+    Resume,
+    Session,
+    SessionSummary,
+    SummaryStatus,
+)
+from app.domain.store import Store
 from app.schemas import (
     ContextDocResponse,
     CreateInterviewRequest,
     CreateSessionResponse,
+    InterviewerSummary,
+    InterviewListItem,
+    InterviewListResponse,
     InterviewResponse,
+    MarkResponse,
+    MarkUpdateRequest,
+    ReviewCandidate,
+    ReviewCounts,
+    ReviewCoverage,
+    ReviewFinding,
+    ReviewMoment,
     ReviewProcessingResponse,
+    ReviewResponse,
+    ReviewUpdateRequest,
+    ReviewUpdateResponse,
+    SummaryContent,
 )
+from app.services.review import build_review, item_kinds
 
 router = APIRouter(prefix="/interviews", tags=["면접"])
 
-InterviewIdPath = Annotated[str, Path(alias="interviewId")]
+_NOT_FOUND = (404, "면접을 찾을 수 없음 (남의 면접 포함)")
 
 
 def _to_response(interview: Interview) -> InterviewResponse:
@@ -43,18 +79,21 @@ def _clean_candidate_name(name: str | None) -> str | None:
     response_model=InterviewResponse,
     status_code=201,
     summary="면접 생성",
-    responses=responses((422, "요청값 검증 실패")),
+    responses=responses(LOGIN_REQUIRED, (422, "요청값 검증 실패")),
 )
 def create_interview(
-    body: CreateInterviewRequest, store: StoreDep
+    body: CreateInterviewRequest, user: CurrentUserDep, store: StoreDep
 ) -> InterviewResponse:
     """면접관이 새로운 면접 정보를 생성한다.
 
     Session 과 LiveKit Room 은 여기서 만들지 않는다 —
     `POST /interviews/{interviewId}/sessions` 가 담당한다.
+
+    면접의 주인(`interviewerId`)은 토큰의 사용자다. 요청 본문으로 받으면 아무 이름으로나
+    면접을 만들 수 있어, 그 면접을 주인만 다룬다는 판단이 서지 않는다.
     """
     interview = Interview(
-        interviewer_id=body.interviewer_id,
+        interviewer_id=user.id,
         candidate_name=_clean_candidate_name(body.candidate_name),
     )
     store.add_interview(interview)
@@ -62,17 +101,127 @@ def create_interview(
 
 
 @router.get(
+    "",
+    response_model=InterviewListResponse,
+    summary="내 면접 목록",
+    responses=responses(LOGIN_REQUIRED),
+)
+def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListResponse:
+    """내가 만든 면접을 최신순으로 준다. 필터 · 정렬은 FE 가 한다 (#137 1-1).
+
+    면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 내 컨텍스트에서 온다.
+    """
+    # ponytail: 페이지네이션 없음. 면접관 한 명의 면접이 수백 건을 넘으면
+    # cursor 를 붙인다.
+    role = store.ensure_context(Context(owner_id=user.id)).role
+    interviewer = InterviewerSummary(nickname=user.nickname)
+    items = []
+    for interview, session, summary in store.list_interviews(user.id):
+        shown, counts = (
+            (summary, None)
+            if session is None
+            else _list_summary(store, interview, session, summary)
+        )
+        items.append(
+            _to_list_item(interview, session, shown, counts, role, interviewer)
+        )
+    return InterviewListResponse(items=items)
+
+
+def _list_summary(
+    store: Store, interview: Interview, session: Session, status: SummaryStatus | None
+) -> tuple[SummaryStatus | None, ReviewCounts | None]:
+    """보여 줄 요약 상태와 집계. 집계는 READY 일 때만, 상세와 같은 계산으로.
+
+    한도를 넘긴 PROCESSING 은 FAILED 로 **보여 줄 뿐** 쓰지 않는다
+    (`SessionSummary.shown_status`). 판정과 저장은 요약 · 상세 조회가 한다.
+    """
+    # ponytail: READY 한 줄마다 쿼리 3개(N+1). 수백 건이면 LATERAL 로 한 번에 읽는다.
+    if status is not SummaryStatus.PROCESSING and status is not SummaryStatus.READY:
+        return status, None
+    summary = store.get_summary(session.id)
+    if summary is None:
+        return status, None
+    shown = summary.shown_status(settings.summary_timeout)
+    if shown is not SummaryStatus.READY:
+        return shown, None
+    counts = build_review(
+        store.get_prep(interview.id), summary, store.list_marks(session.id)
+    ).counts()
+    return shown, ReviewCounts.model_validate(counts)
+
+
+def _timing(session: Session | None) -> tuple[datetime | None, int | None]:
+    """면접 시각과 길이. 「시작」을 안 눌렀으면 첫 입장 시각으로 대신한다 (#145).
+
+    둘 다 없으면(아무도 입장하지 않고 끝낸 면접) 시각과 길이 모두 None 이다.
+    """
+    began = (
+        None if session is None else session.started_at or session.transcript_origin_at
+    )
+    ended = None if session is None else session.ended_at
+    if began is None or ended is None:
+        return began, None
+    return began, int((ended - began).total_seconds())
+
+
+def _to_list_item(
+    interview: Interview,
+    session: Session | None,
+    summary: SummaryStatus | None,
+    counts: ReviewCounts | None,
+    role: str,
+    interviewer: InterviewerSummary,
+) -> InterviewListItem:
+    began, duration = _timing(session)
+    return InterviewListItem(
+        interview_id=interview.id,
+        candidate_name=interview.candidate_name,
+        role=role,
+        interviewer=interviewer,
+        interviewed_at=began,
+        duration_sec=duration,
+        review_status=interview.review_status,
+        summary_status=summary,
+        counts=counts,
+    )
+
+
+@router.get(
     "/{interviewId}",
     response_model=InterviewResponse,
     summary="면접 조회",
-    responses=responses((404, "면접을 찾을 수 없음")),
+    responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
 )
-def get_interview(interview_id: InterviewIdPath, store: StoreDep) -> InterviewResponse:
+def get_interview(interview: OwnedInterviewDep) -> InterviewResponse:
     """생성된 면접의 기본 정보를 조회한다."""
-    interview = store.get_interview(interview_id)
-    if interview is None:
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
     return _to_response(interview)
+
+
+@router.patch(
+    "/{interviewId}",
+    response_model=ReviewUpdateResponse,
+    summary="검토 상태 · 메모 수정",
+    responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
+)
+def update_review(
+    body: ReviewUpdateRequest, interview: OwnedInterviewDep, store: StoreDep
+) -> ReviewUpdateResponse:
+    """검토 상태와 메모를 바꾼다. 보낸 것만 바뀐다 (#137 1-3).
+
+    `CONFIRMED` 가 될 때 `reviewedAt` 을 찍고 다른 상태로 돌아가면 비운다. AI 결과가
+    없어도 된다 — 검토는 면접 단위다.
+    """
+    # 저장소가 한 문장으로 바꾼다. 읽어 둔 객체를 덮어쓰면 메모 자동 저장과 확정
+    # 버튼이 겹칠 때 보내지 않은 값이 옛 값으로 돌아간다.
+    updated = store.update_review(interview.id, body.review_status, body.memo)
+    if updated is None:  # 주인 검사 뒤에 지워졌다
+        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
+    return ReviewUpdateResponse(
+        review_status=updated.review_status,
+        reviewed_at=updated.reviewed_at,
+        memo=updated.memo,
+    )
 
 
 @router.post(
@@ -80,23 +229,27 @@ def get_interview(interview_id: InterviewIdPath, store: StoreDep) -> InterviewRe
     response_model=CreateSessionResponse,
     status_code=201,
     summary="면접 Session 생성",
-    responses=responses((404, "면접을 찾을 수 없음")),
+    responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
 )
 async def create_session(
-    interview_id: InterviewIdPath, store: StoreDep, media: MediaDep
+    interview: OwnedInterviewDep, store: StoreDep, media: MediaDep
 ) -> CreateSessionResponse:
     """생성된 면접에 실제 화상면접 Session 을 만들고 지원자 초대 링크를 발급한다.
 
     LiveKit Room 을 미리 만든다. 입장 시 자동 생성되기는 하지만
     `max_participants` 같은 설정을 적용하려면 사전 생성이 필요하다.
     """
-    interview = store.get_interview(interview_id)
-    if interview is None:
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
-
-    session = Session(interview_id=interview_id)
+    session = Session(interview_id=interview.id)
     await media.ensure_room(session.room_name)
-    store.add_session(session)
+    # 저장소는 동기다. async 라우트가 그대로 부르면 그동안 이벤트 루프가 멈춘다 (#133).
+    # 면접 전 분석을 요청한다(#162). 이미 있으면 그대로다 — 세션을 다시 만들 때마다
+    # 다시 돌리지 않는다. 실패했으면 다시 요청하고, 이력서를 바꾸면 다시 돈다.
+    #
+    # 세션보다 먼저 연다. 거꾸로면 세션 저장과 이 줄 사이에 죽었을 때 자리가 영영 안
+    # 열린다 — 이력서 재요청은 UPDATE 라 없는 자리를 못 연다. 자리만 있고 세션이
+    # 없으면 작업이 나가지 않으니(할 일 조회가 세션을 조인한다) 먼저 열어도 된다.
+    await run_in_threadpool(store.ensure_prep, InterviewPrep(interview_id=interview.id))
+    await run_in_threadpool(store.add_session, session)
 
     return CreateSessionResponse(
         session_id=session.id,
@@ -110,35 +263,119 @@ async def create_session(
 
 @router.get(
     "/{interviewId}/review",
-    # 지금 나가는 건 PROCESSING 한 갈래뿐이라 그것만 선언한다.
-    # READY 는 아직 합의 전이라 schemas.py 에 모델로만 둔다 — 합의 전 형태를
-    # OpenAPI 에 실으면 FE·AI 가 확정된 계약으로 읽는다.
-    response_model=ReviewProcessingResponse,
-    status_code=202,
+    response_model=ReviewResponse,
     summary="면접 기록 조회",
-    responses=responses((404, "면접을 찾을 수 없음")),
+    responses={
+        202: {"model": ReviewProcessingResponse, "description": "준비 중"},
+        **responses(LOGIN_REQUIRED, _NOT_FOUND),
+    },
 )
 def get_review(
-    interview_id: InterviewIdPath, store: StoreDep
-) -> ReviewProcessingResponse:
-    """면접이 끝난 뒤의 기록(녹화 · 타임라인 · AI 서술)을 조회한다.
+    interview: OwnedInterviewDep, user: CurrentUserDep, store: StoreDep
+) -> ReviewResponse | JSONResponse:
+    """면접이 끝난 뒤의 검토 화면 — 요약 · coverage · 타임라인 · 검토 항목 (#137 1-2).
 
-    **지금은 항상 `PROCESSING` 을 돌려준다.** 면접 존재 여부만 확인하는 단계다.
-    FE 는 이 분기를 이미 갖고 있어(`ReviewResponse`) 화면이 로딩 상태로 뜬다.
+    기준 세션은 그 면접에서 가장 나중에 끝난 세션이다(목록과 같다). 끝난 세션이
+    없거나 요약이 아직 PROCESSING 이면 202 다. FE 는 그동안 다시 조회한다.
 
-    READY 를 채우려면 셋이 더 필요하고, 전부 아직 없다.
-
-      moments   AI 의 build_timeline() 결과. ai/ 패키지를 BE 가 어떻게 부를지 미정
-      recording LiveKit Egress. compose 에 컨테이너도 저장소도 없다
-      aiReview  요약 파이프라인. moments 와 다른 산출물이다
-
-    202 로 두는 건 FE 가 그렇게 읽기 때문이다 — "준비 전에는 202 와 PROCESSING".
-    준비가 끝나면 200 + READY 로 바뀐다.
+    **요약이 FAILED 여도 200 이다** (#163). `summary` 는 null 이고 moments ·
+    findings 는 비며 coverage 는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI
+    결과와 상관없이 할 수 있어야 한다.
     """
-    if store.get_interview(interview_id) is None:
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
-    # etaSec 은 비운다. 추정할 근거가 아직 없는데 숫자를 주면 FE 가 그걸 믿는다.
-    return ReviewProcessingResponse()
+    session = store.last_ended_session(interview.id)
+    if session is None:
+        return _processing()
+    # 요약 API(`GET /sessions/{id}/summary`)와 같은 판정이다. 자리가 없으면(이 기능
+    # 전에 끝난 세션) 만들고, PROCESSING 은 한도를 본다 — 아무도 요약 화면을 열지
+    # 않아도 상세는 열려야 한다.
+    summary = store.get_summary(session.id) or store.ensure_summary(
+        SessionSummary(session_id=session.id)
+    )
+    if summary.status is SummaryStatus.PROCESSING:
+        summary = store.expire_summary(session.id, settings.summary_timeout) or summary
+    shown = summary.status
+    if shown is SummaryStatus.PROCESSING:
+        return _processing()
+
+    review = build_review(
+        store.get_prep(interview.id), summary, store.list_marks(session.id)
+    )
+    began, duration = _timing(session)
+    return ReviewResponse(
+        status="READY",
+        summary_status=shown,
+        interview_id=interview.id,
+        session_id=session.id,
+        candidate=ReviewCandidate(
+            name=interview.candidate_name,
+            role=store.ensure_context(Context(owner_id=user.id)).role,
+        ),
+        interviewer=InterviewerSummary(nickname=user.nickname),
+        interviewed_at=began,
+        duration_sec=duration,
+        review_status=interview.review_status,
+        reviewed_at=interview.reviewed_at,
+        memo=interview.memo,
+        summary=SummaryContent(overview=summary.overview, key_points=summary.key_points)
+        if shown is SummaryStatus.READY
+        else None,
+        coverage=[ReviewCoverage.model_validate(c) for c in review.coverage],
+        moments=[ReviewMoment.model_validate(m) for m in review.moments],
+        findings=[ReviewFinding.model_validate(f) for f in review.findings],
+    )
+
+
+@router.put(
+    "/{interviewId}/review/marks/{itemId}",
+    response_model=MarkResponse,
+    summary="검토 항목 채택 · 문답 북마크",
+    responses=responses(
+        LOGIN_REQUIRED, (404, "면접이 없거나 지금 상세에 그 항목이 없음")
+    ),
+)
+def put_mark(
+    item_id: Annotated[str, Path(alias="itemId")],
+    body: MarkUpdateRequest,
+    interview: OwnedInterviewDep,
+    store: StoreDep,
+) -> MarkResponse:
+    """검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).
+
+    `itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면
+    404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도
+    없다 (#163 결정). 문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중
+    하나」). 표시는 기준 세션에 남는다.
+    """
+    session = store.last_ended_session(interview.id)
+    summary = None if session is None else store.get_summary(session.id)
+    kinds = (
+        {}
+        if summary is None or summary.status is not SummaryStatus.READY
+        else item_kinds(summary)
+    )
+    kind = kinds.get(item_id)
+    if session is None or kind is None:
+        raise ApiError(ErrorCode.NOT_FOUND, 404, "검토 항목을 찾을 수 없습니다.")
+    if (kind == "moment" and body.state is not None) or (
+        kind == "finding" and body.bookmarked is not None
+    ):
+        raise ApiError(
+            ErrorCode.VALIDATION_ERROR,
+            422,
+            "문답은 bookmarked 만, 검토 항목은 state 만 받습니다.",
+        )
+
+    # 보낸 것만 한 문장으로 바꾼다.
+    mark = store.update_mark(
+        session.id, item_id, state=body.state, bookmarked=body.bookmarked
+    )
+    return MarkResponse(item_id=item_id, state=mark.state, bookmarked=mark.bookmarked)
+
+
+def _processing() -> JSONResponse:
+    # etaSec 은 비운다. 추정할 근거가 없는데 숫자를 주면 FE 가 그걸 믿는다.
+    body = ReviewProcessingResponse().model_dump(by_alias=True)
+    return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=body)
 
 
 @router.post(
@@ -147,17 +384,20 @@ def get_review(
     status_code=status.HTTP_201_CREATED,
     summary="지원자 이력서 업로드",
     responses=responses(
-        (404, "면접을 찾을 수 없음"),
+        LOGIN_REQUIRED,
+        _NOT_FOUND,
         (413, "파일이 너무 큼"),
         (415, "지원하지 않는 형식"),
     ),
 )
 async def upload_resume(
-    interview_id: InterviewIdPath,
+    interview: OwnedInterviewDep,
     store: StoreDep,
+    parser: ParserDep,
+    background: BackgroundTasks,
     file: Annotated[UploadFile, File()],
 ) -> ContextDocResponse:
-    """지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.
+    """지원자 이력서를 올린다. **PDF 만 받는다.**
 
     **면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은
     것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.
@@ -165,17 +405,24 @@ async def upload_resume(
     응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드
     컴포넌트로 그린다.
 
-    본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로
-    하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.
+    본문은 기업 컨텍스트 문서와 같이 응답 뒤에 따로 뽑는다(#143). 응답은 `parsing`
+    이다. 꼬리질문과 리포트가 이 본문을 쓴다(#70).
     """
-    if store.get_interview(interview_id) is None:
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
-
     name, kind, content = await read_upload(file)
     resume = Resume(
-        interview_id=interview_id, name=name, kind=kind, size_bytes=len(content)
+        interview_id=interview.id, name=name, kind=kind, size_bytes=len(content)
     )
-    store.save_resume(resume, content)
+    await run_in_threadpool(store.save_resume, resume, content)
+    # 새 이력서로 면접 전 분석을 다시 돌린다(#162). 세션을 만들기 전이면 자리가 없어
+    # 아무 일도 없고, 세션을 만들 때 열린다. 본문 추출이 끝나야 작업이 나간다.
+    #
+    # 면접이 끝났으면 돌리지 않는다(#163). 그 판정은 저장소가 같은 문장에서 한다.
+    await run_in_threadpool(store.restart_prep, interview.id)
+    background.add_task(
+        lambda: store.finish_resume(
+            interview.id, resume.id, parser.extract_text(resume.name, content)
+        )
+    )
     return ContextDocResponse(
         id=resume.id,
         name=resume.name,

@@ -3,6 +3,10 @@
     "schemas": {
       "Body_upload_doc_api_v1_contexts__contextId__docs_post": {
         "properties": {
+          "category": {
+            "$ref": "#/components/schemas/DocCategory",
+            "default": "internal"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -32,6 +36,17 @@
       "ContextDocResponse": {
         "description": "FE 의 `ContextDoc` 과 같은 모양.\n\n`progress` 는 내보내지 않는다 — 업로드 진행률은 클라이언트만 아는 값이다.",
         "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocCategory"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "기업 컨텍스트 문서의 칸(jd · internal). 이력서는 null."
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -48,7 +63,8 @@
             "type": "integer"
           },
           "status": {
-            "$ref": "#/components/schemas/DocStatus"
+            "$ref": "#/components/schemas/DocStatus",
+            "description": "올라온 직후는 parsing 이다. 본문을 뽑으면 ready, 못 뽑으면 failed. parsing 인 동안 다시 조회한다."
           }
         },
         "required": [
@@ -103,6 +119,16 @@
         "title": "ContextResponse",
         "type": "object"
       },
+      "CoverageState": {
+        "description": "역량 하나가 면접에서 얼마나 확인됐나 (#137 1-2 「coverage 규칙」).",
+        "enum": [
+          "CONFIRMED",
+          "PARTIAL",
+          "MISSING"
+        ],
+        "title": "CoverageState",
+        "type": "string"
+      },
       "CreateInterviewRequest": {
         "properties": {
           "candidateName": {
@@ -120,20 +146,8 @@
               "김지원"
             ],
             "title": "Candidatename"
-          },
-          "interviewerId": {
-            "examples": [
-              "user_123"
-            ],
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Interviewerid",
-            "type": "string"
           }
         },
-        "required": [
-          "interviewerId"
-        ],
         "title": "CreateInterviewRequest",
         "type": "object"
       },
@@ -183,6 +197,15 @@
         "title": "CreateSessionResponse",
         "type": "object"
       },
+      "DocCategory": {
+        "description": "기업 컨텍스트 문서의 종류. FE 설정 화면의 두 칸이다.\n\nAI 가 JD 와 사내 문서를 다르게 쓴다 — JD 는 「이 직무가 요구하는 것」이다.",
+        "enum": [
+          "jd",
+          "internal"
+        ],
+        "title": "DocCategory",
+        "type": "string"
+      },
       "DocKind": {
         "description": "업로드할 수 있는 문서 형식. FE 의 `DocKind` 와 같다.",
         "enum": [
@@ -193,7 +216,7 @@
         "type": "string"
       },
       "DocStatus": {
-        "description": "서버가 아는 문서 상태.\n\nFE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —\n서버는 업로드가 끝난 뒤에야 문서를 안다.\n\n`PARSING` 은 아직 쓰지 않는다. 본문 추출을 누가 하는지가 안 정해져서(#70) 지금은\n올라온 즉시 `READY` 다. 값은 미리 둔다 — 나중에 파싱이 붙을 때 FE 가 이미 이\n분기를 갖고 있다.",
+        "description": "서버가 아는 문서 상태.\n\nFE 의 `DocStatus` 에는 `uploading` 도 있지만 그건 클라이언트에만 있는 상태다 —\n서버는 업로드가 끝난 뒤에야 문서를 안다.\n\n    PARSING --본문을 뽑음--> READY\n            --못 뽑음·한도 초과--> FAILED\n\n올라온 순간 `PARSING` 이고, 백그라운드에서 Helpy 가 본문을 뽑으면 끝난다 (#143).",
         "enum": [
           "parsing",
           "ready",
@@ -237,6 +260,7 @@
           "INVALID_SESSION_STATE",
           "ROOM_FULL",
           "UNAUTHORIZED",
+          "ROLE_NOT_ALLOWED",
           "KAKAO_AUTH_FAILED",
           "KAKAO_UNAVAILABLE"
         ],
@@ -278,6 +302,28 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "FindingState": {
+        "description": "검토 항목에 대한 면접관의 판단 (#137 1-4). AI `FindingState` 의 어휘다.\n\nAI 쪽에는 `EDITED` 도 있지만 면접관이 고르는 값은 이 셋이다.",
+        "enum": [
+          "PROPOSED",
+          "ADOPTED",
+          "REJECTED"
+        ],
+        "title": "FindingState",
+        "type": "string"
+      },
+      "FindingType": {
+        "description": "검토 항목의 종류 — AI `FindingType` 의 어휘 (#137 1-2).",
+        "enum": [
+          "COMPETENCY_EVIDENCE",
+          "CLAIM_VERIFIED",
+          "CLAIM_CONTRADICTED",
+          "CLAIM_UNVERIFIED",
+          "GAP"
+        ],
+        "title": "FindingType",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -302,6 +348,112 @@
           "status"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "InterviewListItem": {
+        "description": "`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다 (#137 1-1).\n\n기준은 그 면접의 마지막으로 끝난 세션이다. 끝난 세션이 없으면 그 세션에서 오는\n값(`interviewedAt` · `durationSec` · `summaryStatus`)은 null 이다.",
+        "properties": {
+          "candidateName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidatename"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewCounts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "검토 항목 집계. 요약이 READY 가 아니면 null 이다 (#137 1-1)."
+          },
+          "durationSec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationsec"
+          },
+          "interviewId": {
+            "title": "Interviewid",
+            "type": "string"
+          },
+          "interviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "「면접 시작」 시각. 비어 있으면 첫 입장 시각.",
+            "title": "Interviewedat"
+          },
+          "interviewer": {
+            "$ref": "#/components/schemas/InterviewerSummary"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "role": {
+            "description": "컨텍스트의 직무. 아직 안 정했으면 빈 문자열.",
+            "title": "Role",
+            "type": "string"
+          },
+          "summaryStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "한도를 넘긴 PROCESSING 은 FAILED 로 보인다(저장값은 그대로)."
+          }
+        },
+        "required": [
+          "interviewId",
+          "candidateName",
+          "role",
+          "interviewer",
+          "interviewedAt",
+          "durationSec",
+          "reviewStatus",
+          "summaryStatus",
+          "counts"
+        ],
+        "title": "InterviewListItem",
+        "type": "object"
+      },
+      "InterviewListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InterviewListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "InterviewListResponse",
         "type": "object"
       },
       "InterviewResponse": {
@@ -340,12 +492,25 @@
         "title": "InterviewResponse",
         "type": "object"
       },
+      "InterviewerSummary": {
+        "properties": {
+          "nickname": {
+            "title": "Nickname",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nickname"
+        ],
+        "title": "InterviewerSummary",
+        "type": "object"
+      },
       "JoinRequest": {
         "properties": {
           "role": {
             "$ref": "#/components/schemas/Role",
             "default": "CANDIDATE",
-            "description": "현재 로그인·인증 제외 기준이라 요청값으로 받는다. 인증 도입 후에는 서버가 참가자 역할을 판단한다."
+            "description": "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 `ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다."
           }
         },
         "title": "JoinRequest",
@@ -428,6 +593,309 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "MarkResponse": {
+        "description": "그 항목의 지금 표시.",
+        "properties": {
+          "bookmarked": {
+            "title": "Bookmarked",
+            "type": "boolean"
+          },
+          "itemId": {
+            "title": "Itemid",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/FindingState"
+          }
+        },
+        "required": [
+          "itemId",
+          "state",
+          "bookmarked"
+        ],
+        "title": "MarkResponse",
+        "type": "object"
+      },
+      "MarkUpdateRequest": {
+        "description": "`PUT .../review/marks/{itemId}` — 채택 · 북마크 (#137 1-4). 보낸 것만 바뀐다.\n\n`state` 는 검토 항목(finding)의 채택 여부, `bookmarked` 는 문답(moment)의\n북마크다. 둘 다 없으면 바꿀 것이 없어 422 다.",
+        "properties": {
+          "bookmarked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bookmarked"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindingState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "MarkUpdateRequest",
+        "type": "object"
+      },
+      "RecordingResponse": {
+        "description": "녹화 재생 (#112). 합친 파일 하나의 서명 URL 이다.\n\n`offsetMs` 는 녹화의 0초가 전사 원점(t=0)보다 얼마나 뒤인가다. 전사 시각\nt(ms) 의 장면은 녹화의 `t − offsetMs` 에 있다.",
+        "properties": {
+          "durationSec": {
+            "title": "Durationsec",
+            "type": "integer"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "offsetMs": {
+            "title": "Offsetms",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expiresAt",
+          "offsetMs",
+          "durationSec"
+        ],
+        "title": "RecordingResponse",
+        "type": "object"
+      },
+      "ReviewCandidate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "비어 있으면 FE 가 기본 라벨로 대체한다.",
+            "title": "Name"
+          },
+          "role": {
+            "description": "컨텍스트의 직무. 아직 안 정했으면 빈 문자열.",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "role"
+        ],
+        "title": "ReviewCandidate",
+        "type": "object"
+      },
+      "ReviewCounts": {
+        "description": "목록 한 줄의 집계. 상세와 같은 계산(`app/services/review.py`)에서 나온다.",
+        "properties": {
+          "adopted": {
+            "title": "Adopted",
+            "type": "integer"
+          },
+          "coverageConfirmed": {
+            "title": "Coverageconfirmed",
+            "type": "integer"
+          },
+          "coverageTotal": {
+            "title": "Coveragetotal",
+            "type": "integer"
+          },
+          "findings": {
+            "title": "Findings",
+            "type": "integer"
+          },
+          "needsReview": {
+            "description": "아직 채택도 반려도 안 한 검토 항목",
+            "title": "Needsreview",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "coverageConfirmed",
+          "coverageTotal",
+          "findings",
+          "needsReview",
+          "adopted"
+        ],
+        "title": "ReviewCounts",
+        "type": "object"
+      },
+      "ReviewCoverage": {
+        "properties": {
+          "name": {
+            "description": "역량 이름",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CoverageState"
+          }
+        },
+        "required": [
+          "name",
+          "state"
+        ],
+        "title": "ReviewCoverage",
+        "type": "object"
+      },
+      "ReviewFinding": {
+        "description": "검토 항목 하나 — AI 가 근거와 함께 낸 관찰. 판정이 아니다.",
+        "properties": {
+          "atSec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Atsec"
+          },
+          "competency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competency"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "지원서의 문장",
+            "title": "Quote"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "「지원서 · 단락」 또는 「면접 답변」",
+            "title": "Source"
+          },
+          "state": {
+            "$ref": "#/components/schemas/FindingState"
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "근거가 된 면접 발화",
+            "title": "Transcript"
+          },
+          "type": {
+            "$ref": "#/components/schemas/FindingType"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "competency",
+          "source",
+          "quote",
+          "transcript",
+          "rationale",
+          "atSec",
+          "state"
+        ],
+        "title": "ReviewFinding",
+        "type": "object"
+      },
+      "ReviewMoment": {
+        "description": "질문 하나가 시작된 시점과 그 문답.",
+        "properties": {
+          "answer": {
+            "description": "답변 요약 한두 줄",
+            "title": "Answer",
+            "type": "string"
+          },
+          "atSec": {
+            "description": "전사 원점 기준 경과 초",
+            "title": "Atsec",
+            "type": "number"
+          },
+          "bookmarked": {
+            "title": "Bookmarked",
+            "type": "boolean"
+          },
+          "competencies": {
+            "description": "근거 시각이 이 문답 구간에 드는 검토 항목의 역량",
+            "items": {
+              "type": "string"
+            },
+            "title": "Competencies",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "타임라인 아래 짧은 라벨",
+            "title": "Label",
+            "type": "string"
+          },
+          "question": {
+            "description": "면접관 발화 원문",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "atSec",
+          "label",
+          "question",
+          "answer",
+          "competencies",
+          "bookmarked"
+        ],
+        "title": "ReviewMoment",
+        "type": "object"
+      },
       "ReviewProcessingResponse": {
         "description": "녹화 변환과 AI 평가가 아직 끝나지 않은 상태. 202 로 나간다.",
         "properties": {
@@ -451,6 +919,202 @@
           }
         },
         "title": "ReviewProcessingResponse",
+        "type": "object"
+      },
+      "ReviewResponse": {
+        "description": "준비가 끝난 면접 기록 (#137 1-2).\n\n요약이 FAILED 여도 이 모양이다 — `summary` 는 null, moments · findings 는 비고\ncoverage 는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI 결과와 상관없이 할 수\n있어야 한다 (#163).",
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/ReviewCandidate"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewCoverage"
+            },
+            "title": "Coverage",
+            "type": "array"
+          },
+          "durationSec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationsec"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "interviewId": {
+            "title": "Interviewid",
+            "type": "string"
+          },
+          "interviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interviewedat"
+          },
+          "interviewer": {
+            "$ref": "#/components/schemas/InterviewerSummary"
+          },
+          "memo": {
+            "title": "Memo",
+            "type": "string"
+          },
+          "moments": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewMoment"
+            },
+            "title": "Moments",
+            "type": "array"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewedat"
+          },
+          "sessionId": {
+            "description": "기준 세션. 녹화는 이 id 로 `GET /sessions/{sessionId}/recording`",
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "const": "READY",
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryContent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summaryStatus": {
+            "enum": [
+              "READY",
+              "FAILED"
+            ],
+            "title": "Summarystatus",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "summaryStatus",
+          "interviewId",
+          "sessionId",
+          "candidate",
+          "interviewer",
+          "interviewedAt",
+          "durationSec",
+          "reviewStatus",
+          "reviewedAt",
+          "memo",
+          "summary",
+          "coverage",
+          "moments",
+          "findings"
+        ],
+        "title": "ReviewResponse",
+        "type": "object"
+      },
+      "ReviewStatus": {
+        "description": "면접관의 검토 진행 상태 (#137 1-3). 한글 표시는 FE 가 한다.",
+        "enum": [
+          "PENDING",
+          "IN_REVIEW",
+          "CONFIRMED"
+        ],
+        "title": "ReviewStatus",
+        "type": "string"
+      },
+      "ReviewUpdateRequest": {
+        "description": "`PATCH /interviews/{interviewId}` — 검토 상태 · 메모 (#137 1-3). 둘 다 선택이다.\n\nnull 은 보내지 않은 것과 같다. 메모를 비우려면 빈 문자열을 보낸다. 길이와 NUL 은\n경계에서 막는다 — PostgreSQL TEXT 는 NUL 을 못 넣어 500 이 된다.",
+        "properties": {
+          "memo": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "pattern": "^[^\\x00]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memo"
+          },
+          "reviewStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ReviewUpdateRequest",
+        "type": "object"
+      },
+      "ReviewUpdateResponse": {
+        "properties": {
+          "memo": {
+            "title": "Memo",
+            "type": "string"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CONFIRMED 가 된 시각. 다른 상태로 돌아가면 null.",
+            "title": "Reviewedat"
+          }
+        },
+        "required": [
+          "reviewStatus",
+          "reviewedAt",
+          "memo"
+        ],
+        "title": "ReviewUpdateResponse",
         "type": "object"
       },
       "Role": {
@@ -890,8 +1554,20 @@
     },
     "/api/v1/contexts/current": {
       "get": {
-        "description": "지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.\n\nFE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수\n있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어\ncontextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.\n\n**주인은 지금 하나뿐이다.** 조직도 로그인도 없어서 조직을 가릴 방법이 없다.\n로그인이 들어오면 토큰에서 주인을 정하게 되고, 이 라우트의 겉모습은 그대로다.\n\n없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가\n구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.",
+        "description": "지금 쓰는 기업 컨텍스트를 돌려준다. 없으면 만들어서 돌려준다.\n\nFE 가 설정 화면에 들어올 때 `contextId` 를 모르는 상태다. 그래서 id 없이 부를 수\n있는 자리가 하나 필요하다 — FE 도 「조직 컨텍스트를 알려주는 API 가 없어\ncontextId 를 상수로 둔다」고 적어 두고 `'ctx_demo'` 를 쓰고 있다.\n\n**주인은 로그인한 사용자다.** 조직이 아직 없어서 면접관 한 명에 하나다.\n\n없으면 만드는 이유는 「설정을 아직 안 만들었다」와 「설정이 비어 있다」를 FE 가\n구분할 필요가 없어서다. 빈 컨텍스트를 받으면 그냥 채우면 된다.",
         "operationId": "get_current_context_api_v1_contexts_current_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -902,6 +1578,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "기업 컨텍스트 조회 (현재 조직)",
@@ -922,6 +1618,16 @@
               "title": "Contextid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -935,6 +1641,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -943,7 +1659,7 @@
                 }
               }
             },
-            "description": "컨텍스트를 찾을 수 없음"
+            "description": "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)"
           },
           "422": {
             "content": {
@@ -973,6 +1689,16 @@
               "title": "Contextid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -996,6 +1722,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1004,7 +1740,7 @@
                 }
               }
             },
-            "description": "컨텍스트를 찾을 수 없음"
+            "description": "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)"
           },
           "422": {
             "content": {
@@ -1025,7 +1761,7 @@
     },
     "/api/v1/contexts/{contextId}/docs": {
       "post": {
-        "description": "면접에 쓸 문서를 올린다. `pdf` 와 `docx` 만 받는다.\n\nFE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지\n경계가 아니다. 여기서 다시 본다.",
+        "description": "면접에 쓸 문서를 올린다. **PDF 만 받는다.**\n\nFE 도 보내기 전에 형식과 크기를 거르지만(`UploadRejection`), 그건 편의이지\n경계가 아니다. 여기서 다시 본다.\n\n**응답은 `parsing` 으로 바로 나간다.** 본문 추출(Helpy Document Vision)은 평균\n10초가 걸려서 응답 뒤에 따로 돈다. FE 는 `parsing` 인 문서가 있는 동안\n컨텍스트를 다시 조회하면 `ready` 나 `failed` 로 바뀐 것을 본다.",
         "operationId": "upload_doc_api_v1_contexts__contextId__docs_post",
         "parameters": [
           {
@@ -1034,6 +1770,16 @@
             "required": true,
             "schema": {
               "title": "Contextid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
               "type": "string"
             }
           }
@@ -1059,6 +1805,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1067,7 +1823,7 @@
                 }
               }
             },
-            "description": "컨텍스트를 찾을 수 없음"
+            "description": "컨텍스트를 찾을 수 없음 (남의 컨텍스트 포함)"
           },
           "413": {
             "content": {
@@ -1127,11 +1883,31 @@
               "title": "Docid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
           },
           "404": {
             "content": {
@@ -1141,7 +1917,7 @@
                 }
               }
             },
-            "description": "컨텍스트 또는 문서를 찾을 수 없음"
+            "description": "컨텍스트 또는 문서를 찾을 수 없음 (남의 것 포함)"
           },
           "422": {
             "content": {
@@ -1161,9 +1937,73 @@
       }
     },
     "/api/v1/interviews": {
+      "get": {
+        "description": "내가 만든 면접을 최신순으로 준다. 필터 · 정렬은 FE 가 한다 (#137 1-1).\n\n면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 내 컨텍스트에서 온다.",
+        "operationId": "list_interviews_api_v1_interviews_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "내 면접 목록",
+        "tags": [
+          "면접"
+        ]
+      },
       "post": {
-        "description": "면접관이 새로운 면접 정보를 생성한다.\n\nSession 과 LiveKit Room 은 여기서 만들지 않는다 —\n`POST /interviews/{interviewId}/sessions` 가 담당한다.",
+        "description": "면접관이 새로운 면접 정보를 생성한다.\n\nSession 과 LiveKit Room 은 여기서 만들지 않는다 —\n`POST /interviews/{interviewId}/sessions` 가 담당한다.\n\n면접의 주인(`interviewerId`)은 토큰의 사용자다. 요청 본문으로 받으면 아무 이름으로나\n면접을 만들 수 있어, 그 면접을 주인만 다룬다는 판단이 서지 않는다.",
         "operationId": "create_interview_api_v1_interviews_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1184,6 +2024,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
           },
           "422": {
             "content": {
@@ -1215,6 +2065,16 @@
               "title": "Interviewid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1228,6 +2088,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1236,7 +2106,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "422": {
             "content": {
@@ -1253,11 +2123,92 @@
         "tags": [
           "면접"
         ]
+      },
+      "patch": {
+        "description": "검토 상태와 메모를 바꾼다. 보낸 것만 바뀐다 (#137 1-3).\n\n`CONFIRMED` 가 될 때 `reviewedAt` 을 찍고 다른 상태로 돌아가면 비운다. AI 결과가\n없어도 된다 — 검토는 면접 단위다.",
+        "operationId": "update_review_api_v1_interviews__interviewId__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "검토 상태 · 메모 수정",
+        "tags": [
+          "면접"
+        ]
       }
     },
     "/api/v1/interviews/{interviewId}/resume": {
       "post": {
-        "description": "지원자 이력서를 올린다. `pdf` 와 `docx` 만 받는다.\n\n**면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은\n것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.\n\n응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드\n컴포넌트로 그린다.\n\n본문 추출(파싱)은 이 범위가 아니다. 꼬리질문과 리포트가 이력서 본문을 필요로\n하는데(#70), 누가 뽑는지가 안 정해져서 지금은 올려 두기만 한다.",
+        "description": "지원자 이력서를 올린다. **PDF 만 받는다.**\n\n**면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은\n것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.\n\n응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드\n컴포넌트로 그린다.\n\n본문은 기업 컨텍스트 문서와 같이 응답 뒤에 따로 뽑는다(#143). 응답은 `parsing`\n이다. 꼬리질문과 리포트가 이 본문을 쓴다(#70).",
         "operationId": "upload_resume_api_v1_interviews__interviewId__resume_post",
         "parameters": [
           {
@@ -1266,6 +2217,16 @@
             "required": true,
             "schema": {
               "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
               "type": "string"
             }
           }
@@ -1291,6 +2252,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1299,7 +2270,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "413": {
             "content": {
@@ -1340,7 +2311,7 @@
     },
     "/api/v1/interviews/{interviewId}/review": {
       "get": {
-        "description": "면접이 끝난 뒤의 기록(녹화 · 타임라인 · AI 서술)을 조회한다.\n\n**지금은 항상 `PROCESSING` 을 돌려준다.** 면접 존재 여부만 확인하는 단계다.\nFE 는 이 분기를 이미 갖고 있어(`ReviewResponse`) 화면이 로딩 상태로 뜬다.\n\nREADY 를 채우려면 셋이 더 필요하고, 전부 아직 없다.\n\n  moments   AI 의 build_timeline() 결과. ai/ 패키지를 BE 가 어떻게 부를지 미정\n  recording LiveKit Egress. compose 에 컨테이너도 저장소도 없다\n  aiReview  요약 파이프라인. moments 와 다른 산출물이다\n\n202 로 두는 건 FE 가 그렇게 읽기 때문이다 — \"준비 전에는 202 와 PROCESSING\".\n준비가 끝나면 200 + READY 로 바뀐다.",
+        "description": "면접이 끝난 뒤의 검토 화면 — 요약 · coverage · 타임라인 · 검토 항목 (#137 1-2).\n\n기준 세션은 그 면접에서 가장 나중에 끝난 세션이다(목록과 같다). 끝난 세션이\n없거나 요약이 아직 PROCESSING 이면 202 다. FE 는 그동안 다시 조회한다.\n\n**요약이 FAILED 여도 200 이다** (#163). `summary` 는 null 이고 moments ·\nfindings 는 비며 coverage 는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI\n결과와 상관없이 할 수 있어야 한다.",
         "operationId": "get_review_api_v1_interviews__interviewId__review_get",
         "parameters": [
           {
@@ -1351,9 +2322,29 @@
               "title": "Interviewid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
           "202": {
             "content": {
               "application/json": {
@@ -1362,7 +2353,17 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "준비 중"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
           },
           "404": {
             "content": {
@@ -1372,7 +2373,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "422": {
             "content": {
@@ -1391,6 +2392,98 @@
         ]
       }
     },
+    "/api/v1/interviews/{interviewId}/review/marks/{itemId}": {
+      "put": {
+        "description": "검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).\n\n`itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면\n404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도\n없다 (#163 결정). 문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중\n하나」). 표시는 기준 세션에 남는다.",
+        "operationId": "put_mark_api_v1_interviews__interviewId__review_marks__itemId__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "title": "Itemid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접이 없거나 지금 상세에 그 항목이 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "검토 항목 채택 · 문답 북마크",
+        "tags": [
+          "면접"
+        ]
+      }
+    },
     "/api/v1/interviews/{interviewId}/sessions": {
       "post": {
         "description": "생성된 면접에 실제 화상면접 Session 을 만들고 지원자 초대 링크를 발급한다.\n\nLiveKit Room 을 미리 만든다. 입장 시 자동 생성되기는 하지만\n`max_participants` 같은 설정을 적용하려면 사전 생성이 필요하다.",
@@ -1402,6 +2495,16 @@
             "required": true,
             "schema": {
               "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
               "type": "string"
             }
           }
@@ -1417,6 +2520,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1425,7 +2538,7 @@
                 }
               }
             },
-            "description": "면접을 찾을 수 없음"
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
           },
           "422": {
             "content": {
@@ -1510,6 +2623,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1523,6 +2646,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1531,7 +2664,7 @@
                 }
               }
             },
-            "description": "Session을 찾을 수 없음"
+            "description": "Session을 찾을 수 없음 (남의 세션 포함)"
           },
           "409": {
             "content": {
@@ -1573,6 +2706,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1595,6 +2738,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접관으로 입장하는데 로그인이 안 됨"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접관으로 입장하는데 이 면접의 주인이 아님"
           },
           "404": {
             "content": {
@@ -1633,6 +2796,89 @@
         ]
       }
     },
+    "/api/v1/sessions/{sessionId}/recording": {
+      "get": {
+        "description": "면접 녹화를 10분짜리 서명 URL 로 준다 (#112). 면접 주인만 본다.\n\n면접 중이거나 합치는 중이면 검토 API 처럼 `202 {\"status\": \"PROCESSING\"}` 다.\n녹화가 없거나 합치지 못했으면(FAILED) 404 — 화면은 둘 다 녹화 없이 전사로\n검토한다.",
+        "operationId": "get_recording_api_v1_sessions__sessionId__recording_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewProcessingResponse"
+                }
+              }
+            },
+            "description": "아직 합치는 중"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session 이 없거나(남의 세션 포함) 녹화가 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "녹화 재생",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
     "/api/v1/sessions/{sessionId}/start": {
       "post": {
         "description": "Session 을 면접 진행 상태로 변경하고 시작 시각을 기록한다.\n\n동시에 여러 번 불려도 **하나만 200 을 받고 나머지는 409** 다. 버튼을 두 번\n눌렀거나 응답이 늦어 클라이언트가 재시도한 경우에 닿는다.",
@@ -1644,6 +2890,16 @@
             "required": true,
             "schema": {
               "title": "Sessionid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
               "type": "string"
             }
           }
@@ -1659,6 +2915,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1667,7 +2933,7 @@
                 }
               }
             },
-            "description": "Session을 찾을 수 없음"
+            "description": "Session을 찾을 수 없음 (남의 세션 포함)"
           },
           "409": {
             "content": {
@@ -1709,6 +2975,16 @@
               "title": "Sessionid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1722,6 +2998,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1730,7 +3016,7 @@
                 }
               }
             },
-            "description": "Session을 찾을 수 없음"
+            "description": "Session을 찾을 수 없음 (남의 세션 포함)"
           },
           "409": {
             "content": {

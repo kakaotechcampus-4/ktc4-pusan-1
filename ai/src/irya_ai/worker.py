@@ -8,13 +8,19 @@ share the server.
 
 One room is one job. The job builds one Elice STT client, hands it to a
 :class:`~irya_ai.stt.rtc_bridge.RoomTranscriber`, and lets that transcribe
-each human microphone through the Whisper live path. Nothing else runs here:
-the follow-up question agent and the Backend transcript channel attach to the
-transcriber's sinks in their own change (#83).
+each human microphone through the Whisper live path. Every released
+utterance goes through one :class:`~irya_ai.sinks.FanOutSink` to the
+interviewer's caption and, when a Backend is configured, to two background
+consumers: a bounded sender that stores FINAL utterances
+(:mod:`irya_ai.transcript_runner`) and the follow-up question loop
+(:mod:`irya_ai.suggestion_runner`), whose kept suggestions are posted to
+``/internal/v1``. Captions never wait for either.
 """
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from livekit.agents import (
     AgentServer,
@@ -23,13 +29,122 @@ from livekit.agents import (
     WorkerPermissions,
     cli,
 )
+from openai import AsyncOpenAI
 
+from irya_ai.backend import BackendError
+from irya_ai.backend import build_client as build_backend_client
 from irya_ai.config import Settings, get_settings
+from irya_ai.openai_suggestions import OpenAISuggestionGenerator
+from irya_ai.sinks import FanOutSink
 from irya_ai.stt.elice import EliceSttClient, SttError, build_client
 from irya_ai.stt.rtc_bridge import RoomTranscriber, session_id_from_room
 from irya_ai.stt.stream import silent_probe
+from irya_ai.suggestion_runner import SuggestionRunner
+from irya_ai.suggestions import (
+    ExtractiveSuggestionGenerator,
+    LiveSuggestionAgent,
+    SuggestionGenerator,
+)
+from irya_ai.transcript_runner import TranscriptRunner
+from irya_ai.transcripts import build_transcript_channel
 
 logger = logging.getLogger(__name__)
+
+#: How long one follow-up round may take before the agent gives up on it.
+#: Deliberately shorter than ``LLM_TIMEOUT_SECONDS`` (which bounds the review
+#: paths): a suggestion that arrives after the interviewer has moved on is
+#: worth nothing, and TechSpec N3 asks for it within 3 seconds of the moment.
+#: The round is not retried on the same words either way.
+SUGGESTION_ROUND_TIMEOUT_SECONDS = 10.0
+
+
+@dataclass(frozen=True)
+class SuggestionWiring:
+    """The follow-up loop for one room and how to take it down."""
+
+    runner: SuggestionRunner
+    generator_name: str
+    close: Callable[[], Awaitable[None]]
+
+
+def build_suggestion_generator(
+    settings: Settings,
+) -> tuple[SuggestionGenerator, AsyncOpenAI | None]:
+    """The project LLM when it is configured, the extractive baseline when not.
+
+    Returns the OpenAI-compatible client alongside so the caller can close it;
+    ``None`` for the baseline, which owns nothing.
+    """
+
+    if settings.llm_base_url and settings.llm_api_key.get_secret_value().strip():
+        client = AsyncOpenAI(
+            api_key=settings.llm_api_key.get_secret_value(),
+            base_url=settings.llm_base_url,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=0,
+        )
+        generator = OpenAISuggestionGenerator(
+            client,
+            model=settings.llm_model,
+            reasoning_effort=settings.llm_reasoning_effort,
+        )
+        return generator, client
+    return ExtractiveSuggestionGenerator(), None
+
+
+def wire_suggestions(settings: Settings, *, session_id: str) -> SuggestionWiring | None:
+    """Assemble the follow-up loop for one room, or ``None`` without a Backend.
+
+    Suggestions only exist to be posted, so an unset ``BACKEND_BASE_URL``
+    disables the whole loop rather than running rounds nobody receives. The
+    captions do not depend on this and continue either way.
+    """
+
+    try:
+        backend = build_backend_client(settings)
+    except BackendError as exc:
+        logger.info(
+            "suggestions disabled (%s); captions continue session=%s",
+            exc.code,
+            session_id,
+        )
+        return None
+
+    generator, llm_client = build_suggestion_generator(settings)
+    agent = LiveSuggestionAgent(
+        generator,
+        model=getattr(generator, "model", ""),
+        timeout_seconds=SUGGESTION_ROUND_TIMEOUT_SECONDS,
+    )
+    runner = SuggestionRunner(
+        agent, session_id=session_id, post=backend.post_suggestion
+    )
+
+    async def close() -> None:
+        # Drain first, then take the clients away: a post in flight when the
+        # room ends should reach the Backend rather than die on a closed
+        # client.
+        await runner.stop()
+        await backend.client.aclose()
+        if llm_client is not None:
+            await llm_client.close()
+
+    return SuggestionWiring(
+        runner=runner,
+        generator_name=type(generator).__name__,
+        close=close,
+    )
+
+
+def wire_transcripts(settings: Settings, session_id: str) -> TranscriptRunner | None:
+    try:
+        channel = build_transcript_channel(settings, session_id)
+    except BackendError as exc:
+        logger.info("transcripts disabled session=%s code=%s", session_id, exc.code)
+        return None
+    return TranscriptRunner(
+        channel, session_id=session_id, max_queue=settings.transcript_max_pending
+    )
 
 
 async def _warm_up(client: EliceSttClient) -> None:
@@ -73,6 +188,21 @@ async def transcribe_room(ctx: JobContext) -> None:
         session_id=session_id,
         client=client,
     )
+    # One list, in this order. The caption stays first so the interviewer sees
+    # the words before any consumer that stores or reasons about them; storage
+    # comes before the follow-up loop so a suggestion never cites an utterance
+    # that was not offered to the Backend first. The fan-out keeps one
+    # consumer's failure from ending the track for the others.
+    transcripts = wire_transcripts(settings, session_id)
+    wiring = wire_suggestions(settings, session_id=session_id)
+    consumers = [transcriber.caption]
+    if transcripts is not None:
+        consumers.append(transcripts)
+        ctx.add_shutdown_callback(transcripts.stop)
+    if wiring is not None:
+        consumers.append(wiring.runner)
+        ctx.add_shutdown_callback(wiring.close)
+    transcriber.sinks = [FanOutSink(consumers)]
 
     async def transcribe_participant(_ctx: JobContext, participant) -> None:
         await transcriber.transcribe_participant(participant)
@@ -83,13 +213,20 @@ async def transcribe_room(ctx: JobContext) -> None:
     warm_up = asyncio.create_task(_warm_up(client), name="stt-warm-up")
     ctx.add_shutdown_callback(lambda: _cancel(warm_up))
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+    if transcripts is not None:
+        transcripts.start()
+    if wiring is not None:
+        wiring.runner.start()
     origin = transcriber.initialize_origin(ctx.room.remote_participants.values())
     logger.info(
-        "joined room=%s session=%s participants=%d origin=%s",
+        "joined room=%s session=%s participants=%d origin=%s "
+        "transcripts=%s suggestions=%s",
         ctx.room.name,
         session_id,
         len(ctx.room.remote_participants),
         origin.isoformat() if origin else "pending first human",
+        "on" if transcripts is not None else "off",
+        wiring.generator_name if wiring is not None else "off",
     )
 
 

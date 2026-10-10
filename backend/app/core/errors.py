@@ -35,6 +35,7 @@ class ErrorCode(StrEnum):
 
     # 인증
     UNAUTHORIZED = "UNAUTHORIZED"
+    ROLE_NOT_ALLOWED = "ROLE_NOT_ALLOWED"
     KAKAO_AUTH_FAILED = "KAKAO_AUTH_FAILED"
     KAKAO_UNAVAILABLE = "KAKAO_UNAVAILABLE"
 
@@ -103,6 +104,10 @@ class ErrorResponse(BaseModel):
     """OpenAPI 문서용. 실제 직렬화는 error_body() 가 한다."""
 
     error: ErrorDetail
+
+
+#: 로그인이 필요한 라우트의 401 (#130). `responses(LOGIN_REQUIRED, ...)` 로 쓴다.
+LOGIN_REQUIRED = (401, "로그인이 필요함")
 
 
 def responses(*statuses: tuple[int, str]) -> dict[int | str, dict[str, Any]]:

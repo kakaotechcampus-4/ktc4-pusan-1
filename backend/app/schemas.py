@@ -6,9 +6,20 @@ FE 는 camelCase 를 쓴다. 파이썬 쪽은 snake_case 로 두고 alias 로 �
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.models import DocKind, DocStatus, Role, SessionStatus, SummaryStatus
+from app.domain.models import (
+    CoverageState,
+    DocCategory,
+    DocKind,
+    DocStatus,
+    FindingState,
+    FindingType,
+    ReviewStatus,
+    Role,
+    SessionStatus,
+    SummaryStatus,
+)
 
 
 class Schema(BaseModel):
@@ -19,9 +30,8 @@ class Schema(BaseModel):
 
 
 class CreateInterviewRequest(Schema):
-    interviewer_id: str = Field(
-        alias="interviewerId", min_length=1, max_length=64, examples=["user_123"]
-    )
+    # 면접의 주인은 토큰의 사용자다 (#130). 예전 FE 가 `interviewerId` 를 보내도
+    # 스키마가 모르는 필드라 조용히 무시된다.
     candidate_name: str | None = Field(
         default=None,
         alias="candidateName",
@@ -36,6 +46,52 @@ class InterviewResponse(Schema):
     interviewer_id: str = Field(serialization_alias="interviewerId")
     candidate_name: str | None = Field(serialization_alias="candidateName")
     created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class InterviewerSummary(Schema):
+    nickname: str
+
+
+class ReviewCounts(Schema):
+    """목록 한 줄의 집계. 상세와 같은 계산(`app/services/review.py`)에서 나온다."""
+
+    coverage_confirmed: int = Field(alias="coverageConfirmed")
+    coverage_total: int = Field(alias="coverageTotal")
+    findings: int
+    needs_review: int = Field(
+        alias="needsReview", description="아직 채택도 반려도 안 한 검토 항목"
+    )
+    adopted: int
+
+
+class InterviewListItem(Schema):
+    """`GET /interviews` 의 한 줄. 지원자 목록 화면(`/candidates`)이 그린다 (#137 1-1).
+
+    기준은 그 면접의 마지막으로 끝난 세션이다. 끝난 세션이 없으면 그 세션에서 오는
+    값(`interviewedAt` · `durationSec` · `summaryStatus`)은 null 이다.
+    """
+
+    interview_id: str = Field(serialization_alias="interviewId")
+    candidate_name: str | None = Field(serialization_alias="candidateName")
+    role: str = Field(description="컨텍스트의 직무. 아직 안 정했으면 빈 문자열.")
+    interviewer: InterviewerSummary
+    interviewed_at: datetime | None = Field(
+        serialization_alias="interviewedAt",
+        description="「면접 시작」 시각. 비어 있으면 첫 입장 시각.",
+    )
+    duration_sec: int | None = Field(serialization_alias="durationSec")
+    review_status: ReviewStatus = Field(serialization_alias="reviewStatus")
+    summary_status: SummaryStatus | None = Field(
+        serialization_alias="summaryStatus",
+        description="한도를 넘긴 PROCESSING 은 FAILED 로 보인다(저장값은 그대로).",
+    )
+    counts: ReviewCounts | None = Field(
+        description="검토 항목 집계. 요약이 READY 가 아니면 null 이다 (#137 1-1)."
+    )
+
+
+class InterviewListResponse(Schema):
+    items: list[InterviewListItem]
 
 
 # ── 세션 ────────────────────────────────────────────────
@@ -93,8 +149,9 @@ class JoinRequest(Schema):
     role: Role = Field(
         default=Role.CANDIDATE,
         description=(
-            "현재 로그인·인증 제외 기준이라 요청값으로 받는다. "
-            "인증 도입 후에는 서버가 참가자 역할을 판단한다."
+            "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 "
+            "사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 "
+            "`ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다."
         ),
     )
 
@@ -111,75 +168,23 @@ class JoinResponse(Schema):
     )
 
 
-# ── 면접 기록 ────────────────────────────────────────────
+# ── 면접 기록 (검토 상세) ────────────────────────────────
 #
-# ⚠️ 이 계약은 아직 세 파트가 합의하지 않았다. 아래는 FE 가
-# `types/interview.ts` 에 적어 둔 모양을 그대로 옮긴 것이고, BE 는 지금
-# PROCESSING 만 돌려준다. 합의 전까지 READY 응답은 나가지 않는다.
-#
-# 남은 쟁점 (회의 안건)
-#   1. 키를 interviewId 로 둘지 sessionId 로 둘지
-#      — FE 는 interviewId, AI 의 TimelineResult 는 session_id 다.
-#        면접 하나에 세션이 여럿이라 그냥 같은 값이 아니다.
-#   2. 단위 — FE 는 초(atSec), AI 는 밀리초(atMs)
-#   3. recording.hlsUrl — 녹화(Egress) 가 아직 없다. FE 도 "가정했다"고 적어 뒀다.
+# 모양은 #137 1-2 다. 녹화는 싣지 않고 기준 세션의 `sessionId` 를 싣는다 — FE 가
+# 그 id 로 녹화 API 를 부른다 (#163). 계산 규칙은 `app/services/review.py`.
 
 
-class ReviewMoment(Schema):
-    """질문 하나가 시작된 시점과 그 문답."""
+class RecordingResponse(Schema):
+    """녹화 재생 (#112). 합친 파일 하나의 서명 URL 이다.
 
-    id: str
-    at_sec: int = Field(
-        serialization_alias="atSec",
-        description=(
-            "전사 원점 기준 경과 초. 원점은 첫 참가자 접속 시각으로 합의했고, "
-            "Session 에 별도 필드로 신설한다 (별도 이슈)."
-        ),
-    )
-    label: str = Field(description="타임라인 아래 짧은 라벨")
-    question: str = Field(description="면접관 발화 원문")
-    answer: str = Field(description="답변 요약 한두 줄")
-
-
-class ReviewRecording(Schema):
-    hls_url: str = Field(serialization_alias="hlsUrl")
-
-
-class ReviewCandidate(Schema):
-    name: str
-    role: str
-
-
-class ReviewAiReview(Schema):
-    paragraphs: list[str] = Field(
-        description="전사·지원서·JD 를 근거로 쓴 서술. 합격 여부는 담지 않는다."
-    )
-
-
-class ReviewReadyResponse(Schema):
-    """준비가 끝난 면접 기록.
-
-    ⚠️ 아직 어떤 경로로도 나가지 않는다. 계약을 명세에 박아 두기 위한 모델이다.
+    `offsetMs` 는 녹화의 0초가 전사 원점(t=0)보다 얼마나 뒤인가다. 전사 시각
+    t(ms) 의 장면은 녹화의 `t − offsetMs` 에 있다.
     """
 
-    status: Literal["READY"] = "READY"
-    interview_id: str = Field(serialization_alias="interviewId")
-    candidate: ReviewCandidate
+    url: str
+    expires_at: datetime = Field(serialization_alias="expiresAt")
+    offset_ms: int = Field(serialization_alias="offsetMs")
     duration_sec: int = Field(serialization_alias="durationSec")
-    recording: ReviewRecording
-    moments: list[ReviewMoment]
-    ai_review: ReviewAiReview = Field(serialization_alias="aiReview")
-
-
-class ReviewProcessingResponse(Schema):
-    """녹화 변환과 AI 평가가 아직 끝나지 않은 상태. 202 로 나간다."""
-
-    status: Literal["PROCESSING"] = "PROCESSING"
-    eta_sec: int | None = Field(
-        default=None,
-        serialization_alias="etaSec",
-        description="남은 예상 시간. 추정할 근거가 없으면 비운다.",
-    )
 
 
 class SummaryContent(Schema):
@@ -192,6 +197,132 @@ class SummaryContent(Schema):
     overview: str = Field(description="면접 전체를 한 문단으로.")
     key_points: list[str] = Field(
         serialization_alias="keyPoints", description="지원자 답변에서 뽑은 핵심."
+    )
+
+
+class ReviewCandidate(Schema):
+    name: str | None = Field(description="비어 있으면 FE 가 기본 라벨로 대체한다.")
+    role: str = Field(description="컨텍스트의 직무. 아직 안 정했으면 빈 문자열.")
+
+
+class ReviewCoverage(Schema):
+    name: str = Field(description="역량 이름")
+    state: CoverageState
+
+
+class ReviewMoment(Schema):
+    """질문 하나가 시작된 시점과 그 문답."""
+
+    id: str
+    # `alias` 다 — 계산 결과(camelCase dict)를 그대로 받아 그대로 낸다.
+    at_sec: float = Field(alias="atSec", description="전사 원점 기준 경과 초")
+    label: str = Field(description="타임라인 아래 짧은 라벨")
+    question: str = Field(description="면접관 발화 원문")
+    answer: str = Field(description="답변 요약 한두 줄")
+    competencies: list[str] = Field(
+        description="근거 시각이 이 문답 구간에 드는 검토 항목의 역량"
+    )
+    bookmarked: bool
+
+
+class ReviewFinding(Schema):
+    """검토 항목 하나 — AI 가 근거와 함께 낸 관찰. 판정이 아니다."""
+
+    id: str
+    type: FindingType
+    competency: str | None
+    source: str | None = Field(description="「지원서 · 단락」 또는 「면접 답변」")
+    quote: str | None = Field(description="지원서의 문장")
+    transcript: str | None = Field(description="근거가 된 면접 발화")
+    rationale: str
+    at_sec: float | None = Field(alias="atSec")
+    state: FindingState
+
+
+class ReviewResponse(Schema):
+    """준비가 끝난 면접 기록 (#137 1-2).
+
+    요약이 FAILED 여도 이 모양이다 — `summary` 는 null, moments · findings 는 비고
+    coverage 는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI 결과와 상관없이 할 수
+    있어야 한다 (#163).
+    """
+
+    # 기본값을 두지 않는다 — 두면 OpenAPI 에서 판별 필드가 선택으로 보인다.
+    status: Literal["READY"]
+    summary_status: Literal[SummaryStatus.READY, SummaryStatus.FAILED] = Field(
+        serialization_alias="summaryStatus"
+    )
+    interview_id: str = Field(serialization_alias="interviewId")
+    session_id: str = Field(
+        serialization_alias="sessionId",
+        description="기준 세션. 녹화는 이 id 로 `GET /sessions/{sessionId}/recording`",
+    )
+    candidate: ReviewCandidate
+    interviewer: InterviewerSummary
+    interviewed_at: datetime | None = Field(serialization_alias="interviewedAt")
+    duration_sec: int | None = Field(serialization_alias="durationSec")
+    review_status: ReviewStatus = Field(serialization_alias="reviewStatus")
+    reviewed_at: datetime | None = Field(serialization_alias="reviewedAt")
+    memo: str
+    summary: SummaryContent | None
+    coverage: list[ReviewCoverage]
+    moments: list[ReviewMoment]
+    findings: list[ReviewFinding]
+
+
+class ReviewUpdateRequest(Schema):
+    """`PATCH /interviews/{interviewId}` — 검토 상태 · 메모 (#137 1-3). 둘 다 선택이다.
+
+    null 은 보내지 않은 것과 같다. 메모를 비우려면 빈 문자열을 보낸다. 길이와 NUL 은
+    경계에서 막는다 — PostgreSQL TEXT 는 NUL 을 못 넣어 500 이 된다.
+    """
+
+    review_status: ReviewStatus | None = Field(default=None, alias="reviewStatus")
+    memo: str | None = Field(default=None, max_length=4000, pattern=r"^[^\x00]*$")
+
+
+class ReviewUpdateResponse(Schema):
+    review_status: ReviewStatus = Field(serialization_alias="reviewStatus")
+    reviewed_at: datetime | None = Field(
+        serialization_alias="reviewedAt",
+        description="CONFIRMED 가 된 시각. 다른 상태로 돌아가면 null.",
+    )
+    memo: str
+
+
+class MarkUpdateRequest(Schema):
+    """`PUT .../review/marks/{itemId}` — 채택 · 북마크 (#137 1-4). 보낸 것만 바뀐다.
+
+    `state` 는 검토 항목(finding)의 채택 여부, `bookmarked` 는 문답(moment)의
+    북마크다. 둘 다 없으면 바꿀 것이 없어 422 다.
+    """
+
+    state: FindingState | None = None
+    bookmarked: bool | None = None
+
+    @model_validator(mode="after")
+    def _something_to_change(self) -> "MarkUpdateRequest":
+        if self.state is None and self.bookmarked is None:
+            raise ValueError("state 나 bookmarked 중 하나는 있어야 한다")
+        return self
+
+
+class MarkResponse(Schema):
+    """그 항목의 지금 표시."""
+
+    item_id: str = Field(serialization_alias="itemId")
+    state: FindingState
+    bookmarked: bool
+
+
+class ReviewProcessingResponse(Schema):
+    """녹화 변환과 AI 평가가 아직 끝나지 않은 상태. 202 로 나간다."""
+
+    status: Literal["PROCESSING"] = "PROCESSING"
+    eta_sec: int | None = Field(
+        default=None,
+        serialization_alias="etaSec",
+        description="남은 예상 시간. 추정할 근거가 없으면 비운다.",
     )
 
 
@@ -226,7 +357,16 @@ class ContextDocResponse(Schema):
     name: str
     kind: DocKind
     size_bytes: int = Field(serialization_alias="sizeBytes")
-    status: DocStatus
+    status: DocStatus = Field(
+        description=(
+            "올라온 직후는 parsing 이다. 본문을 뽑으면 ready, 못 뽑으면 failed. "
+            "parsing 인 동안 다시 조회한다."
+        )
+    )
+    category: DocCategory | None = Field(
+        default=None,
+        description="기업 컨텍스트 문서의 칸(jd · internal). 이력서는 null.",
+    )
 
 
 class ContextResponse(Schema):
