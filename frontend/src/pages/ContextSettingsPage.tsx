@@ -342,6 +342,7 @@ export default function ContextSettingsPage() {
               }
             >
               <textarea
+                aria-label="추가 기업 인재상"
                 rows={6}
                 maxLength={TALENT_MAX}
                 value={form.talentProfile}
@@ -370,10 +371,10 @@ export default function ContextSettingsPage() {
 
               {/* 나가는 길을 저장 버튼 옆에 둔다. 멀리 떨어져 있으면 저장하고 나가려다
                   브라우저 뒤로 가기를 쓰게 된다. */}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Link
                   to="/"
-                  className="border-border-base text-ink hover:bg-surface-bright flex items-center justify-center rounded-lg border px-4 py-2.5 text-[15px] font-medium transition-colors"
+                  className="border-border-base text-ink hover:bg-surface-bright flex items-center justify-center rounded-lg border px-4 py-2.5 text-[15px] font-medium whitespace-nowrap transition-colors"
                 >
                   나가기
                 </Link>
@@ -384,9 +385,11 @@ export default function ContextSettingsPage() {
                     setLeaveAfterSave(false);
                     save.mutate(form);
                   }}
-                  className="border-border-base text-ink hover:bg-surface-bright disabled:text-ink-dim flex items-center justify-center gap-1.5 rounded-lg border px-4 py-2.5 text-[15px] font-medium transition-colors"
+                  className="border-border-base text-ink hover:bg-surface-bright disabled:text-ink-dim flex items-center justify-center gap-1.5 rounded-lg border px-4 py-2.5 text-[15px] font-medium whitespace-nowrap transition-colors"
                 >
-                  <span className="material-symbols-outlined text-[18px]">save</span>
+                  <span aria-hidden className="material-symbols-outlined text-[18px]">
+                    save
+                  </span>
                   <span>{save.isPending && !leaveAfterSave ? '저장 중…' : '저장'}</span>
                 </button>
                 <button
@@ -396,10 +399,12 @@ export default function ContextSettingsPage() {
                     setLeaveAfterSave(true);
                     save.mutate(form);
                   }}
-                  className="bg-brand disabled:bg-surface-bright disabled:text-ink-dim flex items-center justify-center gap-1.5 rounded-lg px-5 py-2.5 text-[15px] font-medium text-white transition-colors hover:bg-[#1d4ed8]"
+                  className="bg-brand disabled:bg-surface-bright disabled:text-ink-dim flex items-center justify-center gap-1.5 rounded-lg px-5 py-2.5 text-[15px] font-medium whitespace-nowrap text-white transition-colors hover:bg-[#1d4ed8]"
                 >
                   <span>{save.isPending && leaveAfterSave ? '저장 중…' : '저장하고 나가기'}</span>
-                  <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                  <span aria-hidden className="material-symbols-outlined text-[18px]">
+                    arrow_forward
+                  </span>
                 </button>
               </div>
             </div>
