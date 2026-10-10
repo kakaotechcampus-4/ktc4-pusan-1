@@ -7,6 +7,7 @@ uv run irya-ai segment <script> [--split-sentences]
 uv run irya-ai ground <findings.json> <script>
 uv run irya-ai analyze <snapshot.json> [--backend extractive]
 uv run irya-ai timeline <chunks.json> [--backend extractive] [--frontend]
+uv run irya-ai prep <context.json> [--backend extractive]
 """
 
 import argparse
@@ -20,9 +21,11 @@ from pydantic import TypeAdapter, ValidationError
 
 from irya_ai.analysis import ContextAnalysisAgent
 from irya_ai.config import Settings
+from irya_ai.openai_prep import OpenAIPrepGenerator
 from irya_ai.openai_summary import OpenAISummarizer
 from irya_ai.openai_timeline import OpenAITimelineGenerator
 from irya_ai.pipeline import ground_findings, segment_qa
+from irya_ai.prep import ExtractivePrepGenerator, PrepAgent
 from irya_ai.schemas.analysis import Finding
 from irya_ai.schemas.context import InterviewContext
 from irya_ai.schemas.transcript import TranscriptSnapshot, Utterance
@@ -287,6 +290,63 @@ def cmd_timeline(args: argparse.Namespace) -> int:
     return asyncio.run(_timeline(args))
 
 
+def _llm_settings() -> Settings | str:
+    """The settings, or the error code that explains why the LLM cannot run."""
+
+    try:
+        settings = Settings()
+    except ValidationError:
+        return "INVALID_SETTINGS"
+    if not settings.llm_api_key.get_secret_value().strip():
+        return "LLM_API_KEY_MISSING"
+    if not settings.llm_base_url.strip():
+        return "LLM_BASE_URL_MISSING"
+    return settings
+
+
+async def _prep(args: argparse.Namespace) -> int:
+    try:
+        context = InterviewContext.model_validate_json(
+            Path(args.input).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, ValidationError, ValueError):
+        print(json.dumps({"error": {"code": "INVALID_CONTEXT", "retryable": False}}))
+        return 2
+
+    if args.backend == "extractive":
+        result = await PrepAgent(
+            ExtractivePrepGenerator(), model="extractive-baseline"
+        ).run(context)
+    else:
+        settings = _llm_settings()
+        if isinstance(settings, str):
+            print(json.dumps({"error": {"code": settings, "retryable": False}}))
+            return 2
+        async with AsyncOpenAI(
+            api_key=settings.llm_api_key.get_secret_value(),
+            base_url=settings.llm_base_url,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=0,
+        ) as client:
+            generator = OpenAIPrepGenerator(
+                client,
+                model=args.model or settings.llm_model,
+                reasoning_effort=settings.llm_reasoning_effort,
+            )
+            result = await PrepAgent(
+                generator,
+                model=generator.model,
+                timeout_seconds=settings.llm_timeout_seconds,
+            ).run(context)
+
+    print(result.model_dump_json(by_alias=True, indent=2))
+    return 1 if result.status in {"failed", "partial"} else 0
+
+
+def cmd_prep(args: argparse.Namespace) -> int:
+    return asyncio.run(_prep(args))
+
+
 def _add_simulator_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--split-sentences",
@@ -375,6 +435,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="print only the moments in the frontend Moment shape (atSec)",
     )
     timeline.set_defaults(func=cmd_timeline)
+
+    prep = sub.add_parser(
+        "prep", help="derive competencies and resume claims before an interview"
+    )
+    prep.add_argument("input", help="InterviewContext JSON file (with resume.text)")
+    prep.add_argument("--backend", choices=["llm", "extractive"], default="llm")
+    prep.add_argument("--model", help="override LLM_MODEL from .env")
+    prep.set_defaults(func=cmd_prep)
     return parser
 
 

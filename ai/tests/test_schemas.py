@@ -6,6 +6,8 @@ from irya_ai.schemas import (
     FindingType,
     InterviewContext,
     PassType,
+    PrepDraft,
+    Resume,
     SpeakerRole,
     Utterance,
 )
@@ -123,3 +125,30 @@ def test_interview_context_lookups() -> None:
     assert context.competency_by_id("missing") is None
     assert context.claim_by_id("clm_1").quote == "Redis 도입"
     assert context.claim_by_id("missing") is None
+
+
+def test_resume_text_is_optional_and_distinct_from_empty() -> None:
+    bare = Resume(resume_id="rsm_1", candidate_id="cnd_1")
+    assert bare.text is None
+
+    loaded = Resume.model_validate(
+        {"resumeId": "rsm_1", "candidateId": "cnd_1", "text": "Redis 도입"}
+    )
+    assert loaded.text == "Redis 도입"
+    assert loaded.model_dump(by_alias=True)["text"] == "Redis 도입"
+
+
+def test_prep_draft_requires_every_key_for_strict_structured_output() -> None:
+    schema = PrepDraft.model_json_schema()
+    claim = schema["$defs"]["ResumeClaimDraft"]
+    competency = schema["$defs"]["CompetencyDraft"]
+
+    assert set(schema["required"]) == {"competencies", "resume_claims"}
+    assert set(claim["required"]) == {"quote", "section"}
+    assert set(competency["required"]) == {"name", "required", "description"}
+    assert schema["additionalProperties"] is False
+
+    with pytest.raises(ValidationError):
+        PrepDraft.model_validate(
+            {"competencies": [], "resume_claims": [{"quote": "섹션 키가 없는 주장"}]}
+        )

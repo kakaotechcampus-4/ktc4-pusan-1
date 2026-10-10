@@ -194,3 +194,46 @@ def test_timeline_missing_llm_settings_fails_closed(monkeypatch, capsys) -> None
 
     assert code == 2
     assert "LLM_API_KEY_MISSING" in capsys.readouterr().out
+
+
+def test_prep_offline_prints_competencies_and_claims(capsys) -> None:
+    code = main(
+        [
+            "prep",
+            str(SAMPLES / "context_backend_junior.json"),
+            "--backend",
+            "extractive",
+        ]
+    )
+
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert out["status"] == "completed"
+    assert out["model"] == "extractive-baseline"
+    assert out["competencies"] and out["resumeClaims"]
+    assert set(out["resumeClaims"][0]) == {"claimId", "resumeId", "quote", "section"}
+
+
+def test_prep_invalid_input_does_not_echo_content(tmp_path: Path, capsys) -> None:
+    secret = "SYNTHETIC_RESUME_MARKER"
+    bad = tmp_path / "context.json"
+    bad.write_text('{"sessionId": "ses_1", "resume": "' + secret + '"}', "utf-8")
+
+    code = main(["prep", str(bad), "--backend", "extractive"])
+
+    out = capsys.readouterr().out
+    assert code == 2
+    assert json.loads(out)["error"]["code"] == "INVALID_CONTEXT"
+    assert secret not in out
+
+
+def test_prep_missing_llm_settings_fails_closed(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "irya_ai.cli.Settings",
+        lambda: Settings(_env_file=None, llm_api_key="", llm_base_url=""),
+    )
+
+    code = main(["prep", str(SAMPLES / "context_backend_junior.json")])
+
+    assert code == 2
+    assert "LLM_API_KEY_MISSING" in capsys.readouterr().out

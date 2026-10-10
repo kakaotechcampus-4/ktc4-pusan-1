@@ -156,6 +156,30 @@ uv run irya-ai analyze tests/fixtures/sample_interview.json --model gpt-4o
 [컨텍스트 분석 계약](docs/context-analysis.md)을 참고하세요. 멘토 리뷰용 검증 시나리오와
 실제 GPT 확인 절차는 [테스트 케이스](docs/test-cases.md)에 정리했습니다.
 
+## 면접 전 사전 가공 (#155, #137)
+
+JD·인재상·이력서 본문으로 면접에서 확인할 역량(`Competency`)과 이력서 주장
+(`ResumeClaim`)을 만듭니다. #137의 `PREP` 작업이 부를 본체이고, 결과는
+`PUT /internal/v1/interviews/{interviewId}/prep`(#162) 본문에 그대로 실립니다.
+
+```bash
+uv run irya-ai prep data/samples/context_backend_junior.json                       # Luna
+uv run irya-ai prep data/samples/context_backend_junior.json --backend extractive  # 기준선
+```
+
+- 모델이 쓰는 것은 역량의 이름·필수 여부·설명과 주장의 인용·항목뿐입니다. ID는
+  코드가 내용 해시로 붙입니다(`clm_`·`cpt_` + 8자). 재가공해도 내용이 같으면 ID가 같습니다.
+- 이력서 주장의 인용은 이력서 본문에 글자 그대로 있어야 합니다. 기준은 타임라인·
+  꼬리질문과 같은 NFC + 공백 축약이고, 줄 앞의 글머리 기호만 뗍니다. 통과하지 못한
+  주장은 통째로 버립니다. 역량에는 인용을 요구하지 않습니다.
+- 역량 최대 6개(3개 미만이면 경고), 주장 최대 12개. 이력서가 없으면 주장 없이
+  `completed`, 역량이 하나도 안 남으면 `failed`입니다.
+- 입력은 JD·이력서 각각 12,000자에서 자르고 `INPUT_TRUNCATED` 경고를 남깁니다.
+  게이트웨이의 비스트리밍 응답 상한에 맞춰 `max_completion_tokens`는 2,000입니다.
+- 지원자 이름과 이력서 본문은 로그에 남기지 않습니다. 탈락 사유는 순번과 이유만 적습니다.
+- 환경변수는 리뷰 타임라인과 같은 `LLM_BASE_URL`·`LLM_API_KEY`·`LLM_MODEL`입니다.
+  실호출 결과는 [docs/prep-eval.md](docs/prep-eval.md)에 있습니다.
+
 ## 리뷰 타임라인 (면접 기록 화면)
 
 STT가 청크마다 쌓아 둔 `Utterance` JSON을 면접 종료 후 한꺼번에 읽어, 면접 기록 화면(S3)의
@@ -204,7 +228,8 @@ src/irya_ai/
 │   ├── context.py     Company · JobDescription · Competency · Rubric · Candidate · Resume · ResumeClaim
 │   ├── analysis.py    QAPair · Finding · SuggestedQuestion · ReviewReport
 │   ├── summary.py     SummaryPoint · SummaryResult · AnalysisResult
-│   └── timeline.py    Moment · TimelineResult (리뷰 타임라인)
+│   ├── timeline.py    Moment · TimelineResult (리뷰 타임라인)
+│   └── prep.py        PrepDraft · PrepResult (면접 전 사전 가공)
 ├── pipeline/          Q&A 구조화 · 근거 접지
 ├── stt/               LiveKit 브리지 · PCM 청킹 · Elice HTTP · 세션 정렬 · 비동기 전사 스트림
 ├── analysis.py        Snapshot 한 건의 분석과 상태 처리
@@ -212,6 +237,8 @@ src/irya_ai/
 ├── openai_summary.py  OpenAI 구조화 요약
 ├── timeline.py        청크 병합 → Q&A → 검증된 Moment (리뷰 타임라인)
 ├── openai_timeline.py 프로젝트 LLM(Luna/Terra) 타임라인 초안
+├── prep.py            JD·이력서 초안 검증 → Competency · ResumeClaim (면접 전 사전 가공)
+├── openai_prep.py     프로젝트 LLM(Luna) 사전 가공 초안
 └── simulator/         대본 JSON을 STT 이벤트 스트림으로 재생
 data/samples/          모의 면접 대본과 컨텍스트 샘플 (가공 데이터)
 ```
