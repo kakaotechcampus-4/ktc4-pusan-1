@@ -145,6 +145,10 @@ def store(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemoryStore]:
     없다. 루프 위에서 불린 메서드가 있으면 그 테스트가 끝날 때 실패한다 — 그
     자리에서 던지면 앱의 예외 처리에 묻힌다. 라우트를 따로 나열하지 않아도, 새
     async 라우트는 테스트가 지나가기만 하면 감시된다.
+
+    테스트 본문이 루프 안에서 저장소를 직접 불러도 걸린다(async 테스트,
+    `asyncio.run` 에 넘긴 코루틴 안 등). 앱 문제가 아니니 그때는 루프 밖에서
+    부르거나 `asyncio.to_thread` 로 넘긴다.
     """
     subject = InMemoryStore()
     on_loop: list[str] = []
