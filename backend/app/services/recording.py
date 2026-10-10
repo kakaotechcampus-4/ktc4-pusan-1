@@ -195,11 +195,14 @@ async def _merge(session: Session, media: MediaGateway) -> Recording | None:
     end = max(t.started_ns + t.duration_ns for t in tracks)
     key = f"rec/{session.id}/merged.webm"
     bucket = settings.recording_bucket
+    # 처음 만들 때 자격증명을 찾으러 간다. 인자로 넘기면 그 일이 루프 위에서
+    # 돈다 (#183).
+    s3 = await asyncio.to_thread(_s3)
     with tempfile.TemporaryDirectory() as name:
         tmp = Path(name)
         for t in tracks:
             await asyncio.to_thread(
-                _s3().download_file, bucket, t.key, str(tmp / Path(t.key).name)
+                s3.download_file, bucket, t.key, str(tmp / Path(t.key).name)
             )
         proc = await asyncio.create_subprocess_exec(
             *ffmpeg_args(videos, audios, tmp), stderr=asyncio.subprocess.PIPE
@@ -208,7 +211,7 @@ async def _merge(session: Session, media: MediaGateway) -> Recording | None:
         if proc.returncode:
             raise RuntimeError(f"ffmpeg {proc.returncode}: {err.decode()[-500:]}")
         await asyncio.to_thread(
-            _s3().upload_file,
+            s3.upload_file,
             str(tmp / "merged.webm"),
             bucket,
             key,

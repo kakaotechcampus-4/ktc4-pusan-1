@@ -84,7 +84,7 @@ async def receive_transcripts(
     if not await websocket_authorized(websocket):
         return
 
-    if store.get_session(sessionId) is None:
+    if await run_in_threadpool(store.get_session, sessionId) is None:
         # 우리가 만들지 않은 세션이다. 나중에 생길 값이 아니므로 다시 붙어도
         # 같은 답이고, 그래서 핸드셰이크 단계에서 끊는다.
         logger.warning("전사 WebSocket: 세션을 찾을 수 없음 session_id=%s", sessionId)

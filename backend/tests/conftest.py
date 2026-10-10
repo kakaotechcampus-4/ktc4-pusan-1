@@ -3,8 +3,9 @@
 라우터가 Protocol 에만 의존하므로 LiveKit 없이 전 구간을 돈다.
 """
 
+import asyncio
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -121,10 +122,42 @@ def media() -> FakeMedia:
     return FakeMedia()
 
 
+def loop_spy(name: str, method: Callable[..., Any], on_loop: list[str]) -> Callable:
+    """`method` 를 감싸, 이벤트 루프 위에서 불리면 `on_loop` 에 `name` 을 남긴다."""
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        try:
+            asyncio.get_running_loop()
+            on_loop.append(name)
+        except RuntimeError:
+            pass
+        return method(*args, **kwargs)
+
+    return spy
+
+
 @pytest.fixture
-def store() -> InMemoryStore:
-    """테스트가 저장된 상태를 직접 들여다볼 수 있게 밖으로 뺀다."""
-    return InMemoryStore()
+def store(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemoryStore]:
+    """테스트가 저장된 상태를 직접 들여다볼 수 있게 밖으로 뺀다.
+
+    저장소는 동기라 이벤트 루프에서 부르면 그동안 같은 프로세스의 다른 요청이
+    줄을 선다 (#133 · #183). 스레드풀로 넘겼으면 그 스레드에는 돌고 있는 루프가
+    없다. 루프 위에서 불린 메서드가 있으면 그 테스트가 끝날 때 실패한다 — 그
+    자리에서 던지면 앱의 예외 처리에 묻힌다. 라우트를 따로 나열하지 않아도, 새
+    async 라우트는 테스트가 지나가기만 하면 감시된다.
+
+    테스트 본문이 루프 안에서 저장소를 직접 불러도 걸린다(async 테스트,
+    `asyncio.run` 에 넘긴 코루틴 안 등). 앱 문제가 아니니 그때는 루프 밖에서
+    부르거나 `asyncio.to_thread` 로 넘긴다.
+    """
+    subject = InMemoryStore()
+    on_loop: list[str] = []
+    for name in dir(subject):
+        method = getattr(subject, name)
+        if not name.startswith("_") and callable(method):
+            monkeypatch.setattr(subject, name, loop_spy(name, method, on_loop))
+    yield subject
+    assert on_loop == [], f"이벤트 루프 위에서 동기 저장소를 불렀다: {on_loop}"
 
 
 def bearer(user: User) -> dict[str, str]:

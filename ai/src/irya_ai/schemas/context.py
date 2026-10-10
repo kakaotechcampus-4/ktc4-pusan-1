@@ -48,9 +48,19 @@ class Candidate(CamelModel):
 
 
 class Resume(CamelModel):
+    """The candidate's resume as the agent receives it.
+
+    ``text`` is the plain body Backend extracted at upload (#143). It is the
+    only source a :class:`ResumeClaim` may quote, so it stays ``None`` rather
+    than empty when extraction has not run or has failed - "no text" and
+    "an empty resume" are different facts. It is the candidate's personal
+    data: nothing in this package logs it.
+    """
+
     resume_id: str
     candidate_id: str
     storage_key: str | None = None
+    text: str | None = None
 
 
 class ResumeClaim(CamelModel):
