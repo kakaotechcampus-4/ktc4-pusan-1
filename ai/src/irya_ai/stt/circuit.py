@@ -116,6 +116,7 @@ class CircuitBreaker:
         self._failures += 1
         if self._opened_at is not None:
             self._opened_at = self._clock()
+            self._probing = False
             return
         if trip or self._failures >= self.failure_threshold:
             self._opened_at = self._clock()

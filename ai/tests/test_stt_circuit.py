@@ -113,7 +113,6 @@ def test_a_failed_probe_restarts_the_cooldown() -> None:
 
     clock.now += 3.0  # the probe itself took a while to fail
     breaker.record_failure()
-    breaker.release_probe()
 
     clock.now += 4.9
     assert breaker.admit() is Admission.REFUSE
@@ -221,6 +220,45 @@ async def test_a_probe_asks_once_and_does_not_retry() -> None:
     with pytest.raises(SttError, match="STT_REQUEST_FAILED"):
         await client.transcribe(WAV)
     assert sent == 4
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        (httpx.Response(503), "STT_REQUEST_FAILED"),
+        (httpx.Response(401), "STT_AUTH_FAILED"),
+        (
+            httpx.Response(200, text="<html>Bad Gateway</html>"),
+            "STT_MALFORMED_RESPONSE",
+        ),
+    ],
+)
+async def test_a_failed_probe_allows_another_probe_after_the_cooldown(
+    failure: httpx.Response, code: str
+) -> None:
+    clock, changes = Clock(), []
+    replies = iter([failure, failure, ok(), ok()])
+    client = client_for(
+        lambda request: next(replies),
+        breaker_for(clock, changes, failure_threshold=1),
+        retries=0,
+    )
+    try:
+        with pytest.raises(SttError, match=code):
+            await client.transcribe(WAV)
+        clock.now += 5.0
+        with pytest.raises(SttError, match=code):
+            await client.transcribe(WAV)
+        with pytest.raises(SttError, match="STT_CIRCUIT_OPEN"):
+            await client.transcribe(WAV)
+
+        clock.now += 5.0
+        assert (await client.transcribe(WAV)).text == "네"
+        assert (await client.transcribe(WAV)).text == "네"
+        assert not client.breaker.is_open
+        assert changes == [True, False]
+    finally:
+        await client.client.aclose()
 
 
 async def test_a_rejected_key_opens_it_at_once() -> None:
