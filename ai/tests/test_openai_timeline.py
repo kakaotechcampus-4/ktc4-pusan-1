@@ -5,6 +5,7 @@ gateway requires (chat completions, no unsupported parameters) and returns
 canned completions to exercise parsing and error mapping.
 """
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -223,6 +224,55 @@ async def test_agent_verifies_model_output_and_reports_usage(
     assert result.model == "gpt-5.6-luna-2026-02"  # what the gateway served
     assert result.usage is not None and result.usage.prompt_tokens == 1200
     assert "원문에 없는 문장" not in result.model_dump_json()
+
+
+@pytest.mark.parametrize("usage_kind", ["valid", "missing", "malformed"])
+async def test_a_truncated_response_keeps_usage_on_the_failed_run(
+    snapshot: TranscriptSnapshot, usage_kind: str
+) -> None:
+    body = completion_body([], finish_reason="length", content='{"moments":[')
+    if usage_kind == "missing":
+        body.pop("usage")
+    elif usage_kind == "malformed":
+        body["usage"] = {"prompt_tokens": "invalid"}
+
+    async with client_for(lambda request: httpx.Response(200, json=body)) as client:
+        result = await ReviewTimelineAgent(OpenAITimelineGenerator(client)).run(
+            snapshot
+        )
+
+    assert result.status == "failed"
+    assert result.error.code == "LLM_INCOMPLETE_OUTPUT"
+    assert result.model == body["model"]
+    if usage_kind == "valid":
+        assert result.usage.prompt_tokens == 1200
+        assert result.usage.completion_tokens == 300
+        assert result.usage.cached_prompt_tokens == 900
+    else:
+        assert result.usage is None
+
+
+async def test_a_timeout_does_not_reuse_the_previous_run_usage(
+    snapshot: TranscriptSnapshot,
+) -> None:
+    sent = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal sent
+        sent += 1
+        if sent == 2:
+            await asyncio.Event().wait()
+        return httpx.Response(200, json=completion_body([]))
+
+    async with client_for(handler) as client:
+        agent = ReviewTimelineAgent(
+            OpenAITimelineGenerator(client), timeout_seconds=0.02
+        )
+        assert (await agent.run(snapshot)).usage is not None
+        result = await agent.run(snapshot)
+
+    assert result.error.code == "LLM_TIMEOUT"
+    assert result.usage is None
 
 
 # --- error mapping ------------------------------------------------------------------

@@ -5,6 +5,7 @@ gateway requires and returns canned completions to exercise parsing, the
 payload's boundaries and the error mapping.
 """
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -367,6 +368,56 @@ async def test_the_agent_keeps_what_the_transcript_backs_and_drops_the_rest(
     assert result.model == "gpt-5.6-luna-2026-02"  # what the gateway served
     assert result.usage is not None and result.usage.prompt_tokens == 800
     assert "레디스 클러스터" not in result.model_dump_json()
+
+
+@pytest.mark.parametrize("usage_kind", ["valid", "missing", "malformed"])
+async def test_a_truncated_response_keeps_usage_on_the_failed_round(
+    pair: QAPair, sources: dict[str, Utterance], usage_kind: str
+) -> None:
+    body = completion_body([], finish_reason="length", content='{"suggestions":[')
+    if usage_kind == "missing":
+        body.pop("usage")
+    elif usage_kind == "malformed":
+        body["usage"] = {"prompt_tokens": "invalid"}
+
+    async with client_for(lambda request: httpx.Response(200, json=body)) as client:
+        agent = LiveSuggestionAgent(OpenAISuggestionGenerator(client))
+        agent._sources.update(sources)
+        result = await agent.run_round(pair)
+
+    assert result.status == "failed"
+    assert result.error.code == "LLM_INCOMPLETE_OUTPUT"
+    assert result.model == body["model"]
+    if usage_kind == "valid":
+        assert result.usage.prompt_tokens == 800
+        assert result.usage.completion_tokens == 120
+        assert result.usage.cached_prompt_tokens == 600
+    else:
+        assert result.usage is None
+
+
+async def test_a_timeout_does_not_reuse_the_previous_round_usage(
+    pair: QAPair, sources: dict[str, Utterance]
+) -> None:
+    sent = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal sent
+        sent += 1
+        if sent == 2:
+            await asyncio.Event().wait()
+        return httpx.Response(200, json=completion_body([]))
+
+    async with client_for(handler) as client:
+        agent = LiveSuggestionAgent(
+            OpenAISuggestionGenerator(client), timeout_seconds=0.02
+        )
+        agent._sources.update(sources)
+        assert (await agent.run_round(pair)).usage is not None
+        result = await agent.run_round(pair)
+
+    assert result.error.code == "LLM_TIMEOUT"
+    assert result.usage is None
 
 
 # --- error mapping ------------------------------------------------------------------
