@@ -1389,7 +1389,7 @@ async def test_reconnecting_does_not_signal_transcript_completion(
             # those closes still says "reconnecting", never "complete".
             assert backend.closed_codes[0] == (1, 4001)
             assert {code for _, code in backend.closed_codes} == {4001}
-            assert backend.connections >= 2
+            await eventually(lambda: backend.connections >= 2)
         finally:
             channel.shutdown_drain_seconds = 0
             await channel.aclose()
