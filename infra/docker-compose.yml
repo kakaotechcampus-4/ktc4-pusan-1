@@ -138,6 +138,8 @@ services:
       org.opencontainers.image.revision: ${AI_SHA:-unknown}
     container_name: irya-ai
     restart: unless-stopped
+    # worker: 방 drain 5초 + 프로세스 종료 45초(전사 전달 30초 포함) + 여유 10초.
+    stop_grace_period: 60s
     # 방마다 작업 프로세스가 뜨고 지연 로그를 남기므로 상한이 특히 필요합니다.
     logging: *logging
     # LiveKit AgentServer 가 방마다 별도 작업 프로세스를 만들고, 각 작업이
