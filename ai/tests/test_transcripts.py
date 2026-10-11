@@ -1378,7 +1378,10 @@ async def test_reconnecting_does_not_signal_transcript_completion(
             await eventually(lambda: len(backend.received) == 1)
             if reconnect_reason == "ack_timeout":
                 await asyncio.sleep(0.1)
-                await channel.send(payload("utt_002"))
+                # Recovery may already be backing off after the overdue ACK.
+                # The frame stays buffered even when this send fast-fails.
+                with contextlib.suppress(BackendError):
+                    await channel.send(payload("utt_002"))
             else:
                 await channel.send(payload(text="수정된 발화입니다."))
             await eventually(lambda: bool(backend.closed_codes))
