@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     backend_api_key: SecretStr = SecretStr("")
     backend_timeout_seconds: float = Field(default=10, gt=0, le=60)
 
+    # Prep poller (``irya-ai-poller``, #176). How long to wait before asking
+    # ``GET /internal/v1/jobs/pending`` again when the queue was empty, and
+    # how long to leave a job alone after this process failed on it. Backend
+    # hands out the same job on every call until a result is stored, so
+    # without the second number one job this process cannot finish would be
+    # retried at the polling rate until Backend's own time limit fails it.
+    prep_poll_interval_seconds: float = Field(default=5, gt=0, le=300)
+    prep_retry_after_seconds: float = Field(default=30, ge=0, le=3600)
+
     # Transcript WebSocket (``WS /internal/v1/sessions/{sessionId}/transcripts``).
     # The address is derived from ``backend_base_url`` rather than configured
     # separately - the contract puts it on the same host - so there is no second

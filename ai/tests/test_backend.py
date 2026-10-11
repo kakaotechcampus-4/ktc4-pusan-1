@@ -264,3 +264,117 @@ async def test_a_suggestion_route_refuses_a_session_id_that_rewrites_the_path() 
         await client_for(handler).post_suggestion("../../admin", SUGGESTION)
 
     assert info.value.code == "BACKEND_INVALID_SESSION_ID"
+
+
+# --- the poller's routes (#176): read the queue, read the context, put prep --
+
+
+async def test_an_empty_queue_is_a_null_body_not_an_error() -> None:
+    client = client_for(lambda r: httpx.Response(200, content=b"null"))
+
+    assert await client.get_pending_job() is None
+
+
+async def test_a_pending_job_is_read_with_its_request_time_untouched() -> None:
+    body = {
+        "kind": "PREP",
+        "sessionId": "ses_1",
+        "interviewId": "int_1",
+        "requestedAt": "2026-10-06T00:00:00.123456Z",
+    }
+    job = await client_for(lambda r: httpx.Response(200, json=body)).get_pending_job()
+
+    assert job is not None
+    assert job.kind == "PREP"
+    assert job.requested_at == "2026-10-06T00:00:00.123456Z"
+
+
+async def test_a_job_that_does_not_match_the_contract_is_malformed() -> None:
+    client = client_for(lambda r: httpx.Response(200, json={"kind": "PREP"}))
+
+    with pytest.raises(BackendError, match="BACKEND_MALFORMED_RESPONSE") as caught:
+        await client.get_pending_job()
+
+    assert caught.value.retryable is False
+
+
+async def test_a_2xx_that_is_not_json_is_malformed() -> None:
+    client = client_for(lambda r: httpx.Response(200, content=b"<html>"))
+
+    with pytest.raises(BackendError, match="BACKEND_MALFORMED_RESPONSE"):
+        await client.get_pending_job()
+
+
+async def test_the_context_comes_back_as_the_object_backend_sent() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"sessionId": "ses_1", "utterances": []})
+
+    body = await client_for(handler).get_context("ses_1")
+
+    assert seen[0].method == "GET"
+    assert seen[0].url.path == "/internal/v1/sessions/ses_1/context"
+    assert body == {"sessionId": "ses_1", "utterances": []}
+
+
+async def test_a_context_that_is_not_an_object_is_malformed() -> None:
+    client = client_for(lambda r: httpx.Response(200, json=[1, 2]))
+
+    with pytest.raises(BackendError, match="BACKEND_MALFORMED_RESPONSE"):
+        await client.get_context("ses_1")
+
+
+async def test_put_prep_sends_the_result_plus_the_request_it_answers() -> None:
+    from irya_ai.schemas.prep import PrepResult
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(204)
+
+    result = PrepResult(session_id="ses_1", status="empty", model="m")
+    await client_for(handler).put_prep(
+        "int_1", result, requested_at="2026-10-06T00:00:00.123456Z"
+    )
+
+    assert seen[0].method == "PUT"
+    assert seen[0].url.path == "/internal/v1/interviews/int_1/prep"
+    body = json.loads(seen[0].content)
+    assert body["requestedAt"] == "2026-10-06T00:00:00.123456Z"
+    assert body["status"] == "empty"
+    assert body["sessionId"] == "ses_1"
+    assert "resumeClaims" in body and "competencies" in body
+
+
+async def test_a_409_is_a_conflict_and_is_not_retried() -> None:
+    from irya_ai.schemas.prep import PrepResult
+
+    attempts: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return httpx.Response(409)
+
+    with pytest.raises(BackendError, match="BACKEND_CONFLICT") as caught:
+        await client_for(handler).put_prep(
+            "int_1", PrepResult(session_id="ses_1", status="empty"), requested_at="x"
+        )
+
+    assert caught.value.retryable is False
+    assert len(attempts) == 1
+
+
+async def test_the_poller_routes_refuse_an_id_that_rewrites_the_path() -> None:
+    from irya_ai.schemas.prep import PrepResult
+
+    client = client_for(lambda r: httpx.Response(204))
+
+    with pytest.raises(BackendError, match="BACKEND_INVALID_SESSION_ID"):
+        await client.get_context("../admin")
+    with pytest.raises(BackendError, match="BACKEND_INVALID_SESSION_ID"):
+        await client.put_prep(
+            "a/b", PrepResult(session_id="ses_1", status="empty"), requested_at="x"
+        )

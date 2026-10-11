@@ -183,6 +183,38 @@ services:
       retries: 3
       start_period: 15s
 
+  # 면접 전 사전 가공 폴러 (#176). ai 와 같은 이미지를 다른 명령으로 띄운다.
+  # BE 가 DB 행으로 남긴 할 일을 가져가 LLM 으로 역량·이력서 주장을 만들고
+  # 결과를 BE 내부 API 에 넣는다. LiveKit 에는 붙지 않는다.
+  ai-poller:
+    build:
+      context: ../ai
+      args:
+        GIT_SHA: ${AI_SHA:-unknown}
+    labels:
+      org.opencontainers.image.revision: ${AI_SHA:-unknown}
+    container_name: irya-ai-poller
+    restart: unless-stopped
+    logging: *logging
+    command: ["python", "-m", "irya_ai.prep_poller"]
+    environment:
+      APP_ENV: production
+      LOG_LEVEL: INFO
+      # 할 일 조회·컨텍스트·결과 저장 모두 BE 내부 API 다.
+      BACKEND_BASE_URL: http://backend:8000
+      BACKEND_API_KEY: ${INTERNAL_API_KEY:-}
+      # 사전 가공용 프로젝트 LLM. 비어 있으면 추출형 기준선으로 돌고 경고를 남긴다.
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-5.6-luna}
+      PREP_POLL_INTERVAL_SECONDS: ${PREP_POLL_INTERVAL_SECONDS:-5}
+    depends_on:
+      backend:
+        condition: service_healthy
+    # HTTP 포트가 없다. 살아 있는지는 로그의 `prep job` 줄로 본다.
+    healthcheck:
+      disable: true
+
   db:
     image: postgres:17-alpine
     container_name: irya-db

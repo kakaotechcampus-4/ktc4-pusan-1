@@ -41,3 +41,4 @@ select = ["E", "F", "I", "UP", "B"]
 [project.scripts]
 irya-ai = "irya_ai.cli:main"
 irya-ai-worker = "irya_ai.worker:main"
+irya-ai-poller = "irya_ai.prep_poller:main"
