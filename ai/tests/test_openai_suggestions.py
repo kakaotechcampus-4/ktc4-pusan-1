@@ -409,11 +409,12 @@ async def test_a_timeout_does_not_reuse_the_previous_round_usage(
         return httpx.Response(200, json=completion_body([]))
 
     async with client_for(handler) as client:
-        agent = LiveSuggestionAgent(
-            OpenAISuggestionGenerator(client), timeout_seconds=0.02
-        )
+        agent = LiveSuggestionAgent(OpenAISuggestionGenerator(client))
         agent._sources.update(sources)
+        # Only the second call is timed short: the first parse() can be slow
+        # on a cold start and would time out itself.
         assert (await agent.run_round(pair)).usage is not None
+        agent.timeout_seconds = 0.02
         result = await agent.run_round(pair)
 
     assert result.error.code == "LLM_TIMEOUT"

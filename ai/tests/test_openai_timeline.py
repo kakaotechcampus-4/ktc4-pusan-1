@@ -265,10 +265,11 @@ async def test_a_timeout_does_not_reuse_the_previous_run_usage(
         return httpx.Response(200, json=completion_body([]))
 
     async with client_for(handler) as client:
-        agent = ReviewTimelineAgent(
-            OpenAITimelineGenerator(client), timeout_seconds=0.02
-        )
+        agent = ReviewTimelineAgent(OpenAITimelineGenerator(client))
+        # Only the second call is timed short: the first parse() can be slow
+        # on a cold start and would time out itself.
         assert (await agent.run(snapshot)).usage is not None
+        agent.timeout_seconds = 0.02
         result = await agent.run(snapshot)
 
     assert result.error.code == "LLM_TIMEOUT"
