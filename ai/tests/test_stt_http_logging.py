@@ -408,7 +408,12 @@ def test_the_logger_the_openai_sdk_writes_requests_to_is_protected() -> None:
     assert openai._base_client.log.name in LLM_CLIENT_LOGGERS
 
 
-async def test_an_llm_call_at_debug_logs_no_prompt_and_no_deployment() -> None:
+@pytest.mark.parametrize("status_code", [200, 400, 503])
+@pytest.mark.parametrize("host_first", [False, True])
+@pytest.mark.parametrize("port", ["", ":8443"])
+async def test_an_llm_call_at_debug_logs_no_prompt_and_no_deployment(
+    status_code: int, host_first: bool, port: str
+) -> None:
     """``LOG_LEVEL=DEBUG`` on a worker, one suggestion request through the SDK.
 
     The SDK dumps the request options - the prompt, which is transcript - and
@@ -418,7 +423,7 @@ async def test_an_llm_call_at_debug_logs_no_prompt_and_no_deployment() -> None:
 
     def answer(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            200,
+            status_code,
             json={
                 "id": "chatcmpl-test",
                 "object": "chat.completion",
@@ -436,24 +441,35 @@ async def test_an_llm_call_at_debug_logs_no_prompt_and_no_deployment() -> None:
 
     client = AsyncOpenAI(
         api_key=KEY,
-        base_url=f"https://{SHARED_HOST}{DEPLOYMENT_PATH}/v1",
+        base_url=f"https://{SHARED_HOST}{port}{DEPLOYMENT_PATH}/v1",
         max_retries=0,
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(answer)),
     )
+    if host_first:
+        protect_host(client.base_url)
     protect_base_url(client.base_url)
 
-    with Captured(logging.DEBUG) as log:
-        await client.chat.completions.create(
-            model="test",
-            messages=[{"role": "user", "content": TRANSCRIPT}],
-        )
-    await client.close()
+    try:
+        with Captured(logging.DEBUG) as log:
+            if status_code >= 400:
+                with pytest.raises(openai.APIStatusError):
+                    await client.chat.completions.create(
+                        model="test",
+                        messages=[{"role": "user", "content": TRANSCRIPT}],
+                    )
+            else:
+                await client.chat.completions.create(
+                    model="test",
+                    messages=[{"role": "user", "content": TRANSCRIPT}],
+                )
+    finally:
+        await client.close()
 
     assert TRANSCRIPT not in log.text
     assert DEPLOYMENT_PATH not in log.text
     assert KEY not in log.text
     assert f"https://{REDACTED_HOST}/chat/completions" in log.text
-    assert "200 OK" in log.text
+    assert str(status_code) in log.text
 
 
 def test_clearing_takes_the_llm_filters_back_off() -> None:

@@ -90,6 +90,16 @@ class _HostRedactingFilter(logging.Filter):
         if pattern is None:
             return True
 
+        # Format once here, before any handler can cache an unredacted
+        # traceback. The SDK's HTTPStatusError includes the complete URL.
+        if record.exc_info:
+            record.exc_text = pattern.sub(
+                REDACTED_HOST, logging.Formatter().formatException(record.exc_info)
+            )
+            record.exc_info = None
+        elif record.exc_text:
+            record.exc_text = pattern.sub(REDACTED_HOST, record.exc_text)
+
         try:
             message = record.getMessage()
         except Exception:
@@ -176,8 +186,13 @@ def protect_base_url(base_url: object) -> str | None:
     host = _host_of(base_url)
     if not host:
         return None
+    text = str(base_url).strip()
+    parsed = urlsplit(text if "//" in text else "//" + text)
+    authority = f"[{host}]" if ":" in host else host
+    if parsed.port is not None:
+        authority += f":{parsed.port}"
     path = _path_of(base_url)
-    return _register(host + path if path else host)
+    return _register(authority + path if path else authority)
 
 
 def _register(target: str) -> str:
@@ -187,7 +202,9 @@ def _register(target: str) -> str:
             return target
         _hosts.add(target)
         _pattern = re.compile(
-            "|".join(re.escape(known) for known in sorted(_hosts)),
+            "|".join(
+                re.escape(known) for known in sorted(_hosts, key=len, reverse=True)
+            ),
             re.IGNORECASE,
         )
         for name in HTTP_CLIENT_LOGGERS + LLM_CLIENT_LOGGERS:
