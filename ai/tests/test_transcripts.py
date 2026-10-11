@@ -8,6 +8,7 @@ actual Backend storage route is recorded separately.
 
 import asyncio
 import contextlib
+import itertools
 import json
 import time
 from collections.abc import Callable
@@ -76,7 +77,9 @@ class FakeBackend:
     and ``stall`` leaves the upgrade unanswered until the test releases it -
     the ways the real one can behave that this client has to survive. ``ack``
     and ``refuse_with`` are read per request, so a test can let a Backend
-    recover mid-run.
+    recover mid-run. ``ack_delay`` holds every ACK back that long, and
+    ``poison`` hangs up with 1011 on any frame whose id is in it, the way the
+    real one answers an upsert it fails to store.
     """
 
     def __init__(
@@ -90,8 +93,12 @@ class FakeBackend:
         stall: asyncio.Event | None = None,
         nack: dict[str, str | None] | None = None,
         reply: Callable[[dict], dict | None] | None = None,
+        ack_delay: float = 0.0,
+        poison: set[str] | None = None,
     ) -> None:
         self.ack = ack
+        self.poison = poison or set()
+        self.ack_delay = ack_delay
         # Overrides every reply: whatever this returns is sent for a frame,
         # ``None`` meaning silence. For answers the contract does not produce.
         self.reply = reply
@@ -158,6 +165,9 @@ class FakeBackend:
             self.received.append(Received(connection, frame))
             carried += 1
             utterance_id = frame["utteranceId"]
+            if utterance_id in self.poison:
+                await ws.close(code=1011)
+                break
             if self.reply is not None:
                 answer = self.reply(frame)
                 if answer is not None:
@@ -168,6 +178,8 @@ class FakeBackend:
                     reply["reason"] = self.nack[utterance_id]
                 await ws.send_str(json.dumps(reply))
             elif self.ack:
+                if self.ack_delay:
+                    await asyncio.sleep(self.ack_delay)
                 await ws.send_str(
                     json.dumps({"type": FRAME_ACK, "utteranceId": utterance_id})
                 )
@@ -198,16 +210,16 @@ def channel_for(backend: FakeBackend, session_id: str = "ses_123", **kwargs):
 async def closing_quickly(channel: TranscriptChannel):
     """Shut a channel down without sitting through a drain nobody will answer.
 
-    ``aclose`` gives Backend the ACK timeout to catch up, which is right in
-    production and five wasted seconds in a test whose Backend is silent on
-    purpose. The body still runs at the real timeout, so nothing about the
-    behaviour under test is shortened - only the teardown.
+    ``aclose`` keeps delivering what is buffered for ``shutdown_drain_seconds``,
+    which is right in production and thirty wasted seconds in a test whose
+    Backend is silent on purpose. The body still runs at the real timeouts, so
+    nothing about the behaviour under test is shortened - only the teardown.
     """
 
     try:
         yield channel
     finally:
-        channel.ack_timeout_seconds = 0.01
+        channel.shutdown_drain_seconds = 0
         await channel.aclose()
 
 
@@ -296,7 +308,7 @@ async def test_a_refused_upgrade_is_classified_like_a_refused_post(
     """One status means one code on both transports."""
 
     async with FakeBackend(refuse_with=status) as backend:
-        async with channel_for(backend) as channel:
+        async with channel_for(backend, shutdown_drain_seconds=0) as channel:
             with pytest.raises(BackendError) as caught:
                 await channel.send(payload())
 
@@ -343,6 +355,7 @@ async def test_a_backend_that_is_not_listening_is_retryable() -> None:
         transcript_url("http://127.0.0.1:1", "ses_123"),
         reconnect_backoff_seconds=0.0,
         connect_timeout_seconds=2.0,
+        shutdown_drain_seconds=0,
     )
     try:
         with pytest.raises(BackendError) as caught:
@@ -358,7 +371,7 @@ async def test_a_refused_utterance_is_still_kept_for_the_next_connection() -> No
     """A raise is not a lost utterance while there is room in the buffer."""
 
     async with FakeBackend(refuse_with=500) as backend:
-        async with channel_for(backend) as channel:
+        async with channel_for(backend, shutdown_drain_seconds=0) as channel:
             with pytest.raises(BackendError):
                 await channel.send(payload())
 
@@ -406,7 +419,9 @@ async def test_a_backend_that_keeps_hanging_up_keeps_being_reconnected() -> None
         async with closing_quickly(channel_for(backend)) as channel:
             await channel.send(payload("utt_001"))
 
-            await eventually(lambda: backend.connections >= 4, timeout=5.0)
+            # On what arrived, not on handshakes: the fourth connection is
+            # counted before its frame lands.
+            await eventually(lambda: len(carried(backend)) >= 4, timeout=5.0)
             assert carried(backend)[:4] == [
                 (1, "utt_001"),
                 (2, "utt_001"),
@@ -427,12 +442,105 @@ async def test_reconnect_backoff_is_applied_between_connections() -> None:
         assert backend.connected_at[1] - backend.connected_at[0] >= 0.04
 
 
+async def test_reconnects_back_off_further_while_backend_answers_nothing() -> None:
+    """Accepts every socket, closes it on the first upsert, never ACKs.
+
+    The handshake never fails, so pacing per refused connect alone would
+    reopen this as fast as the floor allows for the rest of the interview.
+    """
+
+    async with FakeBackend(ack=False, drop_after=1, close_code=1011) as backend:
+        channel = channel_for(
+            backend, reconnect_backoff_seconds=0.05, jitter=lambda: 1.0
+        )
+        async with closing_quickly(channel):
+            await channel.send(payload())
+            await eventually(lambda: backend.connections >= 4, timeout=3.0)
+
+        gaps = [b - a for a, b in itertools.pairwise(backend.connected_at[:4])]
+        # 0.05, 0.1, 0.2 - each window twice the last.
+        assert gaps[0] < 0.1
+        assert gaps[2] >= 0.15
+        assert gaps[2] > gaps[0] * 2
+
+
+async def test_an_ack_starts_the_backoff_over() -> None:
+    """The failures that grew the backoff are forgotten once Backend answers."""
+
+    async with FakeBackend(drop_first_after=1, close_code=1011) as backend:
+        channel = channel_for(backend, jitter=lambda: 1.0)
+        async with closing_quickly(channel):
+            await channel.send(payload("utt_001"))
+            # ACKed, then hung up on: the hang-up is a failure all the same.
+            await eventually(lambda: channel._failures == 1)
+
+            with contextlib.suppress(BackendError):
+                await channel.send(payload("utt_002"))
+            await eventually(lambda: channel.unacknowledged == 0)
+
+            assert backend.connections == 2
+            assert channel._failures == 0
+            assert channel._retry_at == 0.0
+
+
+async def test_backend_coming_back_gets_the_buffer_without_another_send() -> None:
+    """A restart outlasting the one retry a send gets must not strand frames.
+
+    The last utterance before a long pause is exactly the one nobody is going
+    to send behind; the recovery has to keep at it on its own.
+    """
+
+    async with FakeBackend(refuse_with=503) as backend:
+        channel = channel_for(backend, jitter=lambda: 0.0)
+        async with closing_quickly(channel):
+            with pytest.raises(BackendError):
+                await channel.send(payload("utt_001"))
+            await eventually(lambda: len(backend.handshakes) >= 3)
+
+            backend.refuse_with = None
+            await eventually(lambda: channel.unacknowledged == 0, timeout=3.0)
+
+        assert carried(backend)[-1][1] == "utt_001"
+
+
+async def test_a_send_does_not_wait_behind_a_failing_connect() -> None:
+    """While Backend hangs, the media path gets its answer at once.
+
+    Without this, each utterance in an outage holds the runner's single
+    sender for a whole connect timeout, and the queue behind it fills.
+    """
+
+    stall = asyncio.Event()
+    async with FakeBackend(stall=stall) as backend:
+        channel = channel_for(backend, connect_timeout_seconds=0.5)
+        try:
+            with pytest.raises(BackendError):
+                await channel.send(payload("utt_001"))
+            handshakes = len(backend.handshakes)
+
+            started = time.monotonic()
+            with pytest.raises(BackendError) as caught:
+                await channel.send(payload("utt_002"))
+
+            assert time.monotonic() - started < 0.1
+            assert caught.value.retryable is True
+            assert channel.unacknowledged == 2
+            # Refused before a socket, not after another one.
+            assert len(backend.handshakes) <= handshakes + 1
+        finally:
+            stall.set()
+            channel.shutdown_drain_seconds = 0
+            await channel.aclose()
+
+
 async def test_a_connection_that_dies_during_a_recovery_is_still_answered() -> None:
     """Single-flight, but not at the price of forgetting the second notice.
 
     The end-to-end version of this depends on which of two tasks the loop runs
     first. Driving ``_start_recovery`` directly is what pins the ordering: the
-    second call lands while the first recovery is provably mid-attempt.
+    second call lands while the first recovery is provably mid-attempt, and
+    joins it rather than starting another - which then keeps going until the
+    buffer is actually empty.
     """
 
     channel = TranscriptChannel("wss://backend.invalid/x")
@@ -446,19 +554,22 @@ async def test_a_connection_that_dies_during_a_recovery_is_still_answered() -> N
         rounds += 1
         if rounds == 1:
             await holding.wait()
+        else:
+            channel._pending.clear()
 
     channel._deliver_buffered = attempt
 
     channel._start_recovery()
     await eventually(lambda: rounds == 1)
+    first = channel._recovery
 
     # The socket this very recovery opened has just died.
     channel._start_recovery()
+    assert channel._recovery is first
     holding.set()
 
-    recovery = channel._recovery
-    assert recovery is not None
-    await recovery
+    assert first is not None
+    await first
 
     assert rounds == 2
 
@@ -493,15 +604,123 @@ async def test_a_silent_backend_is_treated_as_a_dead_connection() -> None:
     """An open socket that never ACKs is indistinguishable from a half-open one."""
 
     async with FakeBackend(ack=False) as backend:
-        async with channel_for(backend, ack_timeout_seconds=0.05) as channel:
+        async with closing_quickly(
+            channel_for(backend, ack_timeout_seconds=0.05)
+        ) as channel:
             await channel.send(payload("utt_001"))
             await eventually(lambda: len(backend.received) == 1)
 
-            await asyncio.sleep(0.1)
-            await channel.send(payload("utt_002"))
-            await eventually(lambda: len(backend.received) == 3)
+            # No send in between: the overdue ACK alone is what reopens it.
+            await eventually(lambda: (2, "utt_001") in carried(backend))
 
-        assert backend.connections == 2
+
+async def test_a_backend_slower_than_the_ack_timeout_still_catches_up() -> None:
+    """Slow is not dead: every ACK arrives, just later than the timeout.
+
+    Reopening the moment the head frame falls due drops each socket just
+    before its ACK would have landed, and the rewrite puts the same frame at
+    the head of the next one - so the patience has to grow with the failures.
+    """
+
+    async with FakeBackend(ack_delay=0.15) as backend:
+        channel = channel_for(backend, ack_timeout_seconds=0.1)
+        async with closing_quickly(channel):
+            for index in range(3):
+                with contextlib.suppress(BackendError):
+                    await channel.send(payload(f"utt_{index:03d}"))
+                await asyncio.sleep(0.12)
+
+            await eventually(lambda: channel.unacknowledged == 0, timeout=4.0)
+
+        assert {item.frame["utteranceId"] for item in backend.received} == {
+            "utt_000",
+            "utt_001",
+            "utt_002",
+        }
+
+
+def isolating_channel(backend: FakeBackend) -> TranscriptChannel:
+    """Fast reconnects, so a test can watch several strikes go by."""
+
+    return channel_for(backend, reconnect_backoff_cap_seconds=0.1)
+
+
+async def test_an_utterance_backend_cannot_store_does_not_block_the_rest() -> None:
+    """Backend closes on an upsert it fails instead of NACKing it, in order."""
+
+    async with FakeBackend(poison={"utt_bad"}) as backend:
+        async with closing_quickly(isolating_channel(backend)) as channel:
+            for utterance_id in ("utt_bad", "utt_002", "utt_003"):
+                with contextlib.suppress(BackendError):
+                    await channel.send(payload(utterance_id))
+
+            await eventually(lambda: channel.unacknowledged == 0, timeout=5.0)
+
+            assert channel.refused == {"utt_bad": "UNDELIVERABLE"}
+            stored = {item.frame["utteranceId"] for item in backend.received}
+            assert {"utt_002", "utt_003"} <= stored
+
+
+async def test_an_outage_that_fails_every_upsert_drops_nothing() -> None:
+    """Every frame dies alone while it lasts, the witness included."""
+
+    async with FakeBackend(ack=False, drop_after=1, close_code=1011) as backend:
+        async with closing_quickly(isolating_channel(backend)) as channel:
+            for utterance_id in ("utt_001", "utt_002", "utt_003"):
+                with contextlib.suppress(BackendError):
+                    await channel.send(payload(utterance_id))
+
+            # Enough deaths for the suspect to use up its strikes and for the
+            # witness to be tried alone, more than once.
+            await eventually(lambda: backend.connections >= 12, timeout=5.0)
+            assert channel.refused == {}
+            assert channel.unacknowledged == 3
+
+            backend.ack = True
+            backend.drop_after = None
+            await eventually(lambda: channel.unacknowledged == 0, timeout=5.0)
+
+        assert channel.refused == {}
+        assert {item.frame["utteranceId"] for item in backend.received} == {
+            "utt_001",
+            "utt_002",
+            "utt_003",
+        }
+
+
+async def test_a_schema_nack_does_not_witness_storage_recovery() -> None:
+    """Schema validation can succeed while every valid upsert still fails."""
+
+    async with FakeBackend(
+        poison={"utt_valid"}, nack={"utt_invalid": "SCHEMA"}
+    ) as backend:
+        async with closing_quickly(isolating_channel(backend)) as channel:
+            for utterance_id in ("utt_valid", "utt_invalid"):
+                with contextlib.suppress(BackendError):
+                    await channel.send(payload(utterance_id))
+
+            await eventually(lambda: "utt_invalid" in channel.refused, timeout=5.0)
+            await eventually(lambda: backend.connections >= 8, timeout=5.0)
+            assert channel.refused == {"utt_invalid": "SCHEMA"}
+            assert channel.unacknowledged == 1
+            assert channel._failures > 0
+
+            backend.poison.clear()
+            await eventually(lambda: channel.unacknowledged == 0, timeout=5.0)
+            assert channel.refused == {"utt_invalid": "SCHEMA"}
+            assert channel._failures == 0
+
+
+async def test_an_unstorable_utterance_with_nothing_behind_it_stays_buffered() -> None:
+    """Without a second frame there is no telling it from an outage."""
+
+    async with FakeBackend(poison={"utt_bad"}) as backend:
+        async with closing_quickly(isolating_channel(backend)) as channel:
+            await channel.send(payload("utt_bad"))
+
+            await eventually(lambda: backend.connections >= 6, timeout=5.0)
+            assert channel.refused == {}
+            assert channel.unacknowledged == 1
 
 
 async def test_a_full_buffer_refuses_the_utterance_rather_than_pretending() -> None:
@@ -646,6 +865,9 @@ async def test_the_slot_a_send_checked_for_is_the_slot_it_takes() -> None:
 
     channel._ensure_connection = nothing
     channel._flush = nothing
+    # The background recovery would be a fourth caller of ``attempt`` below;
+    # this is about admission alone.
+    channel._start_recovery = lambda: None
 
     await channel.send(payload("utt_000"))
     await channel.send(payload("utt_001"))
@@ -728,7 +950,7 @@ async def test_a_cancelled_send_propagates_and_keeps_the_utterance() -> None:
             assert channel.unacknowledged == 1
         finally:
             stall.set()
-            channel.ack_timeout_seconds = 0.01
+            channel.shutdown_drain_seconds = 0
             await channel.aclose()
 
 
@@ -855,7 +1077,7 @@ async def test_a_stalled_write_does_not_hold_up_closing() -> None:
     try:
         await socket.writing.wait()
 
-        channel.ack_timeout_seconds = 0.01
+        channel.shutdown_drain_seconds = 0
         await asyncio.wait_for(channel.aclose(), 2.0)
 
         assert socket.closed
@@ -878,7 +1100,10 @@ async def test_a_stalled_handshake_does_not_hold_up_closing() -> None:
 
     stall = asyncio.Event()
     async with FakeBackend(stall=stall) as backend:
-        channel = channel_for(backend, connect_timeout_seconds=30.0)
+        # No drain budget: what is under test is the lock, not the drain.
+        channel = channel_for(
+            backend, connect_timeout_seconds=30.0, shutdown_drain_seconds=0
+        )
         sending = asyncio.create_task(channel.send(payload()))
         try:
             await eventually(lambda: bool(backend.handshakes))
@@ -894,6 +1119,40 @@ async def test_a_stalled_handshake_does_not_hold_up_closing() -> None:
                 await sending
 
 
+async def test_an_unanswered_upgrade_fails_within_the_connect_timeout() -> None:
+    """TCP accepted, upgrade never answered: the send still comes back.
+
+    The session's ``connect`` timeout ends at the TCP handshake, so without a
+    bound of its own this send holds the connect lock indefinitely and every
+    later utterance queues behind it in the media path.
+    """
+
+    stall = asyncio.Event()
+    async with FakeBackend(stall=stall) as backend:
+        channel = channel_for(backend, connect_timeout_seconds=0.3)
+        try:
+            started = time.monotonic()
+            with pytest.raises(BackendError) as caught:
+                await asyncio.wait_for(channel.send(payload()), 5.0)
+
+            assert time.monotonic() - started < 0.3 + 0.5
+            assert caught.value.code == "BACKEND_REQUEST_FAILED"
+            assert caught.value.retryable is True
+            assert channel.unacknowledged == 1
+
+            # The abandoned handshake must not wedge the session it ran on.
+            # Inside the backoff this send may come straight back; either way
+            # the recovery delivers both without being asked again.
+            stall.set()
+            with contextlib.suppress(BackendError):
+                await channel.send(payload("utt_002"))
+            await eventually(lambda: channel.unacknowledged == 0)
+        finally:
+            stall.set()
+            channel.shutdown_drain_seconds = 0
+            await channel.aclose()
+
+
 async def test_closing_waits_for_the_outstanding_acks() -> None:
     async with FakeBackend() as backend:
         channel = channel_for(backend)
@@ -903,11 +1162,13 @@ async def test_closing_waits_for_the_outstanding_acks() -> None:
         assert channel.unacknowledged == 0
 
 
-async def test_closing_gives_up_after_the_ack_timeout() -> None:
+async def test_closing_gives_up_after_the_drain_budget() -> None:
     """A Backend that never answers must not hold the shutdown open."""
 
     async with FakeBackend(ack=False) as backend:
-        channel = channel_for(backend, ack_timeout_seconds=0.05)
+        channel = channel_for(
+            backend, ack_timeout_seconds=0.05, shutdown_drain_seconds=0.2
+        )
         await channel.send(payload())
 
         started = time.monotonic()
@@ -915,6 +1176,72 @@ async def test_closing_gives_up_after_the_ack_timeout() -> None:
 
         assert channel.unacknowledged == 1
         assert time.monotonic() - started < 1.0
+
+
+async def test_closing_reconnects_to_deliver_what_an_outage_held_back() -> None:
+    """Backend down as the room ends still gets the last utterances.
+
+    Backend stores frames for an ended session, so the close keeps
+    reconnecting rather than abandoning the buffer the moment it finds no
+    connection - and only the final close says the delivery is complete.
+    """
+
+    async with FakeBackend(refuse_with=503) as backend:
+        channel = channel_for(
+            backend, reconnect_backoff_cap_seconds=0.1, shutdown_drain_seconds=5.0
+        )
+        with pytest.raises(BackendError, match="BACKEND_REQUEST_FAILED"):
+            await channel.send(payload())
+
+        closing = asyncio.create_task(channel.aclose())
+        await asyncio.sleep(0.3)
+        assert not closing.done()
+        backend.refuse_with = None
+        await asyncio.wait_for(closing, 3.0)
+
+        assert channel.unacknowledged == 0
+        assert [item.frame["utteranceId"] for item in backend.received] == ["utt_001"]
+        await eventually(lambda: bool(backend.closed_codes))
+        assert backend.closed_codes == [(1, 1000)]
+
+
+async def test_a_send_while_closing_is_refused_and_the_drain_goes_on() -> None:
+    async with FakeBackend(ack=False) as backend:
+        channel = channel_for(
+            backend, ack_timeout_seconds=0.05, shutdown_drain_seconds=5.0
+        )
+        await channel.send(payload())
+        closing = asyncio.create_task(channel.aclose())
+        await eventually(lambda: channel._closing)
+
+        with pytest.raises(BackendError, match="BACKEND_TRANSCRIPT_CHANNEL_CLOSED"):
+            await channel.send(payload("utt_002"))
+        assert channel.unacknowledged == 1
+
+        backend.ack = True
+        await asyncio.wait_for(closing, 3.0)
+
+        assert channel.unacknowledged == 0
+        assert "utt_002" not in {item.frame["utteranceId"] for item in backend.received}
+
+
+async def test_a_policy_close_while_closing_ends_the_drain_at_once() -> None:
+    """Reconnecting cannot change a policy refusal, so it is not waited out."""
+
+    async with FakeBackend(ack=False) as backend:
+        channel = channel_for(
+            backend, ack_timeout_seconds=0.05, shutdown_drain_seconds=10.0
+        )
+        await channel.send(payload())
+        await eventually(lambda: len(backend.received) == 1)
+
+        backend.drop_after = 1
+        backend.close_code = 1008
+        started = time.monotonic()
+        await asyncio.wait_for(channel.aclose(), 3.0)
+
+        assert time.monotonic() - started < 2.0
+        assert channel.unacknowledged == 1
 
 
 async def test_closing_twice_is_harmless() -> None:
@@ -943,7 +1270,7 @@ async def test_closing_does_not_admit_a_send_that_was_waiting_for_state() -> Non
     await asyncio.sleep(0)
 
     closing = asyncio.create_task(channel.aclose())
-    await eventually(lambda: channel._closed)
+    await eventually(lambda: channel._closing)
     channel._lock.release()
 
     with pytest.raises(BackendError, match="BACKEND_TRANSCRIPT_CHANNEL_CLOSED"):
@@ -1007,6 +1334,7 @@ def test_a_session_id_that_would_rewrite_the_path_is_refused(session_id: str) ->
         {"max_pending": 0},
         {"reconnect_backoff_seconds": -1.0},
         {"connect_timeout_seconds": 0},
+        {"shutdown_drain_seconds": -1.0},
     ],
 )
 def test_a_channel_refuses_settings_it_could_not_act_on(kwargs: dict) -> None:
@@ -1050,14 +1378,20 @@ async def test_reconnecting_does_not_signal_transcript_completion(
             await eventually(lambda: len(backend.received) == 1)
             if reconnect_reason == "ack_timeout":
                 await asyncio.sleep(0.1)
-                await channel.send(payload("utt_002"))
+                # Recovery may already be backing off after the overdue ACK.
+                # The frame stays buffered even when this send fast-fails.
+                with contextlib.suppress(BackendError):
+                    await channel.send(payload("utt_002"))
             else:
                 await channel.send(payload(text="수정된 발화입니다."))
             await eventually(lambda: bool(backend.closed_codes))
-            assert backend.closed_codes == [(1, 4001)]
-            assert backend.connections == 2
+            # A Backend that never ACKs keeps being reopened; every one of
+            # those closes still says "reconnecting", never "complete".
+            assert backend.closed_codes[0] == (1, 4001)
+            assert {code for _, code in backend.closed_codes} == {4001}
+            assert backend.connections >= 2
         finally:
-            channel.ack_timeout_seconds = 0.01
+            channel.shutdown_drain_seconds = 0
             await channel.aclose()
         await eventually(lambda: len(backend.closed_codes) == 2)
         assert backend.closed_codes[-1] == (2, 1000)
