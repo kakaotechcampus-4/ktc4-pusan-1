@@ -312,35 +312,89 @@ async def test_a_failure_that_would_repeat_is_stored_as_failed() -> None:
     assert backend.put_bodies[0]["requestedAt"] == REQUESTED_AT
 
 
-async def test_a_context_that_cannot_be_read_is_held_for_the_give_up_time() -> None:
+async def test_a_context_that_cannot_be_read_is_stored_as_failed() -> None:
     backend = FakeBackend()
     backend.jobs = [job()]
     backend.contexts["ses_1"] = context() | {"somethingNew": 1}
-    clock = Clock()
-    poller = poller_for(
-        backend, clock=clock, retry_after_seconds=30.0, give_up_seconds=600.0
-    )
+    poller = poller_for(backend)
 
     done = await poller.run_once()
 
-    assert done.outcome == "held"
-    assert done.code == "CONTEXT_INVALID"
-    clock.now += 599.0
-    assert (await poller.run_once()).outcome == "idle"
-    clock.now += 2.0
-    assert (await poller.run_once()).outcome == "held"
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "failed"
+    assert body["error"] == {"code": "CONTEXT_INVALID", "retryable": False}
+    assert body["competencies"] == [] and body["resumeClaims"] == []
+    assert body["requestedAt"] == REQUESTED_AT
+    assert backend.jobs == [] and poller.holds == {}
 
 
-async def test_a_context_about_another_session_is_not_stored() -> None:
+async def test_a_session_backend_does_not_know_is_stored_as_failed() -> None:
+    backend = FakeBackend()
+    backend.jobs = [job(session_id="ses_gone")]  # context answers 404
+
+    done = await poller_for(backend).run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "failed"
+    assert backend.put_bodies[0]["error"]["code"] == "BACKEND_CLIENT_ERROR"
+
+
+async def test_a_context_about_another_session_is_stored_as_failed() -> None:
     backend = FakeBackend()
     backend.jobs = [job(session_id="ses_1")]
     backend.contexts["ses_1"] = context(session_id="ses_other")
 
     done = await poller_for(backend).run_once()
 
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "failed"
+    assert body["error"]["code"] == "CONTEXT_SESSION_MISMATCH"
+    # Recorded against the session the job named, with nothing of the other.
+    assert body["sessionId"] == "ses_1"
+    assert body["competencies"] == [] and body["resumeClaims"] == []
+
+
+async def test_a_job_that_fails_for_good_does_not_block_the_one_behind_it() -> None:
+    # Backend hands out the oldest PROCESSING row only, so a job left in the
+    # queue is head-of-line for every job after it.
+    backend = FakeBackend()
+    backend.jobs = [job("int_bad", "ses_bad"), job("int_ok", "ses_ok")]
+    backend.contexts["ses_bad"] = {"sessionId": "ses_bad"}  # CONTEXT_INVALID
+    backend.contexts["ses_ok"] = context("ses_ok")
+    poller = poller_for(backend)
+
+    first = await poller.run_once()
+    second = await poller.run_once()
+
+    assert first.outcome == "stored" and first.job.interview_id == "int_bad"
+    assert second.outcome == "stored" and second.job.interview_id == "int_ok"
+    assert [b["status"] for b in backend.put_bodies] == ["failed", "completed"]
+    assert backend.jobs == []
+
+
+async def test_a_result_backend_refuses_is_held_and_shouted_about(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Nothing this process does can move such a job; the queue is stuck.
+    backend = FakeBackend()
+    backend.jobs = [job()]
+    backend.contexts["ses_1"] = context()
+    backend.put_status = 404
+    clock = Clock()
+    poller = poller_for(backend, clock=clock, give_up_seconds=600.0)
+
+    with caplog.at_level(logging.ERROR, logger="irya_ai.prep_poller"):
+        done = await poller.run_once()
+
     assert done.outcome == "held"
-    assert done.code == "CONTEXT_SESSION_MISMATCH"
-    assert backend.put_bodies == []
+    assert done.code == "BACKEND_CLIENT_ERROR"
+    assert any("queue behind it waits" in r.message for r in caplog.records)
+    clock.now += 599.0
+    assert (await poller.run_once()).outcome == "idle"
+    clock.now += 2.0
+    assert (await poller.run_once()).outcome == "held"
 
 
 async def test_a_backend_that_cannot_serve_the_context_is_retried_later() -> None:

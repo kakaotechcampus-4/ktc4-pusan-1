@@ -21,8 +21,17 @@ Three facts about Backend's side shape the loop (#162, #165):
   FAILED and the job leaves the queue. So a failure that could answer
   differently next time - the model timed out, the gateway was busy - is not
   stored; the job is held and tried again. A failure that would repeat (no
-  competencies, a malformed context) is stored, so the interview does not sit
-  in PROCESSING until the time limit does the same thing later and slower.
+  competencies, a malformed context, a session Backend does not know) is
+  stored, so the interview does not sit in PROCESSING until the time limit
+  does the same thing later and slower.
+- **The oldest job is the only job.** Backend hands out the oldest PROCESSING
+  row and nothing else, so a job left in the queue blocks every job behind
+  it (head-of-line). That is the other reason a failure that would repeat is
+  stored rather than held: a hold would stall the healthy interviews behind
+  it until Backend's limit cleared the way, by which time theirs may have run
+  out too. The only jobs still held for long are ones this process cannot
+  even store a result for - a kind it does not handle, a ``PUT`` Backend
+  refuses - and those are logged as errors, because the queue is stuck.
 
 The mentor's note on the weekly PR (#178) asks that one job's wall time be
 measured once the generator is attached, since the no-claim premise holds
@@ -52,16 +61,18 @@ from irya_ai.prep import ExtractivePrepGenerator, PrepAgent
 from irya_ai.schemas.context import InterviewContext
 from irya_ai.schemas.jobs import JOB_KIND_PREP, PendingJob
 from irya_ai.schemas.prep import PrepResult
+from irya_ai.schemas.summary import AnalysisError
 from irya_ai.stt.http_logging import protect_base_url
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 DEFAULT_RETRY_AFTER_SECONDS = 30.0
-# A job this process will not finish - a kind it does not know, a context it
-# cannot read - is left alone this long. Longer than Backend's default limit
-# on the request, so Backend fails it first; short enough that a Backend
-# restarted with a fix is not waited on for an hour.
+# A job this process can neither finish nor fail - a kind it does not know,
+# a result Backend refuses to store - is left alone this long. Longer than
+# Backend's default limit on the request, so Backend fails it first; short
+# enough that a Backend restarted with a fix is not waited on for an hour.
+# While it lasts the queue behind the job is stuck (see the module note).
 DEFAULT_GIVE_UP_SECONDS = 600.0
 # ``holds`` is pruned when it grows past this; a few hundred interviews is
 # more than one deployment sees in a day.
@@ -184,9 +195,13 @@ class PrepPoller:
             return Pass("idle", job=job)
         if job.kind != JOB_KIND_PREP:
             # Review jobs arrive on this queue once #164 lands; the generator
-            # for them is #170. Until it is wired here, leave them to Backend.
-            logger.info(
-                "prep poller skipping job kind=%s interview=%s",
+            # for them is #170. Until both are wired here there is nothing to
+            # store for one, so it is held - and while it is held it blocks
+            # the PREP jobs behind it. #164 is to keep such jobs off this
+            # ask (a ``kind`` filter) rather than have this process skip them.
+            logger.error(
+                "prep poller cannot handle job kind=%s interview=%s; "
+                "the queue behind it waits",
                 job.kind,
                 job.interview_id,
             )
@@ -197,16 +212,19 @@ class PrepPoller:
         try:
             result = await self._prepare(job)
         except PollerError as exc:
-            self._hold_after_failure(job, exc.retryable)
-            logger.warning(
-                "prep job interview=%s session=%s held code=%s retryable=%s %dms",
-                job.interview_id,
-                job.session_id,
-                exc.code,
-                exc.retryable,
-                elapsed_ms(started),
-            )
-            return Pass("held", job=job, code=exc.code)
+            if exc.retryable:
+                self._hold(job, self.retry_after_seconds)
+                logger.warning(
+                    "prep job interview=%s session=%s held code=%s %dms",
+                    job.interview_id,
+                    job.session_id,
+                    exc.code,
+                    elapsed_ms(started),
+                )
+                return Pass("held", job=job, code=exc.code)
+            # Asking again would fail the same way, and a held job blocks the
+            # queue behind it. Store the failure so the row leaves the queue.
+            result = self._failed_result(job, exc.code)
 
         if result.status == "failed" and result.error and result.error.retryable:
             # Storing this would fail the interview for good over a moment
@@ -235,14 +253,27 @@ class PrepPoller:
                     job.session_id,
                 )
                 return Pass("outdated", job=job, result=result, code=exc.code)
-            self._hold_after_failure(job, exc.retryable)
-            logger.warning(
-                "prep job interview=%s session=%s not stored code=%s %dms",
-                job.interview_id,
-                job.session_id,
-                exc.code,
-                elapsed_ms(started),
-            )
+            if exc.retryable:
+                self._hold(job, self.retry_after_seconds)
+                logger.warning(
+                    "prep job interview=%s session=%s not stored code=%s %dms",
+                    job.interview_id,
+                    job.session_id,
+                    exc.code,
+                    elapsed_ms(started),
+                )
+            else:
+                # Backend will not take a result for this job, so nothing
+                # this process does moves it out of the queue. Hold it for
+                # the long wait and say so loudly: everything behind it waits.
+                self._hold(job, self.give_up_seconds)
+                logger.error(
+                    "prep job interview=%s session=%s refused code=%s; "
+                    "the queue behind it waits",
+                    job.interview_id,
+                    job.session_id,
+                    exc.code,
+                )
             return Pass("held", job=job, result=result, code=exc.code)
 
         self.holds.pop(job.key, None)
@@ -294,8 +325,19 @@ class PrepPoller:
             self.holds = {k: v for k, v in self.holds.items() if v > now}
         self.holds[job.key] = self._clock() + seconds
 
-    def _hold_after_failure(self, job: PendingJob, retryable: bool) -> None:
-        self._hold(job, self.retry_after_seconds if retryable else self.give_up_seconds)
+    def _failed_result(self, job: PendingJob, code: str) -> PrepResult:
+        """A ``failed`` result for a job the agent never saw.
+
+        Carries the job's own session id, not whatever Backend answered with,
+        so a mismatched context is recorded against the interview that asked.
+        """
+
+        return PrepResult(
+            session_id=job.session_id,
+            status="failed",
+            model=self.agent.model,
+            error=AnalysisError(code=code, retryable=False),
+        )
 
 
 def elapsed_ms(started: float) -> int:
