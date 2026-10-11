@@ -11,7 +11,9 @@ import httpx
 import pytest
 
 from irya_ai.config import Settings
+from irya_ai.stt import elice
 from irya_ai.stt.elice import (
+    MAX_RETRY_AFTER_SECONDS,
     RESPONSE_FORMAT,
     TIMESTAMP_TOLERANCE_MS,
     EliceSttClient,
@@ -20,6 +22,7 @@ from irya_ai.stt.elice import (
     build_client,
     build_http_client,
     is_hallucinated,
+    is_stock_phrase,
     parse_response,
 )
 
@@ -360,6 +363,96 @@ async def test_a_transport_failure_is_retryable() -> None:
     assert len(seen) == 2
 
 
+async def test_a_closed_client_is_a_final_typed_error() -> None:
+    """``httpx`` says it with a bare ``RuntimeError``; callers catch ``SttError``."""
+
+    seen: list[httpx.Request] = []
+    client = client_for(lambda request: seen.append(request), retries=2)
+    await client.client.aclose()
+
+    with pytest.raises(SttError) as caught:
+        await client.transcribe(WAV)
+
+    assert caught.value.code == "STT_CLIENT_CLOSED"
+    assert caught.value.retryable is False
+    assert caught.value.__cause__ is None
+    assert seen == []
+
+
+def recorded_sleeps(monkeypatch) -> list[float]:
+    slept: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(elice.asyncio, "sleep", fake_sleep)
+    return slept
+
+
+@pytest.mark.parametrize(
+    "retry_after",
+    ["7", "Wed, 21 Oct 2099 07:28:00 GMT"],
+    ids=["seconds", "http_date"],
+)
+async def test_a_retry_waits_at_least_what_retry_after_asked(
+    monkeypatch, retry_after: str
+) -> None:
+    """Retrying sooner than asked only adds to the load being shed."""
+
+    slept = recorded_sleeps(monkeypatch)
+    monkeypatch.setattr(elice, "MAX_RETRY_AFTER_SECONDS", float("inf"))
+    answers = iter(
+        [
+            httpx.Response(429, headers={"Retry-After": retry_after}),
+            httpx.Response(200, json=body("다시 받았습니다")),
+        ]
+    )
+
+    result = await client_for(lambda request: next(answers), retries=2).transcribe(WAV)
+
+    assert result.text == "다시 받았습니다"
+    assert len(slept) == 1 and slept[0] >= 7.0
+
+
+async def test_a_retry_after_longer_than_a_caption_lasts_fails_now(
+    monkeypatch,
+) -> None:
+    slept = recorded_sleeps(monkeypatch)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        wait = str(int(MAX_RETRY_AFTER_SECONDS) + 1)
+        return httpx.Response(503, headers={"Retry-After": wait})
+
+    with pytest.raises(SttError) as caught:
+        await client_for(handler, retries=2).transcribe(WAV)
+
+    assert caught.value.code == "STT_REQUEST_FAILED"
+    assert len(seen) == 1
+    assert slept == []
+
+
+@pytest.mark.parametrize(
+    "retry_after", [b"soon", b"-3", "\u0661\u0662".encode(), b"Wed, 21 Oct 1999"]
+)
+async def test_a_retry_after_that_is_not_a_wait_is_ignored(
+    monkeypatch, retry_after: bytes
+) -> None:
+    slept = recorded_sleeps(monkeypatch)
+    answers = iter(
+        [
+            httpx.Response(429, headers=[(b"Retry-After", retry_after)]),
+            httpx.Response(200, json=body("다시 받았습니다")),
+        ]
+    )
+
+    result = await client_for(lambda request: next(answers), retries=1).transcribe(WAV)
+
+    assert result.text == "다시 받았습니다"
+    assert slept == [0.0]
+
+
 async def test_a_cancelled_request_is_not_reported_as_a_provider_failure() -> None:
     """Cancellation is the caller leaving, not the deployment failing."""
 
@@ -383,6 +476,42 @@ def test_hallucination_guard_catches_a_span_longer_than_the_audio() -> None:
     )
 
     assert is_hallucinated(stock, audio_duration_ms=1080)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "시청해주셔서 감사합니다",
+        "시청해 주셔서 감사합니다.",
+        " 구독과 좋아요 부탁드립니다! ",
+        "시청해 주셔서 감사합니다. 구독과 좋아요 부탁드립니다.",
+        "MBC 뉴스 김지경입니다.",
+        "자막 제공 및 자막 편집",
+    ],
+)
+def test_a_stock_outro_is_recognised_however_it_is_spaced(text: str) -> None:
+    """The span can fit the audio; the text alone gives it away."""
+
+    assert is_stock_phrase(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "감사합니다",
+        "네 감사합니다",
+        "끝까지 들어 주셔서 감사합니다",
+        "유튜브에서 시청해 주셔서 감사합니다라는 말로 마무리했습니다",
+        "구독과 좋아요 기능을 직접 구현했습니다",
+        "MBC 뉴스 인턴으로 일했습니다",
+        "",
+        "...",
+    ],
+)
+def test_speech_that_shares_words_with_an_outro_is_kept(text: str) -> None:
+    """Only the whole credit is stock; a candidate's own sentence never is."""
+
+    assert not is_stock_phrase(text)
 
 
 @pytest.mark.parametrize("span_end_ms", [0, 2000, 2000 + TIMESTAMP_TOLERANCE_MS, None])

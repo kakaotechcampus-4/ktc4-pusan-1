@@ -136,6 +136,11 @@ class BackendClient:
                 # Transport-level: timeouts, DNS, refused connections. Every
                 # one of them can answer differently on the next attempt.
                 failure = BackendError("BACKEND_REQUEST_FAILED", retryable=True)
+            except RuntimeError:
+                # ``httpx`` refuses to send on a closed client with a bare
+                # ``RuntimeError``. Callers catch :class:`BackendError` and
+                # count it; anything else escapes their loop instead.
+                failure = BackendError("BACKEND_CLIENT_CLOSED", retryable=False)
             else:
                 return
 

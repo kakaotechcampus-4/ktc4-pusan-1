@@ -140,6 +140,19 @@ async def test_a_transport_failure_is_retryable() -> None:
     assert caught.value.retryable is True
 
 
+async def test_a_closed_client_is_a_final_typed_error() -> None:
+    """``httpx`` says it with a bare ``RuntimeError``; callers catch the type."""
+
+    client = client_for(lambda request: httpx.Response(204))
+    await client.client.aclose()
+
+    with pytest.raises(BackendError) as caught:
+        await client.send("POST", ROUTE, PAYLOAD)
+
+    assert caught.value.code == "BACKEND_CLIENT_CLOSED"
+    assert caught.value.retryable is False
+
+
 async def test_a_cancelled_request_is_not_reported_as_a_backend_failure() -> None:
     """Shutting the Agent down must not look like Backend rejecting a call."""
 
