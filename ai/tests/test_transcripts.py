@@ -688,6 +688,29 @@ async def test_an_outage_that_fails_every_upsert_drops_nothing() -> None:
         }
 
 
+async def test_a_schema_nack_does_not_witness_storage_recovery() -> None:
+    """Schema validation can succeed while every valid upsert still fails."""
+
+    async with FakeBackend(
+        poison={"utt_valid"}, nack={"utt_invalid": "SCHEMA"}
+    ) as backend:
+        async with closing_quickly(isolating_channel(backend)) as channel:
+            for utterance_id in ("utt_valid", "utt_invalid"):
+                with contextlib.suppress(BackendError):
+                    await channel.send(payload(utterance_id))
+
+            await eventually(lambda: "utt_invalid" in channel.refused, timeout=5.0)
+            await eventually(lambda: backend.connections >= 8, timeout=5.0)
+            assert channel.refused == {"utt_invalid": "SCHEMA"}
+            assert channel.unacknowledged == 1
+            assert channel._failures > 0
+
+            backend.poison.clear()
+            await eventually(lambda: channel.unacknowledged == 0, timeout=5.0)
+            assert channel.refused == {"utt_invalid": "SCHEMA"}
+            assert channel._failures == 0
+
+
 async def test_an_unstorable_utterance_with_nothing_behind_it_stays_buffered() -> None:
     """Without a second frame there is no telling it from an outage."""
 

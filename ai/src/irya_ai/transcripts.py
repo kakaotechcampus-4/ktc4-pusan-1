@@ -728,13 +728,14 @@ class TranscriptChannel:
                         reason,
                     )
                 self._pending.pop(utterance_id, None)
-                self._settle_suspect(utterance_id)
-                # Backend answered, so whatever was failing has stopped: the
-                # next reconnect starts from the base delay again. Not on
-                # connect - a Backend that accepts the socket and then fails
-                # every upsert is exactly the one that must keep backing off.
-                self._failures = 0
-                self._retry_at = 0.0
+                if kind == FRAME_ACK:
+                    self._settle_suspect(utterance_id)
+                    # Only a stored frame proves that upserts recovered. A
+                    # schema NACK can arrive while the database is still down.
+                    self._failures = 0
+                    self._retry_at = 0.0
+                elif utterance_id == self._suspect:
+                    self._suspect = None
                 if not self._pending:
                     self._drained.set()
                 # Frames held back behind a suspect, or the end of the buffer:
