@@ -232,13 +232,13 @@ docker rm -f irya-restore
 
 녹화 재생 URL 을 CloudFront 서명 URL 로 줄 수 있습니다 (#197). 스위치가 꺼져 있으면 지금처럼 10분짜리 S3 서명 URL 입니다. S3 서명 URL 은 인스턴스 역할의 임시 자격증명으로 서명해서, 유효 시간을 길게 줘도 그 자격증명이 만료되면 같이 죽습니다.
 
-**CloudFront 자원은 운영진 확인 뒤 만듭니다.** 10/11 에 아래 구성을 시험용으로 만들어 확인하고 모두 지웠습니다. 만들 것은 이렇습니다.
+만들 자원은 이렇습니다.
 
 | 자원 | 설정 |
 | --- | --- |
 | 공개키 · 키 그룹 `irya-rec` | 서버 `infra/cf-rec-public.pem` (RSA 2048). 짝인 개인키는 서버 `.env` 에만 있습니다 |
 | OAC `irya-rec-oac` | S3 원본, 항상 서명(sigv4) |
-| 배포 | `cloudfront-distribution.json` — 기본 도메인, HTTPS · GET/HEAD 만, 서명된 요청만(키 그룹 `irya-rec`), 캐시 정책 `CachingOptimized`. **꺼진 채로 만듭니다** |
+| 배포 | `cloudfront-distribution.json` — 기본 도메인, HTTPS · GET/HEAD 만, 서명된 요청만(키 그룹 `irya-rec`), 캐시 정책 `CachingDisabled`. **꺼진 채로 만듭니다** |
 | 버킷 정책 | `s3-bucket-policy.json` — 이 배포에만 `rec/*` 읽기를 엽니다. 버킷은 비공개 그대로입니다 |
 
 만드는 법 (로컬에서 `irya-sso` 로). 나오는 ID 는 다음 명령에 넣습니다.
@@ -264,6 +264,7 @@ aws cloudfront create-distribution --distribution-config file:///tmp/dist.json -
    ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
    sed -e "s/\${ACCOUNT_ID}/$ACCOUNT_ID/" -e "s/\${DISTRIBUTION_ID}/<배포 ID>/" infra/s3-bucket-policy.json > /tmp/rec-policy.json
    aws s3api put-bucket-policy --bucket ktc4-pusan-1-irya --policy file:///tmp/rec-policy.json
+   aws s3api get-bucket-policy-status --bucket ktc4-pusan-1-irya --query PolicyStatus.IsPublic   # false
    ```
 
 2. 배포를 켭니다 (CloudFront 콘솔에서 활성화). 몇 분 뒤 `Deployed` 가 됩니다. 꺼져 있는 동안은 도메인이 DNS 에서 풀리지 않습니다. 켠 뒤 서명 없이 부르면 서명을 요구하는 `MissingKey` 가 와야 합니다. 서명 검사는 원본보다 앞이라 아무 경로나 됩니다.
