@@ -230,9 +230,7 @@ docker rm -f irya-restore
 
 ## 녹화 재생 (CloudFront)
 
-녹화 재생 URL 을 CloudFront 서명 URL 로 줄 수 있습니다 (#197). 스위치가 꺼져 있으면 지금처럼 10분짜리 S3 서명 URL 입니다. S3 서명 URL 은 인스턴스 역할의 임시 자격증명으로 서명해서, 유효 시간을 길게 줘도 그 자격증명이 만료되면 같이 죽습니다.
-
-만들 자원은 이렇습니다.
+녹화 재생 URL 을 CloudFront 서명 URL 로 줄 수 있습니다 (#197). 스위치가 꺼져 있으면 지금처럼 10분짜리 S3 서명 URL 입니다. S3 서명 URL 은 인스턴스 역할의 임시 자격증명으로 서명해서 유효 시간을 길게 줘도 그 자격증명이 만료되면 같이 죽습니다.
 
 | 자원 | 설정 |
 | --- | --- |
@@ -241,7 +239,7 @@ docker rm -f irya-restore
 | 배포 | `cloudfront-distribution.json` — 기본 도메인, HTTPS · GET/HEAD 만, 서명된 요청만(키 그룹 `irya-rec`), 캐시 정책 `CachingDisabled`. **꺼진 채로 만듭니다** |
 | 버킷 정책 | `s3-bucket-policy.json` — 이 배포에만 `rec/*` 읽기를 엽니다. 버킷은 비공개 그대로입니다 |
 
-만드는 법 (로컬에서 `irya-sso` 로). 나오는 ID 는 다음 명령에 넣습니다.
+로컬에서 `irya-sso` 로 만듭니다. 나오는 ID 는 다음 명령에 넣습니다.
 
 ```bash
 # 공개키 — 서버의 cf-rec-public.pem 을 가져와 등록합니다. 나오는 ID(K…)가 RECORDING_CDN_KEY_ID 입니다
@@ -255,9 +253,9 @@ sed -e "s/\${CALLER_REFERENCE}/irya-rec-$(date +%s)/" -e "s/\${OAC_ID}/<OAC ID>/
 aws cloudfront create-distribution --distribution-config file:///tmp/dist.json --query 'Distribution.[Id,DomainName]'
 ```
 
-스위치는 셋이고, 켤 때는 이 순서입니다. 끌 때는 거꾸로 — 서버 `.env` 의 도메인을 비우고 backend 를 다시 만들면(`docker compose up -d backend`) 10분 S3 서명으로 돌아갑니다. `.env` 만 고쳐서는 바뀌지 않습니다.
+스위치는 셋이고 켤 때는 이 순서, 끌 때는 거꾸로입니다. 서버 `.env` 의 도메인을 비우고 backend 를 다시 만들면(`docker compose up -d backend`) 10분 S3 서명으로 돌아갑니다. `.env` 만 고쳐서는 바뀌지 않습니다.
 
-1. 버킷 정책을 겁니다. 정책도 수명주기처럼 버킷에 하나라 걸 때마다 통째로 바뀝니다. 그래서 먼저 걸린 정책이 있는지 보고, 있으면 그 규칙을 이 파일에 합친 뒤 겁니다. 계정 ID 와 배포 ID 는 저장소에 두지 않고 걸 때 채웁니다.
+1. 버킷 정책을 겁니다. 정책도 수명주기처럼 버킷에 하나라 걸 때마다 통째로 바뀌니 먼저 걸린 정책이 있는지 봅니다. 있으면 그 규칙을 이 파일에 합친 뒤 겁니다. 계정 ID 와 배포 ID 는 저장소에 두지 않고 걸 때 채웁니다.
 
    ```bash
    aws s3api get-bucket-policy --bucket ktc4-pusan-1-irya   # NoSuchBucketPolicy 면 그대로 겁니다
@@ -267,13 +265,13 @@ aws cloudfront create-distribution --distribution-config file:///tmp/dist.json -
    aws s3api get-bucket-policy-status --bucket ktc4-pusan-1-irya --query PolicyStatus.IsPublic   # false
    ```
 
-2. 배포를 켭니다 (CloudFront 콘솔에서 활성화). 몇 분 뒤 `Deployed` 가 됩니다. 꺼져 있는 동안은 도메인이 DNS 에서 풀리지 않습니다. 켠 뒤 서명 없이 부르면 서명을 요구하는 `MissingKey` 가 와야 합니다. 서명 검사는 원본보다 앞이라 아무 경로나 됩니다.
+2. CloudFront 콘솔에서 배포를 켭니다. 몇 분 뒤 `Deployed` 가 됩니다. 꺼져 있는 동안은 도메인이 DNS 에서 풀리지 않습니다. 켠 뒤 서명 없이 부르면 서명을 요구하는 `MissingKey` 가 와야 합니다. 서명 검사는 원본보다 앞이라 아무 경로나 됩니다.
 
    ```bash
    curl -s https://<배포 도메인>/rec/x | grep -o MissingKey
    ```
 
-3. 서버 `.env` 에 `RECORDING_CDN_KEY_ID` 를 넣고, 키 ID 와 개인키가 있는지 개수로 봅니다(값은 찍지 않습니다). 그다음 `RECORDING_CDN_DOMAIN` 에 배포 도메인을 넣고 backend 를 다시 만듭니다. 키가 틀리면 backend 가 뜨지 않아 **API 전체가 멈춥니다.** 로그를 보고, 바로 못 고치면 도메인을 비우고 다시 `up -d backend` 합니다.
+3. 서버 `.env` 에 `RECORDING_CDN_KEY_ID` 를 넣고 키 ID 와 개인키가 있는지 개수로 봅니다(값은 찍지 않습니다). 그다음 `RECORDING_CDN_DOMAIN` 에 배포 도메인을 넣고 backend 를 다시 만듭니다. 키가 틀리면 backend 가 뜨지 않아 **API 전체가 멈춥니다.** 로그를 보고 바로 못 고치면 도메인을 비우고 다시 `up -d backend` 합니다.
 
    ```bash
    cd ~/ktc4-pusan-1/infra
@@ -281,7 +279,7 @@ aws cloudfront create-distribution --distribution-config file:///tmp/dist.json -
    docker compose up -d backend && docker compose logs --tail 40 backend
    ```
 
-   뜨면 서명 URL 로 206 을 확인합니다. 로그인 없이 컨테이너 안에서 서명하고, 찍히는 URL 은 파일 하나를 3시간 볼 수 있는 값이라 공유하지 않습니다.
+   뜨면 컨테이너 안에서 로그인 없이 서명한 URL 로 206 을 확인합니다. 찍히는 URL 은 파일 하나를 3시간 볼 수 있는 값이라 공유하지 않습니다.
 
    ```bash
    URL=$(docker compose exec -T backend python -c "from app.services.recording import presign; print(presign('rec/<세션>/merged.webm')[0])")
