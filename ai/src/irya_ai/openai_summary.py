@@ -66,7 +66,12 @@ class OpenAISummarizer:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {
                         "role": "user",
-                        "content": json.dumps(payload, ensure_ascii=False),
+                        # Compact separators: the whole transcript goes in
+                        # here, and the default padding bills about one token
+                        # in eight for nothing the model reads.
+                        "content": json.dumps(
+                            payload, ensure_ascii=False, separators=(",", ":")
+                        ),
                     },
                 ],
                 text_format=SummaryDraft,
