@@ -10,7 +10,8 @@ const STATUS_TEXT = (doc: ContextDoc) =>
     uploading: `올리는 중 ${Math.round((doc.progress ?? 0) * 100)}%`,
     parsing: '읽는 중',
     ready: `${fmtSize(doc.sizeBytes)} · ${doc.kind.toUpperCase()}`,
-    failed: '읽지 못했습니다',
+    // 서버가 다시 읽어 주지 않는다. 사람이 지우고 다시 올려야 한다 (#149).
+    failed: '본문을 읽지 못했습니다. 지우고 다시 올려주세요',
   })[doc.status];
 
 export interface DocCardProps {

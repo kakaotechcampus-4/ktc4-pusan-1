@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getReview } from '../api/review';
+import { ApiError } from '../api/client';
 import { getInterview } from '../api/interview';
 import { AiReview } from '../components/review/AiReview';
 import { QaList } from '../components/review/QaList';
@@ -27,7 +28,7 @@ const POLL_INTERVAL_MS = 3000;
 
 export default function ReviewTimelinePage() {
   const { interviewId } = useParams<{ interviewId: string }>();
-  const { data, isError, isFetching, refetch } = useQuery({
+  const { data, isError, error, isFetching, refetch } = useQuery({
     queryKey: ['review', interviewId],
     queryFn: () => getReview(interviewId!),
     enabled: Boolean(interviewId),
@@ -58,6 +59,9 @@ export default function ReviewTimelinePage() {
   };
 
   if (isError) {
+    // 404 는 없는 면접이거나 남의 면접이다 (#145). 둘 다 기다린다고 달라지지 않으므로
+    // 다시 확인을 권하지 않는다 — 어느 쪽인지는 서버가 일부러 구분해 주지 않는다.
+    const missing = error instanceof ApiError && error.status === 404;
     return (
       <Centered>
         {interview?.candidateName && (
@@ -65,19 +69,27 @@ export default function ReviewTimelinePage() {
             {interview.candidateName} · 면접 기록
           </h1>
         )}
-        <p className="text-[15px] text-[#FFC46B]">면접 기록을 불러오지 못했습니다.</p>
-        <p className="text-ink-muted mt-1.5 text-sm">잠시 후 다시 확인해주세요.</p>
-        <button
-          type="button"
-          onClick={() => {
-            void refetch();
-            void refetchInterview();
-          }}
-          disabled={isFetching}
-          className="mt-4 text-sm text-white underline disabled:opacity-50"
-        >
-          다시 확인
-        </button>
+        <p className="text-[15px] text-[#FFC46B]">
+          {missing ? '없거나 볼 수 없는 면접입니다.' : '면접 기록을 불러오지 못했습니다.'}
+        </p>
+        <p className="text-ink-muted mt-1.5 text-sm">
+          {missing
+            ? '링크가 올바른지, 이 면접을 만든 계정으로 로그인했는지 확인해주세요.'
+            : '잠시 후 다시 확인해주세요.'}
+        </p>
+        {!missing && (
+          <button
+            type="button"
+            onClick={() => {
+              void refetch();
+              void refetchInterview();
+            }}
+            disabled={isFetching}
+            className="mt-4 text-sm text-white underline disabled:opacity-50"
+          >
+            다시 확인
+          </button>
+        )}
         <HomeLink />
       </Centered>
     );

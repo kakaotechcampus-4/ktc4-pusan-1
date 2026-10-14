@@ -106,12 +106,26 @@ export interface EndSessionResponse {
  * 공개 BE 명세의 조회·저장·문서 업로드 계약이다.
  * ---------------------------------------------------------------- */
 
+/**
+ * 문서 형식.
+ *
+ * 새로 올릴 수 있는 것은 PDF 뿐이지만(#149), 그 전에 올라온 DOCX 가 조회 응답에
+ * 그대로 남아 있어서 읽는 쪽은 둘 다 받는다.
+ */
 export type DocKind = 'pdf' | 'docx';
+
+/**
+ * 기업 컨텍스트 문서가 들어가는 칸.
+ *
+ * AI 가 JD 와 사내 문서를 다르게 쓴다. 이력서에는 칸이 없어서 null 로 온다.
+ */
+export type DocCategory = 'jd' | 'internal';
 
 /**
  * 문서 상태.
  *
  * uploading 은 클라이언트에만 있는 상태다 — 서버는 업로드가 끝난 뒤에야 문서를 안다.
+ * 올라온 직후는 parsing 이고, 서버가 본문을 뽑으면 ready, 못 뽑으면 failed 가 된다.
  */
 export type DocStatus = 'uploading' | 'parsing' | 'ready' | 'failed';
 
@@ -121,6 +135,8 @@ export interface ContextDoc {
   kind: DocKind;
   sizeBytes: number;
   status: DocStatus;
+  /** 어느 칸에 들어가는지. 이력서는 null 이고, 업로드 중인 임시 문서에는 없다 */
+  category?: DocCategory | null;
   /** 업로드 진행률 0~1. uploading 일 때만 있다 */
   progress?: number;
 }
@@ -206,6 +222,15 @@ export interface JoinSessionResponse {
 export type JoinFailure =
   /** 존재하지 않는 세션 */
   | 'not-found'
+  /** 로그인은 했지만 이 면접의 주인이 아니다 — 다시 시도해도 같다 (#150) */
+  | 'not-allowed'
+  /**
+   * 면접관으로 들어가려는데 토큰이 없거나 만료됐다 (401).
+   *
+   * 이때 client.ts 가 토큰을 이미 지웠으므로 다시 눌러도 영원히 같다 — 「잠시 후
+   * 다시」로 묶으면 로그인하면 된다는 사실을 아무도 알려주지 않는다 (#150).
+   */
+  | 'signed-out'
   /** 이미 종료된 세션 */
   | 'ended'
   /** 정원이 찬 세션 */

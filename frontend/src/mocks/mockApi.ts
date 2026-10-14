@@ -14,6 +14,7 @@ import type {
   CompanyContext,
   ContextDoc,
   CreateSessionResponse,
+  DocCategory,
   Interview,
   InterviewSummary,
   JoinSessionResponse,
@@ -78,6 +79,7 @@ function viewDocs(): ContextDoc[] {
 export async function handleMockUpload(
   file: File,
   onProgress: (ratio: number) => void,
+  category: DocCategory,
 ): Promise<ContextDoc> {
   for (let i = 1; i <= 10; i++) {
     await delay(120);
@@ -85,13 +87,14 @@ export async function handleMockUpload(
   }
 
   const id = nextId('doc');
-  const kind = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx';
   const stored: StoredDoc = {
     id,
     name: file.name,
-    kind,
+    // 서버가 PDF 만 받으므로 목도 PDF 로만 만든다.
+    kind: 'pdf',
     sizeBytes: file.size,
     status: 'parsing',
+    category,
     readyAt: Date.now() + PARSE_MS,
   };
   docs.set(id, stored);
