@@ -132,10 +132,13 @@ async def test_each_guard_drops_its_own_kind_of_bad_result() -> None:
             return ok("시청해주셔서 감사합니다", end_s=29.98)
         if index == 3:
             return httpx.Response(500)
+        if index == 4:
+            # The same outro with a span that fits the segment.
+            return ok("구독과 좋아요 부탁드립니다", end_s=1.2)
         return ok("실제 발화입니다")
 
     stream = stream_for(handler)
-    stream.push(TURN * 4)
+    stream.push(TURN * 5)
     stream.close()
 
     utterances = await stream.drain()
@@ -145,6 +148,7 @@ async def test_each_guard_drops_its_own_kind_of_bad_result() -> None:
         "EMPTY",
         "TIMESTAMP_OVERRUN",
         "REQUEST_FAILED",
+        "STOCK_PHRASE",
     ]
 
 
@@ -364,6 +368,80 @@ async def test_a_failed_request_does_not_end_a_live_consumer() -> None:
 
     assert [u.content for u in utterances] == ["이어서 계속합니다"]
     assert [r.reason for r in stream.rejected] == ["REQUEST_FAILED"]
+
+
+async def test_a_request_that_never_returns_does_not_hold_back_the_rest() -> None:
+    """Release is in spoken order, so one hung request would hold every caption.
+
+    The deadline turns it into a rejected span and the queue moves on.
+    """
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        index = segment_index(request)
+        if index == 0:
+            await asyncio.Event().wait()
+        return ok(f"문장 {index}")
+
+    stream = stream_for(handler, request_deadline_seconds=0.2)
+    stream.push(TURN * 3)
+    stream.close()
+
+    utterances = await asyncio.wait_for(stream.drain(), timeout=2)
+
+    assert [u.content for u in utterances] == ["문장 1", "문장 2"]
+    assert [(r.index, r.reason, r.code) for r in stream.rejected] == [
+        (0, "REQUEST_FAILED", "STT_DEADLINE_EXCEEDED")
+    ]
+
+
+async def test_the_deadline_includes_the_retries() -> None:
+    """The client retries on its own; the deadline is for the whole segment."""
+
+    seen: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        await asyncio.sleep(0.1)
+        return httpx.Response(503)
+
+    stream = stream_for(handler, retries=20, request_deadline_seconds=0.25)
+    stream.push(TURN)
+    stream.close()
+
+    assert await asyncio.wait_for(stream.drain(), timeout=2) == []
+    assert [r.code for r in stream.rejected] == ["STT_DEADLINE_EXCEEDED"]
+    assert len(seen) <= 3
+
+
+async def test_the_deadline_does_not_count_the_wait_for_a_slot() -> None:
+    """A segment queued behind a slow one is not the one that was slow."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.15)
+        return ok(f"문장 {segment_index(request)}")
+
+    stream = stream_for(handler, max_concurrency=1, request_deadline_seconds=0.25)
+    stream.push(TURN * 3)
+    stream.close()
+
+    utterances = await asyncio.wait_for(stream.drain(), timeout=2)
+
+    assert [u.content for u in utterances] == ["문장 0", "문장 1", "문장 2"]
+    assert stream.rejected == []
+
+
+async def test_a_closed_http_client_costs_segments_not_the_track() -> None:
+    """A job closing the client under the tail loses the tail, not the track."""
+
+    stream = stream_for(lambda request: ok("도달하지 않음"))
+    await stream.client.client.aclose()
+    stream.push(TURN * 2)
+    stream.close()
+
+    assert await asyncio.wait_for(stream.drain(), timeout=2) == []
+    assert [(r.reason, r.code) for r in stream.rejected] == [
+        ("REQUEST_FAILED", "STT_CLIENT_CLOSED")
+    ] * 2
 
 
 async def test_a_malformed_body_does_not_end_a_live_consumer() -> None:
@@ -910,6 +988,12 @@ def test_a_stream_refuses_a_concurrency_that_would_never_send(limit: int) -> Non
 
     with pytest.raises(ValueError, match="max_concurrency"):
         stream_for(lambda request: ok("네"), max_concurrency=limit)
+
+
+@pytest.mark.parametrize("deadline", [0, -1.0])
+def test_a_stream_refuses_a_deadline_no_request_could_meet(deadline: float) -> None:
+    with pytest.raises(ValueError, match="request_deadline_seconds"):
+        stream_for(lambda request: ok("네"), request_deadline_seconds=deadline)
 
 
 @pytest.mark.parametrize("field", ["session_id", "track_id"])
