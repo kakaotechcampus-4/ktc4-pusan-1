@@ -8,6 +8,7 @@ import type {
   CreateSessionResponse,
   EndSessionResponse,
   Interview,
+  InterviewListResponse,
   InterviewSummary,
   JoinFailure,
   JoinSessionResponse,
@@ -21,12 +22,24 @@ const V1 = '/api/v1';
 
 /* ---------------- 면접 ---------------- */
 
-/** 새 면접 정보를 만든다. Session·LiveKit Room 은 여기서 만들지 않는다. */
-export const createInterview = (interviewerId: string, candidateName?: string) =>
+/**
+ * 새 면접 정보를 만든다. Session·LiveKit Room 은 여기서 만들지 않는다.
+ *
+ * 주인은 토큰의 사용자다 — 본문으로 보내면 아무 이름으로나 면접을 만들 수 있어
+ * 서버가 `interviewerId` 를 받지 않는다 (#145). 응답에는 그대로 들어 있다.
+ */
+export const createInterview = (candidateName?: string) =>
   request<Interview>(`${V1}/interviews`, {
     method: 'POST',
-    body: JSON.stringify({ interviewerId, candidateName }),
+    body: JSON.stringify({ candidateName }),
   });
+
+/**
+ * 내가 만든 면접 목록. 최신순으로 온다.
+ *
+ * 필터·정렬은 FE 가 한다 — 서버는 거르지 않고 내 것을 전부 준다.
+ */
+export const listInterviews = () => request<InterviewListResponse>(`${V1}/interviews`);
 
 export const getInterview = (interviewId: string) =>
   request<Interview>(`${V1}/interviews/${interviewId}`);

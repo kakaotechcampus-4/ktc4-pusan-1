@@ -72,8 +72,8 @@ export default function InterviewCreatePage() {
   const create = useMutation({
     mutationFn: async () => {
       if (!me) throw new Error('로그인 상태를 확인해주세요.');
-      // 로그인한 면접관과 지원자 이름을 서버 계약으로 전달한다.
-      const interview = await createInterview(me.id, normalizeCandidateName(candidateName));
+      // 면접관은 보내지 않는다 — 서버가 토큰의 사용자를 주인으로 삼는다 (#145).
+      const interview = await createInterview(normalizeCandidateName(candidateName));
 
       if (resume) {
         setDoc((prev) => prev && { ...prev, status: 'uploading', progress: 0 });

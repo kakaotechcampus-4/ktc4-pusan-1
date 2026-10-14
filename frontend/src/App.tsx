@@ -9,6 +9,7 @@
  *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
  *   /interview/:sessionId/summary  면접 종료 후 요약
  *   /review/:interviewId    면접 기록 — 녹화 · 타임라인 · AI 평가
+ *   /candidates             지원자 목록 — 내가 만든 면접
  *   /mock/interview         개발용 목 면접 미리보기
  *
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
@@ -44,6 +45,7 @@ import type { JoinSessionResponse, Role } from './types/interview';
    livekit-client 가 번들의 대부분을 차지하는데, 진입·요약 화면에는 필요 없다.
    이렇게 나누면 링크를 연 사람이 첫 화면을 보기까지 받는 양이 줄어든다. */
 const InterviewRoom = lazy(() => import('./pages/InterviewRoom'));
+const InterviewListPage = lazy(() => import('./pages/InterviewListPage'));
 const CandidateListPage = lazy(() => import('./pages/CandidateListPage'));
 const CandidateDetailPage = lazy(() => import('./pages/CandidateDetailPage'));
 const CandidateMemoPage = lazy(() => import('./pages/CandidateMemoPage'));
@@ -300,7 +302,7 @@ export default function App() {
         path="/candidates"
         element={
           <InterviewerPage>
-            <CandidateListPage />
+            <InterviewListPage />
           </InterviewerPage>
         }
       />
@@ -308,7 +310,7 @@ export default function App() {
         path="/demo/candidates"
         element={
           <Suspense fallback={<ChunkFallback />}>
-            <CandidateListPage demo />
+            <CandidateListPage />
           </Suspense>
         }
       />
