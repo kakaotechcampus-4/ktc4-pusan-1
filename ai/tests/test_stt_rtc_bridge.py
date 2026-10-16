@@ -12,6 +12,7 @@ from livekit import rtc
 
 from audio import RATE, silence, tone
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
+from irya_ai.sinks import FanOutSink
 from irya_ai.stt.elice import EliceSttClient
 from irya_ai.stt.rtc_bridge import (
     DEGRADED_REASON,
@@ -131,11 +132,8 @@ def ok(text: str, end_s: float = 1.0) -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "_result": {"status": "ok", "reason": None},
-            "transcript": {
-                "text": text,
-                "chunks": [{"timestamp": [0.0, end_s], "text": text}],
-            },
+            "text": text,
+            "segments": [{"id": 0, "start": 0.0, "end": end_s, "text": text}],
         },
     )
 
@@ -223,6 +221,30 @@ async def test_a_failing_sink_ends_the_track_the_same_way() -> None:
     assert stream.abandoned
 
 
+async def test_behind_a_fan_out_a_failing_sink_costs_only_its_own_delivery() -> None:
+    """The isolation the class above delegates to :class:`FanOutSink`, end to end."""
+
+    stream = FakeStream([utterance(), utterance(utterance_id="utt_track_0001")])
+    received: list[str] = []
+
+    async def broken(_value: Utterance) -> None:
+        raise ConnectionError("room went away")
+
+    async def keeps_going(value: Utterance) -> None:
+        received.append(value.utterance_id)
+
+    fan_out = FanOutSink([broken, keeps_going])
+    result = await transcribe_audio_frames(
+        frames=frames(frame(b"\x00\x00" * 160)),
+        stream_factory=lambda: stream,
+        sinks=[fan_out],
+    )
+
+    assert result is stream, "the track ran to its end"
+    assert received == ["utt_track_0000", "utt_track_0001"]
+    assert fan_out.failures == {"broken": 2}
+
+
 def test_frames_in_the_wrong_shape_are_refused_not_transcribed() -> None:
     assert frame_pcm(frame(b"\x01\x00" * 160)) == b"\x01\x00" * 160
     with pytest.raises(ValueError, match="48000 Hz"):
@@ -286,6 +308,27 @@ async def test_the_end_of_track_summary_reports_release_lag_percentiles() -> Non
         assert timing.speech_end_to_release_ms is not None
         assert timing.source_to_release_ms is not None
         assert timing.speech_end_to_release_ms < timing.source_to_release_ms
+
+
+@pytest.mark.parametrize(
+    ("n", "p50", "p95"),
+    [(5, 3, 5), (11, 6, 11), (12, 6, 12), (13, 7, 13), (30, 15, 29)],
+)
+def test_lag_percentiles_are_nearest_rank(n: int, p50: int, p95: int) -> None:
+    # Lags 1..n, so a percentile's value is its rank. Nearest-rank rounds the
+    # rank up; round() put p95 a place low at n=11-13 and 30, and p50 at n=5.
+    stream = SimpleNamespace(
+        timings=[
+            SimpleNamespace(
+                outcome="RELEASED", source_to_release_ms=v, speech_end_to_release_ms=v
+            )
+            for v in range(1, n + 1)
+        ]
+    )
+
+    assert lag_summary(stream) == (
+        f"lag n={n} source p50={p50}ms p95={p95}ms speech_end p50={p50}ms p95={p95}ms"
+    )
 
 
 # --- the interviewer boundary -------------------------------------------------

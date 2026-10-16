@@ -1,0 +1,115 @@
+{
+  "prep": {
+    "competencies": [
+      { "competencyId": "cpt_design", "jdId": "ctx_demo", "name": "서비스 설계", "required": true, "description": "요구사항을 서비스 구조와 데이터 모델로 옮기는 능력" },
+      { "competencyId": "cpt_perf", "jdId": "ctx_demo", "name": "성능 개선", "required": true, "description": "병목을 재고 근거를 갖고 고치는 능력" },
+      { "competencyId": "cpt_collab", "jdId": "ctx_demo", "name": "협업", "required": false, "description": "팀 안에서 맡은 범위를 나누고 조율하는 능력" },
+      { "competencyId": "cpt_incident", "jdId": "ctx_demo", "name": "장애 대응", "required": true, "description": "장애 원인을 찾고 재발을 막는 능력" }
+    ],
+    "resumeClaims": [
+      { "claimId": "clm_001", "resumeId": "doc_demo", "quote": "팀 프로젝트에서 API와 프론트 화면을 함께 맡았습니다.", "section": "프로젝트 1" },
+      { "claimId": "clm_002", "resumeId": "doc_demo", "quote": "초당 2만 건의 이벤트를 안정적으로 처리했습니다.", "section": "성과 2" }
+    ]
+  },
+  "review": {
+    "summary": "지원자는 트래픽 증가에 대응하며 캐시와 비동기 큐를 적용한 경험을 설명했습니다. 처리량 수치의 측정 방법과 장애 후 재발 방지 과정은 원본 발언에서 더 확인할 수 있습니다.",
+    "keyPoints": ["캐시 · 비동기 큐 적용 경험", "처리량 수치의 측정 근거 부족", "장애 재발 방지는 언급 없음"],
+    "moments": [
+      {
+        "momentId": "mom_qa_utt_TR_a_0001", "qaId": "qa_utt_TR_a_0001", "atMs": 15000, "endMs": 60000,
+        "label": "자기소개", "question": "간단히 자기소개 부탁드립니다.", "answer": "실시간 스트리밍 파이프라인을 주로 맡아 왔다고 소개했습니다.",
+        "evidence": [{ "utteranceId": "utt_TR_b_0002", "quote": "실시간 스트리밍 파이프라인을 주로 맡아 왔습니다.", "speaker": "CANDIDATE", "startMs": 19200, "endMs": 23800, "tMs": 19200 }]
+      },
+      {
+        "momentId": "mom_qa_utt_TR_a_0007", "qaId": "qa_utt_TR_a_0007", "atMs": 118000, "endMs": 150000,
+        "label": "개인 기여", "question": "그 프로젝트에서 본인이 직접 맡은 부분은 어디까지인가요?", "answer": "배포 파이프라인을 처음부터 구성했다고 답했습니다.",
+        "evidence": [{ "utteranceId": "utt_TR_b_0008", "quote": "배포 파이프라인은 제가 처음부터 구성했습니다.", "speaker": "CANDIDATE", "startMs": 121400, "endMs": 125900, "tMs": 121400 }]
+      },
+      {
+        "momentId": "mom_qa_utt_TR_a_0015", "qaId": "qa_utt_TR_a_0015", "atMs": 262000, "endMs": 301000,
+        "label": "성능 개선", "question": "초당 2만 건을 처리할 때 병목은 어디였나요?", "answer": "병목은 구체적으로 재보지 못했다고 답했습니다.",
+        "evidence": [{ "utteranceId": "utt_TR_b_0016", "quote": "병목은 구체적으로 재보지 못했습니다.", "speaker": "CANDIDATE", "startMs": 268900, "endMs": 274100, "tMs": 271300 }]
+      },
+      {
+        "momentId": "mom_qa_utt_TR_a_0024", "qaId": "qa_utt_TR_a_0024", "atMs": 405000, "endMs": 450000,
+        "label": "장애 대응", "question": "최근에 대응한 장애와 복구 과정을 설명해 주세요.", "answer": "재처리 큐를 사용했다고 했지만 원인과 재발 방지는 말하지 않았습니다.",
+        "evidence": [{ "utteranceId": "utt_TR_b_0025", "quote": "재처리 큐로 복구했습니다.", "speaker": "CANDIDATE", "startMs": 409000, "endMs": 412500, "tMs": 409000 }]
+      }
+    ],
+    "findings": [
+      {
+        "findingId": "fnd_CLAIM_CONTRADICTED_clm_001_utt_TR_b_0008", "sessionId": "ses_demo", "type": "CLAIM_CONTRADICTED",
+        "competencyId": "cpt_collab", "claimId": "clm_001", "evidenceUtteranceId": "utt_TR_b_0008",
+        "evidenceQuote": "배포 파이프라인은 제가 처음부터 구성했습니다.", "evidenceTMs": 121400,
+        "summary": "지원서의 담당 범위(API · 프론트)와 면접에서 말한 범위(배포 파이프라인)가 다릅니다.", "state": "PROPOSED"
+      },
+      {
+        "findingId": "fnd_CLAIM_UNVERIFIED_clm_002_utt_TR_b_0016", "sessionId": "ses_demo", "type": "CLAIM_UNVERIFIED",
+        "competencyId": "cpt_perf", "claimId": "clm_002", "evidenceUtteranceId": "utt_TR_b_0016",
+        "evidenceQuote": "초당 2만 건까지 올렸는데 병목은 구체적으로 재보지 못했습니다.", "evidenceTMs": 268900,
+        "summary": "측정 환경과 병목 확인 과정이 답변에서 드러나지 않았습니다.", "state": "PROPOSED"
+      },
+      {
+        "findingId": "fnd_COMPETENCY_EVIDENCE_cpt_design_utt_TR_b_0002", "sessionId": "ses_demo", "type": "COMPETENCY_EVIDENCE",
+        "competencyId": "cpt_design", "claimId": null, "evidenceUtteranceId": "utt_TR_b_0002",
+        "evidenceQuote": "실시간 스트리밍 파이프라인을 주로 맡아 왔습니다.", "evidenceTMs": 19200,
+        "summary": "맡아 온 시스템의 범위를 직접 설명했습니다.", "state": "PROPOSED"
+      },
+      {
+        "findingId": "fnd_COMPETENCY_EVIDENCE_cpt_collab_utt_TR_b_0009", "sessionId": "ses_demo", "type": "COMPETENCY_EVIDENCE",
+        "competencyId": "cpt_collab", "claimId": null, "evidenceUtteranceId": "utt_TR_b_0009",
+        "evidenceQuote": "팀에서 함께 설계했고 주요 기능은 제가 구현했습니다.", "evidenceTMs": 130500,
+        "summary": "팀 작업과 본인 구현을 나눠 말했습니다.", "state": "PROPOSED"
+      },
+      {
+        "findingId": "fnd_GAP_cpt_incident", "sessionId": "ses_demo", "type": "GAP",
+        "competencyId": "cpt_incident", "claimId": null, "evidenceUtteranceId": null,
+        "evidenceQuote": null, "evidenceTMs": null,
+        "summary": "장애 원인과 재발 방지에 대한 발언이 없습니다.", "state": "PROPOSED"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "key": "kim", "name": "김도현", "interviewedAt": "2026-09-18T05:00:00Z", "durationSec": 634,
+      "reviewStatus": "PENDING", "reviewedAt": null,
+      "memo": "팀 성과와 본인 기여 범위를 다음 면접에서 구분해 확인할 것.",
+      "marks": [
+        { "itemId": "mom_qa_utt_TR_a_0007", "bookmarked": true },
+        { "itemId": "mom_qa_utt_TR_a_0015", "bookmarked": true }
+      ]
+    },
+    {
+      "key": "lee", "name": "이재훈", "interviewedAt": "2026-09-18T02:00:00Z", "durationSec": 2823,
+      "reviewStatus": "IN_REVIEW", "reviewedAt": null,
+      "memo": "공동 작업에서 본인이 결정한 내용과 조율한 내용을 따로 메모함.",
+      "marks": [
+        { "itemId": "fnd_CLAIM_CONTRADICTED_clm_001_utt_TR_b_0008", "state": "ADOPTED" },
+        { "itemId": "fnd_COMPETENCY_EVIDENCE_cpt_design_utt_TR_b_0002", "state": "ADOPTED" }
+      ]
+    },
+    {
+      "key": "park", "name": "박수민", "interviewedAt": "2026-09-17T07:00:00Z", "durationSec": 3160,
+      "reviewStatus": "CONFIRMED", "reviewedAt": "2026-09-17T08:10:00Z",
+      "memo": "확인된 근거와 다음에 확인할 부분을 정리했습니다.",
+      "marks": [
+        { "itemId": "fnd_CLAIM_CONTRADICTED_clm_001_utt_TR_b_0008", "state": "ADOPTED" },
+        { "itemId": "fnd_CLAIM_UNVERIFIED_clm_002_utt_TR_b_0016", "state": "ADOPTED" },
+        { "itemId": "fnd_COMPETENCY_EVIDENCE_cpt_design_utt_TR_b_0002", "state": "ADOPTED" },
+        { "itemId": "fnd_COMPETENCY_EVIDENCE_cpt_collab_utt_TR_b_0009", "state": "REJECTED" },
+        { "itemId": "fnd_GAP_cpt_incident", "state": "ADOPTED" },
+        { "itemId": "mom_qa_utt_TR_a_0024", "bookmarked": true }
+      ]
+    },
+    {
+      "key": "choi", "name": "최유진", "interviewedAt": "2026-09-16T05:30:00Z", "durationSec": 2890,
+      "reviewStatus": "PENDING", "reviewedAt": null, "memo": "", "marks": []
+    },
+    {
+      "key": "jung", "name": "정민서", "interviewedAt": "2026-09-15T00:00:00Z", "durationSec": 2952,
+      "reviewStatus": "IN_REVIEW", "reviewedAt": null,
+      "memo": "응답 지연 비교 조건을 추가로 물어볼 것.",
+      "marks": [{ "itemId": "fnd_CLAIM_UNVERIFIED_clm_002_utt_TR_b_0016", "state": "REJECTED" }]
+    }
+  ]
+}

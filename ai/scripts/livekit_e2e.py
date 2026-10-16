@@ -10,6 +10,14 @@ LiveKit server the worker is registered with::
         uv run python -m irya_ai.worker dev
     uv run python scripts/livekit_e2e.py --wav path/to/korean_16k_mono.wav
 
+With ``--interviewer-wav`` the interviewer speaks first, so the answer that
+follows opens a Q&A pair and the follow-up loop (#83) has something to run
+on; the worker then posts suggestions to the Backend named by its
+``BACKEND_BASE_URL``, which this script does not observe - read the
+Backend's ``꼬리질문 수신`` log or the worker's ``suggestion round`` line.
+When the Backend created the session (and so the room), pass its id with
+``--session-id`` so the worker's posts land on a session the Backend knows.
+
 The room is created first and empty, so the worker is dispatched before either
 human joins - the same order the backend produces. Elice STT is the one thing
 this does not fake: the worker's ``ELICE_*`` settings must point at a real
@@ -88,8 +96,9 @@ async def publish_wav(room: rtc.Room, path: str, report: Report) -> None:
 
     samples = rate * FRAME_MS // 1000
     step = samples * 2
-    report.started_at = time.monotonic()
-    next_at = report.started_at
+    if report.started_at is None:
+        report.started_at = time.monotonic()
+    next_at = time.monotonic()
     for offset in range(0, len(pcm), step):
         chunk = pcm[offset : offset + step]
         if len(chunk) < step:
@@ -109,7 +118,12 @@ async def publish_wav(room: rtc.Room, path: str, report: Report) -> None:
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--wav", required=True)
+    parser.add_argument("--wav", required=True, help="the candidate's speech")
+    parser.add_argument(
+        "--interviewer-wav",
+        default=None,
+        help="speech the interviewer publishes before the candidate answers",
+    )
     parser.add_argument(
         "--url", default=os.environ.get("LIVEKIT_URL", "ws://localhost:7880")
     )
@@ -144,7 +158,11 @@ async def main() -> int:
         await interviewer.connect(
             args.url,
             token(
-                args.api_key, args.api_secret, room_name, "INTERVIEWER", publish=False
+                args.api_key,
+                args.api_secret,
+                room_name,
+                "INTERVIEWER",
+                publish=args.interviewer_wav is not None,
             ),
         )
         await candidate.connect(
@@ -154,6 +172,9 @@ async def main() -> int:
         agents = [p.identity for p in interviewer.remote_participants.values()]
         print(f"interviewer sees participants: {agents}", file=sys.stderr)
 
+        if args.interviewer_wav:
+            await publish_wav(interviewer, args.interviewer_wav, report)
+            print("interviewer finished; candidate answers", file=sys.stderr)
         await publish_wav(candidate, args.wav, report)
         print("audio finished; waiting for the tail", file=sys.stderr)
         await asyncio.sleep(args.wait)

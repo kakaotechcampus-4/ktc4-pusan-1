@@ -56,6 +56,11 @@ jobs:
       - name: Type check
         run: uv run pyright
 
+      # 녹화 합치기 테스트가 ffmpeg 를 직접 돌린다. 없으면 건너뛰어 CI 에서는
+      # 합치기와 그 S3 클라이언트 검사(#183)가 한 번도 돌지 않는다.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Test
         run: uv run pytest
 

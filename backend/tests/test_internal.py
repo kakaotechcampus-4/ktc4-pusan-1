@@ -379,6 +379,20 @@ def test_acked_utterance_is_stored(
     assert found.stage is TranscriptStage.LIVE
 
 
+def test_track_and_seq_are_stored(
+    client: TestClient, session_id: str, key: str, store: InMemoryStore
+) -> None:
+    """PR #158 부터 Agent 가 보낸다 (#137 2-1). 없던 프레임은 위처럼 그대로 받는다."""
+    with client.websocket_connect(
+        f"/internal/v1/sessions/{session_id}/transcripts", headers=auth(key)
+    ) as ws:
+        ws.send_json({**UPSERT, "trackId": "TR_b", "seq": 268900000003})
+        ws.receive_json()
+
+    [found] = store.list_utterances(session_id)
+    assert (found.track_id, found.seq) == ("TR_b", 268900000003)
+
+
 def test_corrected_utterance_replaces_the_first(
     client: TestClient, session_id: str, key: str, store: InMemoryStore
 ) -> None:

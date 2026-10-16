@@ -23,11 +23,11 @@ transcription and post-interview storage remain separate work.
 import asyncio
 import json
 import logging
+import math
 import time
 from collections.abc import (
     AsyncIterable,
     AsyncIterator,
-    Awaitable,
     Callable,
     Iterable,
     Iterator,
@@ -41,6 +41,7 @@ from typing import Protocol
 from livekit import rtc
 
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
+from irya_ai.sinks import UtteranceSink
 from irya_ai.stt.elice import EliceSttClient
 from irya_ai.stt.segmentation import SegmentationConfig
 from irya_ai.stt.session import SessionOrdering
@@ -58,9 +59,6 @@ DEGRADED_REASON = "STT_UNAVAILABLE"
 # so a frame arriving in any other shape is a programming error, not audio.
 SAMPLE_RATE = SegmentationConfig().sample_rate
 NUM_CHANNELS = 1
-
-
-UtteranceSink = Callable[[Utterance], Awaitable[None]]
 
 
 class TranscribingStream(Protocol):
@@ -233,12 +231,18 @@ async def _emit_utterances(
 
 
 def _percentile(values: Sequence[int], fraction: float) -> int | None:
-    """Nearest-rank percentile, or ``None`` when there is nothing to rank."""
+    """Nearest-rank percentile, or ``None`` when there is nothing to rank.
+
+    Nearest-rank rounds the rank up: ``ceil(fraction * n)``. ``round`` would
+    land a place low wherever ``fraction * n`` has a fraction below .5 (p95 of
+    11 to 13 values) and, being banker's rounding, on exact halves too (p50 of
+    5 values) - the very sizes one answer's segments come in.
+    """
 
     if not values:
         return None
     ordered = sorted(values)
-    rank = max(1, round(fraction * len(ordered)))
+    rank = max(1, math.ceil(fraction * len(ordered)))
     return ordered[min(rank, len(ordered)) - 1]
 
 
@@ -518,8 +522,8 @@ class RoomTranscriber:
     ``sinks`` receive every utterance in order, one after the other; the
     default is the interviewer's live caption alone. A sink that raises ends
     that track's transcription and sends ``stream.degraded`` - isolating one
-    sink's failure from the others is the fan-out's job (#83), not this
-    class's.
+    sink's failure from the others is :class:`~irya_ai.sinks.FanOutSink`'s
+    job, not this class's.
 
     One :class:`~irya_ai.stt.stream.TranscriptionStream` is opened per
     microphone track, all of them sharing ``client``. With the stream's

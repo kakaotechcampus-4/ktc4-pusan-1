@@ -10,9 +10,10 @@
 
 from fastapi import APIRouter
 
-from app.api.internal import reviews, suggestions, transcripts
+from app.api.internal import analysis, reviews, suggestions, transcripts
 
 router = APIRouter()
 router.include_router(transcripts.router)
 router.include_router(suggestions.router)
 router.include_router(reviews.router)
+router.include_router(analysis.router)

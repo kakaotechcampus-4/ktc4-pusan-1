@@ -31,6 +31,7 @@ from irya_ai.schemas.context import (
     Rubric,
 )
 from irya_ai.schemas.findings import FindingDraft, FindingsDraft, FindingsResult
+from irya_ai.schemas.jobs import PendingJob
 from irya_ai.schemas.prep import (
     CompetencyDraft,
     PrepDraft,
@@ -72,7 +73,6 @@ from irya_ai.schemas.transcript import (
 )
 from irya_ai.schemas.wire import (
     SuggestionPayload,
-    SuggestionType,
     TranscriptPayload,
     suggestion_payload,
     transcript_payload,
@@ -102,6 +102,7 @@ __all__ = [
     "MomentDraft",
     "MomentEvidence",
     "PassType",
+    "PendingJob",
     "PointDraft",
     "PrepDraft",
     "PrepResult",
@@ -119,7 +120,6 @@ __all__ = [
     "SuggestionDraft",
     "SuggestionPayload",
     "SuggestionResult",
-    "SuggestionType",
     "SummaryDraft",
     "SummaryPoint",
     "SummaryResult",

@@ -14,7 +14,6 @@ from irya_ai.schemas.analysis import SuggestedQuestion
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
 from irya_ai.schemas.wire import (
     SuggestionPayload,
-    SuggestionType,
     TranscriptPayload,
     suggestion_payload,
     transcript_payload,
@@ -41,6 +40,8 @@ def test_the_payload_serialises_to_the_agreed_keys() -> None:
     assert payload.model_dump(by_alias=True) == {
         "utteranceId": "utt_001",
         "participantId": "candidate_123",
+        "trackId": "trk_candidate",
+        "seq": 0,
         "speaker": "CANDIDATE",
         "text": "인턴 당시 React Native로 지도 기능을 개발했습니다.",
         "startedAtMs": 15_200,
@@ -53,9 +54,7 @@ def test_the_payload_carries_nothing_the_contract_did_not_ask_for() -> None:
 
     keys = set(transcript_payload(utterance(), participant_id="p_1").model_dump())
 
-    assert keys.isdisjoint(
-        {"session_id", "track_id", "seq", "pass_type", "uncertain", "words"}
-    )
+    assert keys.isdisjoint({"session_id", "pass_type", "uncertain", "words"})
 
 
 def test_the_utterance_keeps_its_own_field_names() -> None:
@@ -104,6 +103,8 @@ def test_an_unknown_key_is_refused_rather_than_dropped() -> None:
             startedAtMs=0,
             endedAtMs=1,
             trackId="trk_candidate",
+            seq=0,
+            words=[],
         )
 
 
@@ -114,6 +115,8 @@ def test_a_backwards_span_is_refused() -> None:
             participantId="candidate_123",
             speaker="CANDIDATE",
             text="네",
+            trackId="trk_interviewer",
+            seq=1,
             startedAtMs=3_000,
             endedAtMs=1_000,
         )
@@ -126,6 +129,8 @@ def test_the_payload_reads_the_agreed_keys_back() -> None:
         {
             "utteranceId": "utt_002",
             "participantId": "interviewer_7",
+            "trackId": "trk_interviewer",
+            "seq": 1,
             "speaker": "INTERVIEWER",
             "text": "인턴 경험을 설명해주세요.",
             "startedAtMs": 0,
@@ -158,7 +163,6 @@ def test_the_suggestion_payload_serialises_to_the_agreed_keys() -> None:
 
     assert payload.model_dump(by_alias=True) == {
         "suggestionId": "sug_001",
-        "type": "FOLLOW_UP",
         "content": "말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
         "evidenceUtteranceIds": ["utt_001", "utt_002"],
     }
@@ -183,13 +187,7 @@ def test_the_suggestion_payload_refuses_a_key_the_contract_never_agreed() -> Non
     with pytest.raises(ValidationError):
         SuggestionPayload(
             suggestionId="sug_001",
-            type="FOLLOW_UP",
             content="더 여쭤보세요.",
             evidenceUtteranceIds=["utt_001"],
             qaId="qa_003",
         )
-
-
-def test_the_only_type_the_meeting_showed_is_the_default() -> None:
-    assert [t.value for t in SuggestionType] == ["FOLLOW_UP"]
-    assert suggestion_payload(question()).type is SuggestionType.FOLLOW_UP

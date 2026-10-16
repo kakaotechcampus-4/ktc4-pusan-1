@@ -131,6 +131,16 @@ def client_for(handler) -> AsyncOpenAI:
     )
 
 
+def test_the_generator_hides_its_gateway_from_the_http_log() -> None:
+    """The deployment id sits in the path; a worker at INFO must not print it."""
+
+    from irya_ai.stt.http_logging import protected_hosts
+
+    OpenAISuggestionGenerator(client_for(lambda request: httpx.Response(500)))
+
+    assert "gateway.test/v1" in protected_hosts()
+
+
 def good_suggestion(pair: QAPair, sources: dict[str, Utterance]) -> dict:
     uid = pair.answer_utterance_ids[0]
     return {
@@ -277,6 +287,10 @@ async def test_request_uses_chat_completions_with_only_supported_params(
     assert body["reasoning_effort"] == "low"
     assert body["response_format"]["type"] == "json_schema"
     assert body["messages"][0] == {"role": "system", "content": SYSTEM_PROMPT}
+    user = body["messages"][1]["content"]
+    assert user == json.dumps(
+        json.loads(user), ensure_ascii=False, separators=(",", ":")
+    ), "the payload is sent without separator padding"
     assert len(draft.suggestions) == 1
     assert generator.last_model == "gpt-5.6-luna-2026-02"
     assert generator.last_usage is not None

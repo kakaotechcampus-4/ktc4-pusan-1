@@ -20,14 +20,18 @@ import pathlib
 import aiohttp
 import httpcore
 import httpx
+import openai._base_client
 import pytest
+from openai import AsyncOpenAI
 
 from irya_ai.config import Settings
 from irya_ai.stt.elice import EliceSttClient, SttError, build_client
 from irya_ai.stt.http_logging import (
     HTTP_CLIENT_LOGGERS,
+    LLM_CLIENT_LOGGERS,
     REDACTED_HOST,
     clear_protected_hosts,
+    protect_base_url,
     protect_host,
     protected_hosts,
 )
@@ -82,11 +86,8 @@ def ok(request: httpx.Request) -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "_result": {"status": "ok"},
-            "transcript": {
-                "text": TRANSCRIPT,
-                "chunks": [{"timestamp": [0.0, 1.0], "text": TRANSCRIPT}],
-            },
+            "text": TRANSCRIPT,
+            "segments": [{"id": 0, "start": 0.0, "end": 1.0, "text": TRANSCRIPT}],
         },
     )
 
@@ -334,6 +335,35 @@ def test_a_bare_host_string_is_accepted() -> None:
     assert protect_host("deployment.invalid:8000") == "deployment.invalid"
 
 
+SHARED_HOST = "shared-gateway.invalid"
+DEPLOYMENT_PATH = "/deployment-286e9158-secret"
+
+
+def test_a_deployment_told_apart_by_its_path_is_hidden_with_the_path() -> None:
+    """The project LLM gateway: public host, secret path. The host alone is no cover."""
+
+    assert protect_base_url(f"https://{SHARED_HOST}{DEPLOYMENT_PATH}/v1") == (
+        f"{SHARED_HOST}{DEPLOYMENT_PATH}/v1"
+    )
+
+    with Captured(logging.INFO) as log:
+        logging.getLogger("httpx").info(
+            'HTTP Request: POST https://%s%s/v1/chat/completions "HTTP/1.1 200 OK"',
+            SHARED_HOST,
+            DEPLOYMENT_PATH,
+        )
+
+    assert DEPLOYMENT_PATH not in log.text
+    assert f"https://{REDACTED_HOST}/chat/completions" in log.text
+    assert "200 OK" in log.text
+
+
+def test_a_base_url_without_a_path_registers_the_host_alone() -> None:
+    assert protect_base_url(f"https://{HOST}/") == HOST
+    assert protect_base_url(httpx.URL(f"https://{HOST}")) == HOST
+    assert protected_hosts() == {HOST}
+
+
 def _declared_logger_names(package: object) -> set[str]:
     """Every literal name ``package`` passes to ``getLogger``.
 
@@ -370,3 +400,85 @@ def test_every_logger_the_installed_http_stack_writes_to_is_protected() -> None:
 
     assert declared
     assert declared <= set(HTTP_CLIENT_LOGGERS)
+
+
+def test_the_logger_the_openai_sdk_writes_requests_to_is_protected() -> None:
+    """The SDK names it with ``__name__``, which the syntax-tree check cannot read."""
+
+    assert openai._base_client.log.name in LLM_CLIENT_LOGGERS
+
+
+@pytest.mark.parametrize("status_code", [200, 400, 503])
+@pytest.mark.parametrize("host_first", [False, True])
+@pytest.mark.parametrize("port", ["", ":8443"])
+async def test_an_llm_call_at_debug_logs_no_prompt_and_no_deployment(
+    status_code: int, host_first: bool, port: str
+) -> None:
+    """``LOG_LEVEL=DEBUG`` on a worker, one suggestion request through the SDK.
+
+    The SDK dumps the request options - the prompt, which is transcript - and
+    the full URL before httpx sees the request. Both have to stay out; the
+    route and status should still be readable.
+    """
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "test",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "{}"},
+                    }
+                ],
+            },
+        )
+
+    client = AsyncOpenAI(
+        api_key=KEY,
+        base_url=f"https://{SHARED_HOST}{port}{DEPLOYMENT_PATH}/v1",
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(answer)),
+    )
+    if host_first:
+        protect_host(client.base_url)
+    protect_base_url(client.base_url)
+
+    try:
+        with Captured(logging.DEBUG) as log:
+            if status_code >= 400:
+                with pytest.raises(openai.APIStatusError):
+                    await client.chat.completions.create(
+                        model="test",
+                        messages=[{"role": "user", "content": TRANSCRIPT}],
+                    )
+            else:
+                await client.chat.completions.create(
+                    model="test",
+                    messages=[{"role": "user", "content": TRANSCRIPT}],
+                )
+    finally:
+        await client.close()
+
+    assert TRANSCRIPT not in log.text
+    assert DEPLOYMENT_PATH not in log.text
+    assert KEY not in log.text
+    assert f"https://{REDACTED_HOST}/chat/completions" in log.text
+    assert str(status_code) in log.text
+
+
+def test_clearing_takes_the_llm_filters_back_off() -> None:
+    before = {
+        name: list(logging.getLogger(name).filters) for name in LLM_CLIENT_LOGGERS
+    }
+
+    protect_base_url(f"https://{SHARED_HOST}{DEPLOYMENT_PATH}/v1")
+    clear_protected_hosts()
+
+    for name in LLM_CLIENT_LOGGERS:
+        assert logging.getLogger(name).filters == before[name]

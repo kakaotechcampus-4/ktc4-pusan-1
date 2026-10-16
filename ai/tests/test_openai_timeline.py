@@ -14,6 +14,7 @@ from openai import AsyncOpenAI
 from pydantic import TypeAdapter
 
 from irya_ai.openai_timeline import (
+    MAX_COMPLETION_TOKENS,
     PROMPT_VERSION,
     SYSTEM_PROMPT,
     OpenAITimelineGenerator,
@@ -162,6 +163,8 @@ async def test_request_uses_chat_completions_with_only_supported_params(
     assert "store" not in body
     assert body["model"] == "gpt-5.6-luna"
     assert body["reasoning_effort"] == "low"
+    # The gateway rejects a larger non-streaming budget with 400 (#171).
+    assert body["max_completion_tokens"] == MAX_COMPLETION_TOKENS <= 2000
     assert body["response_format"]["type"] == "json_schema"
     assert body["messages"][0] == {"role": "system", "content": SYSTEM_PROMPT}
     assert len(draft.moments) == len(selected)

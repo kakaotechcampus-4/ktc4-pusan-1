@@ -27,9 +27,12 @@ OWNER_ONLY = [
     ("get", "/interviews/{interview}"),
     ("post", "/interviews/{interview}/sessions"),
     ("get", "/interviews/{interview}/review"),
+    ("patch", "/interviews/{interview}"),
+    ("put", "/interviews/{interview}/review/marks/fnd_x"),
     ("post", "/sessions/{session}/start"),
     ("post", "/sessions/{session}/end"),
     ("get", "/sessions/{session}/summary"),
+    ("get", "/sessions/{session}/recording"),
     ("get", "/contexts/current"),
     ("get", "/contexts/{context}"),
     ("patch", "/contexts/{context}"),
@@ -41,6 +44,8 @@ def _call(client: TestClient, method: str, path: str, headers: dict[str, str]):
     url = f"{V1}{path}"
     if method in ("post", "patch"):
         return client.request(method, url, json={}, headers=headers)
+    if method == "put":
+        return client.request(method, url, json={"bookmarked": True}, headers=headers)
     return client.request(method, url, headers=headers)
 
 
@@ -60,9 +65,16 @@ def test_owner_only_routes_need_login(
         ("get", "/interviews/{interview}", ErrorCode.INTERVIEW_NOT_FOUND),
         ("post", "/interviews/{interview}/sessions", ErrorCode.INTERVIEW_NOT_FOUND),
         ("get", "/interviews/{interview}/review", ErrorCode.INTERVIEW_NOT_FOUND),
+        ("patch", "/interviews/{interview}", ErrorCode.INTERVIEW_NOT_FOUND),
+        (
+            "put",
+            "/interviews/{interview}/review/marks/fnd_x",
+            ErrorCode.INTERVIEW_NOT_FOUND,
+        ),
         ("post", "/sessions/{session}/start", ErrorCode.SESSION_NOT_FOUND),
         ("post", "/sessions/{session}/end", ErrorCode.SESSION_NOT_FOUND),
         ("get", "/sessions/{session}/summary", ErrorCode.SESSION_NOT_FOUND),
+        ("get", "/sessions/{session}/recording", ErrorCode.SESSION_NOT_FOUND),
         ("get", "/contexts/{context}", ErrorCode.NOT_FOUND),
         ("patch", "/contexts/{context}", ErrorCode.NOT_FOUND),
         ("delete", "/contexts/{context}/docs/doc_x", ErrorCode.NOT_FOUND),

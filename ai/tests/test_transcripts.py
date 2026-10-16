@@ -2,8 +2,8 @@
 
 Everything here runs against a local ``aiohttp`` server on the loopback
 interface. No real Backend, no real interview audio, and no route outside
-127.0.0.1 - the BE side of this contract does not exist yet, so an end-to-end
-check is not available to write.
+127.0.0.1. These failure cases use a controllable peer; verification against the
+actual Backend storage route is recorded separately.
 """
 
 import asyncio
@@ -50,6 +50,8 @@ def payload(
     return TranscriptPayload(
         utterance_id=utterance_id,
         participant_id="candidate_123",
+        track_id="trk_candidate",
+        seq=0,
         speaker="CANDIDATE",
         text=text,
         started_at_ms=15_200,
@@ -106,6 +108,7 @@ class FakeBackend:
         self.handshakes: list[str | None] = []
         self.connected_at: list[float] = []
         self.connections = 0
+        self.closed_codes: list[tuple[int, int | None]] = []
         self._server: TestServer | None = None
 
     async def __aenter__(self) -> "FakeBackend":
@@ -178,6 +181,7 @@ class FakeBackend:
             if self.drop_after is not None and carried >= self.drop_after:
                 await ws.close(code=self.close_code)
                 break
+        self.closed_codes.append((connection, ws.close_code))
         return ws
 
 
@@ -229,6 +233,8 @@ async def test_a_confirmed_utterance_is_written_as_the_agreed_frame() -> None:
                 "type": FRAME_UPSERT,
                 "utteranceId": "utt_001",
                 "participantId": "candidate_123",
+                "trackId": "trk_candidate",
+                "seq": 0,
                 "speaker": "CANDIDATE",
                 "text": "첫 발화입니다.",
                 "startedAtMs": 15_200,
@@ -773,7 +779,8 @@ class FakeSocket:
     def __init__(self) -> None:
         self.closed = False
 
-    async def close(self) -> None:
+    async def close(self, *, code: int = 1000) -> None:
+        self.close_code = code
         self.closed = True
 
 
@@ -1030,3 +1037,37 @@ def test_build_transcript_channel_carries_settings_onto_the_channel() -> None:
 def test_build_transcript_channel_refuses_an_unconfigured_backend() -> None:
     with pytest.raises(BackendError, match="BACKEND_BASE_URL"):
         build_transcript_channel(Settings(_env_file=None), "ses_123")
+
+
+@pytest.mark.parametrize("reconnect_reason", ["ack_timeout", "correction"])
+async def test_reconnecting_does_not_signal_transcript_completion(
+    reconnect_reason: str,
+) -> None:
+    async with FakeBackend(ack=False) as backend:
+        channel = channel_for(backend, ack_timeout_seconds=0.05)
+        try:
+            await channel.send(payload())
+            await eventually(lambda: len(backend.received) == 1)
+            if reconnect_reason == "ack_timeout":
+                await asyncio.sleep(0.1)
+                await channel.send(payload("utt_002"))
+            else:
+                await channel.send(payload(text="수정된 발화입니다."))
+            await eventually(lambda: bool(backend.closed_codes))
+            assert backend.closed_codes == [(1, 4001)]
+            assert backend.connections == 2
+        finally:
+            channel.ack_timeout_seconds = 0.01
+            await channel.aclose()
+        await eventually(lambda: len(backend.closed_codes) == 2)
+        assert backend.closed_codes[-1] == (2, 1000)
+
+
+async def test_final_shutdown_signals_transcript_completion() -> None:
+    async with FakeBackend() as backend:
+        channel = channel_for(backend)
+        await channel.send(payload())
+        await channel.aclose()
+        await eventually(lambda: bool(backend.closed_codes))
+        assert backend.closed_codes == [(1, 1000)]
+        assert channel.unacknowledged == 0

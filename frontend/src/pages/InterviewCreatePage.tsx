@@ -31,7 +31,7 @@ import type { ContextDoc, UploadRejection } from '../types/interview';
 
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
   'empty-file': '내용이 있는 파일을 선택해주세요.',
-  'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
+  'unsupported-type': 'PDF 만 올릴 수 있습니다.',
   'too-large': '50MB 이하 파일만 올릴 수 있습니다.',
 };
 
@@ -72,8 +72,8 @@ export default function InterviewCreatePage() {
   const create = useMutation({
     mutationFn: async () => {
       if (!me) throw new Error('로그인 상태를 확인해주세요.');
-      // 로그인한 면접관과 지원자 이름을 서버 계약으로 전달한다.
-      const interview = await createInterview(me.id, normalizeCandidateName(candidateName));
+      // 면접관은 보내지 않는다 — 서버가 토큰의 사용자를 주인으로 삼는다 (#145).
+      const interview = await createInterview(normalizeCandidateName(candidateName));
 
       if (resume) {
         setDoc((prev) => prev && { ...prev, status: 'uploading', progress: 0 });
@@ -208,7 +208,7 @@ export default function InterviewCreatePage() {
               </div>
             </SectionCard>
 
-            <SectionCard icon="upload_file" title="지원자 이력서" badge="PDF · DOCX · 50MB 이하">
+            <SectionCard icon="upload_file" title="지원자 이력서" badge="PDF · 50MB 이하">
               {doc ? (
                 <DocCard
                   doc={doc}

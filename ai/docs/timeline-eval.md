@@ -116,6 +116,11 @@ uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --backend ext
 
 ### 게이트웨이 사용 시 걸린 것
 
+- **비스트리밍 응답의 `max_completion_tokens` 상한이 2,000이다** (2026-10-07 실측, #171).
+  처음에 보내던 4,000은 400으로 거절된다. 위 실행 1·2의 completion 토큰이
+  1,274 / 1,476이라 2,000 안에 들어, 기본값을 2,000으로 낮췄다. 9월 13일 실행 때는
+  없던 제한이다.
+
 - `LLM_BASE_URL`에 `/v1`을 빼고 넣으면 모든 경로가 404다. 문서대로 `https://<endpoint>/v1`이어야 하며, `config.py`가 `/v1`이 없으면 붙이도록 했다.
 - `LLM_REASONING_EFFORT=`를 비워 두면 빈 문자열이 들어와 Literal 검증에 걸렸다. 빈 값은 None(미전송)으로 읽도록 했다.
 - 404 응답 본문에 `error` 객체가 없어 SDK가 원인 메시지를 주지 않는다. 주소 문제는 상태 코드로만 알 수 있다.

@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     # `parsing` 에 멈춘 문서도 결국 끝난다.
     doc_parse_timeout_seconds: float = Field(default=180, gt=0, le=1800)
 
+    # 녹화를 두는 S3 버킷 (#112). 비우면 녹화를 걸지 않는다 — 로컬과 테스트의 기본.
+    # 자격증명은 받지 않는다. 운영은 인스턴스 역할을, 로컬은 AWS_* 환경변수를 쓴다.
+    recording_bucket: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

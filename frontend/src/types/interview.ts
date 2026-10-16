@@ -41,6 +41,58 @@ export interface Interview {
   createdAt: string;
 }
 
+/**
+ * 면접관의 검토 진행 상태.
+ *
+ * 한글 표시는 FE 가 한다 — 서버는 값만 준다 (#137 1-3).
+ */
+export type ReviewStatus = 'PENDING' | 'IN_REVIEW' | 'CONFIRMED';
+
+/**
+ * 목록 한 줄의 검토 항목 집계.
+ *
+ * 상세 화면과 같은 계산에서 나오므로 두 화면의 숫자가 어긋나지 않는다.
+ */
+export interface ReviewCounts {
+  /** 확인된 항목 수 / 전체 */
+  coverageConfirmed: number;
+  coverageTotal: number;
+  /** AI 가 짚은 항목 전체 */
+  findings: number;
+  /** 아직 채택도 반려도 안 한 항목 */
+  needsReview: number;
+  adopted: number;
+}
+
+/**
+ * GET /api/v1/interviews 의 한 줄 (#137 1-1).
+ *
+ * 기준은 그 면접의 **마지막으로 끝난 세션**이다. 끝난 세션이 없으면 거기서 오는 값
+ * (`interviewedAt` · `durationSec` · `summaryStatus`)이 모두 null 이다 — 만들어 놓고
+ * 아직 안 본 면접이 그렇다.
+ */
+export interface InterviewListItem {
+  interviewId: string;
+  candidateName: string | null;
+  /** 내 컨텍스트의 직무. 아직 안 정했으면 빈 문자열 */
+  role: string;
+  /** 면접관은 늘 나다. 서버가 토큰의 사용자를 넣어 준다 */
+  interviewer: { nickname: string };
+  /** 「면접 시작」 시각. 비어 있으면 첫 입장 시각 */
+  interviewedAt: string | null;
+  durationSec: number | null;
+  reviewStatus: ReviewStatus;
+  /** 한도를 넘긴 PROCESSING 은 FAILED 로 온다 */
+  summaryStatus: SummaryStatus | null;
+  /** 요약이 READY 가 아니면 null 이다 — 셀 수 있는 것이 아직 없다 */
+  counts: ReviewCounts | null;
+}
+
+/** GET /api/v1/interviews */
+export interface InterviewListResponse {
+  items: InterviewListItem[];
+}
+
 /** POST /api/v1/interviews/{interviewId}/sessions */
 export interface CreateSessionResponse {
   sessionId: string;
@@ -106,12 +158,26 @@ export interface EndSessionResponse {
  * 공개 BE 명세의 조회·저장·문서 업로드 계약이다.
  * ---------------------------------------------------------------- */
 
+/**
+ * 문서 형식.
+ *
+ * 새로 올릴 수 있는 것은 PDF 뿐이지만(#149), 그 전에 올라온 DOCX 가 조회 응답에
+ * 그대로 남아 있어서 읽는 쪽은 둘 다 받는다.
+ */
 export type DocKind = 'pdf' | 'docx';
+
+/**
+ * 기업 컨텍스트 문서가 들어가는 칸.
+ *
+ * AI 가 JD 와 사내 문서를 다르게 쓴다. 이력서에는 칸이 없어서 null 로 온다.
+ */
+export type DocCategory = 'jd' | 'internal';
 
 /**
  * 문서 상태.
  *
  * uploading 은 클라이언트에만 있는 상태다 — 서버는 업로드가 끝난 뒤에야 문서를 안다.
+ * 올라온 직후는 parsing 이고, 서버가 본문을 뽑으면 ready, 못 뽑으면 failed 가 된다.
  */
 export type DocStatus = 'uploading' | 'parsing' | 'ready' | 'failed';
 
@@ -121,6 +187,8 @@ export interface ContextDoc {
   kind: DocKind;
   sizeBytes: number;
   status: DocStatus;
+  /** 어느 칸에 들어가는지. 이력서는 null 이고, 업로드 중인 임시 문서에는 없다 */
+  category?: DocCategory | null;
   /** 업로드 진행률 0~1. uploading 일 때만 있다 */
   progress?: number;
 }
@@ -164,8 +232,9 @@ export interface Review {
   durationSec: number;
   /**
    * ⚠️ 서명된 master.m3u8 을 받는다고 가정했다. 만료 시간 · 보관 기간 · 열람 권한은 미정이다.
+   * 실제 BE 는 녹화를 상세에 싣지 않아 null 이다(#163) — 녹화 API 전환 전까지.
    */
-  recording: { hlsUrl: string };
+  recording: { hlsUrl: string } | null;
   moments: Moment[];
   /** 전사 · 지원서 · JD 를 근거로 쓴 서술. 합격 여부는 없다. */
   aiReview: { paragraphs: string[] };
@@ -205,6 +274,15 @@ export interface JoinSessionResponse {
 export type JoinFailure =
   /** 존재하지 않는 세션 */
   | 'not-found'
+  /** 로그인은 했지만 이 면접의 주인이 아니다 — 다시 시도해도 같다 (#150) */
+  | 'not-allowed'
+  /**
+   * 면접관으로 들어가려는데 토큰이 없거나 만료됐다 (401).
+   *
+   * 이때 client.ts 가 토큰을 이미 지웠으므로 다시 눌러도 영원히 같다 — 「잠시 후
+   * 다시」로 묶으면 로그인하면 된다는 사실을 아무도 알려주지 않는다 (#150).
+   */
+  | 'signed-out'
   /** 이미 종료된 세션 */
   | 'ended'
   /** 정원이 찬 세션 */

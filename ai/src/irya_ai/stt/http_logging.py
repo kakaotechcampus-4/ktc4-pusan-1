@@ -30,7 +30,10 @@ traceable in the log. Records naming any other host - a second
 time - pass through untouched. Muting the application's whole HTTP logging to
 protect one endpoint would cost more than it buys.
 
-Only the host is registered, read from the client's ``base_url``. The default
+Only the host is registered, read from the client's ``base_url`` - except
+through :func:`protect_base_url`, which registers the host together with the
+base URL's path for a deployment that is identified by its path on a shared
+host, as the project LLM gateway is. The default
 request logging does not print the request's ``Authorization`` value or body.
 However, httpcore DEBUG records can include response headers. This filter
 redacts registered hosts, not arbitrary secrets in headers, paths or queries.
@@ -67,6 +70,13 @@ HTTP_CLIENT_LOGGERS = (
     "aiohttp.websocket",
 )
 
+# The OpenAI SDK logs through its own logger before httpx ever sees the
+# request, and at DEBUG it names the full URL - deployment path included -
+# in "Sending HTTP Request" and "HTTP Response" records. Its name comes from
+# ``__name__``, so the syntax-tree check below the httpx list cannot find it;
+# ``test_stt_http_logging.py`` reads it off the module instead.
+LLM_CLIENT_LOGGERS = ("openai._base_client",)
+
 _lock = threading.Lock()
 _hosts: set[str] = set()
 _pattern: re.Pattern[str] | None = None
@@ -79,6 +89,16 @@ class _HostRedactingFilter(logging.Filter):
         pattern = _pattern
         if pattern is None:
             return True
+
+        # Format once here, before any handler can cache an unredacted
+        # traceback. The SDK's HTTPStatusError includes the complete URL.
+        if record.exc_info:
+            record.exc_text = pattern.sub(
+                REDACTED_HOST, logging.Formatter().formatException(record.exc_info)
+            )
+            record.exc_info = None
+        elif record.exc_text:
+            record.exc_text = pattern.sub(REDACTED_HOST, record.exc_text)
 
         try:
             message = record.getMessage()
@@ -107,6 +127,26 @@ class _HostRedactingFilter(logging.Filter):
 _FILTER = _HostRedactingFilter()
 
 
+class _RequestBodyDroppingFilter(logging.Filter):
+    """Drop the SDK's DEBUG dump of a request's options.
+
+    ``Request options: {...}`` carries ``json_data``, which for this project
+    is a prompt built from the interview transcript. The SDK scrubs the auth
+    headers out of it and nothing else. There is no part of that record worth
+    keeping once the body is gone, so it is dropped rather than rewritten.
+
+    The record is recognised by its template, and also by the formatted text
+    the host filter leaves behind when the body happened to name a protected
+    host - so the order the two filters run in does not matter.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not str(record.msg).startswith("Request options:")
+
+
+_BODY_FILTER = _RequestBodyDroppingFilter()
+
+
 def protect_host(base_url: object) -> str | None:
     """Hide ``base_url``'s host from the HTTP client loggers.
 
@@ -127,21 +167,53 @@ def protect_host(base_url: object) -> str | None:
         # no ``base_url`` has nothing to hide here anyway: it is not the one
         # aimed at the deployment.
         return None
+    return _register(host)
 
+
+def protect_base_url(base_url: object) -> str | None:
+    """Hide ``base_url``'s host *and path prefix* from the HTTP client loggers.
+
+    For a deployment that lives on a shared host and is told apart by its
+    path - the project LLM gateway is ``https://<shared-host>/<deployment-id>/v1``
+    - the host alone is public and the path is the secret. The whole prefix
+    is registered as one string, so ``HTTP Request: POST
+    https://<shared-host>/<deployment-id>/v1/chat/completions`` logs as
+    ``https://<redacted-host>/chat/completions``: the route and status stay,
+    the id goes. A base URL with no path registers the host, like
+    :func:`protect_host`.
+    """
+
+    host = _host_of(base_url)
+    if not host:
+        return None
+    text = str(base_url).strip()
+    parsed = urlsplit(text if "//" in text else "//" + text)
+    authority = f"[{host}]" if ":" in host else host
+    if parsed.port is not None:
+        authority += f":{parsed.port}"
+    path = _path_of(base_url)
+    return _register(authority + path if path else authority)
+
+
+def _register(target: str) -> str:
     global _pattern
     with _lock:
-        if host in _hosts:
-            return host
-        _hosts.add(host)
+        if target in _hosts:
+            return target
+        _hosts.add(target)
         _pattern = re.compile(
-            "|".join(re.escape(known) for known in sorted(_hosts)),
+            "|".join(
+                re.escape(known) for known in sorted(_hosts, key=len, reverse=True)
+            ),
             re.IGNORECASE,
         )
-        for name in HTTP_CLIENT_LOGGERS:
+        for name in HTTP_CLIENT_LOGGERS + LLM_CLIENT_LOGGERS:
             # ``addFilter`` is a no-op when the filter is already attached,
             # so repeated clients do not stack copies of it.
             logging.getLogger(name).addFilter(_FILTER)
-    return host
+        for name in LLM_CLIENT_LOGGERS:
+            logging.getLogger(name).addFilter(_BODY_FILTER)
+    return target
 
 
 def protected_hosts() -> frozenset[str]:
@@ -164,8 +236,22 @@ def clear_protected_hosts() -> None:
     with _lock:
         _hosts.clear()
         _pattern = None
-        for name in HTTP_CLIENT_LOGGERS:
+        for name in HTTP_CLIENT_LOGGERS + LLM_CLIENT_LOGGERS:
             logging.getLogger(name).removeFilter(_FILTER)
+        for name in LLM_CLIENT_LOGGERS:
+            logging.getLogger(name).removeFilter(_BODY_FILTER)
+
+
+def _path_of(base_url: object) -> str:
+    """The path of a URL or ``httpx.URL`` without its trailing slash; "" for none."""
+
+    path = getattr(base_url, "path", None)
+    if path is None:
+        text = str(base_url).strip()
+        if "//" not in text:
+            text = "//" + text
+        path = urlsplit(text).path
+    return str(path).strip().rstrip("/")
 
 
 def _host_of(base_url: object) -> str:

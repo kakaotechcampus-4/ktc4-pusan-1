@@ -30,6 +30,11 @@ admitted - recorded as a rejection with its span, so the resulting gap in the
 transcript is attributable. Nothing recovers that audio: this layer holds no
 recording and there is nothing to re-send it from.
 
+Time is bounded the same way. Release is in spoken order, so one request that
+never comes back would hold every caption behind it; each request gets
+``request_deadline_seconds``, retries included, and a segment that runs past
+it is rejected as a failed request and the queue moves on.
+
 Per-segment metadata is not bounded, and is not meant to be. ``timings`` gains
 an entry for every segment the stream sees and ``rejected`` one for every
 segment refused; neither is ever trimmed, because both exist to be read after
@@ -54,7 +59,13 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable
 
 from irya_ai.schemas.transcript import PassType, SpeakerRole, Utterance
-from irya_ai.stt.elice import EliceSttClient, SttError, Transcription, is_hallucinated
+from irya_ai.stt.elice import (
+    EliceSttClient,
+    SttError,
+    Transcription,
+    is_hallucinated,
+    is_stock_phrase,
+)
 from irya_ai.stt.segmentation import (
     PCM_WIDTH,
     AudioSegment,
@@ -73,6 +84,14 @@ logger = logging.getLogger(__name__)
 # it.
 DEFAULT_MAX_PENDING = 16
 
+# How long one segment's request may take, retries included, before it is
+# given up on. Utterances are released in spoken order, so a request that
+# never comes back holds every caption behind it; the client's own timeout
+# is per attempt and applies to each phase of the exchange, which lets one
+# segment run to minutes. Past this a caption is too late to be live anyway,
+# and the span is recorded as a rejection like any other failed request.
+DEFAULT_REQUEST_DEADLINE_SECONDS = 15.0
+
 
 @dataclasses.dataclass(frozen=True)
 class RejectedSegment:
@@ -85,9 +104,10 @@ class RejectedSegment:
     project has no agreed retention policy to hold them under.
 
     ``reason`` is the coarse category: ``EMPTY``, ``TIMESTAMP_OVERRUN``,
-    ``REQUEST_FAILED`` or ``OVERLOADED``. ``code`` carries the transcription
-    error's stable code when there was one, so a malformed body and a refused
-    key stay distinguishable without either being re-read from a log.
+    ``STOCK_PHRASE``, ``REQUEST_FAILED`` or ``OVERLOADED``. ``code`` carries
+    the transcription error's stable code when there was one, so a malformed
+    body and a refused key stay distinguishable without either being re-read
+    from a log.
 
     Spans are on the session clock, the same one ``seq`` is built from.
     """
@@ -369,6 +389,7 @@ class TranscriptionStream:
         config: SegmentationConfig | None = None,
         max_concurrency: int = 3,
         max_pending: int = DEFAULT_MAX_PENDING,
+        request_deadline_seconds: float | None = DEFAULT_REQUEST_DEADLINE_SECONDS,
         ordering: TrackOrdering | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -379,6 +400,8 @@ class TranscriptionStream:
         # interview would look live while transcribing nothing.
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be at least 1")
+        if request_deadline_seconds is not None and not request_deadline_seconds > 0:
+            raise ValueError("request_deadline_seconds must be positive")
         if not session_id:
             raise ValueError("session_id must not be empty")
         if not track_id:
@@ -393,6 +416,7 @@ class TranscriptionStream:
         self.segmenter = StreamSegmenter(config)
         self.ordering = ordering or solo_ordering(track_id)
         self.max_pending = max_pending
+        self.request_deadline_seconds = request_deadline_seconds
         self.rejected: list[RejectedSegment] = []
         self.timings: list[SegmentTiming] = []
 
@@ -517,9 +541,21 @@ class TranscriptionStream:
             timing.request_started_at = self._clock()
             try:
                 audio = wav_bytes(segment.pcm, self.segmenter.config.sample_rate)
-                return await self.client.transcribe(
-                    audio, filename=f"seg_{segment.index:04d}.wav"
-                )
+                # Inside the slot, so the deadline is the request's own time
+                # and not the queue's: waiting behind a slow request is that
+                # request's deadline to bound, not this one's.
+                async with asyncio.timeout(self.request_deadline_seconds):
+                    return await self.client.transcribe(
+                        audio, filename=f"seg_{segment.index:04d}.wav"
+                    )
+            except TimeoutError:
+                # Only the deadline's own expiry becomes this: a cancel from
+                # :meth:`aclose` still arrives as ``CancelledError``. Only
+                # this side can tell the two apart, so this side tells the
+                # client's breaker; a deployment that never answers is
+                # otherwise invisible to it.
+                self.client.note_deadline_exceeded()
+                raise SttError("STT_DEADLINE_EXCEEDED", retryable=True) from None
             finally:
                 timing.request_ended_at = self._clock()
 
@@ -646,6 +682,10 @@ class TranscriptionStream:
             # the result describes audio this segment never carried, which
             # is enough to stop it from entering the transcript.
             return self._reject(segment, "TIMESTAMP_OVERRUN", timing)
+        if is_stock_phrase(transcription.text):
+            # The same failure with a span that happens to fit: a subtitle
+            # credit nobody in the room said.
+            return self._reject(segment, "STOCK_PHRASE", timing)
 
         utterance = Utterance(
             utterance_id=f"utt_{self.track_id}_{segment.index:04d}",

@@ -74,7 +74,7 @@ export function DropZone({
       }`}
     >
       <p className="text-[15px]">{dragging ? '여기에 놓으세요' : label}</p>
-      <p className="mt-1.5 text-[13px] text-white/30">PDF · DOCX · 50MB 이하</p>
+      <p className="mt-1.5 text-[13px] text-white/30">PDF · 50MB 이하</p>
 
       <input
         ref={inputRef}

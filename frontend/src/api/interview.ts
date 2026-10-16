@@ -8,6 +8,7 @@ import type {
   CreateSessionResponse,
   EndSessionResponse,
   Interview,
+  InterviewListResponse,
   InterviewSummary,
   JoinFailure,
   JoinSessionResponse,
@@ -21,12 +22,24 @@ const V1 = '/api/v1';
 
 /* ---------------- 면접 ---------------- */
 
-/** 새 면접 정보를 만든다. Session·LiveKit Room 은 여기서 만들지 않는다. */
-export const createInterview = (interviewerId: string, candidateName?: string) =>
+/**
+ * 새 면접 정보를 만든다. Session·LiveKit Room 은 여기서 만들지 않는다.
+ *
+ * 주인은 토큰의 사용자다 — 본문으로 보내면 아무 이름으로나 면접을 만들 수 있어
+ * 서버가 `interviewerId` 를 받지 않는다 (#145). 응답에는 그대로 들어 있다.
+ */
+export const createInterview = (candidateName?: string) =>
   request<Interview>(`${V1}/interviews`, {
     method: 'POST',
-    body: JSON.stringify({ interviewerId, candidateName }),
+    body: JSON.stringify({ candidateName }),
   });
+
+/**
+ * 내가 만든 면접 목록. 최신순으로 온다.
+ *
+ * 필터·정렬은 FE 가 한다 — 서버는 거르지 않고 내 것을 전부 준다.
+ */
+export const listInterviews = () => request<InterviewListResponse>(`${V1}/interviews`);
 
 export const getInterview = (interviewId: string) =>
   request<Interview>(`${V1}/interviews/${interviewId}`);
@@ -92,10 +105,18 @@ const FAILURE_BY_CODE: Record<string, JoinFailure> = {
   NOT_FOUND: 'not-found',
   SESSION_ENDED: 'ended',
   ROOM_FULL: 'room-full',
+  // 로그인은 됐는데 이 면접의 주인이 아니다 (#141). 다시 시도해도 같은 결과다.
+  ROLE_NOT_ALLOWED: 'not-allowed',
+  // 토큰이 없거나 만료됐다. client.ts 가 이미 지웠으므로 로그인 말고는 길이 없다.
+  UNAUTHORIZED: 'signed-out',
 };
 
 /** 코드를 못 읽었을 때만 쓴다 (구버전 서버·프록시 오류 등) */
 const FAILURE_BY_STATUS: Record<number, JoinFailure> = {
+  // 401 이 빠지면 'failed' 로 떨어져 「잠시 후 다시」가 된다. 기다려서 되는 일이
+  // 아닌데 그렇게 말하면 로그인하면 된다는 걸 아무도 알려주지 않는다 (#150).
+  401: 'signed-out',
+  403: 'not-allowed',
   404: 'not-found',
   409: 'unavailable',
 };

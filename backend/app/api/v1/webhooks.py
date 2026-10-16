@@ -1,4 +1,4 @@
-"""LiveKit Webhook 수신 — 전사 타임라인 원점(t=0) 기록.
+"""LiveKit Webhook 수신 — 전사 원점(t=0) 기록, 녹화 (#112).
 
 멘토 1차 리뷰에서 나온 항목이다. `startedAt`(「면접 시작」 버튼)은 안 누르면
 비어 있어 마스터 클럭으로 쓸 수 없고, 세 파트가 공유할 원점이 따로 필요하다.
@@ -11,6 +11,10 @@ LiveKit 뿐이다. 자막 워커(Agent) · 녹화(Egress)는 사람보다 먼저
 
 AI 의 `startMs` 와 FE 의 `atSec` 은 단위만 ms·초로 두고 원점은 이 값 하나를 쓴다.
 
+녹화는 여기서 걸고(`track_published`), 다 올라가면 합친다(`egress_ended`) — 흐름은
+`app/services/recording.py`. 종료를 누르지 않고 모두 나가면 LiveKit 이 10분 뒤
+방을 닫고(`room_finished`) 여기서 면접을 끝낸다.
+
 LiveKit 이 보내게 하는 설정은 `infra/livekit/livekit.yaml` 의 `webhook.urls` 와
 compose 의 `LIVEKIT_WEBHOOK_API_KEY`(서명 키 이름) 두 곳이다.
 """
@@ -19,11 +23,20 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Header, Request, status
-from livekit.protocol.models import ParticipantInfo
+from livekit.protocol.models import ParticipantInfo, TrackSource
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import MediaDep, StoreDep
-from app.domain.models import session_id_from_room
+from app.core.config import settings
+from app.domain.models import (
+    Role,
+    SessionStatus,
+    SessionSummary,
+    session_id_from_room,
+)
+from app.domain.store import Store
+from app.services import recording
+from app.services.media import MediaGateway, WebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +46,9 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 #: 참가자가 방에 들어왔을 때 LiveKit 이 보내는 이벤트 이름.
 PARTICIPANT_JOINED = "participant_joined"
+TRACK_PUBLISHED = "track_published"
+EGRESS_ENDED = "egress_ended"
+ROOM_FINISHED = "room_finished"
 
 
 @router.post(
@@ -76,7 +92,13 @@ async def receive_webhook(
         )
         return
 
-    if event.event != PARTICIPANT_JOINED:
+    if event.event == EGRESS_ENDED:
+        # 녹화 이벤트에는 room 이 비어 있다. 어느 세션인지 몰라도 된다 — 합칠
+        # 차례인 것을 저장소에서 찾는다.
+        recording.kick()
+        return
+
+    if event.event not in (PARTICIPANT_JOINED, TRACK_PUBLISHED, ROOM_FINISHED):
         # 우리가 구독하지 않은 이벤트. 정상이므로 debug 로만 남긴다.
         logger.debug("LiveKit webhook 무시: event=%s", event.event)
         return
@@ -85,6 +107,13 @@ async def receive_webhook(
     if session_id is None:
         # 로드 테스트 등 우리가 만들지 않은 방. 정상이다.
         logger.debug("LiveKit webhook 무시: 우리 방이 아님 room=%s", event.room.name)
+        return
+
+    if event.event == TRACK_PUBLISHED:
+        await _start_recording(event, session_id, store, media)
+        return
+    if event.event == ROOM_FINISHED:
+        await _end_abandoned(session_id, store)
         return
 
     participant = event.participant
@@ -106,6 +135,61 @@ async def receive_webhook(
     # 프로세스의 다른 요청이 줄을 선다 (#133). 한 문장이라 넘겨도 사이가 열리지 않는다.
     if await run_in_threadpool(store.mark_origin, session_id, joined_at):
         logger.info("전사 원점 기록 session_id=%s t0=%s", session_id, joined_at)
+
+
+async def _start_recording(
+    event: WebhookEvent, session_id: str, store: Store, media: MediaGateway
+) -> None:
+    """지원자 영상과 두 사람의 음성을 트랙마다 녹화한다 (#112).
+
+    면접관 영상은 녹화하지 않는다 — 검토 대상은 지원자다. 화면 공유도 안 한다.
+    녹화 자리를 먼저 만든다. 녹화가 걸렸는데 자리가 없으면 아무도 합치지 않는다.
+    """
+    participant, track = event.participant, event.track
+    wanted = track.source == TrackSource.MICROPHONE or (
+        track.source == TrackSource.CAMERA
+        and participant.identity == Role.CANDIDATE.value
+    )
+    if (
+        not settings.recording_bucket
+        or participant.kind != ParticipantInfo.Kind.STANDARD
+        or not wanted
+    ):
+        return
+    if await run_in_threadpool(store.get_session, session_id) is None:
+        return
+
+    await run_in_threadpool(store.ensure_recording, session_id)
+    filepath = f"rec/{session_id}/{participant.identity}-{track.sid}"
+    try:
+        await media.start_track_egress(event.room.name, track.sid, filepath)
+    except Exception:
+        # 자리는 남는다. 면접이 끝나면 합칠 파일이 없어 FAILED 가 된다.
+        logger.exception("녹화 시작 실패 session_id=%s track=%s", session_id, track.sid)
+        return
+    logger.info("녹화 시작 session_id=%s file=%s", session_id, filepath)
+
+
+async def _end_abandoned(session_id: str, store: Store) -> None:
+    """종료를 누르지 않고 모두 나간 면접을 끝낸다.
+
+    LiveKit 이 마지막 사람이 나가고 `departure_timeout`(10분) 뒤 방을 닫으면 온다.
+    진행 중인 면접만 끝낸다 — 시작 전 방은 다시 들어오면 새로 열리면 된다.
+    종료 버튼으로 방을 닫아도 오는데, 그때는 이미 ENDED 라 지나간다.
+    """
+    session = await run_in_threadpool(store.get_session, session_id)
+    if session is None or session.status is not SessionStatus.INTERVIEWING:
+        return
+    session.end()
+    saved = await run_in_threadpool(
+        store.save_session, session, expected_status=SessionStatus.INTERVIEWING
+    )
+    if not saved:
+        return
+    # 종료 API 와 같다 — 요약을 기다리는 자리도 지금 만든다.
+    await run_in_threadpool(store.ensure_summary, SessionSummary(session_id=session_id))
+    logger.info("방이 닫혀 면접을 끝냄 session_id=%s", session_id)
+    recording.kick()
 
 
 def _joined_at(participant: ParticipantInfo) -> datetime | None:

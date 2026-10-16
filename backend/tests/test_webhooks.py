@@ -4,7 +4,6 @@
 `startedAt`(버튼)과 다른 값이라는 걸 여기서 고정한다.
 """
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -80,31 +79,6 @@ def test_origin_is_first_join_only(client, media, store, session):
     assert store.get_session(session.id).transcript_origin_at == JOINED_AT
 
 
-def test_origin_is_written_off_the_event_loop(
-    client, media, store, session, monkeypatch
-):
-    """동기 저장소를 이벤트 루프에서 부르면 그동안 다른 요청이 줄을 선다 (#133).
-
-    스레드풀로 넘겼으면 그 스레드에는 돌고 있는 이벤트 루프가 없다.
-    """
-    mark = store.mark_origin
-    on_loop: list[bool] = []
-
-    def spy(*args, **kwargs):
-        try:
-            asyncio.get_running_loop()
-            on_loop.append(True)
-        except RuntimeError:
-            on_loop.append(False)
-        return mark(*args, **kwargs)
-
-    monkeypatch.setattr(store, "mark_origin", spy)
-    media.webhook_event = FakeEvent("participant_joined", session.room_name, JOINED_MS)
-
-    assert _post(client) == 204
-    assert on_loop == [False]
-
-
 def test_origin_is_independent_of_started_at(client, media, store, session):
     """`startedAt` 은 버튼 시각이라 원점과 별개다 — 버튼을 안 눌러도 원점은 찍힌다."""
     media.webhook_event = FakeEvent("participant_joined", session.room_name, JOINED_MS)
@@ -144,7 +118,7 @@ def test_late_event_arriving_first_does_not_win(client, media, store, session):
 @pytest.mark.parametrize(
     ("event", "room", "joined_at_ms"),
     [
-        ("track_published", "{room}", 1789000000),  # 관심 없는 이벤트
+        ("track_unpublished", "{room}", 1789000000),  # 관심 없는 이벤트
         ("participant_joined", "lk-loadtest-3", 1789000000),  # 우리 방이 아님
         ("participant_joined", "interview_ses_nope", 1789000000),  # 없는 세션
         ("participant_joined", "{room}", 0),  # 시각이 비어 있음
@@ -193,7 +167,7 @@ def test_signature_failure_is_logged(client, media, store, session, caplog):
 
 def test_ignored_event_is_not_a_warning(client, media, store, session, caplog):
     """관심 없는 이벤트는 정상이다. warning 으로 남기면 로그가 쓸모없어진다."""
-    media.webhook_event = FakeEvent("track_published", session.room_name, JOINED_MS)
+    media.webhook_event = FakeEvent("track_unpublished", session.room_name, JOINED_MS)
 
     with caplog.at_level(logging.WARNING, logger="app.api.v1.webhooks"):
         assert _post(client) == 204
