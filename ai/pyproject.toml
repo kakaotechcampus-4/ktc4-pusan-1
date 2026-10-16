@@ -9,6 +9,8 @@ dependencies = [
     "av~=18.1.0",
     "httpx~=0.28.1",
     "livekit-agents~=1.8.0",
+    "livekit-plugins-deepgram~=1.8.0",
+    "livekit-plugins-silero~=1.8.0",
     "openai~=2.54.0",
     "pydantic-settings~=2.15.0",
 ]

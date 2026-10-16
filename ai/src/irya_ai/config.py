@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     elice_stt_language: str = "ko"
     elice_stt_timeout_seconds: float = Field(default=60, gt=0, le=300)
 
+    # Which live STT the worker uses. Elice stays the default until Deepgram
+    # has been measured on the same inputs; a key being present does not
+    # switch providers, only this setting does.
+    stt_provider: Literal["elice", "deepgram"] = "elice"
+    deepgram_api_key: SecretStr = SecretStr("")
+
     # Project LLM (Elice ML API, OpenAI-compatible). The base URL names a
     # private gateway, so it is read from the environment like a credential.
     llm_base_url: str = ""

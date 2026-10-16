@@ -429,6 +429,40 @@ def test_a_track_is_placed_on_the_session_timeline_where_its_audio_starts() -> N
     assert [t.track_id for t in room.ordering.tracks] == ["trk_1"]
 
 
+def test_a_stream_builder_opens_another_providers_stream_on_the_same_timeline():
+    now = datetime(2026, 9, 18, 7, 0, tzinfo=UTC)
+    opened: list[tuple] = []
+    marker = object()
+
+    def build(track_id, speaker, ordering):
+        opened.append((track_id, speaker, ordering))
+        return marker
+
+    room = RoomTranscriber(
+        room=SimpleNamespace(local_participant=FakeLocalParticipant()),
+        session_id="ses_123",
+        stream_builder=build,
+        wall_clock=lambda: now + timedelta(seconds=3),
+    )
+    room.initialize_origin([SimpleNamespace(identity="INTERVIEWER", joined_at=now)])
+
+    assert room.stream_for("trk_1", SpeakerRole.INTERVIEWER) is marker
+    ((track_id, speaker, ordering),) = opened
+    assert (track_id, speaker, ordering.offset_ms) == (
+        "trk_1",
+        SpeakerRole.INTERVIEWER,
+        3_000,
+    )
+
+
+def test_a_transcriber_needs_a_client_or_a_stream_builder() -> None:
+    with pytest.raises(ValueError):
+        RoomTranscriber(
+            room=SimpleNamespace(local_participant=FakeLocalParticipant()),
+            session_id="ses_123",
+        )
+
+
 def test_the_caption_is_the_default_sink_and_others_can_replace_it() -> None:
     async def other(_value: Utterance) -> None:
         pass

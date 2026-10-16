@@ -42,9 +42,10 @@ from livekit import rtc
 
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
 from irya_ai.sinks import UtteranceSink
+from irya_ai.stt import deepgram
 from irya_ai.stt.elice import EliceSttClient
 from irya_ai.stt.segmentation import SegmentationConfig
-from irya_ai.stt.session import SessionOrdering
+from irya_ai.stt.session import SessionOrdering, TrackOrdering
 from irya_ai.stt.stream import TranscriptionStream
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,11 @@ class TranscribingStream(Protocol):
 
 
 StreamFactory = Callable[[], TranscribingStream]
+
+#: Builds a track's stream from its id, speaker and place on the session
+#: timeline. :class:`RoomTranscriber` uses one to open a provider other than
+#: the Elice path it builds itself.
+StreamBuilder = Callable[[str, SpeakerRole, TrackOrdering], TranscribingStream]
 
 
 class TrackAudio(Protocol):
@@ -528,7 +534,8 @@ class RoomTranscriber:
     One :class:`~irya_ai.stt.stream.TranscriptionStream` is opened per
     microphone track, all of them sharing ``client``. With the stream's
     default of three requests in flight, a two-person room puts at most six on
-    the STT deployment at once.
+    the STT deployment at once. ``stream_builder`` replaces that with another
+    provider's stream (Deepgram); ``client`` is then unused.
     """
 
     def __init__(
@@ -536,16 +543,20 @@ class RoomTranscriber:
         *,
         room: rtc.Room,
         session_id: str,
-        client: EliceSttClient,
+        client: EliceSttClient | None = None,
+        stream_builder: StreamBuilder | None = None,
         sinks: Sequence[UtteranceSink] | None = None,
         segmentation: SegmentationConfig | None = None,
         wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         monotonic_clock: Callable[[], float] = time.monotonic,
         open_audio: Callable[[rtc.Track], TrackAudio] = open_track_audio,
     ) -> None:
+        if client is None and stream_builder is None:
+            raise ValueError("a client or a stream_builder is required")
         self.room = room
         self.session_id = session_id
         self.client = client
+        self.stream_builder = stream_builder
         self.segmentation = segmentation
         self.ordering = SessionOrdering()
         self.caption = LiveKitTextSink(room)
@@ -591,7 +602,7 @@ class RoomTranscriber:
         elapsed = self._wall_clock() - self._origin_at
         return max(0, round(elapsed.total_seconds() * 1000))
 
-    def stream_for(self, track_id: str, speaker: SpeakerRole) -> TranscriptionStream:
+    def stream_for(self, track_id: str, speaker: SpeakerRole) -> TranscribingStream:
         """A fresh stream for one track, placed on the session timeline now.
 
         Called when the track's first frame arrives, not when it is
@@ -599,6 +610,9 @@ class RoomTranscriber:
         """
 
         ordering = self.ordering.register(track_id, offset_ms=self._track_offset_ms())
+        if self.stream_builder is not None:
+            return self.stream_builder(track_id, speaker, ordering)
+        assert self.client is not None
         return TranscriptionStream(
             self.client,
             session_id=self.session_id,
@@ -715,5 +729,12 @@ class RoomTranscriber:
                 len(stream.rejected),
                 len(stream.dropped_spans),
                 lag_summary(stream),
+            )
+        elif isinstance(stream, deepgram.DeepgramTranscriptionStream):
+            logger.info(
+                "microphone transcription ended track=%s speaker=%s %s",
+                track_id,
+                speaker.value,
+                deepgram.summary(stream),
             )
         return True
