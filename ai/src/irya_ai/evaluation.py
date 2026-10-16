@@ -10,7 +10,8 @@ from collections.abc import Sequence
 
 from irya_ai.schemas.transcript import TranscriptSnapshot
 
-_NUMBER_PATTERN = re.compile(r"\d+(?:[.,]\d+)?")
+# Thousands groups first, so "1,200,000" is one number and not "1,200" + "000".
+_NUMBER_PATTERN = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
 
 
 def _normalize(text: str) -> str:
@@ -39,7 +40,17 @@ def unsupported_numbers(transcript: TranscriptSnapshot, summary: str) -> list[st
 
 
 def unsupported_numbers_in_text(source_text: str, summary: str) -> list[str]:
-    """Apply the same surface check to the exact citations for one claim."""
-    source_numbers = set(_NUMBER_PATTERN.findall(source_text))
-    found = [n for n in _NUMBER_PATTERN.findall(summary) if n not in source_numbers]
+    """Apply the same surface check to the exact citations for one claim.
+
+    Thousands separators do not count as a difference: STT writes "1200"
+    where a summary writes "1,200", and both are the same figure.
+    """
+    source_numbers = {_plain(n) for n in _NUMBER_PATTERN.findall(source_text)}
+    found = [
+        n for n in _NUMBER_PATTERN.findall(summary) if _plain(n) not in source_numbers
+    ]
     return list(dict.fromkeys(found))
+
+
+def _plain(number: str) -> str:
+    return number.replace(",", "")

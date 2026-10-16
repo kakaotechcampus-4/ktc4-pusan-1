@@ -1,4 +1,8 @@
-from irya_ai.evaluation import missing_key_facts, unsupported_numbers
+from irya_ai.evaluation import (
+    missing_key_facts,
+    unsupported_numbers,
+    unsupported_numbers_in_text,
+)
 from irya_ai.schemas import TranscriptSnapshot
 
 KEY_FACTS = ["3년차", "Django", "FastAPI", "40%"]
@@ -42,3 +46,11 @@ def test_repeated_unsupported_numbers_are_reported_once(
     sample_transcript: TranscriptSnapshot,
 ) -> None:
     assert unsupported_numbers(sample_transcript, "70%에서 70%로") == ["70"]
+
+
+def test_thousands_separators_do_not_make_a_number_unsupported() -> None:
+    assert unsupported_numbers_in_text("처리량은 1200건", "처리량 1,200건") == []
+    assert unsupported_numbers_in_text("처리량은 1,200건", "처리량 1200건") == []
+    assert unsupported_numbers_in_text("1,200,000원", "1200000원") == []
+    assert unsupported_numbers_in_text("1,200건", "1,300건") == ["1,300"]
+    assert unsupported_numbers_in_text("0.3%", "0.03%") == ["0.03"]
