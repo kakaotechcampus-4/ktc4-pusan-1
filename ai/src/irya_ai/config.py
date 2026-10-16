@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # private gateway, so it is read from the environment like a credential.
     llm_base_url: str = ""
     llm_api_key: SecretStr = SecretStr("")
-    llm_model: str = "gpt-5.6-luna"
+    llm_model: str = "gpt-6-luna"
     llm_reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
     llm_timeout_seconds: float = Field(default=60, gt=0, le=300)
 
