@@ -17,7 +17,7 @@ import { updateContextSettings } from '../api/contextSettings';
 import { DocCard } from '../components/context/DocCard';
 import { DropZone } from '../components/context/DropZone';
 import { checkFile } from '../lib/docFile';
-import type { CompanyContext, ContextDoc, UploadRejection } from '../types/interview';
+import type { CompanyContext, ContextDoc, DocCategory, UploadRejection } from '../types/interview';
 
 /** 파싱 중인 문서가 있을 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 2000;
@@ -27,16 +27,15 @@ const TALENT_MAX = 2000;
 
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
   'empty-file': '내용이 있는 파일을 선택해주세요.',
-  'unsupported-type': 'PDF 와 DOCX 만 올릴 수 있습니다.',
+  'unsupported-type': 'PDF 만 올릴 수 있습니다.',
   'too-large': '50MB 이하 파일만 올릴 수 있습니다.',
 };
-
-/** 문서를 어느 칸에 올렸는가 */
-type DocCategory = 'jd' | 'internal';
 
 /** 업로드가 끝나기 전의 문서. 서버는 아직 이 문서를 모른다. */
 interface PendingDoc extends ContextDoc {
   status: 'uploading';
+  /** 올리는 중에도 칸을 알아야 해당 칸에 진행률이 보인다. */
+  category: DocCategory;
 }
 
 interface SettingsForm {
@@ -62,15 +61,6 @@ export default function ContextSettingsPage() {
    * 고친 칸만 들고 있다가 화면을 그릴 때 서버 값 위에 얹는다.
    */
   const [draft, setDraft] = useState<Partial<SettingsForm>>({});
-
-  /**
-   * 문서 분류.
-   *
-   * ⚠️ 업로드 API 에 문서 종류 필드가 없어 분류를 화면에만 들고 있다. 새로고침하면
-   * 분류가 사라지므로 서버에 남은 문서는 아래 미분류 목록에서 보여준다.
-   * BE 에 종류 필드가 생기면 이 상태를 없앤다.
-   */
-  const [categories, setCategories] = useState<Record<string, DocCategory>>({});
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey,
@@ -124,28 +114,30 @@ export default function ContextSettingsPage() {
   }, []);
 
   const upload = useMutation({
-    mutationFn: async ({ file, tempId }: { file: File; tempId: string; category: DocCategory }) =>
-      uploadDoc(contextId, file, (ratio) =>
-        setPending((prev) => prev.map((d) => (d.id === tempId ? { ...d, progress: ratio } : d))),
+    mutationFn: async ({
+      file,
+      tempId,
+      category,
+    }: {
+      file: File;
+      tempId: string;
+      category: DocCategory;
+    }) =>
+      uploadDoc(
+        contextId,
+        file,
+        (ratio) =>
+          setPending((prev) => prev.map((d) => (d.id === tempId ? { ...d, progress: ratio } : d))),
+        category,
       ),
-    onSuccess: (doc, { tempId, category }) => {
-      // 임시 id 로 달아 둔 분류를 서버가 준 id 로 옮긴다.
-      setCategories((prev) => {
-        const next = { ...prev, [doc.id]: category };
-        delete next[tempId];
-        return next;
-      });
+    onSuccess: (_doc, { tempId }) => {
+      // 분류는 서버가 들고 있다. 다시 조회하면 올린 칸 그대로 돌아온다.
       setPending((prev) => prev.filter((d) => d.id !== tempId));
       void qc.invalidateQueries({ queryKey });
     },
     onError: (error, { tempId }) => {
-      // 서버에 올라가지 않았으므로 목록에서 지운다. 임시 id 로 달아 둔 분류도 함께 버린다.
+      // 서버에 올라가지 않았으므로 목록에서 지운다.
       setPending((prev) => prev.filter((d) => d.id !== tempId));
-      setCategories((prev) => {
-        const next = { ...prev };
-        delete next[tempId];
-        return next;
-      });
       setNotice(uploadErrorMessage(error));
     },
   });
@@ -198,7 +190,6 @@ export default function ContextSettingsPage() {
         continue;
       }
       const tempId = `tmp_${Date.now()}_${file.name}`;
-      setCategories((prev) => ({ ...prev, [tempId]: category }));
       setPending((prev) => [
         ...prev,
         {
@@ -207,6 +198,7 @@ export default function ContextSettingsPage() {
           kind: checked.kind,
           sizeBytes: file.size,
           status: 'uploading',
+          category,
           progress: 0,
         },
       ]);
@@ -216,9 +208,7 @@ export default function ContextSettingsPage() {
 
   const docs: ContextDoc[] = [...(data?.docs ?? []), ...pending];
   const uploading = pending.length > 0;
-  const docsIn = (category: DocCategory) => docs.filter((d) => categories[d.id] === category);
-  // 분류를 잃은 문서 — 새로고침 뒤 서버에만 남은 것들이다. 위 categories 주석 참고.
-  const unclassified = docs.filter((d) => !categories[d.id]);
+  const docsIn = (category: DocCategory) => docs.filter((d) => d.category === category);
 
   const update = (patch: Partial<SettingsForm>) => {
     // 고치는 순간 "저장했습니다"를 내린다. 저장하지 않은 값에 그 문구가 남아 있으면 안 된다.
@@ -338,15 +328,6 @@ export default function ContextSettingsPage() {
                 onFiles={(files) => handleFiles(files, 'internal')}
                 disabled={uploading}
               />
-
-              {unclassified.length > 0 && (
-                <div className="flex flex-col gap-2.5">
-                  <p className="text-ink-dim text-[13px]">
-                    분류가 남아 있지 않은 문서입니다. 면접에는 그대로 쓰입니다.
-                  </p>
-                  <DocList docs={unclassified} onDelete={(id) => remove.mutate(id)} />
-                </div>
-              )}
             </Section>
 
             <Section
