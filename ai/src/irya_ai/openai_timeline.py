@@ -1,7 +1,8 @@
 """Timeline drafting through an OpenAI-compatible chat endpoint.
 
-Written for the project's Elice ML API models (``gpt-5.6-luna`` first,
-``gpt-5.6-terra`` if Luna is not good enough). That gateway accepts the
+Written for the project's Elice ML API models (``gpt-6-luna`` by default;
+first written against ``gpt-5.6-luna``, with ``gpt-5.6-terra`` as the fallback
+if Luna was not good enough). That gateway accepts the
 OpenAI SDK unchanged but **rejects any parameter outside its published list
 with 400**, so this module sends only ``model``, ``messages``,
 ``response_format``, ``max_completion_tokens`` and, when configured,
@@ -91,7 +92,7 @@ class OpenAITimelineGenerator:
         self,
         client: AsyncOpenAI,
         *,
-        model: str = "gpt-5.6-luna",
+        model: str = "gpt-6-luna",
         max_completion_tokens: int = MAX_COMPLETION_TOKENS,
         reasoning_effort: ReasoningEffort | None = None,
     ) -> None:

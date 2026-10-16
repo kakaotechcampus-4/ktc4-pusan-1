@@ -221,7 +221,7 @@ STT가 청크마다 쌓아 둔 `Utterance` JSON을 면접 종료 후 한꺼번�
 # 모델 없이 파이프라인 확인 (답변 첫 문장을 그대로 인용)
 uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --backend extractive
 
-# .env의 LLM_BASE_URL / LLM_API_KEY 설정 후 프로젝트 LLM(gpt-5.6-luna) 호출
+# .env의 LLM_BASE_URL / LLM_API_KEY 설정 후 프로젝트 LLM(gpt-6-luna) 호출
 uv run irya-ai timeline data/samples/chunks_backend_junior_01.json
 
 # FE `Moment` 형태(atSec)로만 출력

@@ -131,7 +131,7 @@ class OpenAISuggestionGenerator:
         self,
         client: AsyncOpenAI,
         *,
-        model: str = "gpt-5.6-luna",
+        model: str = "gpt-6-luna",
         max_completion_tokens: int = 1200,
         max_suggestions: int = DEFAULT_MAX_PER_ROUND,
         reasoning_effort: ReasoningEffort | None = None,
