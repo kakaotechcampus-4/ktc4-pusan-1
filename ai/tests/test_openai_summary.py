@@ -72,6 +72,10 @@ async def test_real_sdk_request_and_parsing_with_stubbed_http(
     assert body["text"]["format"]["strict"] is True
     assert body["text"]["format"]["schema"]["additionalProperties"] is False
     sent = json.loads(body["input"][1]["content"])
+    # The transcript is sent without separator padding: it is billed per token.
+    assert body["input"][1]["content"] == json.dumps(
+        sent, ensure_ascii=False, separators=(",", ":")
+    )
     assert len(sent["utterances"]) == 4
     assert [u["utterance_id"] for u in sent["utterances"]].count("u-004") == 1
     assert result.summary_result.source_utterance_ids == ["u-004"]

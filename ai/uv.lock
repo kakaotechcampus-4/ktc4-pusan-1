@@ -363,6 +363,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "av" },
     { name = "httpx" },
     { name = "livekit-agents" },
     { name = "openai" },
@@ -379,6 +380,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = "~=3.14.3" },
+    { name = "av", specifier = "~=18.1.0" },
     { name = "httpx", specifier = "~=0.28.1" },
     { name = "livekit-agents", specifier = "~=1.8.0" },
     { name = "openai", specifier = "~=2.54.0" },

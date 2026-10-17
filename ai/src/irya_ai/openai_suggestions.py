@@ -167,7 +167,14 @@ class OpenAISuggestionGenerator:
             "model": self.model,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                {
+                    "role": "user",
+                    # No spaces after separators: the payload is all the model
+                    # reads, and the padding is billed tokens on every round.
+                    "content": json.dumps(
+                        payload, ensure_ascii=False, separators=(",", ":")
+                    ),
+                },
             ],
             "response_format": SuggestionBatchDraft,
             "max_completion_tokens": self.max_completion_tokens,

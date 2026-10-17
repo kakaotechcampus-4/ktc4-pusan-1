@@ -287,6 +287,10 @@ async def test_request_uses_chat_completions_with_only_supported_params(
     assert body["reasoning_effort"] == "low"
     assert body["response_format"]["type"] == "json_schema"
     assert body["messages"][0] == {"role": "system", "content": SYSTEM_PROMPT}
+    user = body["messages"][1]["content"]
+    assert user == json.dumps(
+        json.loads(user), ensure_ascii=False, separators=(",", ":")
+    ), "the payload is sent without separator padding"
     assert len(draft.suggestions) == 1
     assert generator.last_model == "gpt-5.6-luna-2026-02"
     assert generator.last_usage is not None
