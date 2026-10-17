@@ -2798,7 +2798,7 @@
     },
     "/api/v1/sessions/{sessionId}/recording": {
       "get": {
-        "description": "면접 녹화를 10분짜리 서명 URL 로 준다 (#112). 면접 주인만 본다.\n\n면접 중이거나 합치는 중이면 검토 API 처럼 `202 {\"status\": \"PROCESSING\"}` 다.\n녹화가 없거나 합치지 못했으면(FAILED) 404 — 화면은 둘 다 녹화 없이 전사로\n검토한다.",
+        "description": "면접 녹화를 서명 URL 로 준다 (#112). 면접 주인만 본다.\n\nURL 은 `expiresAt` 까지 유효하다 — CloudFront 를 켜면 3시간, 아니면 10분\n(#197). 재생이 실패했는데 만료가 지났으면 다시 부른다.\n\n면접 중이거나 합치는 중이면 검토 API 처럼 `202 {\"status\": \"PROCESSING\"}` 다.\n녹화가 없거나 합치지 못했으면(FAILED) 404 — 화면은 둘 다 녹화 없이 전사로\n검토한다.",
         "operationId": "get_recording_api_v1_sessions__sessionId__recording_get",
         "parameters": [
           {

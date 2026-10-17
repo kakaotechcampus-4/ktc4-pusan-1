@@ -25,7 +25,6 @@ from app.domain.models import (
     SessionStatus,
     SessionSummary,
     SummaryStatus,
-    utcnow,
 )
 from app.domain.store import Store
 from app.schemas import (
@@ -296,7 +295,10 @@ def get_summary(session: OwnedSessionDep, store: StoreDep) -> SummaryResponse:
 def get_recording(
     session: OwnedSessionDep, store: StoreDep
 ) -> RecordingResponse | JSONResponse:
-    """면접 녹화를 10분짜리 서명 URL 로 준다 (#112). 면접 주인만 본다.
+    """면접 녹화를 서명 URL 로 준다 (#112). 면접 주인만 본다.
+
+    URL 은 `expiresAt` 까지 유효하다 — CloudFront 를 켜면 3시간, 아니면 10분
+    (#197). 재생이 실패했는데 만료가 지났으면 다시 부른다.
 
     면접 중이거나 합치는 중이면 검토 API 처럼 `202 {"status": "PROCESSING"}` 다.
     녹화가 없거나 합치지 못했으면(FAILED) 404 — 화면은 둘 다 녹화 없이 전사로
@@ -316,9 +318,10 @@ def get_recording(
     offset_ms = 0
     if origin is not None and started is not None:
         offset_ms = int((started - origin).total_seconds() * 1000)
+    url, expires_at = recording_module.presign(recording.s3_key)
     return RecordingResponse(
-        url=recording_module.presign(recording.s3_key),
-        expires_at=utcnow() + recording_module.URL_TTL,
+        url=url,
+        expires_at=expires_at,
         offset_ms=offset_ms,
         duration_sec=recording.duration_ms // 1000,
     )

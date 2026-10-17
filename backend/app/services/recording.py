@@ -4,7 +4,8 @@
   Egress            트랙마다 S3 `rec/{session_id}/` 에 파일 하나 (영상 .webm, 음성 .ogg)
   egress_ended      `kick()` — 합칠 차례인지 지금 본다
   5분마다           놓친 것을 다시 본다 (webhook 유실 · BE 재시작 · 실패)
-  재생              합친 파일의 10분짜리 서명 URL (sessions.py)
+  재생              합친 파일의 서명 URL (sessions.py) — CloudFront 3시간,
+                    꺼져 있으면 S3 10분 (#197)
 
 합치기는 BE 안에서 한 번에 하나씩, 낮은 우선순위로 돈다. BE 는 프로세스 하나라
 (uvicorn 워커 1) 같은 세션을 두 번 합치지 않는다. 영상은 다시 인코딩하지 않고
@@ -12,6 +13,7 @@
 """
 
 import asyncio
+import base64
 import logging
 import tempfile
 from dataclasses import dataclass
@@ -19,9 +21,13 @@ from datetime import UTC, datetime, timedelta
 from functools import cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from boto3.session import Session as Boto3Session
 from botocore.config import Config
+from botocore.signers import CloudFrontSigner
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from livekit import api
 
 from app.core.config import settings
@@ -37,7 +43,12 @@ SWEEP_SECONDS = 300
 #: 면접이 끝나고 이만큼 지나도 못 합쳤으면 FAILED 로 둔다. LiveKit 이 녹화 정보를
 #: 24시간 들고 있으니 그 안이다.
 GIVE_UP = timedelta(hours=1)
+#: S3 서명 URL. 인스턴스 역할의 임시 자격증명으로 서명해서, 더 길게 줘도 그
+#: 자격증명이 만료되면 같이 죽는다. 그래서 CloudFront 로 간다 (#197).
 URL_TTL = timedelta(minutes=10)
+#: CloudFront 서명 URL. 우리 키로 서명해 AWS 자격증명과 무관하다. 면접을 끝까지
+#: 다시 볼 수 있게 잡는다.
+CDN_URL_TTL = timedelta(hours=3)
 
 _wake = asyncio.Event()
 
@@ -53,12 +64,63 @@ def _s3() -> Any:
     )
 
 
-def presign(key: str) -> str:
-    return _s3().generate_presigned_url(
-        "get_object",
-        Params={"Bucket": settings.recording_bucket, "Key": key},
-        ExpiresIn=int(URL_TTL.total_seconds()),
+@cache
+def _cdn_signer() -> CloudFrontSigner | None:
+    """CloudFront 서명기. `RECORDING_CDN_DOMAIN` 이 스위치다 — 비면 None.
+
+    도메인을 넣었는데 키가 없거나 읽을 수 없으면 던진다. 켜려던 사람이 기동에서
+    바로 보게 하려는 것이다 — 조용히 S3 로 돌면 켜진 줄 안다. 메시지에 키는 싣지
+    않는다.
+    """
+    if not settings.recording_cdn_domain:
+        return None
+    if "/" in settings.recording_cdn_domain:
+        raise RuntimeError("RECORDING_CDN_DOMAIN 은 https:// 없이 도메인만 넣습니다.")
+    if not settings.recording_cdn_key_id or not settings.recording_cdn_private_key:
+        raise RuntimeError(
+            "RECORDING_CDN_DOMAIN 을 켜려면 RECORDING_CDN_KEY_ID 와 "
+            "RECORDING_CDN_PRIVATE_KEY 가 있어야 합니다."
+        )
+    try:
+        pem = base64.b64decode(settings.recording_cdn_private_key, validate=True)
+        key = serialization.load_pem_private_key(pem, password=None)
+    except Exception:  # ValueError · TypeError 말고 UnsupportedAlgorithm 도 난다
+        raise RuntimeError(
+            "RECORDING_CDN_PRIVATE_KEY 를 읽을 수 없습니다 — "
+            "PEM 을 base64 한 줄로 넣습니다."
+        ) from None
+    if not isinstance(key, rsa.RSAPrivateKey):
+        raise RuntimeError("RECORDING_CDN_PRIVATE_KEY 는 RSA 키여야 합니다.")
+
+    def sign(message: bytes) -> bytes:
+        # CloudFront 서명 URL 은 RSA-SHA1 이다 (AWS 가 정한 형식).
+        return key.sign(message, padding.PKCS1v15(), hashes.SHA1())
+
+    return CloudFrontSigner(settings.recording_cdn_key_id, sign)
+
+
+def check_cdn_at_startup() -> None:
+    """CloudFront 를 켰는데 설정이 틀렸으면 기동에서 실패한다."""
+    _cdn_signer()
+
+
+def presign(key: str) -> tuple[str, datetime]:
+    """재생 URL 과 그 만료 시각. 응답의 `expiresAt` 은 이 값 그대로다."""
+    signer = _cdn_signer()
+    if signer is None:
+        url = _s3().generate_presigned_url(
+            "get_object",
+            Params={"Bucket": settings.recording_bucket, "Key": key},
+            ExpiresIn=int(URL_TTL.total_seconds()),
+        )
+        return url, utcnow() + URL_TTL
+    # URL 의 Expires 는 초 단위라 맞춰 둔다 — expiresAt 이 실제 만료보다 늦지 않게.
+    expires = utcnow().replace(microsecond=0) + CDN_URL_TTL
+    url = signer.generate_presigned_url(
+        f"https://{settings.recording_cdn_domain}/{quote(key)}",
+        date_less_than=expires,
     )
+    return url, expires
 
 
 def kick() -> None:
