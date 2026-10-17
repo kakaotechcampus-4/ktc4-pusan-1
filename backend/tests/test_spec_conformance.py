@@ -135,6 +135,12 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "response": {"url", "expiresAt", "offsetMs", "durationSec"},
         "statuses": {"200", "202", "401", "404"},
     },
+    # ⚠️ Notion 명세에 없다 (#212). 항목은 면접 중 실시간 패킷과 같은 모양이다.
+    ("get", "/api/v1/sessions/{sessionId}/suggestions"): {
+        "path_params": ["sessionId"],
+        "response": {"items"},
+        "statuses": {"200", "401", "404"},
+    },
     ("post", "/api/v1/sessions/{sessionId}/end"): {
         "path_params": ["sessionId"],
         "response": {"sessionId", "status", "endedAt"},

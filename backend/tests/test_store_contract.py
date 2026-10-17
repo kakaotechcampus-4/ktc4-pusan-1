@@ -1048,6 +1048,14 @@ def test_suggestion_roundtrip(subject: Store):
     assert subject.list_suggestions(session.id) == [suggestion]
 
 
+def test_add_suggestion_says_whether_it_was_new(subject: Store):
+    """재시도는 면접관에게 다시 보내지 않는다 — 그 판단을 이 값으로 한다 (#212)."""
+    session = _seed(subject)
+
+    assert subject.add_suggestion(_suggestion(session)) is True
+    assert subject.add_suggestion(_suggestion(session)) is False
+
+
 def test_adding_the_same_suggestion_twice_keeps_the_first(subject: Store):
     """Agent 가 전송을 재시도해도 한 건이다.
 
