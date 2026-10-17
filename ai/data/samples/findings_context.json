@@ -1,0 +1,59 @@
+{
+  "sessionId": "ses_test",
+  "company": {
+    "companyId": "cmp_test",
+    "name": "합성회사",
+    "culture": null
+  },
+  "jobDescription": {
+    "jdId": "jd_test",
+    "companyId": "cmp_test",
+    "title": "백엔드",
+    "description": "서버 개발"
+  },
+  "competencies": [
+    {
+      "competencyId": "cpt_test",
+      "jdId": "jd_test",
+      "name": "성능 개선",
+      "required": true,
+      "description": null
+    }
+  ],
+  "rubric": null,
+  "candidate": {
+    "candidateId": "cnd_test",
+    "name": "합성지원자"
+  },
+  "resume": {
+    "resumeId": "rsm_test",
+    "candidateId": "cnd_test",
+    "storageKey": null,
+    "text": "Redis 캐시를 적용해 응답 시간을 60% 줄였습니다."
+  },
+  "resumeClaims": [
+    {
+      "claimId": "clm_test",
+      "resumeId": "rsm_test",
+      "quote": "Redis 캐시를 적용해 응답 시간을 60% 줄였습니다.",
+      "section": null
+    }
+  ],
+  "utterances": [
+    {
+      "utteranceId": "utt_test",
+      "sessionId": "ses_test",
+      "trackId": "TR_test",
+      "speaker": "CANDIDATE",
+      "seq": 5,
+      "passType": "FINAL",
+      "startMs": 1000,
+      "endMs": 4000,
+      "content": "Redis 캐시를 적용해 응답 시간을 60% 줄였습니다.",
+      "uncertain": false,
+      "words": [],
+      "qaId": null,
+      "qaRole": null
+    }
+  ]
+}
