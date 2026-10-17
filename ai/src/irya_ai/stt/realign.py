@@ -53,7 +53,13 @@ from irya_ai.schemas.transcript import (
     TranscriptStage,
     Utterance,
 )
-from irya_ai.stt.elice import EliceSttClient, SttError, Transcription, is_hallucinated
+from irya_ai.stt.elice import (
+    EliceSttClient,
+    SttError,
+    Transcription,
+    is_hallucinated,
+    is_stock_phrase,
+)
 from irya_ai.stt.segmentation import (
     PCM_WIDTH,
     AudioSegment,
@@ -114,7 +120,7 @@ class DroppedSpan:
     track_id: str
     start_ms: int
     end_ms: int
-    #: ``EMPTY``, ``TIMESTAMP_OVERRUN`` or ``REQUEST_FAILED``.
+    #: ``EMPTY``, ``TIMESTAMP_OVERRUN``, ``STOCK_PHRASE`` or ``REQUEST_FAILED``.
     reason: str
     code: str | None = None
 
@@ -252,6 +258,8 @@ async def realign(
             reason, code = "EMPTY", None
         elif is_hallucinated(answer, segment.duration_ms):
             reason, code = "TIMESTAMP_OVERRUN", None
+        elif is_stock_phrase(answer.text):
+            reason, code = "STOCK_PHRASE", None
         else:
             utterances.append(
                 Utterance(
