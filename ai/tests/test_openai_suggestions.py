@@ -283,7 +283,7 @@ async def test_request_uses_chat_completions_with_only_supported_params(
     body = json.loads(request.content)
     assert set(body) <= SUPPORTED_CHAT_PARAMS, set(body) - SUPPORTED_CHAT_PARAMS
     assert "store" not in body
-    assert body["model"] == "gpt-5.6-luna"
+    assert body["model"] == "gpt-6-luna"
     assert body["reasoning_effort"] == "low"
     assert body["response_format"]["type"] == "json_schema"
     assert body["messages"][0] == {"role": "system", "content": SYSTEM_PROMPT}
