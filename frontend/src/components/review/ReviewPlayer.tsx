@@ -88,9 +88,11 @@ export function ReviewPlayer({
   return (
     <section className="border-border-base bg-surface-panel overflow-hidden rounded-2xl border">
       <div className="relative aspect-video w-full bg-black">
+        {/* 볼 녹화가 없으면 컨트롤도 감춘다. 안내 문구 밑에 눌리지 않는 재생 버튼이
+            남아 있으면 누를 수 있는 것처럼 보인다. */}
         <video
           ref={videoRef}
-          controls
+          controls={!notice}
           playsInline
           className="absolute inset-0 h-full w-full object-contain"
         />
