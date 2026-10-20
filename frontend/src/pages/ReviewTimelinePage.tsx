@@ -4,9 +4,10 @@
  * 끝난 면접의 녹화를 다시 본다. 타임라인이나 목록에서 질문을 고르면 영상이 그 시점으로
  * 이동하고, 그 문답이 영상 위에 겹쳐 보인다.
  *
- * 녹화 변환과 AI 평가에 시간이 걸리므로 준비 중 상태를 거친다.
+ * 녹화는 상세 응답에 실리지 않고 `sessionId` 로 따로 받는다 (#112) — 서명 URL 이
+ * 10분 만에 만료돼서 상세와 같이 캐시해 두면 다시 열 때 죽은 주소가 된다.
  *
- * 실제 API의 PROCESSING을 표시한다. READY 산출물은 서버 구현을 기다린다.
+ * 녹화가 없는 면접도 여기서 검토한다. 문답과 요약은 녹화와 무관하게 그린다.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -15,11 +16,13 @@ import { Link, useParams } from 'react-router-dom';
 import { getReview } from '../api/review';
 import { ApiError } from '../api/client';
 import { getInterview } from '../api/interview';
+import { getRecording } from '../api/recording';
 import { AiReview } from '../components/review/AiReview';
 import { QaList } from '../components/review/QaList';
 import { ReviewPlayer } from '../components/review/ReviewPlayer';
 import { Timeline } from '../components/review/Timeline';
-import { useHlsPlayer } from '../hooks/useHlsPlayer';
+import { useRecordingPlayer } from '../hooks/useRecordingPlayer';
+import { FALLBACK_CANDIDATE } from '../lib/candidateName';
 import { fmt } from '../lib/format';
 import type { Moment } from '../types/interview';
 
@@ -43,7 +46,22 @@ export default function ReviewTimelinePage() {
   });
 
   const review = data?.status === 'READY' ? data : undefined;
-  const { videoRef, seekTo, failed } = useHlsPlayer(review?.recording?.hlsUrl);
+  const sessionId = review?.sessionId;
+
+  // 녹화는 상세와 따로 받는다. 상세가 READY 가 되기 전에는 부를 세션이 없다.
+  // 주소를 다시 받으면 `<video>` 의 src 가 바뀌어 재생 위치가 0 으로 돌아가므로,
+  // 합치는 중일 때만 다시 묻고 READY 가 되면 멈춘다.
+  const { data: recording } = useQuery({
+    queryKey: ['recording', sessionId],
+    queryFn: () => getRecording(sessionId!),
+    enabled: Boolean(sessionId),
+    refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? POLL_INTERVAL_MS : false),
+  });
+
+  const playable = recording?.status === 'READY' ? recording : undefined;
+  // 녹화가 없으면 보정할 것도 없다. 0 이면 전사 시각이 그대로 재생 위치가 된다.
+  const offsetMs = playable?.offsetMs ?? 0;
+  const { videoRef, seekTo, failed } = useRecordingPlayer(playable?.url, offsetMs);
 
   // 처음에는 아무것도 고르지 않는다. 미리 골라 두면 영상은 00:00 인데 오버레이는
   // 다른 시점의 문답을 보여주는 어긋난 상태로 시작한다.
@@ -133,16 +151,23 @@ export default function ReviewTimelinePage() {
     );
   }
 
+  // 이름을 비워 두고 만든 면접이 있다. 빈 칸으로 두면 제목이 사라진 것처럼 보인다.
+  const candidateName = review.candidate.name ?? FALLBACK_CANDIDATE;
+  // 전사 길이가 없으면(아무도 입장하지 않고 끝낸 면접) 녹화 길이로 대신 적는다.
+  const durationSec = review.durationSec ?? playable?.durationSec ?? 0;
+  // 불러오는 중과 합치는 중은 면접관이 할 일이 같다 — 기다리면 된다.
+  const recordingState = recording?.status ?? 'PROCESSING';
+
   return (
     <div className="bg-surface min-h-full px-4 py-6 sm:px-6 md:px-10 md:py-8">
       <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-3">
         <header className="flex flex-wrap items-end gap-x-4 gap-y-2">
           <div className="min-w-0">
             <p className="text-ink-dim text-[13px]">면접 기록</p>
-            <h1 className="text-ink mt-1 text-2xl font-semibold">{review.candidate.name}</h1>
+            <h1 className="text-ink mt-1 text-2xl font-semibold">{candidateName}</h1>
           </div>
           <span className="text-ink-muted pb-1 font-mono text-[13px]">
-            {review.candidate.role} · {fmt(review.durationSec)}
+            {review.candidate.role} · {fmt(durationSec)}
           </span>
           <span className="flex-1" />
           {/* 지원자 목록(S4)이 아직 없어 처음으로 돌아간다. */}
@@ -164,16 +189,19 @@ export default function ReviewTimelinePage() {
           videoRef={videoRef}
           active={active}
           activeNo={activeIndex + 1}
-          candidateName={review.candidate.name}
-          durationSec={review.durationSec}
+          candidateName={candidateName}
+          durationSec={durationSec}
+          recordingState={recordingState}
           failed={failed}
+          offsetMs={offsetMs}
         />
 
         <Timeline
           moments={review.moments}
-          durationSec={review.durationSec}
+          durationSec={durationSec}
           activeId={activeId}
           onSelect={select}
+          seekable={recordingState === 'READY' && !failed}
         />
 
         <QaList
@@ -184,7 +212,7 @@ export default function ReviewTimelinePage() {
           onToggle={() => setListOpen((v) => !v)}
         />
 
-        <AiReview paragraphs={review.aiReview.paragraphs} />
+        <AiReview summary={review.summary} status={review.summaryStatus} />
       </div>
     </div>
   );

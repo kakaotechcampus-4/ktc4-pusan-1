@@ -3,10 +3,14 @@
  *
  * 영상 아래 상태 줄에 현재 재생 위치와 고른 질문을 크게 적는다 — 시안의 구성이되,
  * 브라우저 기본 컨트롤을 가리지 않도록 영상 밖으로 내렸다.
+ *
+ * 녹화가 없는 면접도 검토한다. 「없다 · 합치는 중 · 재생 실패」는 면접관이 할 일이
+ * 달라지는 세 상태라(기다린다 / 포기한다 / 새로고침한다) 한 문구로 묶지 않는다.
  */
 
 import { useEffect, useState, type RefObject } from 'react';
 import { fmt } from '../../lib/format';
+import { toTranscriptSec } from '../../lib/recordingTime';
 import type { Moment } from '../../types/interview';
 
 /** 건너뛰기 버튼이 옮기는 간격(초) */
@@ -18,9 +22,31 @@ export interface ReviewPlayerProps {
   /** 고른 질문이 몇 번째인지(1부터). active 가 있을 때만 의미가 있다. */
   activeNo: number;
   candidateName: string;
+  /** 전사 기준 면접 길이 */
   durationSec: number;
-  /** 녹화를 재생할 수 없을 때 */
+  /** 녹화 조회 결과 */
+  recordingState: 'READY' | 'PROCESSING' | 'NONE';
+  /** 주소는 받았는데 브라우저가 재생하지 못했다 */
   failed: boolean;
+  /** 녹화 0초가 전사 원점보다 얼마나 뒤인가 */
+  offsetMs: number;
+}
+
+/** 영상 자리에 대신 적을 말. 녹화를 볼 수 있으면 null */
+function blockedNotice(
+  recordingState: ReviewPlayerProps['recordingState'],
+  failed: boolean,
+): { text: string; hint: string } | null {
+  if (failed)
+    return {
+      text: '녹화를 재생하지 못했습니다.',
+      hint: '주소가 만료됐을 수 있습니다. 화면을 새로고침해주세요.',
+    };
+  if (recordingState === 'PROCESSING')
+    return { text: '녹화를 합치고 있습니다.', hint: '잠시 후 다시 확인해주세요.' };
+  if (recordingState === 'NONE')
+    return { text: '녹화가 없습니다.', hint: '아래 문답과 전사로 검토할 수 있습니다.' };
+  return null;
 }
 
 export function ReviewPlayer({
@@ -29,7 +55,9 @@ export function ReviewPlayer({
   activeNo,
   candidateName,
   durationSec,
+  recordingState,
   failed,
+  offsetMs,
 }: ReviewPlayerProps) {
   // 상태 줄에 적을 현재 위치. 초 단위로 끊어 두면 같은 값으로는 다시 그리지 않는다.
   const [atSec, setAtSec] = useState(0);
@@ -37,14 +65,17 @@ export function ReviewPlayer({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const sync = () => setAtSec(Math.floor(video.currentTime));
+    // 화면에 적는 시각은 전사 기준으로 맞춘다 — 타임라인과 문답이 쓰는 축이 그쪽이다.
+    const sync = () => setAtSec(Math.floor(toTranscriptSec(video.currentTime, offsetMs)));
     video.addEventListener('timeupdate', sync);
     video.addEventListener('seeked', sync);
     return () => {
       video.removeEventListener('timeupdate', sync);
       video.removeEventListener('seeked', sync);
     };
-  }, [videoRef]);
+  }, [videoRef, offsetMs]);
+
+  const notice = blockedNotice(recordingState, failed);
 
   const skip = (delta: number) => {
     const video = videoRef.current;
@@ -64,20 +95,21 @@ export function ReviewPlayer({
           className="absolute inset-0 h-full w-full object-contain"
         />
 
-        {failed && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-            <p className="text-[15px] text-[#FFC46B]">녹화를 재생하지 못했습니다.</p>
+        {notice && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/80 px-6 text-center">
+            <p className="text-[15px] text-[#FFC46B]">{notice.text}</p>
+            <p className="text-[13px] text-white/70">{notice.hint}</p>
           </div>
         )}
 
-        {!failed && (
+        {!notice && (
           <span className="pointer-events-none absolute top-4 left-4 flex items-center gap-2 rounded-full bg-black/50 px-3 py-1 text-[12px] text-white/90 backdrop-blur-sm">
             <span aria-hidden className="h-1.5 w-1.5 rounded-full border border-white/70" />
             원본 녹화 · {candidateName}
           </span>
         )}
 
-        {active && !failed && (
+        {active && !notice && (
           /* 영상을 가리지 않도록 폭을 제한하고, 컨트롤 막대 위로 띄운다. 좁은 화면에서는 감춘다. */
           <div
             key={active.id}
@@ -110,21 +142,23 @@ export function ReviewPlayer({
                 Q{activeNo} · {active.question}
               </p>
               <p className="text-ink-dim truncate text-[12px]">
-                이 질문이 시작된 시점부터 재생합니다.
+                {notice ? '녹화 없이 문답만 봅니다.' : '이 질문이 시작된 시점부터 재생합니다.'}
               </p>
             </>
           ) : (
             <p className="text-ink-dim text-[13px]">
-              타임라인이나 아래 목록에서 질문을 고르면 그 시점부터 재생합니다.
+              {notice
+                ? '아래 목록에서 질문을 고르면 그 문답을 봅니다.'
+                : '타임라인이나 아래 목록에서 질문을 고르면 그 시점부터 재생합니다.'}
             </p>
           )}
         </div>
 
         <div className="flex items-center gap-2">
-          <SkipButton onClick={() => skip(-SKIP_SEC)} disabled={failed} label="10초 뒤로">
+          <SkipButton onClick={() => skip(-SKIP_SEC)} disabled={Boolean(notice)} label="10초 뒤로">
             replay_10
           </SkipButton>
-          <SkipButton onClick={() => skip(SKIP_SEC)} disabled={failed} label="10초 앞으로">
+          <SkipButton onClick={() => skip(SKIP_SEC)} disabled={Boolean(notice)} label="10초 앞으로">
             forward_10
           </SkipButton>
         </div>
