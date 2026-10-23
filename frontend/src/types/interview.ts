@@ -318,3 +318,26 @@ export type StreamEvent =
       final: boolean;
     }
   | { type: 'stream.degraded'; reason: string };
+
+/* ---------------------------------------------------------------- *
+ * 꼬리질문 (#212)
+ *
+ * 전사와 같은 방에서 오지만 통로가 다르다 — 전사는 text stream 이고
+ * 꼬리질문은 BE 가 RoomService SendData 로 보내는 데이터 패킷이다.
+ * 토픽 이름만 짝이고 받는 쪽 API 는 갈라진다 (lib/suggestionStream.ts).
+ * ---------------------------------------------------------------- */
+
+export interface Suggestion {
+  /** 명세의 `suggestionId`. 실시간 패킷과 조회 응답을 이 값으로 합친다 */
+  id: string;
+  content: string;
+  /** 서버가 받은 시각(ISO) */
+  createdAt: string;
+  /**
+   * 면접관이 「이걸 묻겠다」고 눌러 둔 것. 누르면 새 꼬리질문이 와도 자리가 밀리지 않는다.
+   *
+   * 서버에는 없는 값이다 — 상태를 바꾸는 API 가 없어 화면 안에서만 산다.
+   * 그래서 면접 중에 새로고침하면 풀린다.
+   */
+  pinned: boolean;
+}
