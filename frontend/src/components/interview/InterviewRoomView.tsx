@@ -7,7 +7,7 @@
  *
  * 역할에 따라 얹는 것이 다르다.
  *
- *   면접관  전사 · 면접 종료
+ *   면접관  전사 · 꼬리질문 · 면접 종료
  *   지원자  없음 · 나가기
  *
  * 지원자에게는 전사를 감춘다. 본인 발화가 실시간으로 받아적히는 것을 보면 답변이 위축된다.
@@ -23,6 +23,7 @@ import type { Role } from '../../types/interview';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { LocalPreview } from './LocalPreview';
 import { SpeakerBadge } from './SpeakerBadge';
+import { SuggestionPanel } from './SuggestionPanel';
 import { TranscriptPanel } from './TranscriptPanel';
 
 export interface InterviewRoomViewProps {
@@ -189,6 +190,14 @@ export function InterviewRoomView({
       {isInterviewer && (
         <div className="pointer-events-none absolute bottom-4 left-4">
           <TranscriptPanel />
+        </div>
+      )}
+
+      {/* 오른쪽 위 — AI 꼬리질문. 면접관 전용이다.
+          유리 헤더 아래에서 시작한다. 아래로는 자기 화면(PiP)과 만나므로 높이를 제한한다. */}
+      {isInterviewer && (
+        <div className="absolute top-[84px] right-4">
+          <SuggestionPanel />
         </div>
       )}
     </div>
