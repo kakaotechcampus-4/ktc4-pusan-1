@@ -486,6 +486,7 @@ def test_hallucination_guard_catches_a_span_longer_than_the_audio() -> None:
         " 구독과 좋아요 부탁드립니다! ",
         "시청해 주셔서 감사합니다. 구독과 좋아요 부탁드립니다.",
         "MBC 뉴스 김지경입니다.",
+        "KBS 뉴스 이덕영입니다",
         "자막 제공 및 자막 편집",
     ],
 )
@@ -504,6 +505,10 @@ def test_a_stock_outro_is_recognised_however_it_is_spaced(text: str) -> None:
         "유튜브에서 시청해 주셔서 감사합니다라는 말로 마무리했습니다",
         "구독과 좋아요 기능을 직접 구현했습니다",
         "MBC 뉴스 인턴으로 일했습니다",
+        "MBC 뉴스 지망생입니다",
+        "MBC 뉴스 기자입니다",
+        "SBS 뉴스 인턴입니다",
+        "MBC 뉴스 김지경입니다 그 뒤로 이직했습니다",
         "",
         "...",
     ],
