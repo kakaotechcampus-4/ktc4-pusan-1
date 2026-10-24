@@ -50,7 +50,7 @@ export function useRecordingPlayer(src: string | undefined, offsetMs: number) {
     if (!video || !src) return;
     const flush = () => {
       if (pendingSeek.current === null) return;
-      jump(video, pendingSeek.current);
+      jump(video, toVideoSec(pendingSeek.current, offsetMs));
       pendingSeek.current = null;
     };
     video.addEventListener('loadedmetadata', flush);
@@ -58,7 +58,7 @@ export function useRecordingPlayer(src: string | undefined, offsetMs: number) {
       video.removeEventListener('loadedmetadata', flush);
       pendingSeek.current = null;
     };
-  }, [src]);
+  }, [src, offsetMs]);
 
   /** 전사 기준 초를 받는다. 녹화 파일 기준으로 바꾸는 건 이 안에서 한다 */
   const seekTo = useCallback(
@@ -67,7 +67,7 @@ export function useRecordingPlayer(src: string | undefined, offsetMs: number) {
       if (!video) return;
       const sec = toVideoSec(atSec, offsetMs);
       if (video.readyState >= HTMLMediaElement.HAVE_METADATA) jump(video, sec);
-      else pendingSeek.current = sec;
+      else pendingSeek.current = atSec;
     },
     [offsetMs],
   );
