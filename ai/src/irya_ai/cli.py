@@ -394,9 +394,7 @@ async def _findings(args: argparse.Namespace) -> int:
             max_retries=0,
         ) as client:
             generator = OpenAIFindingsGenerator(
-                client,
-                model=args.model or settings.llm_model,
-                reasoning_effort=settings.llm_reasoning_effort,
+                client, model=args.model or settings.llm_model
             )
             result = await FindingsAgent(
                 generator,

@@ -96,7 +96,7 @@ async def test_supported_parameters_and_grounded_output():
         return httpx.Response(200, json=response())
 
     async with client_for(handler) as client:
-        generator = OpenAIFindingsGenerator(client, reasoning_effort="low")
+        generator = OpenAIFindingsGenerator(client)
         result = await FindingsAgent(generator).run(
             context(),
             TranscriptSnapshot(session_id="ses_test", utterances=[utterance()]),
