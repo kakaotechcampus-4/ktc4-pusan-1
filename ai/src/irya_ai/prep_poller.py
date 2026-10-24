@@ -370,10 +370,24 @@ class PrepPoller:
             return Pass("idle")
         if self._on_hold(job):
             return Pass("idle", job=job)
-        if job.kind == JOB_KIND_PREP:
-            return await self._run_prep(job)
-        if job.kind == JOB_KIND_REVIEW and self.review is not None:
-            return await self._run_review(job)
+        try:
+            if job.kind == JOB_KIND_PREP:
+                return await self._run_prep(job)
+            if job.kind == JOB_KIND_REVIEW and self.review is not None:
+                return await self._run_review(job)
+        except Exception as exc:  # noqa: BLE001 - one job must not stall the loop
+            # A failure no step classified. Without a hold the next poll would
+            # hand out the same job and run the model again at the poll rate.
+            # Only the type is logged: the message may quote the transcript.
+            self._hold(job, self.retry_after_seconds)
+            logger.error(
+                "%s job interview=%s session=%s held after unexpected %s",
+                job.kind.lower(),
+                job.interview_id,
+                job.session_id,
+                type(exc).__name__,
+            )
+            return Pass("held", job=job, code="UNEXPECTED_ERROR")
         # A kind this process has nothing to store for. Backend hands out
         # every kind on one ask, so while it is held it blocks the jobs
         # behind it; the hold is long and the log is an error for that reason.

@@ -315,6 +315,37 @@ async def test_a_retryable_agent_failure_is_held_not_stored() -> None:
     assert (await poller.run_once()).outcome == "held"
 
 
+async def test_an_unexpected_failure_holds_the_job_and_logs_only_its_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend = FakeBackend()
+    backend.jobs = [job()]
+    backend.contexts["ses_1"] = context()
+    clock = Clock()
+    poller = poller_for(backend, clock=clock, retry_after_seconds=30.0)
+    calls = 0
+
+    async def explode(job):  # noqa: ANN001, ANN202
+        nonlocal calls
+        calls += 1
+        raise RuntimeError(QUOTE)
+
+    poller._prepare = explode  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.ERROR):
+        done = await poller.run_once()
+
+    assert done.outcome == "held"
+    assert done.code == "UNEXPECTED_ERROR"
+    assert backend.put_bodies == []
+    assert "RuntimeError" in caplog.text
+    assert QUOTE not in caplog.text
+    # The next poll skips the job instead of running it again.
+    clock.now += 29.0
+    assert (await poller.run_once()).outcome == "idle"
+    assert calls == 1
+
+
 async def test_a_failure_that_would_repeat_is_stored_as_failed() -> None:
     backend = FakeBackend()
     backend.jobs = [job()]
