@@ -38,6 +38,8 @@ const FILTERS: { id: Filter; label: string }[] = [
 /** 이름을 비워 두고 만든 면접이 있다. 목록에서 빈 칸으로 보이면 줄을 못 읽는다. */
 const UNNAMED = '이름 없는 지원자';
 
+const POLL_INTERVAL_MS = 3000;
+
 const dateLabel = (value: string) =>
   new Intl.DateTimeFormat('ko-KR', {
     month: '2-digit',
@@ -50,6 +52,10 @@ export default function InterviewListPage() {
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['interviews'],
     queryFn: listInterviews,
+    refetchInterval: (query) =>
+      query.state.data?.items.some((item) => item.summaryStatus === 'PROCESSING')
+        ? POLL_INTERVAL_MS
+        : false,
   });
 
   const [filter, setFilter] = useState<Filter>('all');
@@ -95,7 +101,7 @@ export default function InterviewListPage() {
     <div className="min-h-full bg-[#121316] text-[#eaecef]">
       <main className="mx-auto max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8">
         <header className="border-b border-[#272a33] pb-5">
-          <p className="font-mono text-xs text-[#686c7b]">지원자 검토</p>
+          <p className="text-ink-muted font-mono text-xs">지원자 검토</p>
           <h1 className="mt-1 text-xl font-bold sm:text-2xl">지원자 목록</h1>
           <p className="mt-2 text-xs text-[#9498a4]">
             내가 만든 면접입니다. 근거와 면접 기록을 검토합니다. 점수와 순위는 제공하지 않습니다.
@@ -175,7 +181,7 @@ export default function InterviewListPage() {
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="지원자 이름 검색"
-                  className="min-w-0 rounded border border-[#2e323c] bg-[#17191f] px-3 py-2 text-xs text-[#eaecef] placeholder:text-[#686c7b] sm:w-56"
+                  className="placeholder:text-ink-muted min-w-0 rounded border border-[#2e323c] bg-[#17191f] px-3 py-2 text-xs text-[#eaecef] sm:w-56"
                 />
                 <label className="sr-only" htmlFor="candidate-sort">
                   정렬
@@ -195,7 +201,7 @@ export default function InterviewListPage() {
 
             <div className="mt-4 overflow-x-auto rounded-lg border border-[#272a33] bg-[#15161b]">
               <table className="w-full min-w-[860px] border-collapse text-left text-xs">
-                <thead className="bg-[#15161b] text-[#686c7b]">
+                <thead className="text-ink-muted bg-[#15161b]">
                   <tr className="border-b border-[#272a33]">
                     {[
                       '지원자',
@@ -235,7 +241,7 @@ export default function InterviewListPage() {
                               {item.candidateName ?? UNNAMED}
                             </span>
                             {item.role && (
-                              <span className="mt-1 block text-[10px] text-[#686c7b]">
+                              <span className="text-ink-muted mt-1 block text-[10px]">
                                 {item.role}
                               </span>
                             )}
@@ -256,15 +262,15 @@ export default function InterviewListPage() {
                           {item.interviewedAt ? (
                             <span className="block font-mono">{dateLabel(item.interviewedAt)}</span>
                           ) : (
-                            <span className="block text-[#686c7b]">아직 보지 않음</span>
+                            <span className="text-ink-muted block">아직 보지 않음</span>
                           )}
-                          <span className="mt-1 block text-[10px] text-[#686c7b]">
+                          <span className="text-ink-muted mt-1 block text-[10px]">
                             {item.interviewer.nickname}
                           </span>
                         </td>
                         {reason ? (
                           // 숫자 세 칸이 모두 같은 이유로 비므로 한 칸으로 합쳐 한 번만 말한다.
-                          <td colSpan={3} className="px-3 py-4 text-[#686c7b]">
+                          <td colSpan={3} className="text-ink-muted px-3 py-4">
                             {reason}
                           </td>
                         ) : (
@@ -281,7 +287,7 @@ export default function InterviewListPage() {
                           </>
                         )}
                         <td className="px-3 py-4 font-mono whitespace-nowrap">
-                          {duration === null ? <span className="text-[#686c7b]">—</span> : duration}
+                          {duration === null ? <span className="text-ink-muted">—</span> : duration}
                         </td>
                       </tr>
                     );
