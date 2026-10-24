@@ -670,7 +670,11 @@ def build_agents(
         )
         review = ReviewAgents(
             summary=ContextAnalysisAgent(
-                OpenAISummarizer(client, model=settings.llm_model),
+                # Reasoning tokens share the 2000-token reply ceiling; "low"
+                # cut a summary to about two thirds without losing points.
+                OpenAISummarizer(
+                    client, model=settings.llm_model, reasoning_effort="low"
+                ),
                 timeout_seconds=settings.llm_timeout_seconds,
             ),
             timeline=ReviewTimelineAgent(

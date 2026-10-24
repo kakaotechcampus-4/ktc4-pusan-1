@@ -5,7 +5,7 @@ import pytest
 from openai import AsyncOpenAI
 
 from irya_ai.analysis import ContextAnalysisAgent
-from irya_ai.openai_summary import OpenAISummarizer
+from irya_ai.openai_summary import MAX_POINTS, OpenAISummarizer
 from irya_ai.schemas import TranscriptSnapshot
 
 
@@ -82,6 +82,8 @@ async def test_real_sdk_request_and_parsing_with_stubbed_http(
     assert [u["utterance_id"] for u in sent["utterances"]].count("u-004") == 1
     assert result.summary_result.source_utterance_ids == ["u-004"]
     assert result.summary_result.model == "gpt-4o-mini-2024-07-18"
+    # gpt-4o models reject a reasoning setting; none is sent unless asked.
+    assert "reasoning" not in body
 
 
 @pytest.mark.parametrize(
@@ -184,3 +186,22 @@ async def test_unusable_responses_fail_without_fabricated_summary(
     assert result.status == "failed"
     assert result.summary_result is None
     assert len(result.qa_pairs) == 2
+
+
+async def test_reasoning_effort_and_point_cap(
+    sample_transcript: TranscriptSnapshot,
+) -> None:
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=response_body([GOOD] * (MAX_POINTS + 3)))
+
+    async with client_for(handler) as client:
+        summarizer = OpenAISummarizer(client, reasoning_effort="low")
+        result = await summarizer.summarize(sample_transcript)
+
+    body = json.loads(requests[0].content)
+    assert body["reasoning"] == {"effort": "low"}
+    assert f"최대 {MAX_POINTS}개" in body["input"][0]["content"]
+    assert len(result.points) == MAX_POINTS
