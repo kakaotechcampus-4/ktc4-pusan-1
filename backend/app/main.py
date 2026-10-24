@@ -34,6 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     check_key_at_startup()
     check_secret_at_startup()
     check_parser_at_startup()
+    recording.check_cdn_at_startup()
 
     postgres = None
     if settings.database_url:
