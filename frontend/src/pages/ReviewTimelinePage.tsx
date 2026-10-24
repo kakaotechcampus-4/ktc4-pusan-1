@@ -55,6 +55,7 @@ export default function ReviewTimelinePage() {
     queryKey: ['recording', sessionId],
     queryFn: () => getRecording(sessionId!),
     enabled: Boolean(sessionId),
+    refetchOnReconnect: false,
     refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? POLL_INTERVAL_MS : false),
   });
 
