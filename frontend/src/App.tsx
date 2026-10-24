@@ -50,7 +50,6 @@ const CandidateListPage = lazy(() => import('./pages/CandidateListPage'));
 const CandidateDetailPage = lazy(() => import('./pages/CandidateDetailPage'));
 const CandidateMemoPage = lazy(() => import('./pages/CandidateMemoPage'));
 const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
-// hls.js 도 크다. 면접 기록을 여는 사람만 받는다.
 const ReviewTimelinePage = lazy(() => import('./pages/ReviewTimelinePage'));
 const InterviewRoomPreview = lazy(() =>
   import('./mocks/InterviewRoomPreview').then((m) => ({ default: m.InterviewRoomPreview })),
