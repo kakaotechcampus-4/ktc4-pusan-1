@@ -13,7 +13,10 @@ PostgreSQL 쪽은 `TEST_DATABASE_URL` 이 있을 때만 돈다. CI 와 로컬은
 
 import os
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 from typing import Any
 
 import pytest
@@ -1054,6 +1057,30 @@ def test_add_suggestion_says_whether_it_was_new(subject: Store):
 
     assert subject.add_suggestion(_suggestion(session)) is True
     assert subject.add_suggestion(_suggestion(session)) is False
+
+
+def test_concurrent_suggestion_retries_keep_only_the_first(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    subject = InMemoryStore()
+    session = _seed(subject)
+    suggestions = [
+        _suggestion(session, content=content) for content in ("첫째", "둘째")
+    ]
+    barrier = Barrier(2)
+
+    def simultaneous_copy(suggestion: Suggestion) -> Suggestion:
+        # 두 요청이 삽입 전에 겹치도록 해 중복 판정의 경쟁을 재현한다.
+        barrier.wait(timeout=5)
+        return deepcopy(suggestion)
+
+    with monkeypatch.context() as patch:
+        patch.setattr("app.domain.store.deepcopy", simultaneous_copy)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            added = list(pool.map(subject.add_suggestion, suggestions))
+
+    assert sorted(added) == [False, True]
+    assert subject.list_suggestions(session.id) == [suggestions[added.index(True)]]
 
 
 def test_adding_the_same_suggestion_twice_keeps_the_first(subject: Store):

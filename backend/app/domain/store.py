@@ -700,10 +700,8 @@ class InMemoryStore:
 
     def add_suggestion(self, suggestion: Suggestion) -> bool:
         key = (suggestion.session_id, suggestion.suggestion_id)
-        if key in self._suggestions:
-            return False
-        self._suggestions[key] = deepcopy(suggestion)
-        return True
+        candidate = deepcopy(suggestion)
+        return self._suggestions.setdefault(key, candidate) is candidate
 
     def list_suggestions(self, session_id: str) -> list[Suggestion]:
         found = [s for (sid, _), s in self._suggestions.items() if sid == session_id]
