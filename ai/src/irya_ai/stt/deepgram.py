@@ -7,11 +7,11 @@ behind the same ``push``/``close``/iterate shape
 caption and the downstream consumers do not change.
 
 The settings are the ones that were compared live
-(``stt-bench/livekit-eval/live_compare.py``): ``nova-3`` in Korean,
-``numerals``, 300 ms endpointing, a fixed keyterm list, and a Silero VAD that
-asks Deepgram to finalize after 1.0 s of silence. Deepgram's own endpointing
-does not close an utterance reliably on Korean pauses; finalizing on the
-shorter 0.55 s VAD default dropped words said right after the flush.
+(``stt-bench/livekit-eval/live_compare.py``) and then tuned on the shared
+benchmark (``stt-bench/baseline``): ``nova-3`` in Korean, numerals off, 300 ms
+endpointing, a fixed keyterm list, and a Silero VAD that asks Deepgram to
+finalize after 0.7 s of silence. Deepgram's own endpointing does not close an
+utterance reliably on Korean pauses.
 
 What goes out
 -------------
@@ -54,8 +54,12 @@ SAMPLE_RATE = 16_000
 NUM_CHANNELS = 1
 MODEL = "nova-3"
 ENDPOINTING_MS = 300
+# The benchmark run these come from (C5 r2, 10/18) used these three and the
+# keyterms below: CER 0.063 against Elice's 0.077, speech-end to final p50/p95
+# 695/1739ms against 1065/2629ms.
 # How long the VAD waits in silence before asking Deepgram to finalize.
-FLUSH_SILENCE_S = 1.0
+FLUSH_SILENCE_S = 0.7
+NUMERALS = False
 
 # Terms a resume or job description would hand Deepgram as keyterm prompting.
 # Fixed for now; building the list from the interview's own documents is later
@@ -90,6 +94,7 @@ KEYTERMS = (
     "프로메테우스",
     "gRPC",
     "몽고DB",
+    "자바",
 )
 
 
@@ -115,7 +120,7 @@ def build_stt(
         model=MODEL,
         language="ko",
         sample_rate=SAMPLE_RATE,
-        numerals=True,
+        numerals=NUMERALS,
         keyterm=list(KEYTERMS),
         endpointing_ms=ENDPOINTING_MS,
         api_key=api_key,
