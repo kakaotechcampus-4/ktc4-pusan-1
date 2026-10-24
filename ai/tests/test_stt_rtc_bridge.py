@@ -427,6 +427,20 @@ def test_a_track_is_placed_on_the_session_timeline_where_its_audio_starts() -> N
     assert stream.speaker is SpeakerRole.INTERVIEWER
     assert stream.session_id == "ses_123"
     assert [t.track_id for t in room.ordering.tracks] == ["trk_1"]
+    assert stream.request_deadline_seconds == 15.0
+
+
+def test_the_request_deadline_reaches_every_stream_the_room_opens() -> None:
+    """The worker's setting, not the stream's constant, bounds a live caption."""
+
+    now = datetime(2026, 9, 18, 7, 0, tzinfo=UTC)
+    room = transcriber(request_deadline_seconds=8.0, wall_clock=lambda: now)
+    room.initialize_origin([SimpleNamespace(identity="INTERVIEWER", joined_at=now)])
+
+    stream = room.stream_for("trk_1", SpeakerRole.INTERVIEWER)
+
+    assert isinstance(stream, TranscriptionStream)
+    assert stream.request_deadline_seconds == 8.0
 
 
 def test_a_stream_builder_opens_another_providers_stream_on_the_same_timeline():

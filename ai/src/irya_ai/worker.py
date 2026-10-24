@@ -233,6 +233,7 @@ async def transcribe_room(ctx: JobContext) -> None:
             room=ctx.room,
             session_id=session_id,
             client=client,
+            request_deadline_seconds=settings.stt_request_deadline_seconds,
         )
     # One list, in this order. The caption stays first so the interviewer sees
     # the words before any consumer that stores or reasons about them; storage

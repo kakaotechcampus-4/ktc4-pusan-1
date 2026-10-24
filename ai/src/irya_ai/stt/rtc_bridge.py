@@ -46,7 +46,7 @@ from irya_ai.stt import deepgram
 from irya_ai.stt.elice import EliceSttClient
 from irya_ai.stt.segmentation import SegmentationConfig
 from irya_ai.stt.session import SessionOrdering, TrackOrdering
-from irya_ai.stt.stream import TranscriptionStream
+from irya_ai.stt.stream import DEFAULT_REQUEST_DEADLINE_SECONDS, TranscriptionStream
 
 logger = logging.getLogger(__name__)
 
@@ -547,6 +547,7 @@ class RoomTranscriber:
         stream_builder: StreamBuilder | None = None,
         sinks: Sequence[UtteranceSink] | None = None,
         segmentation: SegmentationConfig | None = None,
+        request_deadline_seconds: float = DEFAULT_REQUEST_DEADLINE_SECONDS,
         wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         monotonic_clock: Callable[[], float] = time.monotonic,
         open_audio: Callable[[rtc.Track], TrackAudio] = open_track_audio,
@@ -558,6 +559,7 @@ class RoomTranscriber:
         self.client = client
         self.stream_builder = stream_builder
         self.segmentation = segmentation
+        self.request_deadline_seconds = request_deadline_seconds
         self.ordering = SessionOrdering()
         self.caption = LiveKitTextSink(room)
         self.sinks: list[UtteranceSink] = (
@@ -621,6 +623,7 @@ class RoomTranscriber:
             config=self.segmentation,
             ordering=ordering,
             clock=self._monotonic_clock,
+            request_deadline_seconds=self.request_deadline_seconds,
         )
 
     async def transcribe_participant(self, participant: rtc.RemoteParticipant) -> None:

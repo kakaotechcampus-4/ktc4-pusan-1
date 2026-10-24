@@ -59,6 +59,7 @@ chmod 600 .env
 | `ELICE_STT_MODEL` | STT 모델 이름 | `whisper-large-v3` |
 | `ELICE_STT_LANGUAGE` | 전사 언어. ISO 639-1 코드입니다 (2026-10-06 배포 교체 전에는 단어 `korean`) | `ko` |
 | `ELICE_STT_TIMEOUT_SECONDS` | STT 요청 제한 시간(초), 0 초과 300 이하 | `60` |
+| `STT_REQUEST_DEADLINE_SECONDS` | 실시간 Elice 구간 하나의 재시도 포함 제한 시간(초), 0 초과 120 이하. 넘으면 그 자막은 포기합니다 | `15` |
 | `STT_PROVIDER` | 실시간 STT: `elice` 또는 `deepgram`. 키만 넣어서는 바뀌지 않습니다 | `elice` |
 | `DEEPGRAM_API_KEY` | `STT_PROVIDER=deepgram`일 때 쓰는 Deepgram 키 | 없음 |
 | `BACKEND_BASE_URL` | 백엔드 `/internal/v1` 주소. 비공개 값이라 커밋하지 않습니다 | 없음 |

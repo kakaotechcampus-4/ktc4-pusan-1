@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     elice_stt_model: str = "whisper-large-v3"
     elice_stt_language: str = "ko"
     elice_stt_timeout_seconds: float = Field(default=60, gt=0, le=300)
+    # How long one live segment may take, retries included, before its caption
+    # is given up on. Shorter than the per-attempt timeout above on purpose.
+    stt_request_deadline_seconds: float = Field(default=15, gt=0, le=120)
 
     # Which live STT the worker uses. Elice stays the default until Deepgram
     # has been measured on the same inputs; a key being present does not
