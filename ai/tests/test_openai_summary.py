@@ -69,6 +69,8 @@ async def test_real_sdk_request_and_parsing_with_stubbed_http(
     body = json.loads(request.content)
     assert body["model"] == "gpt-4o-mini"
     assert body["store"] is False
+    # The gateway answers 400 to a non-streaming budget above 2000 tokens.
+    assert body["max_output_tokens"] <= 2000
     assert body["text"]["format"]["strict"] is True
     assert body["text"]["format"]["schema"]["additionalProperties"] is False
     sent = json.loads(body["input"][1]["content"])

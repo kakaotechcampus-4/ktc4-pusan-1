@@ -38,6 +38,11 @@ quote는 원문에서 찾지 못해 그 항목 전체가 결과에서 빠집니�
 근거 있는 내용을 만들 수 없으면 points를 빈 배열로 반환하세요.
 """
 
+# The gateway refuses a non-streaming reply budget above 2000 tokens with a
+# 400 ("max_output_tokens 4000 exceeds the 2000-token ceiling"), the same
+# limit openai_prep and openai_timeline keep (#171).
+MAX_OUTPUT_TOKENS = 2000
+
 
 class OpenAISummarizer:
     def __init__(self, client: AsyncOpenAI, *, model: str = "gpt-4o-mini") -> None:
@@ -75,7 +80,7 @@ class OpenAISummarizer:
                     },
                 ],
                 text_format=SummaryDraft,
-                max_output_tokens=4000,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
                 store=False,
             )
         except APITimeoutError:
