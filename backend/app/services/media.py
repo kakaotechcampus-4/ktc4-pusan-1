@@ -7,6 +7,7 @@
 라우터는 MediaGateway 프로토콜에만 의존한다 — 테스트에서 LiveKit 없이 돌리기 위해서다.
 """
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -216,14 +217,17 @@ class LiveKitGateway:
         """
         client = self._client()
         try:
-            await client.room.send_data(
-                api.SendDataRequest(
-                    room=room,
-                    data=data,
-                    kind=api.DataPacket.Kind.RELIABLE,
-                    destination_identities=to,
-                    topic=topic,
-                )
+            await asyncio.wait_for(
+                client.room.send_data(
+                    api.SendDataRequest(
+                        room=room,
+                        data=data,
+                        kind=api.DataPacket.Kind.RELIABLE,
+                        destination_identities=to,
+                        topic=topic,
+                    )
+                ),
+                timeout=3,
             )
         finally:
             await client.aclose()
