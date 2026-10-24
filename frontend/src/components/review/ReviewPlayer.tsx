@@ -26,7 +26,7 @@ export interface ReviewPlayerProps {
   durationSec: number;
   /** 녹화 조회 결과 */
   recordingState: 'READY' | 'PROCESSING' | 'NONE';
-  /** 주소는 받았는데 브라우저가 재생하지 못했다 */
+  /** 녹화 조회나 브라우저 재생에 실패했다 */
   failed: boolean;
   /** 녹화 0초가 전사 원점보다 얼마나 뒤인가 */
   offsetMs: number;
@@ -40,7 +40,7 @@ function blockedNotice(
   if (failed)
     return {
       text: '녹화를 재생하지 못했습니다.',
-      hint: '주소가 만료됐을 수 있습니다. 화면을 새로고침해주세요.',
+      hint: '녹화 조회에 실패했거나 주소가 만료됐을 수 있습니다. 화면을 새로고침해주세요.',
     };
   if (recordingState === 'PROCESSING')
     return { text: '녹화를 합치고 있습니다.', hint: '잠시 후 다시 확인해주세요.' };

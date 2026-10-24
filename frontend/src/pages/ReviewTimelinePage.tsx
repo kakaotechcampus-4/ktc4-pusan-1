@@ -51,7 +51,7 @@ export default function ReviewTimelinePage() {
   // 녹화는 상세와 따로 받는다. 상세가 READY 가 되기 전에는 부를 세션이 없다.
   // 주소를 다시 받으면 `<video>` 의 src 가 바뀌어 재생 위치가 0 으로 돌아가므로,
   // 합치는 중일 때만 다시 묻고 READY 가 되면 멈춘다.
-  const { data: recording } = useQuery({
+  const { data: recording, isError: recordingError } = useQuery({
     queryKey: ['recording', sessionId],
     queryFn: () => getRecording(sessionId!),
     enabled: Boolean(sessionId),
@@ -62,6 +62,7 @@ export default function ReviewTimelinePage() {
   // 녹화가 없으면 보정할 것도 없다. 0 이면 전사 시각이 그대로 재생 위치가 된다.
   const offsetMs = playable?.offsetMs ?? 0;
   const { videoRef, seekTo, failed } = useRecordingPlayer(playable?.url, offsetMs);
+  const recordingFailed = failed || (recordingError && !playable);
 
   // 처음에는 아무것도 고르지 않는다. 미리 골라 두면 영상은 00:00 인데 오버레이는
   // 다른 시점의 문답을 보여주는 어긋난 상태로 시작한다.
@@ -192,7 +193,7 @@ export default function ReviewTimelinePage() {
           candidateName={candidateName}
           durationSec={durationSec}
           recordingState={recordingState}
-          failed={failed}
+          failed={recordingFailed}
           offsetMs={offsetMs}
         />
 
@@ -201,7 +202,7 @@ export default function ReviewTimelinePage() {
           durationSec={durationSec}
           activeId={activeId}
           onSelect={select}
-          seekable={recordingState === 'READY' && !failed}
+          seekable={recordingState === 'READY' && !recordingFailed}
         />
 
         <QaList
