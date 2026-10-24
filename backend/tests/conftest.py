@@ -35,6 +35,10 @@ class FakeMedia:
         #: (room, track_sid, filepath)
         self.egress_started: list[tuple[str, str, str]] = []
         self.egress_infos: list[object] = []
+        #: (room, data, topic, to)
+        self.sent: list[tuple[str, bytes, str, list[str]]] = []
+        #: 채우면 `send_data` 가 이걸 던진다.
+        self.send_error: Exception | None = None
 
     async def ensure_room(self, room: str) -> None:
         self.rooms.append(room)
@@ -60,6 +64,13 @@ class FakeMedia:
 
     async def list_egress(self, room: str):
         return self.egress_infos
+
+    async def send_data(
+        self, room: str, data: bytes, *, topic: str, to: list[str]
+    ) -> None:
+        if self.send_error is not None:
+            raise self.send_error
+        self.sent.append((room, data, topic, to))
 
     def issue_token(self, room: str, role: Role) -> IssuedToken:
         return IssuedToken(

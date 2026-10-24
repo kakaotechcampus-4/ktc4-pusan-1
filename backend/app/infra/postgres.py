@@ -1107,7 +1107,7 @@ class PostgresStore:
             for row in rows
         ]
 
-    def add_suggestion(self, suggestion: Suggestion) -> None:
+    def add_suggestion(self, suggestion: Suggestion) -> bool:
         # 꼬리질문과 근거를 한 트랜잭션으로 넣는다 — 풀에서 빌린 연결은 블록을
         # 나갈 때 커밋한다. 재시도라 꼬리질문이 이미 있으면 근거도 다시 넣지 않는다.
         with self._pool.connection() as conn:
@@ -1129,7 +1129,7 @@ class PostgresStore:
                 ),
             ).fetchone()
             if inserted is None:
-                return
+                return False
             with conn.cursor() as cur:
                 cur.executemany(
                     """
@@ -1143,6 +1143,7 @@ class PostgresStore:
                         for i, uid in enumerate(suggestion.evidence_utterance_ids)
                     ],
                 )
+            return True
 
     def list_suggestions(self, session_id: str) -> list[Suggestion]:
         rows = self._all(

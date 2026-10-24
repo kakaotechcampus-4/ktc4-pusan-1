@@ -314,10 +314,10 @@ class Store(Protocol):
         """
         ...
 
-    def add_suggestion(self, suggestion: Suggestion) -> None:
-        """이미 같은 id 가 있으면 **처음 것을 남긴다.**
+    def add_suggestion(self, suggestion: Suggestion) -> bool:
+        """이미 같은 id 가 있으면 **처음 것을 남긴다.** 새로 넣었으면 True.
 
-        Agent 의 재시도가 이 길로 온다.
+        Agent 의 재시도가 이 길로 온다. 재시도는 면접관에게 다시 보내지 않는다.
         """
         ...
 
@@ -698,9 +698,10 @@ class InMemoryStore:
         )
         return deepcopy(found)
 
-    def add_suggestion(self, suggestion: Suggestion) -> None:
+    def add_suggestion(self, suggestion: Suggestion) -> bool:
         key = (suggestion.session_id, suggestion.suggestion_id)
-        self._suggestions.setdefault(key, deepcopy(suggestion))
+        candidate = deepcopy(suggestion)
+        return self._suggestions.setdefault(key, candidate) is candidate
 
     def list_suggestions(self, session_id: str) -> list[Suggestion]:
         found = [s for (sid, _), s in self._suggestions.items() if sid == session_id]
