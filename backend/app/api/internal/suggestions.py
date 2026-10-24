@@ -7,8 +7,8 @@ Agent 가 면접 중에 만든 꼬리질문을 하나씩 보낸다 (`irya_ai.bac
 
 처음 들어온 것이면 면접관에게 LiveKit 데이터 패킷으로 바로 보낸다 (#212). 지원자에게는
 가지 않는다. 보내지 못해도 204 다 — 저장은 됐고, 놓친 것은 FE 가 조회 API
-(`GET /api/v1/sessions/{sessionId}/suggestions`)로 되살린다. 여기서 실패를 내면
-Agent 는 다시 보내지 않으므로 알릴 곳도 없다.
+(`GET /api/v1/sessions/{sessionId}/suggestions`)로 되살린다. 저장된 요청은 성공했으므로
+204 를 주고, 실시간 전달 실패는 FE 와 BE 사이에서 조회로 복구한다.
 
 전사와 달리 여기서는 잃어도 덜 아프다. 꼬리질문은 면접관이 그 순간에 보면 쓸모가
 있고 지나가면 가치가 크게 떨어지는 것이라, 재전송으로 되살릴 성질이 아니다. Agent
@@ -25,7 +25,7 @@ from app.api.deps import MediaDep, StoreDep
 from app.api.internal.deps import require_internal_auth
 from app.api.internal.schemas import SuggestionCreate
 from app.core.errors import ApiError, ErrorCode
-from app.domain.models import Role, Suggestion
+from app.domain.models import Role, SessionStatus, Suggestion
 from app.schemas import SuggestionResponse
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ router = APIRouter(dependencies=[Depends(require_internal_auth)])
 
 SessionIdPath = Annotated[str, Path(alias="sessionId")]
 
-#: FE 가 `RoomEvent.DataReceived` 에서 거르는 토픽. 자막(`irya.transcript.v1`)과 짝이다.
+#: FE 는 `RoomEvent.DataReceived` 로 받는다. 자막은 별도의 text stream 이다.
 SUGGESTION_TOPIC = "irya.suggestion.v1"
 
 
@@ -65,7 +65,7 @@ async def create_suggestion(
         len(body.evidence_utterance_ids),
         added,
     )
-    if not added:
+    if not added or session.status is SessionStatus.ENDED:
         return
 
     packet = SuggestionResponse.model_validate(suggestion, from_attributes=True)

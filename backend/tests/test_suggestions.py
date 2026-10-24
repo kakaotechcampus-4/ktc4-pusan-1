@@ -59,7 +59,7 @@ def test_retried_suggestion_is_not_sent_again(
 def test_send_failure_still_stores_the_suggestion(
     client: TestClient, session_id: str, media: FakeMedia, store: InMemoryStore
 ) -> None:
-    """놓친 것은 조회 API 로 되살린다. Agent 는 실패를 받아도 다시 보내지 않는다."""
+    """저장이 성공하면 204 를 준다. 실시간 전달 실패는 FE 가 조회 API 로 복구한다."""
     media.send_error = RuntimeError("livekit down")
 
     assert post(client, session_id).status_code == 204
@@ -69,6 +69,17 @@ def test_send_failure_still_stores_the_suggestion(
 def test_unknown_session_sends_nothing(client: TestClient, media: FakeMedia) -> None:
     assert post(client, "ses_x").status_code == 404
     assert media.sent == []
+
+
+def test_ended_session_stores_without_sending(
+    client: TestClient, session_id: str, media: FakeMedia, store: InMemoryStore
+) -> None:
+    assert client.post(f"/api/v1/sessions/{session_id}/end").status_code == 200
+
+    assert post(client, session_id).status_code == 204
+
+    assert media.sent == []
+    assert [s.suggestion_id for s in store.list_suggestions(session_id)] == ["sug_001"]
 
 
 # ── 조회 ────────────────────────────────────────────────
