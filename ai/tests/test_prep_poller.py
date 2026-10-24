@@ -19,11 +19,19 @@ from irya_ai.prep_poller import (
     HOLD_PRUNE_SIZE,
     PollerError,
     PrepPoller,
-    build_prep_agent,
+    ReviewAgents,
+    build_agents,
     context_from_response,
 )
 from irya_ai.schemas.jobs import PendingJob
 from irya_ai.schemas.prep import CompetencyDraft, PrepDraft, ResumeClaimDraft
+from irya_ai.schemas.summary import AnalysisError
+from irya_ai.summarize import ExtractiveSummarizer, SummarizationError
+from irya_ai.timeline import (
+    ExtractiveTimelineGenerator,
+    ReviewTimelineAgent,
+    TimelineError,
+)
 
 REQUESTED_AT = "2026-10-06T00:00:00.123456Z"
 RESUME_TEXT = (
@@ -108,6 +116,7 @@ class FakeBackend:
         self.contexts: dict[str, dict] = {}
         self.put_status: int = 204
         self.put_bodies: list[dict] = []
+        self.put_paths: list[str] = []
         self.pending_calls = 0
         self.context_status: int = 200
 
@@ -129,6 +138,14 @@ class FakeBackend:
                 # A stored result leaves the queue, like Backend's row does.
                 interview_id = path.split("/")[-2]
                 self.jobs = [j for j in self.jobs if j["interviewId"] != interview_id]
+                return httpx.Response(204)
+            return httpx.Response(self.put_status)
+        if request.method == "PUT" and path.endswith("/review"):
+            self.put_paths.append(path)
+            self.put_bodies.append(json.loads(request.content))
+            if self.put_status == 204:
+                session_id = path.split("/")[-2]
+                self.jobs = [j for j in self.jobs if j["sessionId"] != session_id]
                 return httpx.Response(204)
             return httpx.Response(self.put_status)
         return httpx.Response(404)
@@ -259,8 +276,8 @@ async def test_an_outdated_result_is_dropped_and_the_pass_moves_on() -> None:
 
 async def test_a_job_kind_it_does_not_know_is_left_to_backend() -> None:
     backend = FakeBackend()
-    backend.jobs = [job(kind="REVIEW")]
-    poller = poller_for(backend)
+    backend.jobs = [job(kind="REALIGN")]
+    poller = poller_for(backend, review=review_agents())
 
     done = await poller.run_once()
 
@@ -296,6 +313,37 @@ async def test_a_retryable_agent_failure_is_held_not_stored() -> None:
     # After it, the job is tried again.
     clock.now += 2.0
     assert (await poller.run_once()).outcome == "held"
+
+
+async def test_an_unexpected_failure_holds_the_job_and_logs_only_its_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend = FakeBackend()
+    backend.jobs = [job()]
+    backend.contexts["ses_1"] = context()
+    clock = Clock()
+    poller = poller_for(backend, clock=clock, retry_after_seconds=30.0)
+    calls = 0
+
+    async def explode(job):  # noqa: ANN001, ANN202
+        nonlocal calls
+        calls += 1
+        raise RuntimeError(QUOTE)
+
+    poller._prepare = explode  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.ERROR):
+        done = await poller.run_once()
+
+    assert done.outcome == "held"
+    assert done.code == "UNEXPECTED_ERROR"
+    assert backend.put_bodies == []
+    assert "RuntimeError" in caplog.text
+    assert QUOTE not in caplog.text
+    # The next poll skips the job instead of running it again.
+    clock.now += 29.0
+    assert (await poller.run_once()).outcome == "idle"
+    assert calls == 1
 
 
 async def test_a_failure_that_would_repeat_is_stored_as_failed() -> None:
@@ -547,18 +595,24 @@ async def test_logs_carry_ids_and_outcome_but_not_the_resume(
 
 def test_the_agent_is_the_project_llm_only_when_both_values_are_set() -> None:
     bare = Settings(_env_file=None)
-    agent, client = build_prep_agent(bare)
+    agent, review, client = build_agents(bare)
     assert client is None
     assert agent.model == "extractive-baseline"
+    assert review.model == "extractive-baseline"
 
     configured = Settings(
         _env_file=None, llm_base_url="https://gateway.invalid/dep", llm_api_key="k"
     )
-    agent, client = build_prep_agent(configured)
+    agent, review, client = build_agents(configured)
     try:
         assert client is not None
         assert agent.model == configured.llm_model
         assert agent.timeout_seconds == configured.llm_timeout_seconds
+        assert review.model == configured.llm_model
+        assert review.summary.timeout_seconds == configured.llm_timeout_seconds
+        assert review.timeline.timeout_seconds == configured.llm_timeout_seconds
+        assert review.summary.summarizer.client is client
+        assert review.timeline.generator.client is client
     finally:
         if client is not None:
             asyncio.run(client.close())
@@ -577,3 +631,289 @@ def test_a_pending_job_ignores_fields_backend_adds_later() -> None:
 
     assert parsed.key == ("int_1", REQUESTED_AT)
     assert parsed.requested_at == REQUESTED_AT
+
+
+# --- review ------------------------------------------------------------------
+
+
+def interview(session_id: str = "ses_1") -> list[dict]:
+    """One question and its answer, as Backend's utterance rows."""
+
+    def row(utterance_id: str, speaker: str, seq: int, start: int, text: str):
+        return {
+            "utteranceId": utterance_id,
+            "sessionId": session_id,
+            "trackId": f"TR_{speaker.lower()}",
+            "speaker": speaker,
+            "seq": seq,
+            "startMs": start,
+            "endMs": start + 4000,
+            "content": text,
+        }
+
+    return [
+        row("utt_q1", "INTERVIEWER", 1, 1000, "캐시를 도입한 이유가 무엇인가요?"),
+        row("utt_a1", "CANDIDATE", 2, 6000, "조회 응답이 느려서 Redis를 붙였습니다."),
+    ]
+
+
+def review_context(session_id: str = "ses_1", utterances=None) -> dict:  # noqa: ANN001
+    data = context(session_id)
+    data["utterances"] = interview(session_id) if utterances is None else utterances
+    return data
+
+
+class FailingSummarizer:
+    def __init__(self, code: str, *, retryable: bool) -> None:
+        self.code = code
+        self.retryable = retryable
+
+    async def summarize(self, transcript):  # noqa: ANN001, ANN201
+        raise SummarizationError(self.code, retryable=self.retryable)
+
+
+class FailingTimeline:
+    def __init__(self, code: str, *, retryable: bool) -> None:
+        self.code = code
+        self.retryable = retryable
+
+    async def generate(self, pairs, sources):  # noqa: ANN001, ANN201
+        raise TimelineError(self.code, retryable=self.retryable)
+
+
+class FakeFindingsResult:
+    def __init__(self, status: str, findings=None, error=None) -> None:  # noqa: ANN001
+        self.status = status
+        self.findings = findings or []
+        self.error = error
+        self.elapsed_ms = 3
+
+
+class FakeFindings:
+    def __init__(self, result: FakeFindingsResult) -> None:
+        self.result = result
+        self.contexts: list = []
+
+    async def run(self, context, snapshot):  # noqa: ANN001, ANN201
+        self.contexts.append(context)
+        return self.result
+
+
+def review_agents(summarizer=None, timeline=None, findings=None) -> ReviewAgents:  # noqa: ANN001
+    from irya_ai.analysis import ContextAnalysisAgent
+
+    return ReviewAgents(
+        summary=ContextAnalysisAgent(summarizer or ExtractiveSummarizer()),
+        timeline=ReviewTimelineAgent(
+            timeline or ExtractiveTimelineGenerator(), model="fake"
+        ),
+        findings=findings,
+        model="fake",
+    )
+
+
+def review_backend(utterances=None) -> FakeBackend:  # noqa: ANN001
+    backend = FakeBackend()
+    backend.jobs = [job(kind="REVIEW")]
+    backend.contexts["ses_1"] = review_context(utterances=utterances)
+    return backend
+
+
+async def test_a_review_job_stores_summary_and_moments_at_the_session() -> None:
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_paths == ["/internal/v1/sessions/ses_1/review"]
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["summary"]
+    assert body["requestedAt"] == REQUESTED_AT
+    assert body["model"] == "fake"
+    assert [m["qaId"] for m in body["moments"]] == ["qa_utt_q1"]
+    assert body["moments"][0]["evidence"][0]["utteranceId"] == "utt_a1"
+    # Not wired is not the same as "found nothing": the key is left out.
+    assert "findings" not in body
+    assert backend.jobs == []
+    assert poller.holds == {}
+
+
+async def test_a_review_job_without_review_agents_is_held() -> None:
+    backend = review_backend()
+    poller = poller_for(backend)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "held"
+    assert done.code == "UNSUPPORTED_JOB_KIND"
+    assert backend.put_bodies == []
+
+
+@pytest.mark.parametrize("part", ["summary", "timeline", "findings"])
+async def test_a_part_that_failed_for_a_passing_reason_holds_the_whole_job(
+    part: str,
+) -> None:
+    backend = review_backend()
+    clock = Clock()
+    agents = review_agents(
+        summarizer=FailingSummarizer("LLM_TIMEOUT", retryable=True)
+        if part == "summary"
+        else None,
+        timeline=FailingTimeline("LLM_RATE_LIMITED", retryable=True)
+        if part == "timeline"
+        else None,
+        findings=FakeFindings(
+            FakeFindingsResult(
+                "failed", error=AnalysisError(code="LLM_UNAVAILABLE", retryable=True)
+            )
+        )
+        if part == "findings"
+        else None,
+    )
+    poller = poller_for(backend, review=agents, clock=clock, retry_after_seconds=30)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "held"
+    assert backend.put_bodies == []
+    assert poller.holds[("int_1", REQUESTED_AT)] == clock.now + 30
+
+
+async def test_a_timeline_that_would_fail_again_does_not_cost_the_summary() -> None:
+    backend = review_backend()
+    agents = review_agents(timeline=FailingTimeline("LLM_REFUSED", retryable=False))
+    poller = poller_for(backend, review=agents)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["summary"]
+    assert body["moments"] == []
+
+
+async def test_a_summary_that_would_fail_again_is_stored_as_failed() -> None:
+    backend = review_backend()
+    agents = review_agents(
+        summarizer=FailingSummarizer("LLM_INVALID_OUTPUT", retryable=False)
+    )
+    poller = poller_for(backend, review=agents)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "failed"
+    assert body["summary"] == ""
+    assert body["keyPoints"] == []
+
+
+async def test_an_interview_with_no_utterances_is_stored_as_empty() -> None:
+    backend = review_backend(utterances=[])
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "empty"
+    assert backend.put_bodies[0]["moments"] == []
+
+
+async def test_utterances_that_do_not_fit_are_stored_as_a_failed_review() -> None:
+    rows = interview()
+    rows[1]["endMs"] = 0  # ends before it starts
+    backend = review_backend(utterances=rows)
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "failed"
+
+
+async def test_utterance_columns_the_poller_does_not_read_are_ignored() -> None:
+    rows = [row | {"createdAt": "2026-10-06T00:00:00Z"} for row in interview()]
+    backend = review_backend(utterances=rows)
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "completed"
+
+
+async def test_a_review_for_a_replaced_request_is_dropped() -> None:
+    backend = review_backend()
+    backend.put_status = 409
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "outdated"
+    assert poller.holds == {}
+
+
+async def test_a_review_backend_refuses_holds_the_queue_for_the_long_wait() -> None:
+    backend = review_backend()
+    backend.put_status = 422
+    clock = Clock()
+    poller = poller_for(backend, review=review_agents(), clock=clock)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "held"
+    assert done.code == "BACKEND_CLIENT_ERROR"
+    assert poller.holds[("int_1", REQUESTED_AT)] == clock.now + poller.give_up_seconds
+
+
+async def test_findings_go_in_the_body_once_wired_and_read_the_context() -> None:
+    from irya_ai.schemas.analysis import Finding, FindingType
+
+    finding = Finding(
+        finding_id="fnd_1",
+        session_id="ses_1",
+        type=FindingType.GAP,
+        summary="성능 수치의 측정 방법을 설명하지 않았다.",
+    )
+    findings = FakeFindings(FakeFindingsResult("completed", [finding]))
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents(findings=findings))
+
+    await poller.run_once()
+
+    assert [f["findingId"] for f in backend.put_bodies[0]["findings"]] == ["fnd_1"]
+    assert findings.contexts[0].session_id == "ses_1"
+
+
+async def test_findings_that_failed_for_good_are_left_out_not_sent_empty() -> None:
+    findings = FakeFindings(
+        FakeFindingsResult(
+            "failed", error=AnalysisError(code="LLM_INVALID_OUTPUT", retryable=False)
+        )
+    )
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents(findings=findings))
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert "findings" not in backend.put_bodies[0]
+
+
+async def test_a_review_log_names_counts_and_times_but_no_words(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents())
+
+    with caplog.at_level(logging.INFO, logger="irya_ai.prep_poller"):
+        await poller.run_once()
+
+    text = caplog.text
+    assert "review job interview=int_1" in text
+    assert "summary=completed" in text and "timeline=" in text
+    assert "agent=" in text and "total=" in text
+    assert "Redis" not in text and "캐시" not in text
