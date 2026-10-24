@@ -18,6 +18,7 @@ from app.domain.models import (
     ReviewStatus,
     Role,
     SessionStatus,
+    SuggestionStatus,
     SummaryStatus,
 )
 
@@ -185,6 +186,26 @@ class RecordingResponse(Schema):
     expires_at: datetime = Field(serialization_alias="expiresAt")
     offset_ms: int = Field(serialization_alias="offsetMs")
     duration_sec: int = Field(serialization_alias="durationSec")
+
+
+class SuggestionResponse(Schema):
+    """꼬리질문 하나 (#212). 조회 API 와 면접 중 실시간 패킷이 같은 모양이다.
+
+    `evidenceUtteranceIds` 는 자막 스트림의 `utteranceId` 와 같은 값이다.
+    """
+
+    suggestion_id: str = Field(serialization_alias="suggestionId")
+    content: str
+    evidence_utterance_ids: list[str] = Field(
+        serialization_alias="evidenceUtteranceIds",
+        description="근거 발화. Agent 인용 순서(발화 시각 순서 아님).",
+    )
+    status: SuggestionStatus
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
+class SuggestionListResponse(Schema):
+    items: list[SuggestionResponse] = Field(description="도착한 순서대로.")
 
 
 class SummaryContent(Schema):

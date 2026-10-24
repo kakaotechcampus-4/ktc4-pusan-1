@@ -36,6 +36,8 @@ from app.schemas import (
     ReviewProcessingResponse,
     SessionStateResponse,
     StartSessionResponse,
+    SuggestionListResponse,
+    SuggestionResponse,
     SummaryContent,
     SummaryResponse,
 )
@@ -321,6 +323,30 @@ def get_recording(
         expires_at=utcnow() + recording_module.URL_TTL,
         offset_ms=offset_ms,
         duration_sec=recording.duration_ms // 1000,
+    )
+
+
+@router.get(
+    "/{sessionId}/suggestions",
+    response_model=SuggestionListResponse,
+    summary="꼬리질문 목록 조회",
+    responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
+)
+def list_suggestions(
+    session: OwnedSessionDep, store: StoreDep
+) -> SuggestionListResponse:
+    """그 면접에서 나온 꼬리질문 전부를 도착한 순서대로 준다 (#212). 면접 주인만 본다.
+
+    면접 중에는 새 꼬리질문이 LiveKit 데이터 패킷으로 면접관에게 바로 간다 —
+    `RoomEvent.DataReceived`, topic `irya.suggestion.v1`, 본문은 이 목록의 항목과
+    같은 JSON 이다. 이 API 는 입장 · 새로고침 · 재연결 때 그 전 것을 채우고
+    면접 뒤 다시 보는 데 쓴다. 둘은 `suggestionId` 로 합친다.
+    """
+    return SuggestionListResponse(
+        items=[
+            SuggestionResponse.model_validate(s, from_attributes=True)
+            for s in store.list_suggestions(session.id)
+        ]
     )
 
 

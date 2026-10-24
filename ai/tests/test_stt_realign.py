@@ -208,6 +208,25 @@ async def test_a_stamp_past_the_audio_is_dropped_but_does_not_fail_the_pass(
     assert result.complete
 
 
+async def test_a_stock_phrase_inside_the_span_is_dropped_as_on_the_live_path(
+    tmp_path: Path,
+) -> None:
+    candidate = track(
+        tmp_path, "CANDIDATE-TR_c", tone(1500) + silence(800), started_ms=ORIGIN_MS
+    )
+
+    result = await realign(
+        client_for(lambda request: ok("시청해 주셔서 감사합니다.", end_s=1.0)),
+        session_id="ses_1",
+        origin_ms=ORIGIN_MS,
+        tracks=[candidate],
+    )
+
+    assert result.snapshot.utterances == []
+    assert [d.reason for d in result.dropped] == ["STOCK_PHRASE"]
+    assert result.complete
+
+
 def test_an_opus_recording_decodes_to_the_same_length(tmp_path: Path) -> None:
     path = tmp_path / "CANDIDATE-TR_c.ogg"
     with av.open(str(path), "w", format="ogg") as container:

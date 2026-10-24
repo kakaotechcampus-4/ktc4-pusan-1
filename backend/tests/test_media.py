@@ -8,6 +8,7 @@ VideoGrants 는 can_publish / can_subscribe / can_publish_data 의 기본값이 
 """
 
 import asyncio
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from livekit import api
@@ -114,3 +115,45 @@ def test_participant_count_does_not_count_the_agent(monkeypatch: pytest.MonkeyPa
 
     # 사람 하나 + Agent 하나 = 정원상 하나. 그래서 두 번째 사람이 들어올 수 있다.
     assert counted == 1
+
+
+def test_send_data_targets_the_interviewer_and_closes_client(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client = Mock(room=Mock(send_data=AsyncMock()), aclose=AsyncMock())
+    gateway = LiveKitGateway("http://livekit", "key", "secret", max_participants=2)
+    monkeypatch.setattr(gateway, "_client", lambda: client)
+
+    asyncio.run(
+        gateway.send_data("room", b"question", topic="suggestion", to=["INTERVIEWER"])
+    )
+
+    request = client.room.send_data.call_args.args[0]
+    assert request.room == "room"
+    assert request.data == b"question"
+    assert request.kind == api.DataPacket.Kind.RELIABLE
+    assert list(request.destination_identities) == ["INTERVIEWER"]
+    assert request.topic == "suggestion"
+    client.aclose.assert_awaited_once()
+
+
+def test_send_data_times_out_and_closes_client(monkeypatch: pytest.MonkeyPatch):
+    async def stalled(_request: object) -> None:
+        await asyncio.Future()
+
+    client = Mock(
+        room=Mock(send_data=AsyncMock(side_effect=stalled)), aclose=AsyncMock()
+    )
+    gateway = LiveKitGateway("http://livekit", "key", "secret", max_participants=2)
+    monkeypatch.setattr(gateway, "_client", lambda: client)
+
+    async def run() -> None:
+        # 바깥쪽 제한은 수정 전 코드도 멈추게 한다. 내부 3초 제한이 없으면 실패한다.
+        async with asyncio.timeout(4):
+            with pytest.raises(TimeoutError):
+                await gateway.send_data(
+                    "room", b"question", topic="suggestion", to=["INTERVIEWER"]
+                )
+
+    asyncio.run(run())
+    client.aclose.assert_awaited_once()

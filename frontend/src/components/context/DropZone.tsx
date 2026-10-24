@@ -50,35 +50,31 @@ export function DropZone({
   };
 
   return (
-    <div
-      onDragEnter={handleDragEnter}
-      onDragOver={(e) => e.preventDefault()}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      onClick={() => !disabled && inputRef.current?.click()}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          if (!disabled) inputRef.current?.click();
-        }
-      }}
-      aria-disabled={disabled}
-      className={`rounded-xl border border-dashed p-10 text-center transition-colors ${
-        disabled
-          ? 'cursor-not-allowed border-white/10 text-white/25'
-          : dragging
-            ? 'cursor-copy border-[#2B44D6] bg-[#2B44D6]/10 text-[#8FA2FF]'
-            : 'cursor-pointer border-white/20 text-white/50 hover:border-white/35'
-      }`}
-    >
-      <p className="text-[15px]">{dragging ? '여기에 놓으세요' : label}</p>
-      <p className="mt-1.5 text-[13px] text-white/30">PDF · 50MB 이하</p>
+    <>
+      <button
+        type="button"
+        disabled={disabled}
+        onDragEnter={handleDragEnter}
+        onDragOver={(e) => e.preventDefault()}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        className={`focus-visible:ring-brand w-full rounded-xl border border-dashed p-10 text-center transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+          disabled
+            ? 'cursor-not-allowed border-white/10 text-white/25'
+            : dragging
+              ? 'cursor-copy border-[#2B44D6] bg-[#2B44D6]/10 text-[#8FA2FF]'
+              : 'cursor-pointer border-white/20 text-white/50 hover:border-white/35'
+        }`}
+      >
+        <span className="block text-[15px]">{dragging ? '여기에 놓으세요' : label}</span>
+        <span className="text-ink-muted mt-1.5 block text-[13px]">PDF · 50MB 이하</span>
+      </button>
 
       <input
         ref={inputRef}
         type="file"
+        disabled={disabled}
         multiple
         accept={ACCEPT_ATTR}
         className="hidden"
@@ -88,6 +84,6 @@ export function DropZone({
           e.target.value = '';
         }}
       />
-    </div>
+    </>
   );
 }
