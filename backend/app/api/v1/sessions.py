@@ -339,8 +339,8 @@ def list_suggestions(
 
     면접 중에는 새 꼬리질문이 LiveKit 데이터 패킷으로 면접관에게 바로 간다 —
     `RoomEvent.DataReceived`, topic `irya.suggestion.v1`, 본문은 이 목록의 항목과
-    같은 JSON 이다. 이 API 는 입장 · 새로고침 때 그 전 것을 채우고 면접 뒤 다시
-    보는 데 쓴다. 둘은 `suggestionId` 로 합친다.
+    같은 JSON 이다. 이 API 는 입장 · 새로고침 · 재연결 때 그 전 것을 채우고
+    면접 뒤 다시 보는 데 쓴다. 둘은 `suggestionId` 로 합친다.
     """
     return SuggestionListResponse(
         items=[

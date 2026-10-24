@@ -198,7 +198,7 @@ class SuggestionResponse(Schema):
     content: str
     evidence_utterance_ids: list[str] = Field(
         serialization_alias="evidenceUtteranceIds",
-        description="이 질문의 근거가 된 발화. 말한 순서대로.",
+        description="근거 발화. Agent 인용 순서(발화 시각 순서 아님).",
     )
     status: SuggestionStatus
     created_at: datetime = Field(serialization_alias="createdAt")

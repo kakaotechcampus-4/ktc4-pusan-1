@@ -1265,7 +1265,7 @@
             "type": "string"
           },
           "evidenceUtteranceIds": {
-            "description": "이 질문의 근거가 된 발화. 말한 순서대로.",
+            "description": "근거 발화. Agent 인용 순서(발화 시각 순서 아님).",
             "items": {
               "type": "string"
             },
@@ -3027,7 +3027,7 @@
     },
     "/api/v1/sessions/{sessionId}/suggestions": {
       "get": {
-        "description": "그 면접에서 나온 꼬리질문 전부를 도착한 순서대로 준다 (#212). 면접 주인만 본다.\n\n면접 중에는 새 꼬리질문이 LiveKit 데이터 패킷으로 면접관에게 바로 간다 —\n`RoomEvent.DataReceived`, topic `irya.suggestion.v1`, 본문은 이 목록의 항목과\n같은 JSON 이다. 이 API 는 입장 · 새로고침 때 그 전 것을 채우고 면접 뒤 다시\n보는 데 쓴다. 둘은 `suggestionId` 로 합친다.",
+        "description": "그 면접에서 나온 꼬리질문 전부를 도착한 순서대로 준다 (#212). 면접 주인만 본다.\n\n면접 중에는 새 꼬리질문이 LiveKit 데이터 패킷으로 면접관에게 바로 간다 —\n`RoomEvent.DataReceived`, topic `irya.suggestion.v1`, 본문은 이 목록의 항목과\n같은 JSON 이다. 이 API 는 입장 · 새로고침 · 재연결 때 그 전 것을 채우고\n면접 뒤 다시 보는 데 쓴다. 둘은 `suggestionId` 로 합친다.",
         "operationId": "list_suggestions_api_v1_sessions__sessionId__suggestions_get",
         "parameters": [
           {
