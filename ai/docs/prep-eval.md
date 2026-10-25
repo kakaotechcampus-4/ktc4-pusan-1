@@ -11,6 +11,7 @@ JD·인재상·이력서 본문을 프로젝트 LLM에 넘겨 면접에서 확�
 | 모델 | 단가 (per 1M tokens) |
 | --- | --- |
 | `gpt-5.6-luna` | 입력 ₩304 / 출력 ₩1,827. 캐시된 입력은 1/10 |
+| `gpt-6-luna` (2026-10-16부터 기본값) | 미확인 |
 
 Elice ML API의 OpenAI 호환 게이트웨이를 쓴다. 지원 목록 밖 파라미터는 400이라
 `openai_prep.py`는 `model`, `messages`, `response_format`, `max_completion_tokens`,
@@ -22,7 +23,7 @@ Elice ML API의 OpenAI 호환 게이트웨이를 쓴다. 지원 목록 밖 파�
 # ai/.env  (값은 절대 커밋하지 않는다)
 LLM_BASE_URL=https://<mlapi-endpoint>/v1
 LLM_API_KEY=<Serverless API Key>
-LLM_MODEL=gpt-5.6-luna
+LLM_MODEL=gpt-6-luna
 
 uv run irya-ai prep data/samples/context_backend_junior.json
 uv run irya-ai prep data/samples/context_backend_junior.json --backend extractive  # 기준선
@@ -105,6 +106,32 @@ uv run irya-ai prep data/samples/context_backend_junior.json --backend extractiv
   함께 "exceeds the 2000-token ceiling this proxy holds a NON-STREAMING reply to"라는
   메시지가 온다(2026-10-07 실측). 기본값을 2,000으로 두었다. `openai_timeline.py`는
   4,000을 보내므로 같은 게이트웨이에서 지금은 400이 난다(별도 수정).
+
+## 결과 — 2026-10-16 `gpt-6-luna`, `prep-v1`, reasoning_effort 미지정
+
+기본값을 `gpt-6-luna`로 바꾸며 같은 샘플로 돌렸다(위 결과와 같은 시점 측정 아님).
+코드는 develop `31109da`다.
+
+| 항목 | 실행 1 | 실행 2 | 실행 3 |
+| --- | --- | --- | --- |
+| 응답 model | `gpt-6-luna` | `gpt-6-luna` | `gpt-6-luna` |
+| status | completed | completed | completed |
+| 역량 / 주장 | 5 / 4 | 5 / 4 | 5 / 4 |
+| 탈락 / 경고 | 0 / 0 | 0 / 0 | 0 / 0 |
+| tokens (prompt / completion / cached) | 1,467 / 752 / 0 | 1,174 / 744 / 1,171 | 1,174 / 512 / 1,171 |
+| 추정 비용 | 단가 미확인 | 단가 미확인 | 단가 미확인 |
+| 소요 | 5.9s | 5.6s | 4.8s |
+
+- **기술 줄 주장 두 개가 세 실행 모두 빠졌다.** "Kubernetes 기반 배포 파이프라인 구축"과
+  "GitHub Actions로 테스트와 배포를 자동화"다.
+  프로젝트 줄 주장 4개는 세 실행 모두 같은 문장, 같은 ID다.
+  "기술 이름만 나열한 줄은 고르지 말라" 지시를 기술 소제목 전체로 넓게 따른 것으로
+  보이지만 확인하지 않은 추측이다. 프롬프트 수정은 별도 이슈로 다룬다.
+- 역량은 5개씩이다. 인재상("작은 팀이 서비스 전체를 맡는다")에서 온 역량은 없었다.
+  이름은 실행마다 흔들린다. 세 실행에서 같은 이름은 "서버 API 개발" 하나이고, 나머지는
+  "DB·캐시 최적화 / DB·캐시 성능 개선 / 조회 성능 개선"처럼 달라졌다.
+- completion 토큰은 512~752로 2,000 상한 안이다. 응답 `usage`에 추론 토큰 내역은
+  기록하지 않아 그 몫은 미측정이다.
 
 ## 검증하지 않은 것
 

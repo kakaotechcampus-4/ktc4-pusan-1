@@ -138,6 +138,8 @@ services:
       org.opencontainers.image.revision: ${AI_SHA:-unknown}
     container_name: irya-ai
     restart: unless-stopped
+    # worker: 방 drain 5초 + 프로세스 종료 45초(전사 전달 30초 포함) + 여유 10초.
+    stop_grace_period: 60s
     # 방마다 작업 프로세스가 뜨고 지연 로그를 남기므로 상한이 특히 필요합니다.
     logging: *logging
     # LiveKit AgentServer 가 방마다 별도 작업 프로세스를 만들고, 각 작업이
@@ -166,7 +168,7 @@ services:
       # 아니면 추출형 생성기로 돈다. 기동은 막지 않는다.
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-gpt-5.6-luna}
+      LLM_MODEL: ${LLM_MODEL:-gpt-6-luna}
     depends_on:
       livekit:
         condition: service_started
@@ -206,7 +208,7 @@ services:
       # 사전 가공용 프로젝트 LLM. 비어 있으면 추출형 기준선으로 돌고 경고를 남긴다.
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-gpt-5.6-luna}
+      LLM_MODEL: ${LLM_MODEL:-gpt-6-luna}
       PREP_POLL_INTERVAL_SECONDS: ${PREP_POLL_INTERVAL_SECONDS:-5}
     depends_on:
       backend:

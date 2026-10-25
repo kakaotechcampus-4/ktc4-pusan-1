@@ -1,7 +1,8 @@
 """Timeline drafting through an OpenAI-compatible chat endpoint.
 
-Written for the project's Elice ML API models (``gpt-5.6-luna`` first,
-``gpt-5.6-terra`` if Luna is not good enough). That gateway accepts the
+Written for the project's Elice ML API models (``gpt-6-luna`` by default;
+first written against ``gpt-5.6-luna``, with ``gpt-5.6-terra`` as the fallback
+if Luna was not good enough). That gateway accepts the
 OpenAI SDK unchanged but **rejects any parameter outside its published list
 with 400**, so this module sends only ``model``, ``messages``,
 ``response_format``, ``max_completion_tokens`` and, when configured,
@@ -29,6 +30,7 @@ from openai import (
     OpenAIError,
     RateLimitError,
 )
+from openai.types.chat import ChatCompletion
 from pydantic import ValidationError
 
 from irya_ai.schemas.analysis import QAPair
@@ -91,7 +93,7 @@ class OpenAITimelineGenerator:
         self,
         client: AsyncOpenAI,
         *,
-        model: str = "gpt-5.6-luna",
+        model: str = "gpt-6-luna",
         max_completion_tokens: int = MAX_COMPLETION_TOKENS,
         reasoning_effort: ReasoningEffort | None = None,
     ) -> None:
@@ -129,17 +131,7 @@ class OpenAITimelineGenerator:
 
         try:
             completion = await self.client.chat.completions.parse(**request)
-            self.last_model = completion.model or self.model
-            if completion.usage is not None:
-                details = getattr(completion.usage, "prompt_tokens_details", None)
-                cached = getattr(details, "cached_tokens", None) or getattr(
-                    completion.usage, "cached_prompt_tokens", 0
-                )
-                self.last_usage = LlmUsage(
-                    prompt_tokens=completion.usage.prompt_tokens or 0,
-                    completion_tokens=completion.usage.completion_tokens or 0,
-                    cached_prompt_tokens=cached or 0,
-                )
+            self._record_completion(completion)
 
             if not completion.choices:
                 raise TimelineError("LLM_NO_STRUCTURED_OUTPUT")
@@ -167,8 +159,13 @@ class OpenAITimelineGenerator:
             raise TimelineError(
                 "LLM_API_ERROR", retryable=exc.status_code >= 500
             ) from None
-        except LengthFinishReasonError:
-            # ``parse`` raises before we see the choice when output was cut.
+        except LengthFinishReasonError as exc:
+            # The SDK retains the paid completion even though parsing failed.
+            try:
+                self._record_completion(exc.completion)
+            except (ValidationError, ValueError, TypeError, AttributeError):
+                # A compatible gateway can send malformed usage metadata.
+                self.last_usage = None
             raise TimelineError("LLM_INCOMPLETE_OUTPUT") from None
         except ContentFilterFinishReasonError:
             raise TimelineError("LLM_REFUSED") from None
@@ -178,3 +175,16 @@ class OpenAITimelineGenerator:
             raise TimelineError("LLM_INVALID_OUTPUT") from None
         except OpenAIError:
             raise TimelineError("LLM_INVALID_OUTPUT") from None
+
+    def _record_completion(self, completion: ChatCompletion) -> None:
+        self.last_model = completion.model or self.model
+        if completion.usage is not None:
+            details = getattr(completion.usage, "prompt_tokens_details", None)
+            cached = getattr(details, "cached_tokens", None) or getattr(
+                completion.usage, "cached_prompt_tokens", 0
+            )
+            self.last_usage = LlmUsage(
+                prompt_tokens=completion.usage.prompt_tokens or 0,
+                completion_tokens=completion.usage.completion_tokens or 0,
+                cached_prompt_tokens=cached or 0,
+            )
