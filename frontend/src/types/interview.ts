@@ -210,34 +210,75 @@ export type UploadRejection = 'unsupported-type' | 'too-large' | 'empty-file';
 /* ---------------------------------------------------------------- *
  * 면접 기록 (S3)
  *
- * 실제 BE는 현재 PROCESSING을 반환한다. READY는 기존 시연 모델이며
- * 녹화·타임라인 산출물의 서버 계약은 별도 확정이 필요하다.
+ * 서버가 주는 모양 그대로다 (#137 1-2 · #163). 녹화는 이 응답에 실리지 않고
+ * `sessionId` 로 녹화 API 를 따로 부른다 — 서명 URL 이 10분 만에 만료돼서,
+ * 상세와 같이 캐시해 두면 다시 열 때 이미 죽은 주소가 된다.
  * ---------------------------------------------------------------- */
 
 /** 질문 하나가 시작된 시점과 그 문답 */
 export interface Moment {
   id: string;
-  /** 질문 시작 시점(초) */
+  /** 전사 원점(t=0) 기준 경과 초. 녹화 재생 위치와는 `offsetMs` 만큼 다르다 */
   atSec: number;
   /** 타임라인 아래 짧은 라벨 */
   label: string;
+  /** 면접관 발화 원문 */
   question: string;
   /** 답변 요약 (한두 줄) */
   answer: string;
+  /** 근거 시각이 이 문답 구간에 드는 검토 항목의 역량 */
+  competencies: string[];
+  bookmarked: boolean;
+}
+
+/** 역량 하나가 면접에서 얼마나 확인됐는가 */
+export interface Coverage {
+  name: string;
+  state: 'CONFIRMED' | 'PARTIAL' | 'MISSING';
+}
+
+/** 검토 항목 하나 — AI 가 근거와 함께 낸 관찰. 판정이 아니다 */
+export interface Finding {
+  id: string;
+  type:
+    'COMPETENCY_EVIDENCE' | 'CLAIM_VERIFIED' | 'CLAIM_CONTRADICTED' | 'CLAIM_UNVERIFIED' | 'GAP';
+  state: 'PROPOSED' | 'ADOPTED' | 'REJECTED';
+  rationale: string;
+  competency: string | null;
+  /** 지원서의 문장 */
+  quote: string | null;
+  /** 근거가 된 면접 발화 */
+  transcript: string | null;
+  /** 「지원서 · 단락」 또는 「면접 답변」 */
+  source: string | null;
+  atSec: number | null;
+}
+
+/** 요약 본문. `summaryStatus` 가 READY 일 때만 찬다 */
+export interface SummaryContent {
+  /** 면접 전체를 한 문단으로 */
+  overview: string;
+  /** 지원자 답변에서 뽑은 핵심 */
+  keyPoints: string[];
 }
 
 export interface Review {
   interviewId: string;
-  candidate: { name: string; role: string };
-  durationSec: number;
-  /**
-   * ⚠️ 서명된 master.m3u8 을 받는다고 가정했다. 만료 시간 · 보관 기간 · 열람 권한은 미정이다.
-   * 실제 BE 는 녹화를 상세에 싣지 않아 null 이다(#163) — 녹화 API 전환 전까지.
-   */
-  recording: { hlsUrl: string } | null;
+  /** 기준 세션. 녹화는 이 id 로 `GET /sessions/{sessionId}/recording` */
+  sessionId: string;
+  candidate: { name: string | null; role: string };
+  interviewer: { nickname: string };
+  interviewedAt: string | null;
+  durationSec: number | null;
+  reviewStatus: ReviewStatus;
+  reviewedAt: string | null;
+  memo: string;
+  summaryStatus: SummaryStatus;
+  /** 요약이 READY 가 아니면 null */
+  summary: SummaryContent | null;
+  coverage: Coverage[];
   moments: Moment[];
-  /** 전사 · 지원서 · JD 를 근거로 쓴 서술. 합격 여부는 없다. */
-  aiReview: { paragraphs: string[] };
+  findings: Finding[];
 }
 
 /**
@@ -247,6 +288,31 @@ export interface Review {
  */
 export type ReviewResponse =
   { status: 'PROCESSING'; etaSec?: number } | ({ status: 'READY' } & Review);
+
+/**
+ * GET /api/v1/sessions/{sessionId}/recording
+ *
+ * 합친 파일 하나의 서명 URL 이다 (#112). 10분 뒤 만료된다.
+ */
+export interface Recording {
+  url: string;
+  durationSec: number;
+  /**
+   * 녹화의 0초가 전사 원점(t=0)보다 얼마나 뒤인가.
+   * 전사 시각 t(ms) 의 장면은 녹화의 `t − offsetMs` 에 있다.
+   */
+  offsetMs: number;
+  expiresAt: string;
+}
+
+/**
+ * 녹화 조회 결과.
+ *
+ * 합치는 중이면 202 PROCESSING 이고, 녹화가 없거나 합치지 못했으면 404 다.
+ * 404 는 오류가 아니다 — 녹화 없이 전사로 검토하는 정상 경로다.
+ */
+export type RecordingResponse =
+  { status: 'PROCESSING' } | ({ status: 'READY' } & Recording) | { status: 'NONE' };
 
 /* ---------------------------------------------------------------- *
  * 진입

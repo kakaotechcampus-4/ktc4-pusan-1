@@ -28,9 +28,11 @@ export interface TimelineProps {
   durationSec: number;
   activeId: string | null;
   onSelect: (moment: Moment) => void;
+  /** 녹화를 볼 수 있는가. 없으면 마커는 문답만 띄운다 */
+  seekable: boolean;
 }
 
-export function Timeline({ moments, durationSec, activeId, onSelect }: TimelineProps) {
+export function Timeline({ moments, durationSec, activeId, onSelect, seekable }: TimelineProps) {
   const active = moments.find((m) => m.id === activeId);
 
   return (
@@ -98,7 +100,11 @@ export function Timeline({ moments, durationSec, activeId, onSelect }: TimelineP
         </div>
       </div>
 
-      <p className="text-ink-dim mt-2 text-[12px]">마커를 누르면 영상이 그 시점부터 재생됩니다.</p>
+      <p className="text-ink-dim mt-2 text-[12px]">
+        {seekable
+          ? '마커를 누르면 영상이 그 시점부터 재생됩니다.'
+          : '마커를 누르면 그 시점의 문답을 봅니다.'}
+      </p>
     </section>
   );
 }
