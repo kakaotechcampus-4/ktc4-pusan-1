@@ -19,6 +19,7 @@ from openai import (
     OpenAIError,
     RateLimitError,
 )
+from openai.types.chat import ChatCompletion
 from pydantic import ValidationError
 
 from irya_ai.findings import DEFAULT_MAX_FINDINGS, FindingsError
@@ -135,17 +136,7 @@ class OpenAIFindingsGenerator:
 
         try:
             completion = await self.client.chat.completions.parse(**request)
-            self.last_model = f"{completion.model or self.model}@{PROMPT_VERSION}"
-            if completion.usage is not None:
-                details = getattr(completion.usage, "prompt_tokens_details", None)
-                cached = getattr(details, "cached_tokens", None) or getattr(
-                    completion.usage, "cached_prompt_tokens", 0
-                )
-                self.last_usage = LlmUsage(
-                    prompt_tokens=completion.usage.prompt_tokens or 0,
-                    completion_tokens=completion.usage.completion_tokens or 0,
-                    cached_prompt_tokens=cached or 0,
-                )
+            self._record_completion(completion)
 
             if not completion.choices:
                 raise FindingsError("LLM_NO_STRUCTURED_OUTPUT")
@@ -173,8 +164,14 @@ class OpenAIFindingsGenerator:
             raise FindingsError(
                 "LLM_API_ERROR", retryable=exc.status_code >= 500
             ) from None
-        except LengthFinishReasonError:
-            # ``parse`` raises before we see the choice when output was cut.
+        except LengthFinishReasonError as exc:
+            # ``parse`` raises before we see the choice when output was cut, but
+            # the SDK retains the paid completion.
+            try:
+                self._record_completion(exc.completion)
+            except (ValidationError, ValueError, TypeError, AttributeError):
+                # A compatible gateway can send malformed usage metadata.
+                self.last_usage = None
             raise FindingsError("LLM_INCOMPLETE_OUTPUT") from None
         except ContentFilterFinishReasonError:
             raise FindingsError("LLM_REFUSED") from None
@@ -184,3 +181,16 @@ class OpenAIFindingsGenerator:
             raise FindingsError("LLM_INVALID_OUTPUT") from None
         except OpenAIError:
             raise FindingsError("LLM_INVALID_OUTPUT") from None
+
+    def _record_completion(self, completion: ChatCompletion) -> None:
+        self.last_model = f"{completion.model or self.model}@{PROMPT_VERSION}"
+        if completion.usage is not None:
+            details = getattr(completion.usage, "prompt_tokens_details", None)
+            cached = getattr(details, "cached_tokens", None) or getattr(
+                completion.usage, "cached_prompt_tokens", 0
+            )
+            self.last_usage = LlmUsage(
+                prompt_tokens=completion.usage.prompt_tokens or 0,
+                completion_tokens=completion.usage.completion_tokens or 0,
+                cached_prompt_tokens=cached or 0,
+            )

@@ -244,10 +244,7 @@ class FindingsAgent:
             return self._fail(
                 result, exc.code, started=started, retryable=exc.retryable
             )
-        usage = getattr(self.generator, "last_usage", None)
-        if isinstance(usage, LlmUsage):
-            result.usage = usage
-        result.model = getattr(self.generator, "last_model", "") or self.model
+        self._record_call(result)
         result.findings, result.rejections = build_findings(
             context, finals, draft, max_findings=self.max_findings
         )
@@ -261,6 +258,16 @@ class FindingsAgent:
         result.elapsed_ms = round((perf_counter() - started) * 1000)
         return result
 
+    def _record_call(self, result: FindingsResult) -> None:
+        """Copy what the generator reports about its last call onto ``result``."""
+
+        usage = getattr(self.generator, "last_usage", None)
+        if isinstance(usage, LlmUsage):
+            result.usage = usage
+        served_model = getattr(self.generator, "last_model", None)
+        if served_model:
+            result.model = served_model
+
     def _fail(
         self,
         result: FindingsResult,
@@ -269,6 +276,8 @@ class FindingsAgent:
         started: float,
         retryable: bool = False,
     ) -> FindingsResult:
+        # A call that came back but could not be used was still paid for.
+        self._record_call(result)
         result.status = "failed"
         result.error = AnalysisError(code=code, retryable=retryable)
         return self._finish(result, started)

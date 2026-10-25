@@ -180,3 +180,25 @@ def test_prompt_asks_for_no_more_than_the_code_keeps():
 def test_prompt_asks_claims_to_name_a_related_competency():
     assert "관련된 역량이 competencies에 있으면 competency_id도 채우고" in SYSTEM_PROMPT
 
+
+async def test_cut_off_output_still_reports_usage_and_model():
+    body = response(
+        choices=[
+            {
+                "index": 0,
+                "finish_reason": "length",
+                "message": {"role": "assistant", "content": "{"},
+            }
+        ],
+        usage={"prompt_tokens": 1200, "completion_tokens": 2000},
+    )
+    async with client_for(lambda request: httpx.Response(200, json=body)) as client:
+        result = await FindingsAgent(OpenAIFindingsGenerator(client)).run(
+            context(),
+            TranscriptSnapshot(session_id="ses_test", utterances=[utterance()]),
+        )
+    assert result.status == "failed"
+    assert result.error.code == "LLM_INCOMPLETE_OUTPUT"
+    assert result.usage.completion_tokens == 2000
+    assert result.model.startswith("served-model@")
+
