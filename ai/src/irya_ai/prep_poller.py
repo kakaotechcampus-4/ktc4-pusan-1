@@ -123,6 +123,17 @@ def context_from_response(payload: dict[str, Any]) -> InterviewContext:
         raise PollerError("CONTEXT_INVALID", retryable=False) from None
 
 
+UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
+
+
+def exception_types(exc: BaseException) -> str:
+    """The type names behind ``exc``, opened up when a ``TaskGroup`` grouped them."""
+
+    if isinstance(exc, BaseExceptionGroup):
+        return ",".join(exception_types(inner) for inner in exc.exceptions)
+    return type(exc).__name__
+
+
 @dataclass(frozen=True)
 class Pass:
     """One pass of the loop, for logs and tests."""
@@ -154,6 +165,10 @@ def snapshot_from_response(
     issue. An empty list is a valid snapshot - the summary comes back
     ``empty`` and that is stored. A list that does not fit the model is
     ``TRANSCRIPT_INVALID``, which does not retry.
+
+    Rows saved before #158 have no ``trackId`` or ``seq``. Those are filled
+    from the speaker and from Backend's order, so one old row does not fail
+    the whole review.
     """
 
     rows = payload.get("utterances") or []
@@ -162,6 +177,13 @@ def snapshot_from_response(
             {key: value for key, value in row.items() if key in UTTERANCE_KEYS}
             for row in rows
         ]
+        filled = fill_missing_identity(utterances)
+        if filled:
+            logger.warning(
+                "Backend utterances missing trackId or seq: filled=%d of %d",
+                filled,
+                len(utterances),
+            )
         return TranscriptSnapshot.model_validate(
             {
                 "sessionId": session_id,
@@ -172,6 +194,29 @@ def snapshot_from_response(
     except (ValidationError, AttributeError, TypeError):
         logger.warning("Backend utterances did not match TranscriptSnapshot")
         raise PollerError("TRANSCRIPT_INVALID", retryable=False) from None
+
+
+def fill_missing_identity(utterances: list[dict[str, Any]]) -> int:
+    """Fill a null ``trackId`` or ``seq`` in place; return how many rows.
+
+    A missing track becomes ``trk_<speaker>``. A missing ``seq`` becomes the
+    row's place in Backend's list, kept for every revision of one utterance
+    so the snapshot still sees them as the same utterance.
+    """
+
+    filled = 0
+    first_index: dict[Any, int] = {}
+    for index, row in enumerate(utterances):
+        first = first_index.setdefault(row.get("utteranceId"), index)
+        missing = False
+        if row.get("trackId") is None and isinstance(row.get("speaker"), str):
+            row["trackId"] = f"trk_{row['speaker'].lower()}"
+            missing = True
+        if row.get("seq") is None:
+            row["seq"] = first
+            missing = True
+        filled += missing
+    return filled
 
 
 class FindingsOutcome(Protocol):
@@ -376,8 +421,8 @@ class PrepPoller:
             if job.kind == JOB_KIND_REVIEW and self.review is not None:
                 return await self._run_review(job)
         except Exception as exc:  # noqa: BLE001 - one job must not stall the loop
-            # A failure no step classified. Without a hold the next poll would
-            # hand out the same job and run the model again at the poll rate.
+            # A failure outside the agents, which store their own. Without a
+            # hold the next poll would hand out the same job at the poll rate.
             # Only the type is logged: the message may quote the transcript.
             self._hold(job, self.retry_after_seconds)
             logger.error(
@@ -385,9 +430,9 @@ class PrepPoller:
                 job.kind.lower(),
                 job.interview_id,
                 job.session_id,
-                type(exc).__name__,
+                exception_types(exc),
             )
-            return Pass("held", job=job, code="UNEXPECTED_ERROR")
+            return Pass("held", job=job, code=UNEXPECTED_ERROR)
         # A kind this process has nothing to store for. Backend hands out
         # every kind on one ask, so while it is held it blocks the jobs
         # behind it; the hold is long and the log is an error for that reason.
@@ -410,6 +455,9 @@ class PrepPoller:
             # Asking again would fail the same way, and a held job blocks the
             # queue behind it. Store the failure so the row leaves the queue.
             result = self._failed_result(job, exc.code)
+        except Exception as exc:  # noqa: BLE001 - see _unexpected
+            self._unexpected(job, exc)
+            result = self._failed_result(job, UNEXPECTED_ERROR)
 
         if result.status == "failed" and result.error and result.error.retryable:
             # Storing this would fail the interview for good over a moment
@@ -463,10 +511,16 @@ class PrepPoller:
         except PollerError as exc:
             if exc.retryable:
                 return self._held_before_store(job, exc.code, started)
-            payload = ReviewPayload(status="failed", model=self.review.model)
             parts = ReviewParts(error_code=exc.code)
         else:
-            parts = await self.review.run(context, snapshot)
+            try:
+                parts = await self.review.run(context, snapshot)
+            except Exception as exc:  # noqa: BLE001 - see _unexpected
+                self._unexpected(job, exc)
+                parts = ReviewParts(error_code=UNEXPECTED_ERROR)
+        if parts.error_code is not None:
+            payload = ReviewPayload(status="failed", model=self.review.model)
+        else:
             retry = parts.retryable_failure()
             if retry is not None:
                 # One part failed in a way that may pass. Storing now would
@@ -508,6 +562,22 @@ class PrepPoller:
                 parts.error_code,
             )
         return Pass("stored", job=job, result=payload)
+
+    def _unexpected(self, job: PendingJob, exc: Exception) -> None:
+        """Log an agent failure no step classified; the caller stores it.
+
+        A bug raises the same way on every try, so holding and asking again
+        would only run the model again until Backend gives up. Only the types
+        are logged: the message may quote the transcript or the resume.
+        """
+
+        logger.error(
+            "%s job interview=%s session=%s failed with unexpected %s",
+            job.kind.lower(),
+            job.interview_id,
+            job.session_id,
+            exception_types(exc),
+        )
 
     def _held_before_store(self, job: PendingJob, code: str, started: float) -> Pass:
         """Hold a job whose input could not be read for a reason that may pass."""

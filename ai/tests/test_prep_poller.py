@@ -22,6 +22,8 @@ from irya_ai.prep_poller import (
     ReviewAgents,
     build_agents,
     context_from_response,
+    exception_types,
+    snapshot_from_response,
 )
 from irya_ai.schemas.jobs import PendingJob
 from irya_ai.schemas.prep import CompetencyDraft, PrepDraft, ResumeClaimDraft
@@ -315,7 +317,35 @@ async def test_a_retryable_agent_failure_is_held_not_stored() -> None:
     assert (await poller.run_once()).outcome == "held"
 
 
-async def test_an_unexpected_failure_holds_the_job_and_logs_only_its_type(
+async def test_an_unexpected_agent_failure_is_stored_and_logs_only_its_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend = FakeBackend()
+    backend.jobs = [job()]
+    backend.contexts["ses_1"] = context()
+    poller = poller_for(backend)
+
+    async def explode(job):  # noqa: ANN001, ANN202
+        raise RuntimeError(QUOTE)
+
+    poller._prepare = explode  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.ERROR):
+        done = await poller.run_once()
+
+    # A bug raises the same way on every try, so the job is not asked again.
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "failed"
+    assert backend.put_bodies[0]["error"] == {
+        "code": "UNEXPECTED_ERROR",
+        "retryable": False,
+    }
+    assert backend.jobs == []
+    assert "RuntimeError" in caplog.text
+    assert QUOTE not in caplog.text
+
+
+async def test_an_unexpected_failure_outside_the_agent_holds_the_job(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     backend = FakeBackend()
@@ -325,25 +355,36 @@ async def test_an_unexpected_failure_holds_the_job_and_logs_only_its_type(
     poller = poller_for(backend, clock=clock, retry_after_seconds=30.0)
     calls = 0
 
-    async def explode(job):  # noqa: ANN001, ANN202
+    async def explode(*args):  # noqa: ANN002, ANN202
         nonlocal calls
         calls += 1
+        for arg in args:
+            if asyncio.iscoroutine(arg):
+                arg.close()
         raise RuntimeError(QUOTE)
 
-    poller._prepare = explode  # type: ignore[method-assign]
+    poller._store = explode  # type: ignore[method-assign]
 
     with caplog.at_level(logging.ERROR):
         done = await poller.run_once()
 
     assert done.outcome == "held"
     assert done.code == "UNEXPECTED_ERROR"
-    assert backend.put_bodies == []
     assert "RuntimeError" in caplog.text
     assert QUOTE not in caplog.text
     # The next poll skips the job instead of running it again.
     clock.now += 29.0
     assert (await poller.run_once()).outcome == "idle"
     assert calls == 1
+
+
+def test_a_grouped_failure_is_logged_by_the_types_inside() -> None:
+    group = ExceptionGroup(
+        "agents", [ValueError("x"), ExceptionGroup("inner", [KeyError("y")])]
+    )
+
+    assert exception_types(group) == "ValueError,KeyError"
+    assert exception_types(TypeError("z")) == "TypeError"
 
 
 async def test_a_failure_that_would_repeat_is_stored_as_failed() -> None:
@@ -832,6 +873,67 @@ async def test_utterances_that_do_not_fit_are_stored_as_a_failed_review() -> Non
 
     assert done.outcome == "stored"
     assert backend.put_bodies[0]["status"] == "failed"
+
+
+async def test_rows_without_a_track_or_seq_are_filled_not_failed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Rows saved before #158 come back with both columns empty.
+    rows = interview()
+    rows[0]["trackId"] = None
+    rows[1]["seq"] = None
+    backend = review_backend(utterances=rows)
+    poller = poller_for(backend, review=review_agents())
+
+    with caplog.at_level(logging.WARNING):
+        done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "completed"
+    assert "filled=2 of 2" in caplog.text
+
+
+def test_a_missing_seq_follows_backend_order_and_keeps_revisions_together() -> None:
+    rows = interview()
+    rows.append(dict(rows[1]))  # a second revision of the answer
+    for row in rows:
+        row["seq"] = None
+        row["trackId"] = None
+
+    snapshot = snapshot_from_response({"utterances": rows}, "ses_1")
+
+    assert [(u.utterance_id, u.seq) for u in snapshot.utterances] == [
+        ("utt_q1", 0),
+        ("utt_a1", 1),
+        ("utt_a1", 1),
+    ]
+    assert snapshot.utterances[0].track_id == "trk_interviewer"
+
+
+async def test_an_unexpected_review_failure_is_stored_once_with_its_real_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class Broken:
+        calls = 0
+
+        async def summarize(self, transcript):  # noqa: ANN001, ANN201
+            Broken.calls += 1
+            raise ValueError(QUOTE)
+
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents(summarizer=Broken()))
+
+    with caplog.at_level(logging.ERROR):
+        done = await poller.run_once()
+    again = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "failed"
+    assert again.outcome == "idle"
+    assert Broken.calls == 1
+    assert "ValueError" in caplog.text
+    assert "ExceptionGroup" not in caplog.text
+    assert QUOTE not in caplog.text
 
 
 async def test_utterance_columns_the_poller_does_not_read_are_ignored() -> None:
