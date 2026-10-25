@@ -59,8 +59,9 @@ def build_review(
 ) -> Review:
     """면접 전 분석 · 요약 · 표시를 상세의 계산된 부분으로.
 
-    요약이 READY 가 아니면 moments · findings 가 비어 있다(FAILED 로 갈 때 비운다).
-    그때도 coverage 는 면접 전 분석의 역량 전부를 MISSING 으로 보인다.
+    요약이 FAILED 여도 Agent 가 보낸 moments · findings 는 남아 있을 수 있다 (#164).
+    시간 초과로 FAILED 가 되면 비어 있고, 그때 coverage 는 면접 전 분석의 역량
+    전부를 MISSING 으로 보인다.
     """
     competencies = [] if prep is None else prep.competencies
     claims = [] if prep is None else prep.resume_claims

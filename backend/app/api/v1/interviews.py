@@ -278,9 +278,11 @@ def get_review(
     기준 세션은 그 면접에서 가장 나중에 끝난 세션이다(목록과 같다). 끝난 세션이
     없거나 요약이 아직 PROCESSING 이면 202 다. FE 는 그동안 다시 조회한다.
 
-    **요약이 FAILED 여도 200 이다** (#163). `summary` 는 null 이고 moments ·
-    findings 는 비며 coverage 는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI
-    결과와 상관없이 할 수 있어야 한다.
+    **요약이 FAILED 여도 200 이다** (#163). `summary` 는 null 이다. Agent 가 요약만
+    실패를 보냈으면 같이 온 moments · findings 와 그것으로 낸 coverage 를 보인다
+    (#164). 시간 한도를 넘겨 FAILED 가 됐으면 moments · findings 는 비고 coverage
+    는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI 결과와 상관없이 할 수 있어야
+    한다.
     """
     session = store.last_ended_session(interview.id)
     if session is None:
