@@ -269,6 +269,24 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
     } satisfies SessionState;
   }
 
+  /* 꼬리질문 — 입장 전에 이미 쌓여 있던 것만 준다 (#212).
+     면접 중에 오는 것은 실제로는 LiveKit 데이터 패킷이라 이 경로로 오지 않는다. */
+  const suggestions = /^\/api\/v1\/sessions\/([^/]+)\/suggestions$/.exec(path);
+  if (suggestions && method === 'GET') {
+    await delay(300);
+    return {
+      items: [
+        {
+          suggestionId: 'sug_mock_0',
+          content: '지금까지 맡은 일 중 가장 어려웠던 결정은 무엇이었나요?',
+          evidenceUtteranceIds: ['utt_mock_1'],
+          status: 'NEW',
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    };
+  }
+
   /* 요약 — 처음 두 번은 생성 중으로 응답한다.
      LLM 요약에 시간이 걸리는 실제 상황을 흉내내, 대기 화면이 실제로 보이게 한다. */
   const summary = /^\/api\/v1\/sessions\/([^/]+)\/summary$/.exec(path);
