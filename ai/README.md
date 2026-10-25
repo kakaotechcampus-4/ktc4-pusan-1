@@ -19,7 +19,7 @@ ACK 대기 한도를 줍니다. 이는 마지막 STT 꼬리 발화 완료나 REV
 
 현재 BE develop은 text·화자·상대 시각을 저장하고 ACK하지만 `seq`·`trackId`는
 무시합니다. #137의 BE 보존·조회 확장, #125의 공통 원점, #151의 재시작 ID 유일성은
-후속입니다. 워커 재배정·findings 생성은 여기에 없습니다. 꼬리질문 배선(#83)은 같은
+후속입니다. 워커 재배정은 여기에 없습니다. 꼬리질문 배선(#83)은 같은
 fan-out에 붙어 있고 아래 워커 절에서 설명합니다.
 
 ## Requirements
@@ -212,7 +212,7 @@ uv run irya-ai-poller        # BACKEND_BASE_URL·BACKEND_API_KEY, LLM_* 필요
   이유입니다. 결과를 넣을 수 없는 작업(모르는 `kind`, BE가 거부한 PUT)만 10분 쉬며,
   이때는 큐가 막혔다는 뜻이라 ERROR 로그를 남깁니다.
 - 컨텍스트 응답의 `utterances`는 떼고 `InterviewContext`로 읽습니다. `REVIEW` 작업은
-  이 폴러가 처리하지 못하므로 #164에서 BE 조회에 `kind`를 나누어 받지 않게 합니다.
+  요약·타임라인·findings를 동시에 돌려 세션 review로 저장합니다(#224, #226).
 - 작업마다 `agent=`(모델 호출)와 `total=`(조회부터 저장까지) 소요를 INFO로 남깁니다.
   이력서 본문과 지원자 이름은 로그에 없습니다. LLM이 없으면 추출형 기준선으로 돌되
   경고를 남깁니다.
@@ -257,7 +257,8 @@ uv run irya-ai findings context.json stored-finals.json
 ```
 
 외부 호출 없는 baseline은 정확히 같은 이력서 문장의 면접 답변 내 언급만 찾습니다.
-실제 LLM 품질·BE 저장·폴러 통합은 후속입니다. [계약과 검증 범위](docs/findings.md).
+REVIEW 폴러가 요약·타임라인과 함께 돌려 `findings`로 보냅니다(#226). LLM 설정이 없으면
+이 baseline이 들어갑니다. 실제 LLM 품질 측정은 후속입니다. [계약과 검증 범위](docs/findings.md).
 
 ## Verify
 

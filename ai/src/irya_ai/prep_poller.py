@@ -61,6 +61,8 @@ from irya_ai.analysis import ContextAnalysisAgent
 from irya_ai.backend import BackendClient, BackendError
 from irya_ai.backend import build_client as build_backend_client
 from irya_ai.config import Settings, get_settings
+from irya_ai.findings import ExtractiveFindingsGenerator, FindingsAgent
+from irya_ai.openai_findings import OpenAIFindingsGenerator
 from irya_ai.openai_prep import OpenAIPrepGenerator
 from irya_ai.openai_summary import OpenAISummarizer
 from irya_ai.openai_timeline import OpenAITimelineGenerator
@@ -227,7 +229,7 @@ class FindingsOutcome(Protocol):
 
 
 class FindingsRunner(Protocol):
-    """The findings agent (#166), once it lands; ``FindingsAgent.run``."""
+    """The findings agent (#166); ``FindingsAgent.run``."""
 
     async def run(
         self, context: InterviewContext, snapshot: TranscriptSnapshot
@@ -735,6 +737,9 @@ def build_agents(
             model=settings.llm_model,
             reasoning_effort=settings.llm_reasoning_effort,
         )
+        # Findings keep their own "low" default (#166): the reply shares the
+        # 2000-token ceiling and the measured output sits near 900 tokens.
+        findings = OpenAIFindingsGenerator(client, model=settings.llm_model)
         agent = PrepAgent(
             prep, model=prep.model, timeout_seconds=settings.llm_timeout_seconds
         )
@@ -752,6 +757,11 @@ def build_agents(
                 model=timeline.model,
                 timeout_seconds=settings.llm_timeout_seconds,
             ),
+            findings=FindingsAgent(
+                findings,
+                model=findings.model,
+                timeout_seconds=settings.llm_timeout_seconds,
+            ),
             model=settings.llm_model,
         )
         return agent, review, client
@@ -760,6 +770,9 @@ def build_agents(
         summary=ContextAnalysisAgent(ExtractiveSummarizer()),
         timeline=ReviewTimelineAgent(
             ExtractiveTimelineGenerator(), model="extractive-baseline"
+        ),
+        findings=FindingsAgent(
+            ExtractiveFindingsGenerator(), model="extractive-baseline"
         ),
         model="extractive-baseline",
     )
