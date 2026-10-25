@@ -1,13 +1,18 @@
 """녹화 (#112) — 트랙별 녹화 시작, 합치기, 재생 URL."""
 
 import asyncio
+import base64
 import shutil
 import subprocess
-from datetime import timedelta
+from collections.abc import Iterator
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from botocore.signers import CloudFrontSigner
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from livekit import api
 from livekit.protocol.models import ParticipantInfo, TrackSource
 
@@ -161,15 +166,119 @@ def test_ready_gives_a_signed_url_and_the_offset(
             duration_ms=634_500,
         )
     )
-    monkeypatch.setattr(recording, "presign", lambda key: f"https://s3/{key}?sig")
+    expires = origin + timedelta(hours=3)
+    monkeypatch.setattr(
+        recording, "presign", lambda key: (f"https://s3/{key}?sig", expires)
+    )
 
     res = client.get(_url(session))
 
     assert res.status_code == 200
     body = res.json()
     assert body["url"] == f"https://s3/rec/{session.id}/merged.webm?sig"
+    # 서명한 만료 시각 그대로다 — 다르면 FE 가 아직 살아 있는 URL 을 다시 받거나,
+    # 이미 죽은 URL 을 붙잡는다.
+    assert datetime.fromisoformat(body["expiresAt"]) == expires
     assert body["offsetMs"] == 840
     assert body["durationSec"] == 634
+
+
+# ── 재생 URL 서명 (#197) ────────────────────────────────
+
+
+@pytest.fixture
+def cdn(monkeypatch: pytest.MonkeyPatch) -> Iterator[rsa.RSAPrivateKey]:
+    """CloudFront 를 켠다. 서명기는 캐시되므로 앞뒤로 비운다."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    monkeypatch.setattr(settings, "recording_cdn_domain", "d123.cloudfront.net")
+    monkeypatch.setattr(settings, "recording_cdn_key_id", "KTEST")
+    monkeypatch.setattr(
+        settings, "recording_cdn_private_key", base64.b64encode(pem).decode()
+    )
+    recording._cdn_signer.cache_clear()
+    yield key
+    recording._cdn_signer.cache_clear()
+
+
+def test_cloudfront_url_is_signed_with_our_key_for_three_hours(cdn):
+    before = utcnow()
+    url, expires = recording.presign("rec/ses_1/merged.webm")
+
+    # 초 단위로 내린 값이라 3시간보다 1초 미만 짧을 수 있다.
+    assert timedelta(hours=3, seconds=-1) < expires - before <= timedelta(hours=3)
+    base, _, query = url.partition("?")
+    assert base == "https://d123.cloudfront.net/rec/ses_1/merged.webm"
+    params = dict(p.split("=", 1) for p in query.split("&"))
+    assert params["Key-Pair-Id"] == "KTEST"
+    assert int(params["Expires"]) == expires.timestamp()
+
+    # CloudFront 가 검사하는 그대로 — 같은 정책 문장에 RSA-SHA1 서명이 맞는지.
+    policy = CloudFrontSigner("KTEST", lambda m: b"").build_policy(base, expires)
+    signature = base64.b64decode(
+        params["Signature"].replace("-", "+").replace("_", "=").replace("~", "/")
+    )
+    cdn.public_key().verify(
+        signature, policy.encode(), padding.PKCS1v15(), hashes.SHA1()
+    )
+
+
+def test_without_a_domain_it_stays_a_ten_minute_s3_url(bucket, monkeypatch):
+    # 키 ID · 개인키가 있어도 도메인이 비면 꺼진 것이다 — 켜기 전 서버의 모습이다.
+    monkeypatch.setattr(settings, "recording_cdn_domain", "")
+    monkeypatch.setattr(settings, "recording_cdn_key_id", "KTEST")
+    monkeypatch.setattr(settings, "recording_cdn_private_key", "unused")
+    recording._cdn_signer.cache_clear()
+    signed: list[dict] = []
+
+    def generate_presigned_url(op, **kw):
+        signed.append({"op": op, **kw["Params"], "ttl": kw["ExpiresIn"]})
+        return "https://s3/signed"
+
+    monkeypatch.setattr(
+        recording,
+        "_s3",
+        lambda: SimpleNamespace(generate_presigned_url=generate_presigned_url),
+    )
+    before = utcnow()
+
+    url, expires = recording.presign("rec/ses_1/merged.webm")
+
+    assert url == "https://s3/signed"
+    assert signed == [
+        {
+            "op": "get_object",
+            "Bucket": "test-bucket",
+            "Key": "rec/ses_1/merged.webm",
+            "ttl": 600,
+        }
+    ]
+    assert timedelta(minutes=10) <= expires - before < timedelta(minutes=10, seconds=5)
+
+
+@pytest.mark.parametrize(
+    ("domain", "key_id", "private_key", "message"),
+    [
+        ("d123.cloudfront.net", "", "", "RECORDING_CDN_KEY_ID"),
+        ("d123.cloudfront.net", "KTEST", "", "RECORDING_CDN_PRIVATE_KEY"),
+        ("d123.cloudfront.net", "KTEST", "bm90IGEga2V5", "읽을 수 없습니다"),
+        ("https://d123.cloudfront.net", "KTEST", "unused", "https:// 없이"),
+    ],
+)
+def test_turning_on_with_a_broken_setting_fails_at_startup(
+    monkeypatch, domain, key_id, private_key, message
+):
+    monkeypatch.setattr(settings, "recording_cdn_domain", domain)
+    monkeypatch.setattr(settings, "recording_cdn_key_id", key_id)
+    monkeypatch.setattr(settings, "recording_cdn_private_key", private_key)
+    # 예외는 캐시되지 않으니 앞만 비우면 된다.
+    recording._cdn_signer.cache_clear()
+    with pytest.raises(RuntimeError, match=message):
+        recording.check_cdn_at_startup()
 
 
 # ── 합치기 ─────────────────────────────────────────────
