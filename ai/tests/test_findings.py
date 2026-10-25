@@ -306,11 +306,13 @@ def test_cli_reads_persisted_context_and_finals(tmp_path: Path, capsys, separate
     snapshot = TranscriptSnapshot(session_id="ses_test", utterances=[utterance()])
     args = ["findings", str(tmp_path / "context.json")]
     if separate:
-        (tmp_path / "snapshot.json").write_text(snapshot.model_dump_json(by_alias=True))
+        (tmp_path / "snapshot.json").write_text(
+            snapshot.model_dump_json(by_alias=True), encoding="utf-8"
+        )
         args.append(str(tmp_path / "snapshot.json"))
     else:
         payload["utterances"] = snapshot.model_dump(by_alias=True)["utterances"]
-    (tmp_path / "context.json").write_text(json.dumps(payload))
+    (tmp_path / "context.json").write_text(json.dumps(payload), encoding="utf-8")
     assert main([*args, "--backend", "extractive"]) == 0
     body = json.loads(capsys.readouterr().out)
     assert body["status"] == "completed"
@@ -320,7 +322,7 @@ def test_cli_reads_persisted_context_and_finals(tmp_path: Path, capsys, separate
 
 def test_cli_invalid_input_does_not_echo_sensitive_content(tmp_path, capsys):
     p = tmp_path / "context.json"
-    p.write_text('{"secret": "private-resume-body"}')
+    p.write_text('{"secret": "private-resume-body"}', encoding="utf-8")
     assert main(["findings", str(p), "--backend", "extractive"]) == 2
     output = capsys.readouterr().out
     assert "INVALID_FINDINGS_INPUT" in output
@@ -349,7 +351,7 @@ def test_invalid_limits_are_rejected(kwargs):
 
 def test_new_sample_uses_the_prep_and_stored_transcript_contract():
     sample = Path(__file__).parents[1] / "data/samples/findings_context.json"
-    payload = json.loads(sample.read_text())
+    payload = json.loads(sample.read_text(encoding="utf-8"))
     finals = payload.pop("utterances")
     ctx = InterviewContext.model_validate(payload)
     snapshot = TranscriptSnapshot(session_id=ctx.session_id, utterances=finals)
