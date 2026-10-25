@@ -52,6 +52,10 @@ CREATE INDEX IF NOT EXISTS session_interview_id_idx ON session (interview_id);
 -- 기동 한 번으로 따라붙어야 하고, IF NOT EXISTS 라 여러 번 돌려도 안전하다.
 ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_origin_at TIMESTAMPTZ;
 
+-- Agent 가 전사 WebSocket 을 정상 종료(1000)한 시각 (#164). 남은 발화를 다 보냈다는
+-- 신호라 면접 후 분석(REVIEW)을 이때 내준다. 새 연결이 붙으면 다시 비운다.
+ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_closed_at TIMESTAMPTZ;
+
 -- ── 기업 컨텍스트 ──────────────────────────────────────────
 --
 -- 면접이 아니라 조직에 딸린다. 회사 정보와 JD 는 면접마다 바뀌지 않으므로 설정에
@@ -145,9 +149,12 @@ CREATE TABLE IF NOT EXISTS recording (
 );
 
 -- AI 의 Moment · Finding 을 camelCase JSON 그대로 둔다 (#137 2-5). BE 는 id 로 조인 ·
--- 집계만 한다(#163). READY 일 때만 차고 FAILED 로 갈 때 다시 비운다. 써 넣는 길은 #164.
+-- 집계만 한다(#163). 써 넣는 길은 #164 다. 요약만 실패했으면 FAILED 여도 남고,
+-- 시간 한도를 넘겨 FAILED 가 되면 비운다.
 ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS moments JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS findings JSONB NOT NULL DEFAULT '[]'::jsonb;
+-- 결과를 만든 모델 (#164). `interview_prep.model` 과 같다. 결과가 없으면 비어 있다.
+ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT '';
 
 -- 면접관의 검토 표시 (#163) — finding 의 채택 여부(state)와 moment 의 북마크.
 -- 키의 item_id 는 AI 가 결정적으로 만드는 findingId · momentId 라 재분석해도 대부분

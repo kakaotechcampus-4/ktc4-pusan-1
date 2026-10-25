@@ -10,7 +10,7 @@
 
 from copy import deepcopy
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.domain.models import (
     Context,
@@ -87,6 +87,15 @@ class Store(Protocol):
         `None` 이면 조건 없이 쓴다. 경쟁이 없는 자리에만 쓴다.
 
         전사 원점(`transcript_origin_at`)은 쓰지 않는다 — `mark_origin` 만 쓴다.
+        전사 종료(`transcript_closed_at`)도 쓰지 않는다 — `mark_transcript` 만 쓴다.
+        """
+        ...
+
+    def mark_transcript(self, session_id: str, closed_at: datetime | None) -> None:
+        """전사 WebSocket 이 정상 종료(1000)한 시각을 쓴다. `None` 이면 비운다 (#164).
+
+        연결이 붙을 때 비우고, 1000 으로 닫힐 때 채운다. 조건 없이 쓴다 — 어느
+        소켓이 주인인지는 라우터가 가린다.
         """
         ...
 
@@ -170,8 +179,18 @@ class Store(Protocol):
         """Agent 가 만든 결과를 받아 둔다. 조건 없이 덮어쓴다."""
         ...
 
-    def fail_summary(self, session_id: str) -> bool:
+    def fail_summary(
+        self,
+        session_id: str,
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+        model: str = "",
+    ) -> bool:
         """Agent 의 실패 보고. READY 가 아니면 FAILED 로 넘기고 본문을 비운다.
+
+        요약만 실패했으면 같이 온 타임라인 · findings 는 받아 둔다 (#164). `findings`
+        가 `None` 이면 Agent 가 findings 를 안 돌린 것이라 있던 값을 그대로 둔다.
 
         READY 면 아무것도 바꾸지 않고 False 다. Agent 의 재시도 · 재실행에서 실패
         한 번이 이미 성공한 요약을 지우면 안 된다 (#132). 판정과 갱신은 한 문장이다
@@ -258,6 +277,18 @@ class Store(Protocol):
         화면과 같이 실패로 보고 기다리지 않는다.
 
         세션은 그 면접의 가장 최근 것을 싣는다. 컨텍스트를 세션으로 읽기 때문이다.
+        """
+        ...
+
+    def next_review(self, limit: timedelta, grace: timedelta) -> Job | None:
+        """AI 폴러에게 내줄 REVIEW 하나. 요청이 오래된 것부터, 없으면 None (#164).
+
+        먼저 한도(`limit`)를 넘긴 PROCESSING 요약을 FAILED 로 넘긴다 — `next_prep` 과
+        같은 이유다. 그 다음 끝난 세션의 PROCESSING 요약 중 전사가 다 들어온 것을
+        고른다. 「다 들어왔다」는 Agent 가 전사 WebSocket 을 1000 으로 닫았거나, 그
+        신호 없이 종료 뒤 `grace` 가 지난 것이다.
+
+        요청 시각은 요약 자리의 것이다. 면접 종료 때 한 번 찍히고 바뀌지 않는다.
         """
         ...
 
@@ -430,10 +461,17 @@ class InMemoryStore:
         if expected_status is not None and stored.status is not expected_status:
             return False
         saved = deepcopy(session)
-        # 원점은 mark_origin 만 쓴다. 들고 온 객체의 값이 낡았어도 덮어쓰지 않는다.
+        # 원점은 mark_origin 만, 종료는 mark_transcript 만 쓴다. 들고 온 객체의
+        # 값이 낡았어도 덮어쓰지 않는다.
         saved.transcript_origin_at = stored.transcript_origin_at
+        saved.transcript_closed_at = stored.transcript_closed_at
         self._sessions[session.id] = saved
         return True
+
+    def mark_transcript(self, session_id: str, closed_at: datetime | None) -> None:
+        stored = self._sessions.get(session_id)
+        if stored is not None:
+            stored.transcript_closed_at = closed_at
 
     def mark_origin(self, session_id: str, at: datetime) -> bool:
         stored = self._sessions.get(session_id)
@@ -535,11 +573,19 @@ class InMemoryStore:
         fresh.requested_at = stored.requested_at
         self._summaries[summary.session_id] = fresh
 
-    def fail_summary(self, session_id: str) -> bool:
+    def fail_summary(
+        self,
+        session_id: str,
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+        model: str = "",
+    ) -> bool:
         stored = self._summaries.get(session_id)
         if stored is None or stored.status is SummaryStatus.READY:
             return False
-        stored.give_up()
+        kept = stored.findings if findings is None else findings
+        stored.give_up(moments=deepcopy(moments), findings=deepcopy(kept), model=model)
         return True
 
     def expire_summary(
@@ -620,6 +666,34 @@ class InMemoryStore:
             ):
                 jobs.append(
                     Job(JobKind.PREP, session.id, prep.interview_id, prep.requested_at)
+                )
+        return min(jobs, key=lambda j: j.requested_at, default=None)
+
+    def next_review(self, limit: timedelta, grace: timedelta) -> Job | None:
+        now = utcnow()
+        for summary in self._summaries.values():
+            if summary.overdue(limit, now):
+                summary.give_up()
+
+        jobs: list[Job] = []
+        for summary in self._summaries.values():
+            session = self._sessions.get(summary.session_id)
+            if (
+                summary.status is SummaryStatus.PROCESSING
+                and session is not None
+                and session.status is SessionStatus.ENDED
+                and (
+                    session.transcript_closed_at is not None
+                    or (session.ended_at is not None and now - session.ended_at > grace)
+                )
+            ):
+                jobs.append(
+                    Job(
+                        JobKind.REVIEW,
+                        session.id,
+                        session.interview_id,
+                        summary.requested_at,
+                    )
                 )
         return min(jobs, key=lambda j: j.requested_at, default=None)
 

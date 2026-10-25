@@ -342,15 +342,16 @@ def put_mark(
     """검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).
 
     `itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면
-    404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도
-    없다 (#163 결정). 문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중
-    하나」). 표시는 기준 세션에 남는다.
+    404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 끝나기 전에는 표시할 것도 없다
+    (#163 결정). 요약만 FAILED 여도 Agent 가 보낸 항목은 표시할 수 있다 (#164).
+    문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중 하나」). 표시는 기준
+    세션에 남는다.
     """
     session = store.last_ended_session(interview.id)
     summary = None if session is None else store.get_summary(session.id)
     kinds = (
         {}
-        if summary is None or summary.status is not SummaryStatus.READY
+        if summary is None or summary.status is SummaryStatus.PROCESSING
         else item_kinds(summary)
     )
     kind = kinds.get(item_id)

@@ -4,7 +4,8 @@
 
     끝난 세션 없음 · 요약 PROCESSING  → 202 PROCESSING
     요약 READY                       → 200, 계산된 coverage · moments · findings
-    요약 FAILED                      → 200, 분석만 빈다 (#163 결정)
+    요약 FAILED                      → 200, 요약은 빈다. Agent 가 보낸 타임라인 ·
+                                       findings 는 보인다 (#164 B안)
 
 계산 규칙 자체는 `test_review_rules.py` 가 본다. 여기서는 경로가 저장된 값을 제대로
 모아 그 규칙에 넘기는지, 갈래가 맞는지를 본다.
@@ -405,3 +406,69 @@ def test_a_mark_without_a_usable_field_is_refused(
     interview_id, _ = _ready(client, store)
 
     assert put_mark(client, interview_id, FINDING_ID, body).status_code == 422
+
+
+def test_a_failed_summary_still_shows_the_timeline_the_agent_sent(
+    client: TestClient, store: InMemoryStore
+):
+    """요약만 실패한 경우다 (#164 B안). 타임라인 · findings 는 그대로 보인다."""
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    prepared(store, interview_id)
+    store.fail_summary(
+        session_id,
+        moments=DEMO["review"]["moments"],
+        findings=DEMO["review"]["findings"],
+    )
+
+    body = get_review(client, interview_id).json()
+
+    assert body["summaryStatus"] == "FAILED"
+    assert body["summary"] is None
+    assert len(body["moments"]) == len(DEMO["review"]["moments"])
+    assert len(body["findings"]) > 0
+
+
+def test_a_failed_summary_with_items_takes_marks(
+    client: TestClient, store: InMemoryStore
+):
+    """보이는 항목이면 요약이 FAILED 여도 채택 · 북마크할 수 있어야 한다."""
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    store.fail_summary(
+        session_id,
+        moments=DEMO["review"]["moments"],
+        findings=DEMO["review"]["findings"],
+    )
+    moment_id = DEMO["review"]["moments"][0]["momentId"]
+
+    assert (
+        put_mark(client, interview_id, FINDING_ID, {"state": "ADOPTED"}).status_code
+        == 200
+    )
+    assert (
+        put_mark(client, interview_id, moment_id, {"bookmarked": True}).status_code
+        == 200
+    )
+
+    body = get_review(client, interview_id).json()
+    assert {f["id"]: f["state"] for f in body["findings"]}[FINDING_ID] == "ADOPTED"
+    assert body["moments"][0]["bookmarked"] is True
+
+
+def test_a_finding_state_from_the_agent_does_not_break_the_detail(
+    client: TestClient, store: InMemoryStore
+):
+    """AI 쪽 상태(EDITED)는 저장만 한다. 상세의 상태는 면접관의 표시가 정한다."""
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    summary = store.get_summary(session_id)
+    assert summary is not None
+    findings = [f | {"state": "EDITED"} for f in DEMO["review"]["findings"]]
+    summary.complete("요약", [], moments=DEMO["review"]["moments"], findings=findings)
+    store.save_summary(summary)
+
+    response = get_review(client, interview_id)
+
+    assert response.status_code == 200
+    assert {f["state"] for f in response.json()["findings"]} == {"PROPOSED"}

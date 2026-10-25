@@ -13,7 +13,7 @@ from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from app.api.internal import transcripts
 from app.core.config import settings
-from app.domain.models import Role, TranscriptStage
+from app.domain.models import Role, TranscriptStage, utcnow
 from app.domain.store import InMemoryStore
 
 UPSERT = {
@@ -483,3 +483,66 @@ def test_repeated_evidence_is_stored_once_in_order(
 
     [found] = store.list_suggestions(session_id)
     assert found.evidence_utterance_ids == ["utt_002", "utt_001"]
+
+
+# ── 전사 종료 신호 (#164) ───────────────────────────────
+
+
+def _closed_at(store: InMemoryStore, session_id: str):
+    session = store.get_session(session_id)
+    assert session is not None
+    return session.transcript_closed_at
+
+
+def test_a_normal_close_marks_the_transcript_done(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str
+) -> None:
+    """1000 은 Agent 가 남은 발화를 다 보냈다는 뜻이다. REVIEW 가 그걸 보고 나간다."""
+    path = f"/internal/v1/sessions/{session_id}/transcripts"
+    with client.websocket_connect(path, headers=auth(key)) as ws:
+        ws.send_json(UPSERT)
+        ws.receive_json()
+        ws.close(code=1000)
+
+    assert _closed_at(store, session_id) is not None
+
+
+def test_an_abnormal_close_is_not_a_done_signal(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str
+) -> None:
+    """네트워크 끊김 · 재시작은 아직 보낼 발화가 남았을 수 있다."""
+    path = f"/internal/v1/sessions/{session_id}/transcripts"
+    with client.websocket_connect(path, headers=auth(key)) as ws:
+        ws.send_json(UPSERT)
+        ws.receive_json()
+        ws.close(code=1011)
+
+    assert _closed_at(store, session_id) is None
+
+
+def test_reconnecting_clears_the_done_signal(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str
+) -> None:
+    store.mark_transcript(session_id, utcnow())
+
+    path = f"/internal/v1/sessions/{session_id}/transcripts"
+    with client.websocket_connect(path, headers=auth(key)) as ws:
+        ws.send_json(UPSERT)
+        ws.receive_json()
+        assert _closed_at(store, session_id) is None
+
+
+def test_a_replaced_connection_is_not_a_done_signal(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str
+) -> None:
+    """교체된 옛 연결이 끝나도 새 연결은 아직 보내는 중이다."""
+    path = f"/internal/v1/sessions/{session_id}/transcripts"
+    with client.websocket_connect(path, headers=auth(key)) as first:
+        with client.websocket_connect(path, headers=auth(key)) as second:
+            second.send_json(UPSERT)
+            second.receive_json()
+            # 옛 연결이 1000 으로 닫혀도 이제 주인이 아니라 신호가 아니다.
+            first.close(code=1000)
+            second.send_json(UPSERT)
+            second.receive_json()
+            assert _closed_at(store, session_id) is None

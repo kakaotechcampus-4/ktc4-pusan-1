@@ -9,7 +9,10 @@ PROCESSING 행이다.
     GET /sessions/{sessionId}/context  → AI InterviewContext + 이력서 본문 + 전사
     PUT /interviews/{interviewId}/prep → 204
 
-지금은 PREP 만 내준다. 면접 후 분석(REVIEW)은 #164 에서 같은 조회에 붙는다.
+면접 전 분석(PREP)을 먼저 내주고, 없으면 면접 후 분석(REVIEW, #164)을 내준다.
+REVIEW 는 면접이 끝나고 전사가 다 들어온 뒤에 나간다 — Agent 가 전사 WebSocket 을
+1000 으로 닫았거나, 그 신호 없이 `TRANSCRIPT_GRACE` 가 지난 것이다. 결과는
+`PUT /sessions/{sessionId}/review` (`reviews.py`) 로 온다.
 
 **재시도는 따로 없다.** 폴러가 죽으면 행이 PROCESSING 으로 남아 다음 조회에서 다시
 나가고, 한도를 넘기면 FAILED 로 빠진다. FAILED 는 그 면접의 세션을 다시 만들거나
@@ -18,7 +21,8 @@ PROCESSING 행이다.
 """
 
 import logging
-from typing import Annotated, Any
+from datetime import timedelta
+from typing import Annotated, Any, Final
 
 from fastapi import APIRouter, Depends, Path, status
 
@@ -46,6 +50,10 @@ router = APIRouter(
 SessionIdPath = Annotated[str, Path(alias="sessionId")]
 InterviewIdPath = Annotated[str, Path(alias="interviewId")]
 
+#: 면접 종료 뒤 전사 종료 신호를 기다리는 시간. Agent 가 1000 으로 닫지 못하고
+#: 죽었어도 이만큼 지나면 받은 전사로 REVIEW 를 내준다.
+TRANSCRIPT_GRACE: Final = timedelta(seconds=60)
+
 
 @router.get("/jobs/pending", response_model=PendingJob | None)
 def pending_job(store: StoreDep) -> Job | None:
@@ -54,10 +62,16 @@ def pending_job(store: StoreDep) -> Job | None:
     # 전에 FAILED 가 된다.
     #
     # `Job` 을 그대로 돌려주면 FastAPI 가 `PendingJob` 으로 옮겨 camelCase 로 낸다.
-    return store.next_prep(
+    #
+    # PREP 이 먼저다. 다음 면접의 꼬리질문이 그걸 기다린다 — 끝난 면접의 리뷰는
+    # 조금 늦어도 된다.
+    prep = store.next_prep(
         settings.summary_timeout + settings.doc_parse_timeout,
         settings.doc_parse_timeout,
     )
+    if prep is not None:
+        return prep
+    return store.next_review(settings.summary_timeout, TRANSCRIPT_GRACE)
 
 
 @router.get("/sessions/{sessionId}/context")
