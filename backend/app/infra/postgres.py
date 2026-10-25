@@ -150,7 +150,8 @@ class PostgresStore:
         row = self._one(
             """
             SELECT id, interview_id, status, created_at,
-                   started_at, ended_at, transcript_origin_at
+                   started_at, ended_at, transcript_origin_at,
+                   transcript_closed_at
             FROM session
             WHERE interview_id = %s AND ended_at IS NOT NULL
             ORDER BY ended_at DESC, id DESC
@@ -171,6 +172,7 @@ class PostgresStore:
                    s.id AS s_id, s.status AS s_status, s.created_at AS s_created_at,
                    s.started_at AS s_started_at, s.ended_at AS s_ended_at,
                    s.transcript_origin_at AS s_transcript_origin_at,
+                   s.transcript_closed_at AS s_transcript_closed_at,
                    ss.status AS summary_status
             FROM interview i
             LEFT JOIN LATERAL (
@@ -198,6 +200,7 @@ class PostgresStore:
                     started_at=row["s_started_at"],
                     ended_at=row["s_ended_at"],
                     transcript_origin_at=row["s_transcript_origin_at"],
+                    transcript_closed_at=row["s_transcript_closed_at"],
                 ),
                 None
                 if row["summary_status"] is None
@@ -214,9 +217,10 @@ class PostgresStore:
                 """
                 INSERT INTO session (
                     id, interview_id, status, created_at,
-                    started_at, ended_at, transcript_origin_at
+                    started_at, ended_at, transcript_origin_at,
+                    transcript_closed_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 self._session_values(session),
             )
@@ -225,7 +229,8 @@ class PostgresStore:
         row = self._one(
             """
             SELECT id, interview_id, status, created_at,
-                   started_at, ended_at, transcript_origin_at
+                   started_at, ended_at, transcript_origin_at,
+                   transcript_closed_at
             FROM session WHERE id = %s
             """,
             (session_id,),
@@ -242,6 +247,7 @@ class PostgresStore:
             started_at=row["started_at"],
             ended_at=row["ended_at"],
             transcript_origin_at=row["transcript_origin_at"],
+            transcript_closed_at=row["transcript_closed_at"],
         )
 
     @staticmethod
@@ -305,6 +311,13 @@ class PostgresStore:
             )
             return cursor.rowcount == 1
 
+    def mark_transcript(self, session_id: str, closed_at: datetime | None) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE session SET transcript_closed_at = %s WHERE id = %s",
+                (closed_at, session_id),
+            )
+
     # ── 요약 ────────────────────────────────────────────────
 
     def ensure_summary(self, summary: SessionSummary) -> SessionSummary:
@@ -319,9 +332,9 @@ class PostgresStore:
                 """
                 INSERT INTO session_summary (
                     session_id, status, overview, key_points,
-                    requested_at, completed_at, moments, findings
+                    requested_at, completed_at, moments, findings, model
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id) DO NOTHING
                 """,
                 self._summary_values(summary),
@@ -334,7 +347,7 @@ class PostgresStore:
         row = self._one(
             """
             SELECT session_id, status, overview, key_points,
-                   requested_at, completed_at, moments, findings
+                   requested_at, completed_at, moments, findings, model
             FROM session_summary WHERE session_id = %s
             """,
             (session_id,),
@@ -353,7 +366,8 @@ class PostgresStore:
                        key_points = %s,
                        completed_at = %s,
                        moments = %s,
-                       findings = %s
+                       findings = %s,
+                       model = %s
                  WHERE session_id = %s
                 """,
                 (
@@ -363,13 +377,23 @@ class PostgresStore:
                     summary.completed_at,
                     Jsonb(summary.moments),
                     Jsonb(summary.findings),
+                    summary.model,
                     summary.session_id,
                 ),
             )
 
-    def fail_summary(self, session_id: str) -> bool:
+    def fail_summary(
+        self,
+        session_id: str,
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+        model: str = "",
+    ) -> bool:
         """READY 가 아닐 때만 FAILED 로. 조건이 `WHERE` 안에 있어 판정과 갱신
-        사이가 열리지 않는다 (#132). 시각은 `expire_summary` 처럼 앱이 찍는다."""
+        사이가 열리지 않는다 (#132). 시각은 `expire_summary` 처럼 앱이 찍는다.
+
+        `findings` 가 `None` 이면 `COALESCE` 로 있던 값을 둔다 (#164)."""
         with self._pool.connection() as conn:
             cursor = conn.execute(
                 """
@@ -377,14 +401,18 @@ class PostgresStore:
                    SET status = %s,
                        overview = '',
                        key_points = '[]'::jsonb,
-                       moments = '[]'::jsonb,
-                       findings = '[]'::jsonb,
+                       moments = %s,
+                       findings = COALESCE(%s, findings),
+                       model = %s,
                        completed_at = %s
                  WHERE session_id = %s
                    AND status <> %s
                 """,
                 (
                     SummaryStatus.FAILED.value,
+                    Jsonb(moments or []),
+                    None if findings is None else Jsonb(findings),
+                    model,
                     utcnow(),
                     session_id,
                     SummaryStatus.READY.value,
@@ -419,12 +447,13 @@ class PostgresStore:
                    key_points = '[]'::jsonb,
                    moments = '[]'::jsonb,
                    findings = '[]'::jsonb,
+                   model = '',
                    completed_at = %s
              WHERE session_id = %s
                AND status = %s
                AND requested_at < %s
          RETURNING session_id, status, overview, key_points,
-                   requested_at, completed_at, moments, findings
+                   requested_at, completed_at, moments, findings, model
             """,
             (
                 SummaryStatus.FAILED.value,
@@ -611,6 +640,55 @@ class PostgresStore:
             requested_at=row["requested_at"],
         )
 
+    def next_review(self, limit: timedelta, grace: timedelta) -> Job | None:
+        """만료 UPDATE 한 번, 고르는 SELECT 한 번이다. 시각은 앱이 찍는다."""
+        moment = utcnow()
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE session_summary
+                   SET status = %s,
+                       overview = '',
+                       key_points = '[]'::jsonb,
+                       moments = '[]'::jsonb,
+                       findings = '[]'::jsonb,
+                       model = '',
+                       completed_at = %s
+                 WHERE status = %s AND requested_at < %s
+                """,
+                (
+                    SummaryStatus.FAILED.value,
+                    moment,
+                    SummaryStatus.PROCESSING.value,
+                    moment - limit,
+                ),
+            )
+        row = self._one(
+            """
+            SELECT ss.session_id, ss.requested_at, s.interview_id
+            FROM session_summary ss
+            JOIN session s ON s.id = ss.session_id
+            WHERE ss.status = %s
+              AND s.status = %s
+              AND (s.transcript_closed_at IS NOT NULL OR s.ended_at < %s)
+            ORDER BY ss.requested_at
+            LIMIT 1
+            """,
+            (
+                SummaryStatus.PROCESSING.value,
+                SessionStatus.ENDED.value,
+                moment - grace,
+            ),
+        )
+        if row is None:
+            return None
+        return Job(
+            kind=JobKind.REVIEW,
+            session_id=row["session_id"],
+            interview_id=row["interview_id"],
+            requested_at=row["requested_at"],
+        )
+
     # ── 내부 ────────────────────────────────────────────────
 
     @staticmethod
@@ -624,6 +702,7 @@ class PostgresStore:
             summary.completed_at,
             Jsonb(summary.moments),
             Jsonb(summary.findings),
+            summary.model,
         )
 
     @staticmethod
@@ -636,6 +715,7 @@ class PostgresStore:
             session.started_at,
             session.ended_at,
             session.transcript_origin_at,
+            session.transcript_closed_at,
         )
 
     # ── 녹화 ────────────────────────────────────────────
@@ -720,6 +800,7 @@ class PostgresStore:
             completed_at=row["completed_at"],
             moments=list(row["moments"]),
             findings=list(row["findings"]),
+            model=row["model"],
         )
 
     def _one(

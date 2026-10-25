@@ -1620,12 +1620,15 @@ def test_summary_keeps_moments_and_findings(subject: Store):
     summary = subject.ensure_summary(SessionSummary(session_id=session.id))
     assert (summary.moments, summary.findings) == ([], [])
 
-    summary.complete("요약", ["핵심"], moments=[MOMENT], findings=[FINDING])
+    summary.complete(
+        "요약", ["핵심"], moments=[MOMENT], findings=[FINDING], model="gpt-6-luna"
+    )
     subject.save_summary(summary)
 
     found = subject.get_summary(session.id)
     assert found is not None
     assert (found.moments, found.findings) == ([MOMENT], [FINDING])
+    assert found.model == "gpt-6-luna"
 
 
 def test_giving_up_empties_the_analysis():
@@ -1633,7 +1636,7 @@ def test_giving_up_empties_the_analysis():
 
     summary.give_up()
 
-    assert (summary.moments, summary.findings) == ([], [])
+    assert (summary.moments, summary.findings, summary.model) == ([], [], "")
 
 
 def test_mark_roundtrip(subject: Store):
@@ -1711,3 +1714,182 @@ def test_deleting_the_interview_takes_its_transcript_and_suggestions():
         assert left == (0,)
     finally:
         subject.close()
+
+
+# ── 면접 후 분석(REVIEW) 큐 (#164) ─────────────────────
+
+
+def _ended(subject: Store, *, ago: timedelta = timedelta(0)) -> Session:
+    session = _seed(subject)
+    session.start()
+    session.end()
+    assert session.ended_at is not None
+    session.ended_at -= ago
+    subject.save_session(session)
+    return session
+
+
+def test_mark_transcript_roundtrip(subject: Store):
+    session = _seed(subject)
+    closed = session.created_at
+
+    subject.mark_transcript(session.id, closed)
+    found = subject.get_session(session.id)
+    assert found is not None
+    assert found.transcript_closed_at == closed
+
+    subject.mark_transcript(session.id, None)
+    found = subject.get_session(session.id)
+    assert found is not None
+    assert found.transcript_closed_at is None
+
+
+def test_save_session_does_not_touch_transcript_closed_at(subject: Store):
+    """종료 요청이 세션을 읽은 사이에 전사 연결이 닫혀도 그 시각이 남아야 한다."""
+    stale = _seed(subject)
+    subject.mark_transcript(stale.id, stale.created_at)
+
+    assert stale.start() is True
+    subject.save_session(stale)
+
+    found = subject.get_session(stale.id)
+    assert found is not None
+    assert found.transcript_closed_at == stale.created_at
+
+
+def test_review_waits_for_the_transcript_to_close(subject: Store):
+    session = _ended(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    assert subject.next_review(timedelta(minutes=10), timedelta(minutes=1)) is None
+
+    subject.mark_transcript(session.id, utcnow())
+    job = subject.next_review(timedelta(minutes=10), timedelta(minutes=1))
+
+    assert job is not None
+    assert job.kind is JobKind.REVIEW
+    assert job.session_id == session.id
+
+
+def test_review_goes_out_after_the_grace_without_a_close(subject: Store):
+    """Agent 가 1000 으로 못 닫고 죽어도 분석은 나가야 한다."""
+    session = _ended(subject, ago=timedelta(minutes=2))
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    job = subject.next_review(timedelta(minutes=10), timedelta(minutes=1))
+
+    assert job is not None
+    assert job.kind is JobKind.REVIEW
+    assert job.session_id == session.id
+    assert job.interview_id == session.interview_id
+
+
+def test_review_needs_an_ended_session(subject: Store):
+    session = _seed(subject)
+    session.start()
+    subject.save_session(session)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+    subject.mark_transcript(session.id, utcnow())
+
+    assert subject.next_review(timedelta(minutes=10), timedelta(0)) is None
+
+
+def test_review_skips_a_finished_summary(subject: Store):
+    session = _ended(subject)
+    subject.mark_transcript(session.id, utcnow())
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.complete("끝난 요약", [])
+    subject.save_summary(summary)
+
+    assert subject.next_review(timedelta(minutes=10), timedelta(0)) is None
+
+
+def test_review_hands_out_the_oldest_request_first(subject: Store):
+    newer = _ended(subject)
+    older = _ended(subject)
+    for session, age in ((newer, 1), (older, 5)):
+        subject.mark_transcript(session.id, utcnow())
+        summary = SessionSummary(session_id=session.id)
+        summary.requested_at -= timedelta(minutes=age)
+        subject.ensure_summary(summary)
+
+    job = subject.next_review(timedelta(minutes=10), timedelta(0))
+
+    assert job is not None
+    assert job.session_id == older.id
+
+
+def test_review_expires_an_overdue_summary_instead_of_handing_it_out(subject: Store):
+    session = _ended(subject)
+    subject.mark_transcript(session.id, utcnow())
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    assert subject.next_review(timedelta(seconds=-1), timedelta(0)) is None
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.FAILED
+    assert stored.model == ""
+
+
+def _moment(moment_id: str = "mom_1") -> dict[str, Any]:
+    return {"momentId": moment_id, "qaId": "qa_1", "atMs": 0, "label": "도입"}
+
+
+def _finding(finding_id: str = "fnd_1") -> dict[str, Any]:
+    return {"findingId": finding_id, "type": "STRENGTH", "summary": "근거"}
+
+
+def test_a_failure_report_keeps_what_the_agent_sent(subject: Store):
+    """요약만 실패해도 타임라인 · findings 는 보인다 (#164, B안)."""
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    assert (
+        subject.fail_summary(
+            session.id, moments=[_moment()], findings=[_finding()], model="gpt-6-luna"
+        )
+        is True
+    )
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.FAILED
+    assert stored.overview == ""
+    assert stored.moments == [_moment()]
+    assert stored.findings == [_finding()]
+    assert stored.model == "gpt-6-luna"
+
+
+def test_a_failure_report_without_findings_keeps_the_stored_ones(subject: Store):
+    """findings 를 안 돌린 실행이 앞서 저장된 findings 를 지우면 안 된다."""
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.findings = [_finding("fnd_old")]
+    subject.save_summary(summary)
+
+    assert subject.fail_summary(session.id, moments=[_moment()]) is True
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.moments == [_moment()]
+    assert stored.findings == [_finding("fnd_old")]
+
+
+def test_a_failure_report_with_moments_does_not_touch_a_ready_summary(
+    subject: Store,
+):
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.complete("살아남아야 하는 요약", [], moments=[_moment("mom_keep")])
+    subject.save_summary(summary)
+
+    assert (
+        subject.fail_summary(session.id, moments=[_moment("mom_new")], findings=[])
+        is False
+    )
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.READY
+    assert stored.moments == [_moment("mom_keep")]

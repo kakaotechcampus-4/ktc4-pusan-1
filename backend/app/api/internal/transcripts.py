@@ -25,9 +25,14 @@ Agent 는 NACK 을 받으면 그 발화를 버리고 다음으로 넘어간다 (
 
 세션이 없으면 `accept()` 전에 끊는다. 붙은 뒤에 끊으면 Agent 가 연결 문제로 보고
 같은 세션으로 계속 다시 붙는다.
+
+Agent 가 **1000 으로 닫으면** 남은 발화를 다 보냈다는 뜻이라 그 시각을 세션에
+적는다 (#164). 면접 후 분석(REVIEW)은 그걸 보고 나간다. 1012(교체) · 네트워크
+끊김은 아직 보낼 발화가 남았을 수 있어 적지 않는다. 새 연결이 붙으면 지운다.
 """
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
@@ -35,9 +40,10 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import StoreDep
+from app.api.internal.analysis import TRANSCRIPT_GRACE
 from app.api.internal.deps import websocket_authorized
 from app.api.internal.schemas import TranscriptAck, TranscriptNack, TranscriptUpsert
-from app.domain.models import Utterance
+from app.domain.models import Session, SessionStatus, Utterance, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +71,18 @@ def _utterance_id(raw: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _past_grace(session: Session, now: datetime) -> bool:
+    """종료 신호 없이도 REVIEW 가 나갈 수 있는 때인가 (`TRANSCRIPT_GRACE`).
+
+    그 뒤에 온 발화는 리뷰에 안 들어갔을 수 있다. 로그로 남겨 둔다.
+    """
+    return (
+        session.status is SessionStatus.ENDED
+        and session.ended_at is not None
+        and now - session.ended_at > TRANSCRIPT_GRACE
+    )
+
+
 async def _replace_live(session_id: str, websocket: WebSocket) -> None:
     previous = _live.get(session_id)
     if previous is not None:
@@ -84,7 +102,8 @@ async def receive_transcripts(
     if not await websocket_authorized(websocket):
         return
 
-    if await run_in_threadpool(store.get_session, sessionId) is None:
+    session = await run_in_threadpool(store.get_session, sessionId)
+    if session is None:
         # 우리가 만들지 않은 세션이다. 나중에 생길 값이 아니므로 다시 붙어도
         # 같은 답이고, 그래서 핸드셰이크 단계에서 끊는다.
         logger.warning("전사 WebSocket: 세션을 찾을 수 없음 session_id=%s", sessionId)
@@ -93,7 +112,15 @@ async def receive_transcripts(
 
     await websocket.accept()
     await _replace_live(sessionId, websocket)
-    logger.info("전사 WebSocket 연결 session_id=%s", sessionId)
+    # 새 연결이 붙었다. 앞 연결의 종료 신호는 이제 「다 보냈다」가 아니다.
+    await run_in_threadpool(store.mark_transcript, sessionId, None)
+    if session.transcript_closed_at is not None or _past_grace(session, utcnow()):
+        logger.warning(
+            "전사 WebSocket 연결 session_id=%s — 면접 후 분석이 이미 나갔을 수 있다",
+            sessionId,
+        )
+    else:
+        logger.info("전사 WebSocket 연결 session_id=%s", sessionId)
     received = 0
     refused = 0
 
@@ -165,13 +192,27 @@ async def receive_transcripts(
 
             ack = TranscriptAck(utterance_id=frame.utterance_id)
             await websocket.send_json(ack.model_dump(by_alias=True))
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as exc:
         logger.info(
-            "전사 WebSocket 종료 session_id=%s 받은 발화=%d 거절=%d",
+            "전사 WebSocket 종료 session_id=%s code=%d 받은 발화=%d 거절=%d",
             sessionId,
+            exc.code,
             received,
             refused,
         )
+        # 교체된 옛 연결의 종료는 신호가 아니다. 새 연결이 아직 보내는 중이다.
+        normal = exc.code == status.WS_1000_NORMAL_CLOSURE
+        if normal and _live.get(sessionId) is websocket:
+            now = utcnow()
+            await run_in_threadpool(store.mark_transcript, sessionId, now)
+            ended = await run_in_threadpool(store.get_session, sessionId)
+            if received and ended is not None and _past_grace(ended, now):
+                logger.warning(
+                    "전사 종료가 늦었다 session_id=%s 받은 발화=%d — "
+                    "면접 후 분석이 이미 나갔을 수 있다",
+                    sessionId,
+                    received,
+                )
     finally:
         # 교체된 뒤에 옛 연결이 정리될 수 있다. 내가 아직 주인일 때만 지운다.
         if _live.get(sessionId) is websocket:

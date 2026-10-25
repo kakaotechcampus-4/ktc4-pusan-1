@@ -158,6 +158,10 @@ class Session:
     #: AI 의 `startMs` 와 FE 의 `atSec` 은 단위만 다르고 원점은 이 값 하나를 쓴다.
     #: 녹화(Egress) 도입 시 Egress start 와의 오프셋 보정 때문에 재검토한다.
     transcript_origin_at: datetime | None = None
+    #: Agent 가 전사 WebSocket 을 1000 으로 닫은 시각 (#164). 남은 발화를 다 보냈다는
+    #: 뜻이라 면접 후 분석을 이때 내준다. 새 연결이 붙으면 비운다 — 1012(교체) ·
+    #: 네트워크 끊김은 아직 보낼 발화가 남았을 수 있어 채우지 않는다.
+    transcript_closed_at: datetime | None = None
 
     @property
     def room_name(self) -> str:
@@ -301,6 +305,8 @@ class SessionSummary:
     #: BE 는 id 로 조인 · 집계만 한다(#163). 써 넣는 길은 #164 다.
     moments: list[dict[str, Any]] = field(default_factory=list)
     findings: list[dict[str, Any]] = field(default_factory=list)
+    #: 결과를 만든 모델. Agent 가 보낸 값 그대로다 (#164).
+    model: str = ""
 
     def overdue(self, limit: timedelta, now: datetime | None = None) -> bool:
         """기다린 시간이 한도를 넘었나. 이미 끝난 요약은 언제 봐도 False 다.
@@ -327,6 +333,7 @@ class SessionSummary:
         *,
         moments: list[dict[str, Any]] | None = None,
         findings: list[dict[str, Any]] | None = None,
+        model: str = "",
     ) -> None:
         """Agent 가 만든 요약을 받는다."""
         self.status = SummaryStatus.READY
@@ -334,15 +341,27 @@ class SessionSummary:
         self.key_points = list(key_points)
         self.moments = list(moments or [])
         self.findings = list(findings or [])
+        self.model = model
         self.completed_at = utcnow()
 
-    def give_up(self) -> None:
-        """요약을 못 만들었다고 확정한다. 본문은 비운다."""
+    def give_up(
+        self,
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+        model: str = "",
+    ) -> None:
+        """요약을 못 만들었다고 확정한다. 본문은 비운다.
+
+        요약만 실패하고 타임라인 · findings 는 나왔으면 그것은 받아 둔다 (#164).
+        화면은 「요약 실패」를 보이면서 타임라인 · findings 를 그대로 보인다.
+        """
         self.status = SummaryStatus.FAILED
         self.overview = ""
         self.key_points = []
-        self.moments = []
-        self.findings = []
+        self.moments = list(moments or [])
+        self.findings = list(findings or [])
+        self.model = model
         self.completed_at = utcnow()
 
 

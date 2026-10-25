@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.domain.models import SummaryStatus
 from app.domain.store import InMemoryStore
-from tests.conftest import age
+from tests.conftest import DEMO, age
 
 V1 = "/api/v1"
 
@@ -323,3 +323,98 @@ def test_review_without_the_key_is_unauthorized(
 
 def test_review_for_an_unknown_session_is_404(client: TestClient, key: str) -> None:
     assert put_review(client, "ses_없는것", key).status_code == 404
+
+
+# ── 타임라인 · findings (#164) ───────────────────────────
+
+
+def put_ai_review(client: TestClient, session_id: str, key: str, **overrides):
+    """AI `ReviewPayload` 모양 그대로. 폴러가 붙이는 `requestedAt` 도 싣는다."""
+    body = {
+        "status": "completed",
+        "summary": DEMO["review"]["summary"],
+        "keyPoints": DEMO["review"]["keyPoints"],
+        "moments": DEMO["review"]["moments"],
+        "findings": DEMO["review"]["findings"],
+        "model": "gpt-6-luna",
+        "requestedAt": "2026-10-25T00:00:00Z",
+    } | overrides
+    body = {k: v for k, v in body.items() if v is not None}
+    return client.put(
+        f"/internal/v1/sessions/{session_id}/review",
+        json=body,
+        headers={"Authorization": f"Bearer {key}"},
+    )
+
+
+def test_moments_and_findings_are_stored(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str
+) -> None:
+    ended(client, session_id)
+
+    assert put_ai_review(client, session_id, key).status_code == 204
+
+    stored = store.get_summary(session_id)
+    assert stored is not None
+    assert stored.status is SummaryStatus.READY
+    assert stored.moments == DEMO["review"]["moments"]
+    assert stored.findings == DEMO["review"]["findings"]
+    assert stored.model == "gpt-6-luna"
+
+
+def test_a_failed_summary_keeps_the_timeline(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str
+) -> None:
+    """요약만 실패해도 타임라인 · findings 는 보인다 (B안)."""
+    ended(client, session_id)
+
+    got = put_ai_review(client, session_id, key, status="failed", summary="")
+
+    assert got.status_code == 204
+    assert summary(client, session_id).json()["status"] == "FAILED"
+    stored = store.get_summary(session_id)
+    assert stored is not None
+    assert stored.moments == DEMO["review"]["moments"]
+    assert stored.findings == DEMO["review"]["findings"]
+    assert stored.model == "gpt-6-luna"
+
+
+def test_findings_left_out_keep_the_stored_ones(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str
+) -> None:
+    """findings 키가 없으면 AI 가 그 단계를 안 돌린 것이다. 지우지 않는다."""
+    ended(client, session_id)
+    put_ai_review(client, session_id, key)
+
+    put_ai_review(client, session_id, key, findings=None)
+
+    stored = store.get_summary(session_id)
+    assert stored is not None
+    assert stored.findings == DEMO["review"]["findings"]
+
+
+def test_an_empty_findings_list_clears_them(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str
+) -> None:
+    ended(client, session_id)
+    put_ai_review(client, session_id, key)
+
+    put_ai_review(client, session_id, key, findings=[])
+
+    stored = store.get_summary(session_id)
+    assert stored is not None
+    assert stored.findings == []
+
+
+def test_a_finding_state_we_do_not_know_is_kept(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str
+) -> None:
+    """AI 쪽 상태가 BE 보다 많다(EDITED). 422 로 거절하면 결과 전체를 잃는다."""
+    ended(client, session_id)
+    edited = [DEMO["review"]["findings"][0] | {"state": "EDITED"}]
+
+    assert put_ai_review(client, session_id, key, findings=edited).status_code == 204
+
+    stored = store.get_summary(session_id)
+    assert stored is not None
+    assert stored.findings[0]["state"] == "EDITED"
