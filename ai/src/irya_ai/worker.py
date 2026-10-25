@@ -245,6 +245,11 @@ def create_server(settings: Settings | None = None) -> AgentServer:
         api_key=settings.livekit_api_key.get_secret_value(),
         api_secret=settings.livekit_api_secret.get_secret_value(),
         num_idle_processes=1,
+        # CLI drains active jobs before asking their processes to shut down.
+        # Leave 5s for that, then 45s for the sender queue (5s), transcript
+        # delivery (30s), and cleanup. Compose gives the whole process 60s.
+        drain_timeout=5,
+        shutdown_process_timeout=45.0,
         permissions=WorkerPermissions(
             can_publish=False,
             can_subscribe=True,
