@@ -162,7 +162,7 @@ async def test_request_uses_chat_completions_with_only_supported_params(
     body = json.loads(request.content)
     assert set(body) <= SUPPORTED_CHAT_PARAMS, set(body) - SUPPORTED_CHAT_PARAMS
     assert "store" not in body
-    assert body["model"] == "gpt-5.6-luna"
+    assert body["model"] == "gpt-6-luna"
     assert body["reasoning_effort"] == "low"
     # The gateway rejects a larger non-streaming budget with 400 (#171).
     assert body["max_completion_tokens"] == MAX_COMPLETION_TOKENS <= 2000

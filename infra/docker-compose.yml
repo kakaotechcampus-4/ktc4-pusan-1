@@ -168,7 +168,7 @@ services:
       # 아니면 추출형 생성기로 돈다. 기동은 막지 않는다.
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-gpt-5.6-luna}
+      LLM_MODEL: ${LLM_MODEL:-gpt-6-luna}
     depends_on:
       livekit:
         condition: service_started
@@ -208,7 +208,7 @@ services:
       # 사전 가공용 프로젝트 LLM. 비어 있으면 추출형 기준선으로 돌고 경고를 남긴다.
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-gpt-5.6-luna}
+      LLM_MODEL: ${LLM_MODEL:-gpt-6-luna}
       PREP_POLL_INTERVAL_SECONDS: ${PREP_POLL_INTERVAL_SECONDS:-5}
     depends_on:
       backend:
