@@ -28,6 +28,7 @@ BE 컨텍스트 응답의 `utterances`는 CLI가 분리해서 `TranscriptSnapsho
 - 모델은 종류·참조 ID·인용·요약을 작성한다. ID·시각·세션·검토 상태는 코드가 정한다.
 - 참조는 입력의 `claimId`·`competencyId`에 있어야 한다. ID 형식을 파싱하지 않는다.
 - 주장 종류는 claimId가 필수이고, 역량 근거·GAP은 competencyId가 필수다.
+  주장 종류도 관련 역량이 있으면 competencyId를 채운다. BE가 역량별 커버리지를 competencyId로 센다.
 - GAP 이외의 근거는 지원자 FINAL 발화 하나의 연속 부분 문자열이다. 정규화는 기존
   grounding과 같은 NFC + 기존 공백 축약이다. 의역·대소문자·단어 경계 수정은 거부한다.
 - GAP은 역량에 관한 근거 부재다. claimId·인용·시각 없이 내며 역량 부족이라고 단정하지 않는다.

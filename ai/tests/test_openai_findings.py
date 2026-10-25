@@ -102,7 +102,7 @@ async def test_supported_parameters_and_grounded_output():
             TranscriptSnapshot(session_id="ses_test", utterances=[utterance()]),
         )
     assert result.status == "completed"
-    assert result.model == "served-model@findings-v2"
+    assert result.model == "served-model@findings-v3"
     assert result.usage.prompt_tokens == 100
     assert result.findings[0].evidence_t_ms == 1000
 
@@ -175,3 +175,8 @@ def test_prompt_asks_for_no_more_than_the_code_keeps():
     # longer summaries than the code accepts only spends them on rejects.
     assert "최대 8개" in SYSTEM_PROMPT
     assert "120자 이내" in SYSTEM_PROMPT
+
+
+def test_prompt_asks_claims_to_name_a_related_competency():
+    assert "관련된 역량이 competencies에 있으면 competency_id도 채우고" in SYSTEM_PROMPT
+

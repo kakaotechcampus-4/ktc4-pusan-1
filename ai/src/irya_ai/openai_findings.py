@@ -30,7 +30,7 @@ from irya_ai.stt.http_logging import protect_host
 
 ReasoningEffort = Literal["none", "low", "medium", "high"]
 
-PROMPT_VERSION = "findings-v2"
+PROMPT_VERSION = "findings-v3"
 
 #: The gateway rejects ``max_completion_tokens`` above this with HTTP 400. The
 #: finding and summary caps below keep a full answer near 1.5k tokens.
@@ -50,6 +50,7 @@ competencies의 ID와 resumeClaims의 ID를 그대로 사용하고 새로운 ID�
 COMPETENCY_EVIDENCE는 competency_id가 필수이고 claim_id는 null입니다.
 CLAIM_VERIFIED(답변이 주장을 뒷받침), CLAIM_CONTRADICTED(답변과 주장 불일치),
 CLAIM_UNVERIFIED(관련 답변은 있지만 주장을 확인하기에 부족)는 claim_id가 필수입니다.
+주장과 관련된 역량이 competencies에 있으면 competency_id도 채우고, 없으면 null입니다.
 주장의 실제 사실 여부를 입증했다는 뜻으로 쓰지 마세요.
 관련 답변이 없는 주장은 생략하세요.
 GAP은 면접 답변에서 확인할 근거가 없는 역량입니다. competency_id는 필수, claim_id와

@@ -359,3 +359,23 @@ def test_new_sample_uses_the_prep_and_stored_transcript_contract():
     assert result.status == "completed"
     assert len(result.findings) == 1
     assert result.findings[0].claim_id == ctx.resume_claims[0].claim_id
+
+
+def test_claim_finding_keeps_related_competency_for_coverage():
+    # BE counts coverage by competencyId; a contradiction tied to a competency
+    # must keep it or the competency looks untouched.
+    findings, rejections = build_findings(
+        context(),
+        [utterance()],
+        bundle(
+            draft(
+                type="CLAIM_CONTRADICTED",
+                competency_id="cpt_test",
+                claim_id="clm_test",
+                summary="주장과 다른 수치를 답했습니다.",
+            )
+        ),
+    )
+    assert rejections == []
+    assert findings[0].competency_id == "cpt_test"
+    assert findings[0].claim_id == "clm_test"
