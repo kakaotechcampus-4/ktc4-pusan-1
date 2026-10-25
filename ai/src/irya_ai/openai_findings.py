@@ -97,7 +97,7 @@ class OpenAIFindingsGenerator:
         self,
         client: AsyncOpenAI,
         *,
-        model: str = "gpt-5.6-luna",
+        model: str = "gpt-6-luna",
         max_completion_tokens: int = GATEWAY_MAX_COMPLETION_TOKENS,
         reasoning_effort: ReasoningEffort | None = DEFAULT_REASONING_EFFORT,
     ) -> None:

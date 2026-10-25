@@ -202,3 +202,10 @@ async def test_cut_off_output_still_reports_usage_and_model():
     assert result.usage.completion_tokens == 2000
     assert result.model.startswith("served-model@")
 
+
+def test_default_model_matches_the_other_agents():
+    from irya_ai.config import Settings
+
+    assert OpenAIFindingsGenerator.__init__.__kwdefaults__["model"] == (
+        Settings.model_fields["llm_model"].default
+    )
