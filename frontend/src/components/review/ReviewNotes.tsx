@@ -1,48 +1,33 @@
 /**
- * 검토 상태와 면접관 메모 (#137 1-3).
+ * 면접관 메모 (#137 1-3).
  *
  * 메모는 입력이 멈추면 저장한다. 화면을 나갈 때 남은 입력도 보낸다 — 「저장」 버튼이
  * 없으니 마지막 몇 글자가 사라지면 면접관은 알아챌 방법이 없다.
- * 상태와 메모는 AI 결과와 상관없이 쓸 수 있다. 요약이 FAILED 여도 이 칸은 살아 있다.
+ * AI 결과와 상관없이 쓸 수 있다. 요약이 FAILED 여도 이 칸은 살아 있다.
+ * 검토 상태는 화면 아래 막대가 맡는다 (`ReviewStatusBar`).
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { updateReview } from '../../api/review';
-import type { ReviewStatus, ReviewUpdateResponse } from '../../types/interview';
+import type { ReviewUpdateResponse } from '../../types/interview';
 
 /** 입력이 이만큼 멈추면 저장한다 */
 const SAVE_DELAY_MS = 800;
 /** 서버 상한(`ReviewUpdateRequest.memo`)과 같다 */
 const MEMO_MAX = 4000;
 
-const STATUSES: { id: ReviewStatus; label: string }[] = [
-  { id: 'PENDING', label: '검토 대기' },
-  { id: 'IN_REVIEW', label: '검토 중' },
-  { id: 'CONFIRMED', label: '확정' },
-];
-
 type SaveState = 'idle' | 'saving' | 'saved' | 'failed';
 
 export interface ReviewNotesProps {
   interviewId: string;
-  reviewStatus: ReviewStatus;
-  reviewedAt: string | null;
   memo: string;
   /** 저장이 끝나면 상세 캐시에 반영한다 */
   onSaved: (saved: ReviewUpdateResponse) => void;
 }
 
-export function ReviewNotes({
-  interviewId,
-  reviewStatus,
-  reviewedAt,
-  memo: savedMemo,
-  onSaved,
-}: ReviewNotesProps) {
+export function ReviewNotes({ interviewId, memo: savedMemo, onSaved }: ReviewNotesProps) {
   const [memo, setMemo] = useState(savedMemo);
   const [memoState, setMemoState] = useState<SaveState>('idle');
-  const [statusError, setStatusError] = useState(false);
-  const [statusSaving, setStatusSaving] = useState(false);
 
   // 나갈 때 보낼 값. effect 정리 함수는 그 시점의 state 를 못 읽으므로 ref 로 둔다.
   const pending = useRef<string | null>(null);
@@ -77,59 +62,25 @@ export function ReviewNotes({
     [interviewId],
   );
 
-  const changeStatus = (next: ReviewStatus) => {
-    if (next === reviewStatus || statusSaving) return;
-    setStatusSaving(true);
-    setStatusError(false);
-    updateReview(interviewId, { reviewStatus: next })
-      .then((saved) => onSavedRef.current({ ...saved, memo: pending.current ?? saved.memo }))
-      .catch(() => setStatusError(true))
-      .finally(() => setStatusSaving(false));
-  };
-
   return (
-    <section className="border-border-base bg-surface-panel rounded-2xl border p-4 sm:p-5">
-      <div className="border-border-base flex flex-wrap items-center gap-3 border-b pb-4">
-        <h2 className="text-ink text-[15px] font-semibold">검토</h2>
+    <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-5">
+      <div className="flex items-center gap-2">
+        <h2 className="text-ink text-[16px] font-semibold">
+          <label htmlFor="review-memo">면접관 메모</label>
+        </h2>
         <span className="flex-1" />
-        <div role="radiogroup" aria-label="검토 상태" className="flex gap-1.5">
-          {STATUSES.map((s) => {
-            const on = s.id === reviewStatus;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                role="radio"
-                aria-checked={on}
-                disabled={statusSaving}
-                onClick={() => changeStatus(s.id)}
-                className={`rounded-lg border px-3 py-1.5 text-[13px] transition disabled:opacity-60 ${
-                  on
-                    ? 'border-brand bg-brand/15 text-brand-soft'
-                    : 'border-border-base bg-surface-bright text-ink-muted hover:text-ink'
-                }`}
-              >
-                {s.label}
-              </button>
-            );
-          })}
-        </div>
+        <span
+          aria-live="polite"
+          className={`text-[12px] ${memoState === 'failed' ? 'text-danger' : 'text-ink-dim'}`}
+        >
+          {memoState === 'saving' && '저장 중…'}
+          {memoState === 'saved' && '저장됨'}
+          {memoState === 'failed' && '저장하지 못했습니다. 계속 입력하면 다시 시도합니다.'}
+        </span>
       </div>
-
-      <p aria-live="polite" className="text-ink-dim mt-2 min-h-[18px] text-[12px]">
-        {statusError
-          ? '상태를 바꾸지 못했습니다. 다시 눌러주세요.'
-          : reviewStatus === 'CONFIRMED' && reviewedAt
-            ? `${new Date(reviewedAt).toLocaleString('ko-KR')} 확정`
-            : ''}
-      </p>
-
-      <label htmlFor="review-memo" className="text-ink-muted mt-2 block text-[13px]">
-        면접관 메모
-      </label>
       <textarea
         id="review-memo"
-        rows={5}
+        rows={6}
         maxLength={MEMO_MAX}
         value={memo}
         onChange={(e) => {
@@ -140,18 +91,10 @@ export function ReviewNotes({
           setMemoState('idle');
         }}
         placeholder="확인한 근거와 다음에 물어볼 것을 적어 두세요. 입력하면 자동으로 저장됩니다."
-        className="border-border-input bg-surface-input text-ink placeholder:text-ink-dim mt-2 w-full resize-y rounded-lg border p-3 text-[15px] leading-relaxed"
+        className="border-border-input bg-surface-input text-ink placeholder:text-ink-dim focus:border-brand focus:ring-brand/20 mt-3 w-full resize-y rounded-xl border p-3.5 text-[15px] leading-relaxed transition outline-none focus:ring-4"
       />
-      <p aria-live="polite" className="mt-1.5 flex text-[12px]">
-        <span className={memoState === 'failed' ? 'text-[#FFC46B]' : 'text-ink-dim'}>
-          {memoState === 'saving' && '저장 중…'}
-          {memoState === 'saved' && '저장됨'}
-          {memoState === 'failed' && '저장하지 못했습니다. 계속 입력하면 다시 시도합니다.'}
-        </span>
-        <span className="flex-1" />
-        <span className="text-ink-dim font-mono">
-          {memo.length}/{MEMO_MAX}
-        </span>
+      <p className="text-ink-dim mt-1.5 text-right font-mono text-[12px]">
+        {memo.length}/{MEMO_MAX}
       </p>
     </section>
   );

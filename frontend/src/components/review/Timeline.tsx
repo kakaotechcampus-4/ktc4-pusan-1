@@ -36,7 +36,7 @@ export function Timeline({ moments, durationSec, activeId, onSelect, seekable }:
   const active = moments.find((m) => m.id === activeId);
 
   return (
-    <section className="border-border-base bg-surface-panel rounded-2xl border p-4 sm:p-5">
+    <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-4 sm:p-5">
       <div className="overflow-x-auto">
         <div className="relative min-w-[560px]">
           <div className="border-border-base relative h-[18px] border-b">
