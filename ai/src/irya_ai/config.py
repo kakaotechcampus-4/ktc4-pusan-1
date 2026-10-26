@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     # retried at the polling rate until Backend's own time limit fails it.
     prep_poll_interval_seconds: float = Field(default=5, gt=0, le=300)
     prep_retry_after_seconds: float = Field(default=30, ge=0, le=3600)
+    # A REVIEW job is retried after a passing failure only while the retry can
+    # still finish this many seconds after Backend's ``requestedAt``. Keep it
+    # equal to Backend's ``SUMMARY_TIMEOUT_SECONDS`` (180 by default): past
+    # that Backend fails the row and refuses the result, so a retry that
+    # would end later loses the summary and timeline that did finish (#234).
+    review_deadline_seconds: float = Field(default=180, gt=0, le=1800)
 
     # Transcript WebSocket (``WS /internal/v1/sessions/{sessionId}/transcripts``).
     # The address is derived from ``backend_base_url`` rather than configured

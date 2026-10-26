@@ -12,8 +12,9 @@ Both kinds share the rules below.
 Three facts about Backend's side shape the loop (#162, #165):
 
 - **Asking does not claim.** ``GET /jobs/pending`` hands out the same job on
-  every call until a result is stored or Backend's own time limit (six
-  minutes from the request, by default) fails it. So one job is worked
+  every call until a result is stored or Backend's own time limit (three
+  minutes from the request for a ``REVIEW``, six for a ``PREP``, by default)
+  fails it. So one job is worked
   through at a time, and a job this process could not finish is left alone
   for a while (``retry_after_seconds``) instead of being asked for again at
   the polling rate. The job is not forgotten: Backend still has it, and the
@@ -28,6 +29,15 @@ Three facts about Backend's side shape the loop (#162, #165):
   competencies, a malformed context, a session Backend does not know) is
   stored, so the interview does not sit in PROCESSING until the time limit
   does the same thing later and slower.
+- **A review retry has to fit in the time limit.** A ``REVIEW`` runs three
+  agents at once, and one of them failing for a passing reason holds the
+  whole job: storing then would keep the other two and lose that one for
+  good. But Backend's limit counts from the request, and once it passes the
+  summary and timeline that did finish are lost as well. So the hold is
+  taken only while another attempt can still end inside the limit
+  (``review_deadline_seconds``, Backend's ``summary_timeout_seconds``);
+  past that the finished parts are stored and the failed one is left out
+  (#234).
 - **The oldest job is the only job.** Backend hands out the oldest PROCESSING
   row and nothing else, so a job left in the queue blocks every job behind
   it (head-of-line). That is the other reason a failure that would repeat is
@@ -51,6 +61,7 @@ import signal
 import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from time import monotonic, perf_counter
 from typing import Any, Literal, Protocol
 
@@ -89,6 +100,11 @@ DEFAULT_RETRY_AFTER_SECONDS = 30.0
 # enough that a Backend restarted with a fix is not waited on for an hour.
 # While it lasts the queue behind the job is stuck (see the module note).
 DEFAULT_GIVE_UP_SECONDS = 600.0
+# A REVIEW is retried only while the retry can still finish before this many
+# seconds have passed since Backend's ``requestedAt``. Backend's default limit
+# on a review is the same three minutes; past it the row is FAILED and a late
+# result is refused, so a retry that would end after it loses everything.
+DEFAULT_REVIEW_DEADLINE_SECONDS = 180.0
 # ``holds`` is pruned when it grows past this; a few hundred interviews is
 # more than one deployment sees in a day.
 HOLD_PRUNE_SIZE = 256
@@ -347,6 +363,8 @@ class PrepPoller:
 
     ``clock`` is monotonic seconds and exists for tests; ``holds`` maps a
     job's key to the clock time before which it is not asked for again.
+    ``wall_clock`` is the UTC time the job's ``requestedAt`` is measured
+    against, for the review deadline; it also exists for tests.
     """
 
     def __init__(
@@ -358,7 +376,9 @@ class PrepPoller:
         poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
         retry_after_seconds: float = DEFAULT_RETRY_AFTER_SECONDS,
         give_up_seconds: float = DEFAULT_GIVE_UP_SECONDS,
+        review_deadline_seconds: float = DEFAULT_REVIEW_DEADLINE_SECONDS,
         clock: Callable[[], float] = monotonic,
+        wall_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         if poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
@@ -366,13 +386,17 @@ class PrepPoller:
             raise ValueError("retry_after_seconds must not be negative")
         if give_up_seconds < 0:
             raise ValueError("give_up_seconds must not be negative")
+        if review_deadline_seconds <= 0:
+            raise ValueError("review_deadline_seconds must be positive")
         self.backend = backend
         self.agent = agent
         self.review = review
         self.poll_interval_seconds = poll_interval_seconds
         self.retry_after_seconds = retry_after_seconds
         self.give_up_seconds = give_up_seconds
+        self.review_deadline_seconds = review_deadline_seconds
         self._clock = clock
+        self._wall_clock = wall_clock
         self.holds: dict[tuple[str, str], float] = {}
 
     async def run_forever(self, stop: asyncio.Event) -> None:
@@ -527,16 +551,32 @@ class PrepPoller:
             if retry is not None:
                 # One part failed in a way that may pass. Storing now would
                 # keep the other two and lose this one for good, so the whole
-                # job waits; Backend's limit bounds how long.
-                self._hold(job, self.retry_after_seconds)
+                # job waits - but only while another try can still end inside
+                # Backend's limit. Past that, waiting loses the other two as
+                # well, so the job is stored as it is (#234).
+                since = self._seconds_since_request(job)
+                if self._retry_fits(since, parts):
+                    self._hold(job, self.retry_after_seconds)
+                    logger.warning(
+                        "review job interview=%s session=%s held code=%s"
+                        " since_request=%ss %s",
+                        job.interview_id,
+                        job.session_id,
+                        retry,
+                        _whole(since),
+                        parts.log_fields(),
+                    )
+                    return Pass("held", job=job, code=retry)
                 logger.warning(
-                    "review job interview=%s session=%s held code=%s %s",
+                    "review job interview=%s session=%s stored without retry"
+                    " code=%s since_request=%ss deadline=%ds %s",
                     job.interview_id,
                     job.session_id,
                     retry,
+                    _whole(since),
+                    self.review_deadline_seconds,
                     parts.log_fields(),
                 )
-                return Pass("held", job=job, code=retry)
             payload = parts.payload(model=self.review.model)
 
         refused = await self._store(
@@ -564,6 +604,37 @@ class PrepPoller:
                 parts.error_code,
             )
         return Pass("stored", job=job, result=payload)
+
+    def _seconds_since_request(self, job: PendingJob) -> float | None:
+        """How long ago Backend asked, by its own clock; ``None`` if unreadable.
+
+        Backend's limit counts from ``requestedAt``, so the same origin is
+        used here. The two processes share a host in every deployment so
+        far; a skew between their clocks would move the deadline by as much.
+        """
+
+        try:
+            requested = datetime.fromisoformat(job.requested_at)
+        except ValueError:
+            return None
+        if requested.tzinfo is None:
+            requested = requested.replace(tzinfo=UTC)
+        return (self._wall_clock() - requested).total_seconds()
+
+    def _retry_fits(self, since: float | None, parts: ReviewParts) -> bool:
+        """Would a hold and another run of the agents end before the deadline?
+
+        The next attempt is assumed to take as long as this one did; a
+        timeout fails at the timeout, a busy gateway fails at once and the
+        retry that then succeeds takes longer than that, so this is a floor.
+        A ``requestedAt`` this process cannot read is not retried: Backend's
+        limit cannot be placed, and storing loses less than a blind wait.
+        """
+
+        if since is None:
+            return False
+        next_end = since + self.retry_after_seconds + parts.agent_ms / 1000
+        return next_end <= self.review_deadline_seconds
 
     def _unexpected(self, job: PendingJob, exc: Exception) -> None:
         """Log an agent failure no step classified; the caller stores it.
@@ -704,6 +775,10 @@ def elapsed_ms(started: float) -> int:
     return int((perf_counter() - started) * 1000)
 
 
+def _whole(seconds: float | None) -> str:
+    return "?" if seconds is None else str(int(seconds))
+
+
 # --- process -----------------------------------------------------------------
 
 
@@ -794,11 +869,14 @@ async def serve(settings: Settings, stop: asyncio.Event) -> None:
         review=review,
         poll_interval_seconds=settings.prep_poll_interval_seconds,
         retry_after_seconds=settings.prep_retry_after_seconds,
+        review_deadline_seconds=settings.review_deadline_seconds,
     )
     logger.info(
-        "prep poller started interval=%.1fs retry_after=%.0fs model=%s",
+        "prep poller started interval=%.1fs retry_after=%.0fs"
+        " review_deadline=%.0fs model=%s",
         poller.poll_interval_seconds,
         poller.retry_after_seconds,
+        poller.review_deadline_seconds,
         agent.model,
     )
     try:

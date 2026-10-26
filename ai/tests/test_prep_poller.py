@@ -8,6 +8,8 @@ and checks what the poller did with it.
 import asyncio
 import json
 import logging
+from dataclasses import replace
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
@@ -21,6 +23,7 @@ from irya_ai.prep_poller import (
     PollerError,
     PrepPoller,
     ReviewAgents,
+    ReviewParts,
     build_agents,
     context_from_response,
     exception_types,
@@ -37,6 +40,7 @@ from irya_ai.timeline import (
 )
 
 REQUESTED_AT = "2026-10-06T00:00:00.123456Z"
+REQUESTED = datetime.fromisoformat(REQUESTED_AT)
 RESUME_TEXT = (
     "경력\n- 상품 조회 API에 Redis 캐시를 도입하여 응답 시간을 60% 단축했습니다."
 )
@@ -190,7 +194,17 @@ def poller_for(
     **kwargs,
 ) -> PrepPoller:
     agent = PrepAgent(generator or FakePrepGenerator(draft()), model="fake")
+    # Unless a test moves it, the wall clock stands at the request itself, so
+    # the review deadline is far off and a retry always fits.
+    kwargs.setdefault("wall_clock", after_request(0))
     return PrepPoller(backend.client(), agent, clock=clock or Clock(), **kwargs)
+
+
+def after_request(seconds: float):  # noqa: ANN201
+    """A wall clock stopped this long after ``REQUESTED_AT``."""
+
+    moment = REQUESTED + timedelta(seconds=seconds)
+    return lambda: moment
 
 
 # --- one pass ----------------------------------------------------------------
@@ -671,6 +685,7 @@ def test_poller_settings_have_sane_defaults_and_bounds() -> None:
     settings = Settings(_env_file=None)
     assert settings.prep_poll_interval_seconds == 5
     assert settings.prep_retry_after_seconds == 30
+    assert settings.review_deadline_seconds == 180
     with pytest.raises(ValueError):
         Settings(_env_file=None, prep_poll_interval_seconds=0)
 
@@ -828,6 +843,152 @@ async def test_a_part_that_failed_for_a_passing_reason_holds_the_whole_job(
     assert done.outcome == "held"
     assert backend.put_bodies == []
     assert poller.holds[("int_1", REQUESTED_AT)] == clock.now + 30
+
+
+def passing_failure(part: str) -> ReviewAgents:
+    """Review agents where ``part`` fails for a reason that may pass."""
+
+    return review_agents(
+        summarizer=FailingSummarizer("LLM_TIMEOUT", retryable=True)
+        if part == "summary"
+        else None,
+        timeline=FailingTimeline("LLM_RATE_LIMITED", retryable=True)
+        if part == "timeline"
+        else None,
+        findings=FakeFindings(
+            FakeFindingsResult(
+                "failed", error=AnalysisError(code="LLM_TIMEOUT", retryable=True)
+            )
+        )
+        if part == "findings"
+        else None,
+    )
+
+
+@pytest.mark.parametrize("part", ["summary", "timeline", "findings"])
+async def test_a_retry_that_would_end_past_the_deadline_stores_what_finished(
+    part: str,
+) -> None:
+    # Backend fails the row 180s after the request. A hold now would end the
+    # next try at 151 + 30 > 180, so the finished parts go in as they are.
+    backend = review_backend()
+    poller = poller_for(
+        backend,
+        review=passing_failure(part),
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
+        wall_clock=after_request(151),
+    )
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert poller.holds == {}
+    assert backend.jobs == []
+    body = backend.put_bodies[0]
+    if part == "summary":
+        assert body["status"] == "failed"
+    elif part == "timeline":
+        assert body["status"] == "completed"
+        assert body["summary"]
+        assert body["moments"] == []
+    else:
+        assert body["status"] == "completed"
+        assert body["summary"]
+        assert body["moments"]
+        assert "findings" not in body
+
+
+@pytest.mark.parametrize(
+    ("seconds_after_request", "outcome"), [(149, "held"), (151, "stored")]
+)
+async def test_the_hold_itself_counts_against_the_deadline(
+    seconds_after_request: float, outcome: str
+) -> None:
+    backend = review_backend()
+    poller = poller_for(
+        backend,
+        review=passing_failure("findings"),
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
+        wall_clock=after_request(seconds_after_request),
+    )
+
+    assert (await poller.run_once()).outcome == outcome
+
+
+def test_the_next_try_is_assumed_to_take_as_long_as_this_one() -> None:
+    poller = poller_for(
+        FakeBackend(), retry_after_seconds=30, review_deadline_seconds=180
+    )
+
+    # 100s gone, 30s hold, then an attempt as long as the 60s timeout: 190.
+    assert not poller._retry_fits(100.0, ReviewParts(agent_ms=60_000))
+    assert poller._retry_fits(100.0, ReviewParts(agent_ms=40_000))
+    # No readable request time, no deadline to place the retry against.
+    assert not poller._retry_fits(None, ReviewParts(agent_ms=0))
+
+
+class TakesLong:
+    """Review agents whose run is reported as having taken ``agent_ms``.
+
+    The fakes finish at once; this stands in for a model call that ran to
+    its timeout, which is what the poller plans the next attempt from.
+    """
+
+    def __init__(self, inner: ReviewAgents, agent_ms: int) -> None:
+        self.inner = inner
+        self.agent_ms = agent_ms
+        self.model = inner.model
+
+    async def run(self, context, snapshot) -> ReviewParts:  # noqa: ANN001
+        parts = await self.inner.run(context, snapshot)
+        return replace(parts, agent_ms=self.agent_ms)
+
+
+async def test_a_findings_timeout_twice_in_a_row_still_stores_the_summary() -> None:
+    # The sequence from the #229 review: 60s timeout, 30s hold, 60s timeout.
+    # The first failure lands at 60s and a retry would end at 150s, inside
+    # Backend's 180s. The second lands at 150s and a retry would end at 240s,
+    # so the summary and timeline are stored then instead of lost at 180s.
+    backend = review_backend()
+    clock = Clock()
+    wall = {"at": after_request(60)}
+    poller = poller_for(
+        backend,
+        review=TakesLong(passing_failure("findings"), agent_ms=60_000),
+        clock=clock,
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
+        wall_clock=lambda: wall["at"](),
+    )
+
+    assert (await poller.run_once()).outcome == "held"
+    clock.now += 31.0
+    wall["at"] = after_request(150)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["summary"]
+    assert "findings" not in body
+
+
+async def test_a_request_time_this_process_cannot_read_is_not_retried(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend = review_backend()
+    backend.jobs = [job(kind="REVIEW", requested_at="soon")]
+    poller = poller_for(backend, review=passing_failure("findings"))
+
+    with caplog.at_level(logging.WARNING, logger="irya_ai.prep_poller"):
+        done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert "stored without retry" in caplog.text
+    assert "since_request=?s" in caplog.text
 
 
 async def test_a_timeline_that_would_fail_again_does_not_cost_the_summary() -> None:
