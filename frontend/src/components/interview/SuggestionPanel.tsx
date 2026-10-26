@@ -23,8 +23,9 @@ export function SuggestionPanel() {
   const ordered = [...suggestions].sort((a, b) => Number(b.pinned) - Number(a.pinned));
 
   return (
-    <section className="border-border-base bg-surface-panel shadow-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border">
-      <div className="border-border-base flex shrink-0 items-center gap-2 border-b px-4 py-3">
+    // 영상 위 오른쪽에 뜬 유리판이다 (#236). 평소에는 흐리고 마우스를 올리면 또렷해진다.
+    <section className="glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl">
+      <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
         <span aria-hidden className="material-symbols-outlined text-brand text-[20px]">
           auto_awesome
         </span>
@@ -40,7 +41,10 @@ export function SuggestionPanel() {
       </div>
 
       {/* 꼬리질문은 소리로는 오지 않고 화면에만 있다. 그래서 읽어 주는 것이 맞다 */}
-      <div aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+      <div
+        aria-live="polite"
+        className="glass-dim flex min-h-0 flex-1 [scrollbar-width:none] flex-col gap-2 overflow-y-auto px-3 pb-3 [&::-webkit-scrollbar]:hidden"
+      >
         {ordered.length === 0 ? (
           <p className="text-ink-muted px-1.5 py-1 text-[14px]">
             대화가 이어지면 여기에 올라옵니다.
@@ -52,7 +56,7 @@ export function SuggestionPanel() {
               type="button"
               onClick={() => togglePin(s.id)}
               aria-pressed={s.pinned}
-              className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
+              className={`flex animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition ${
                 s.pinned
                   ? 'border-brand/40 bg-brand-tint'
                   : 'border-border-base bg-surface-panel hover:bg-surface-container'
