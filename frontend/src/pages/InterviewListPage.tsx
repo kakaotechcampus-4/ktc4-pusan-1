@@ -12,15 +12,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listInterviews } from '../api/interview';
-import { durationLabel, pendingReason } from '../lib/interviewList';
+import { durationLabel, pendingReason, STATUS_LABEL } from '../lib/interviewList';
 import type { ReviewStatus } from '../types/interview';
-
-/** 검토 상태의 한글 표시. 서버는 값만 주고 말은 FE 가 정한다 (#137 1-3). */
-const STATUS_LABEL: Record<ReviewStatus, string> = {
-  PENDING: '검토 대기',
-  IN_REVIEW: '검토 중',
-  CONFIRMED: '확정',
-};
 
 type Filter = 'all' | ReviewStatus;
 type Sort = 'recent' | 'name' | 'needsReview';
