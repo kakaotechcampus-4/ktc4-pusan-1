@@ -300,11 +300,13 @@ function Todo({
 }) {
   const inner: ReactNode = (
     <>
+      {/* Google Fonts 의 아이콘 CSS 가 inline-block 을 레이어 밖에서 줘서 아이콘에 직접 건
+          flex 가 지고 아이콘이 왼쪽 위로 쏠린다. 가운데 맞춤은 감싸개가 한다. */}
       <span
         aria-hidden
-        className={`material-symbols-outlined flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[22px] ${TODO_TONE[tone]}`}
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${TODO_TONE[tone]}`}
       >
-        {icon}
+        <span className="material-symbols-outlined text-[22px]">{icon}</span>
       </span>
       <span className="min-w-0 flex-1">
         <span className="text-ink block text-[15px] font-semibold">{title}</span>
