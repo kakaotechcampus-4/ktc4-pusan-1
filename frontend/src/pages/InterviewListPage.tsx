@@ -6,9 +6,6 @@
  *
  * 점수도 순위도 만들지 않는다. 숫자는 「무엇을 아직 안 봤는지」를 가리킬 뿐이다 —
  * 판단은 면접관이 한다.
- *
- * 샘플 화면(`/demo/candidates`)에 있는 경력 · 질문 수 · 나란히 비교는 서버에 그
- * 데이터가 없어 넣지 않았다.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -132,7 +129,7 @@ export default function InterviewListPage() {
           <section className="mt-8 rounded-lg border border-[#272a33] bg-[#18191f] p-6">
             <h2 className="text-sm font-semibold">아직 만든 면접이 없습니다</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#9498a4]">
-              면접을 만들면 여기에 쌓입니다. 화면 동작만 먼저 보려면 샘플을 열 수 있습니다.
+              면접을 만들면 여기에 쌓입니다.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
               <Link
@@ -140,12 +137,6 @@ export default function InterviewListPage() {
                 className="inline-flex rounded border border-[#3f4452] bg-[#202229] px-3 py-2 text-xs font-semibold text-[#eaecef] hover:bg-[#282b34]"
               >
                 면접 만들기
-              </Link>
-              <Link
-                to="/demo/candidates"
-                className="inline-flex rounded border border-[#3f4452] bg-[#202229] px-3 py-2 text-xs text-[#c4c7c9] hover:bg-[#282b34]"
-              >
-                샘플 검토 화면 열기
               </Link>
             </div>
           </section>

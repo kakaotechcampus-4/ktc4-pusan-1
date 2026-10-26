@@ -7,42 +7,16 @@
  * 비밀번호를 받지 않는다 — 우리가 저장하지 않으면 유출할 것도 없다.
  */
 
-import { useMutation } from '@tanstack/react-query';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { kakaoLogin } from '../api/auth';
+import { Link, useLocation } from 'react-router-dom';
 import loginVisual from '../assets/illustrations/login-visual.webp';
 import { Logo } from '../components/ui/Logo';
-import { saveAccessToken } from '../lib/authToken';
 import { buildKakaoAuthorizeUrl, kakaoConfigured } from '../lib/kakao';
-import { USE_MOCK_API } from '../mocks/mockApi';
-import {
-  consumeLoginReturnTo,
-  readLoginReturnTo,
-  rememberLoginReturnTo,
-} from '../lib/loginReturnTo';
+import { readLoginReturnTo, rememberLoginReturnTo } from '../lib/loginReturnTo';
 
 export default function LoginPage() {
-  const navigate = useNavigate();
   const location = useLocation();
   const rememberDestination = () =>
     rememberLoginReturnTo(location.state?.returnTo ?? readLoginReturnTo());
-
-  /**
-   * ⚠️ 목 로그인. 카카오 없이 화면을 둘러보기 위한 임시 입구다.
-   *
-   * 실제 로그인은 카카오 인가 화면을 거쳐야 하는데, 앱 키가 없거나 BE 가 떠 있지 않으면
-   * 그 길이 막힌다. 목이 켜져 있을 때만 보인다 — BE 연동 시 이 블록과 목 핸들러를 함께 지운다.
-   */
-  const mockLogin = useMutation({
-    mutationFn: () => {
-      rememberDestination();
-      return kakaoLogin('mock-code');
-    },
-    onSuccess: ({ accessToken }) => {
-      saveAccessToken(accessToken, true);
-      void navigate(consumeLoginReturnTo(), { replace: true });
-    },
-  });
 
   const start = () => {
     rememberDestination();
@@ -84,17 +58,6 @@ export default function LoginPage() {
               </p>
             )}
           </div>
-
-          {USE_MOCK_API && (
-            <button
-              type="button"
-              onClick={() => mockLogin.mutate()}
-              disabled={mockLogin.isPending}
-              className="border-border-input text-ink-muted hover:bg-surface-bright w-full rounded-xl border border-dashed py-2.5 text-[13px] transition"
-            >
-              {mockLogin.isPending ? '들어가는 중…' : '목 데이터로 둘러보기 (개발용)'}
-            </button>
-          )}
 
           <div className="bg-surface border-border-base mt-8 flex gap-3 rounded-xl border p-4">
             <span aria-hidden className="material-symbols-outlined text-brand text-[20px]">

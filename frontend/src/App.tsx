@@ -11,7 +11,6 @@
  *   /interview/:sessionId/summary  면접 종료 후 요약
  *   /review/:interviewId    면접 기록 — 녹화 · 타임라인 · AI 평가
  *   /candidates             지원자 목록 — 내가 만든 면접
- *   /mock/interview         개발용 목 면접 미리보기
  *
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
  */
@@ -38,7 +37,6 @@ import MainPage from './pages/MainPage';
 import { getMe } from './api/auth';
 import { ApiError } from './api/client';
 import { useAccessToken } from './hooks/useAccessToken';
-import { USE_MOCK_API } from './mocks/mockApi';
 import { InterviewerHeader } from './components/layout/InterviewerHeader';
 import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from './lib/candidateName';
 import type { JoinSessionResponse, Role } from './types/interview';
@@ -48,16 +46,10 @@ import type { JoinSessionResponse, Role } from './types/interview';
    이렇게 나누면 링크를 연 사람이 첫 화면을 보기까지 받는 양이 줄어든다. */
 const InterviewRoom = lazy(() => import('./pages/InterviewRoom'));
 const InterviewListPage = lazy(() => import('./pages/InterviewListPage'));
-const CandidateListPage = lazy(() => import('./pages/CandidateListPage'));
-const CandidateDetailPage = lazy(() => import('./pages/CandidateDetailPage'));
-const CandidateMemoPage = lazy(() => import('./pages/CandidateMemoPage'));
 const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
 const ReviewTimelinePage = lazy(() => import('./pages/ReviewTimelinePage'));
 const TermsPage = lazy(() => import('./pages/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
-const InterviewRoomPreview = lazy(() =>
-  import('./mocks/InterviewRoomPreview').then((m) => ({ default: m.InterviewRoomPreview })),
-);
 
 /** 청크를 받는 동안 잠깐 보인다. 배경색만 맞춰 깜빡임을 줄인다. */
 function ChunkFallback() {
@@ -154,31 +146,20 @@ function InterviewFlow() {
 
   return (
     <DeviceGate
-      livekitConnection={USE_MOCK_API ? undefined : session}
+      livekitConnection={session}
       // 지원자는 계정이 없으므로 점검을 취소해도 초대 링크 안에서 다시 입장한다.
       onBack={role === 'CANDIDATE' ? () => setSession(null) : undefined}
     >
       {(tracks) => (
         <Suspense fallback={<ChunkFallback />}>
-          {USE_MOCK_API ? (
-            <InterviewRoomPreview
-              role={role}
-              sessionId={sessionId}
-              remoteName={remoteName}
-              localVideoTrack={tracks.videoTrack}
-              localAudioTrack={tracks.audioTrack}
-              onLeave={onEnded}
-            />
-          ) : (
-            <InterviewRoom
-              sessionId={sessionId}
-              role={role}
-              remoteName={remoteName}
-              videoTrack={tracks.videoTrack}
-              audioTrack={tracks.audioTrack}
-              onEnded={onEnded}
-            />
-          )}
+          <InterviewRoom
+            sessionId={sessionId}
+            role={role}
+            remoteName={remoteName}
+            videoTrack={tracks.videoTrack}
+            audioTrack={tracks.audioTrack}
+            onEnded={onEnded}
+          />
         </Suspense>
       )}
     </DeviceGate>
@@ -267,7 +248,6 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  const navigate = useNavigate();
   useAccessToken();
   return (
     <Routes>
@@ -331,46 +311,6 @@ export default function App() {
           <InterviewerPage>
             <InterviewListPage />
           </InterviewerPage>
-        }
-      />
-      <Route
-        path="/demo/candidates"
-        element={
-          <Suspense fallback={<ChunkFallback />}>
-            <CandidateListPage />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/demo/candidates/:candidateId"
-        element={
-          <Suspense fallback={<ChunkFallback />}>
-            <CandidateDetailPage />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/demo/candidates/:candidateId/memo"
-        element={
-          <Suspense fallback={<ChunkFallback />}>
-            <CandidateMemoPage />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/mock/interview"
-        element={
-          <DeviceGate>
-            {(tracks) => (
-              <Suspense fallback={<ChunkFallback />}>
-                <InterviewRoomPreview
-                  localVideoTrack={tracks.videoTrack}
-                  localAudioTrack={tracks.audioTrack}
-                  onLeave={() => void navigate('/')}
-                />
-              </Suspense>
-            )}
-          </DeviceGate>
         }
       />
       <Route path="*" element={<Navigate to="/" replace />} />

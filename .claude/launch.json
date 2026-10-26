@@ -4,7 +4,7 @@
     {
       "name": "frontend-mock",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "cd frontend && VITE_USE_MOCK_API=true npx vite --port 5174 --strictPort"],
+      "runtimeArgs": ["-c", "cd frontend && npx vite --port 5174 --strictPort"],
       "port": 5174
     }
   ]
