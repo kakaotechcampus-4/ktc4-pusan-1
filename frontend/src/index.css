@@ -1,22 +1,41 @@
 @import 'tailwindcss';
 
-/* 디자인 토큰 — Stitch 시안(dark)에서 옮겼다.
-   화면마다 색을 직접 적지 않고 이 이름을 쓴다. */
+/* 디자인 토큰 — 라이트 테마 (#232). 레퍼런스는 brighthire.com.
+   화면마다 색을 직접 적지 않고 이 이름을 쓴다. 이름은 다크 시절 그대로 두고 값만
+   바꿨다 — surface 는 페이지 바탕, panel 은 카드, bright 는 칩 · hover 자리다. */
 @theme {
-  --color-surface: #0b0f17;
-  --color-surface-panel: #151924;
-  --color-surface-container: #171c26;
-  --color-surface-bright: #1e2433;
-  --color-surface-input: #0f131d;
-  --color-border-base: #262c3d;
-  --color-border-input: #2a3144;
-  --color-brand: #2563eb;
-  --color-brand-soft: #60a5fa;
-  --color-ink: #f8fafc;
-  --color-ink-muted: #94a3b8;
-  --color-ink-dim: #64748b;
+  --color-surface: #f7f8fb;
+  --color-surface-panel: #ffffff;
+  --color-surface-container: #f9fafc;
+  --color-surface-bright: #f1f3f8;
+  --color-surface-input: #ffffff;
+  --color-border-base: #e4e7ef;
+  --color-border-input: #d7dbe6;
 
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --color-brand: #4b4fe0;
+  --color-brand-strong: #3d40c4;
+  --color-brand-soft: #6366f1;
+  --color-brand-tint: #eef0ff;
+
+  /* 완료 · 확인 · 랜딩 CTA */
+  --color-accent: #2ec4a6;
+  --color-accent-strong: #1a9e85;
+  --color-accent-tint: #e6faf5;
+
+  --color-warning: #b76e00;
+  --color-warning-tint: #fff6e5;
+  --color-danger: #d93b40;
+  --color-danger-tint: #fdecec;
+
+  --color-ink: #141826;
+  --color-ink-muted: #5b6275;
+  --color-ink-dim: #8a90a2;
+
+  --shadow-card: 0 1px 2px rgb(20 24 38 / 0.04), 0 4px 16px rgb(20 24 38 / 0.04);
+  --shadow-pop: 0 12px 40px rgb(20 24 38 / 0.12);
+
+  --font-sans:
+    'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
@@ -76,6 +95,10 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+html {
+  color-scheme: light;
 }
 
 body {
