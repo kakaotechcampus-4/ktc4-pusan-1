@@ -1,8 +1,7 @@
 /**
  * 실시간 전사 — 시안의 LIVE SCRIPT 패널.
  *
- * 영상 위에 뜨는 글이라 유리판(반투명 + blur)으로 깔고 테두리로 경계를 준다.
- * 마지막 줄은 지금 오가는 말이므로 왼쪽에 화자 색 띠를 붙여 눈이 먼저 가게 한다.
+ * 면접관 도구 열의 아래 카드다 (#232). 마지막 줄은 지금 오가는 말이므로 왼쪽에 화자 색 띠를 붙여 눈이 먼저 가게 한다.
  */
 
 import { fmt } from '../../lib/format';
@@ -16,26 +15,20 @@ export function TranscriptPanel() {
   const toggleTranscript = useInterviewStore((s) => s.toggleTranscript);
 
   return (
-    <section className="pointer-events-auto relative w-[520px] max-w-[42vw] overflow-hidden rounded-2xl border border-white/10 bg-black/50 shadow-[0_16px_36px_rgba(0,0,0,.35)] backdrop-blur-xl">
-      {/* 시안의 배경 워터마크. 패널이 무엇인지 글자 없이 알린다 */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-0 flex items-center justify-center text-6xl font-black tracking-tighter text-white opacity-5 select-none"
-      >
-        LIVE SCRIPT
-      </span>
-
-      {/* 헤더 전체가 접기 버튼이다. 영상 위라 누를 곳이 넓어야 한다 */}
+    <section className="border-border-base bg-surface-panel shadow-card shrink-0 overflow-hidden rounded-2xl border">
+      {/* 헤더 전체가 접기 버튼이다. 말하면서 누르는 것이라 누를 곳이 넓어야 한다 */}
       <button
+        type="button"
         onClick={toggleTranscript}
-        className="relative flex w-full items-center gap-2 border-b border-white/10 px-4 py-2.5 text-left"
+        aria-expanded={transcriptOpen}
+        className={`flex w-full items-center gap-2 px-4 py-3 text-left ${transcriptOpen ? 'border-border-base border-b' : ''}`}
       >
-        <span className="bg-brand-soft h-1.5 w-1.5 rounded-full" />
-        <span className="text-ink text-[13px] font-semibold">자동 기록</span>
+        <span className="bg-danger h-2 w-2 animate-pulse rounded-full" />
+        <span className="text-ink text-[15px] font-semibold">자동 기록</span>
         <span className="flex-1" />
         <span className="text-ink-muted text-[12px]">{transcriptOpen ? '접기' : '펼치기'}</span>
         {/* 버튼 안이라 실제 button 을 겹쳐 쓰지 못한다. 모양만 시안의 동그란 컨트롤을 따른다 */}
-        <span className="text-ink-muted flex h-5 w-5 items-center justify-center rounded-full bg-white/10">
+        <span className="text-ink-muted bg-surface-bright flex h-6 w-6 items-center justify-center rounded-full">
           <span className="material-symbols-outlined text-[16px]">
             {transcriptOpen ? 'expand_more' : 'expand_less'}
           </span>
@@ -43,9 +36,9 @@ export function TranscriptPanel() {
       </button>
 
       {transcriptOpen && (
-        <div className="relative flex max-h-44 flex-col gap-1 overflow-y-auto px-2.5 py-3">
+        <div className="flex max-h-56 flex-col gap-1 overflow-y-auto px-2.5 py-3">
           {transcriptDegraded && (
-            <p className="px-1.5 text-[14px] leading-relaxed text-amber-300">
+            <p className="text-warning px-1.5 text-[14px] leading-relaxed">
               기록이 중단되었습니다. 통화는 계속됩니다.
             </p>
           )}
@@ -64,7 +57,7 @@ export function TranscriptPanel() {
               <div
                 key={u.id}
                 className={`flex items-baseline gap-2 rounded-lg border-l-2 py-1 pr-1.5 pl-2 ${
-                  latest ? `bg-white/5 ${st.border}` : 'border-transparent'
+                  latest ? `bg-surface-container ${st.border}` : 'border-transparent'
                 }`}
               >
                 <span

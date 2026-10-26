@@ -17,7 +17,7 @@ export function SpeakerBadge() {
   const st = SPEAKER_STYLE[speakingNow];
 
   return (
-    <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5">
+    <div className="bg-surface-container border-border-base flex items-center gap-2 rounded-full border px-3 py-1.5">
       <span className={`text-[13px] font-semibold whitespace-nowrap ${st.text}`}>{st.label}</span>
       <span className="flex h-3.5 items-end gap-[2px]">
         {BAR_DELAYS.map((d) => (

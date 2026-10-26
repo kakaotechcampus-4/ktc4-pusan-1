@@ -38,6 +38,7 @@ import { getMe } from './api/auth';
 import { ApiError } from './api/client';
 import { useAccessToken } from './hooks/useAccessToken';
 import { AppShell } from './components/layout/AppShell';
+import { buttonClass } from './components/ui/buttonClass';
 import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from './lib/candidateName';
 import type { JoinSessionResponse, Role } from './types/interview';
 
@@ -236,9 +237,10 @@ function RequireAuth({ children }: { children: ReactNode }) {
   if (isLoading) return <ChunkFallback />;
   if (isError) {
     return (
-      <div className="bg-surface text-ink flex min-h-screen flex-col items-center justify-center gap-4">
-        <p>로그인 상태를 확인하지 못했습니다.</p>
-        <button type="button" onClick={() => void refetch()}>
+      <div className="bg-surface text-ink flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
+        <p className="text-[16px] font-semibold">로그인 상태를 확인하지 못했습니다.</p>
+        <p className="text-ink-muted -mt-2 text-[14px]">네트워크를 확인한 뒤 다시 시도해주세요.</p>
+        <button type="button" onClick={() => void refetch()} className={buttonClass('primary')}>
           다시 확인
         </button>
       </div>

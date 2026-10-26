@@ -23,24 +23,26 @@ export function SuggestionPanel() {
   const ordered = [...suggestions].sort((a, b) => Number(b.pinned) - Number(a.pinned));
 
   return (
-    <section className="pointer-events-auto w-[340px] max-w-[34vw] overflow-hidden rounded-2xl border border-white/10 bg-black/55 shadow-[0_16px_36px_rgba(0,0,0,.35)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2.5">
-        <span aria-hidden className="material-symbols-outlined text-brand-soft text-[18px]">
+    <section className="border-border-base bg-surface-panel shadow-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border">
+      <div className="border-border-base flex shrink-0 items-center gap-2 border-b px-4 py-3">
+        <span aria-hidden className="material-symbols-outlined text-brand text-[20px]">
           auto_awesome
         </span>
-        <h2 className="text-ink text-[13px] font-semibold">꼬리질문</h2>
+        <h2 className="text-ink text-[15px] font-semibold">꼬리질문</h2>
         {/* 누를 수 있다는 것을 글로 밝힌다. 아이콘만으로는 눈으로도 소리로도 모른다 */}
-        <span className="text-ink-muted text-[12px]">· 누르면 고정</span>
+        <span className="text-ink-dim text-[12px]">누르면 고정</span>
         <span className="flex-1" />
         {suggestions.length > 0 && (
-          <span className="text-ink-muted font-mono text-[12px]">{suggestions.length}</span>
+          <span className="bg-brand-tint text-brand-strong rounded-full px-2 py-0.5 text-[12px] font-semibold tabular-nums">
+            {suggestions.length}
+          </span>
         )}
       </div>
 
       {/* 꼬리질문은 소리로는 오지 않고 화면에만 있다. 그래서 읽어 주는 것이 맞다 */}
-      <div aria-live="polite" className="flex max-h-[42vh] flex-col gap-1.5 overflow-y-auto p-2.5">
+      <div aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
         {ordered.length === 0 ? (
-          <p className="text-ink-muted px-1.5 py-1 text-[13px]">
+          <p className="text-ink-muted px-1.5 py-1 text-[14px]">
             대화가 이어지면 여기에 올라옵니다.
           </p>
         ) : (
@@ -50,23 +52,24 @@ export function SuggestionPanel() {
               type="button"
               onClick={() => togglePin(s.id)}
               aria-pressed={s.pinned}
-              className={`focus-visible:ring-brand-soft flex items-start gap-2 rounded-xl border-l-2 px-2.5 py-2 text-left transition focus-visible:ring-2 focus-visible:outline-none ${
+              className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
                 s.pinned
-                  ? 'border-brand-soft bg-brand/30'
-                  : 'border-transparent bg-white/5 hover:bg-white/10'
+                  ? 'border-brand/40 bg-brand-tint'
+                  : 'border-border-base bg-surface-panel hover:bg-surface-container'
               }`}
             >
               <span
                 aria-hidden
-                className={`material-symbols-outlined mt-0.5 text-[16px] ${
-                  s.pinned ? 'text-brand-soft' : 'text-ink-muted'
+                className={`material-symbols-outlined mt-0.5 text-[18px] ${
+                  s.pinned ? 'text-brand' : 'text-ink-dim'
                 }`}
+                style={s.pinned ? { fontVariationSettings: "'FILL' 1" } : undefined}
               >
                 push_pin
               </span>
-              {/* 질문 글자는 고정 여부와 무관하게 가장 밝은 색을 쓴다 — 읽어야 하는 것이다 */}
+              {/* 질문 글자는 고정 여부와 무관하게 가장 진한 색을 쓴다 — 읽어야 하는 것이다 */}
               <span
-                className={`text-ink flex-1 text-[14px] leading-relaxed ${
+                className={`text-ink flex-1 text-[15px] leading-relaxed ${
                   s.pinned ? 'font-semibold' : ''
                 }`}
               >

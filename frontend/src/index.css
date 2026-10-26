@@ -41,25 +41,6 @@
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
-/* 면접 진행 화면은 영상 위에 반투명 HUD 를 얹는 어두운 무대다. 화상회의 화면이 모두
-   그렇듯 여기만 어두운 값을 다시 입힌다 — 유틸리티는 같은 이름의 변수를 읽으므로
-   컴포넌트는 그대로 두고 감싸는 요소에 이 클래스만 붙인다. */
-.theme-stage {
-  color-scheme: dark;
-  --color-surface: #0e1220;
-  --color-surface-panel: #161b2c;
-  --color-surface-container: #1a2033;
-  --color-surface-bright: #232a40;
-  --color-surface-input: #121726;
-  --color-border-base: #2a3148;
-  --color-border-input: #343c56;
-  --color-brand-soft: #8f93ff;
-  --color-brand-tint: #2a2d63;
-  --color-ink: #f5f7fb;
-  --color-ink-muted: #a6aec4;
-  --color-ink-dim: #6f7894;
-}
-
 /* Material Symbols — 시안이 아이콘 폰트를 쓴다. */
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined';
