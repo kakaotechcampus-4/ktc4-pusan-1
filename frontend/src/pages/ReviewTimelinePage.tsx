@@ -8,23 +8,29 @@
  * 10분 만에 만료돼서 상세와 같이 캐시해 두면 다시 열 때 죽은 주소가 된다.
  *
  * 녹화가 없는 면접도 여기서 검토한다. 문답과 요약은 녹화와 무관하게 그린다.
+ *
+ * 채택 · 북마크는 응답을 기다리지 않고 상세 캐시에 먼저 반영한다. 실패하면 그 항목만
+ * 되돌린다 (`lib/reviewMarks.ts`).
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { getReview } from '../api/review';
+import { getReview, putMark } from '../api/review';
 import { ApiError } from '../api/client';
 import { getInterview } from '../api/interview';
 import { getRecording } from '../api/recording';
 import { AiReview } from '../components/review/AiReview';
+import { Findings } from '../components/review/Findings';
 import { QaList } from '../components/review/QaList';
+import { ReviewNotes } from '../components/review/ReviewNotes';
 import { ReviewPlayer } from '../components/review/ReviewPlayer';
 import { Timeline } from '../components/review/Timeline';
 import { useRecordingPlayer } from '../hooks/useRecordingPlayer';
 import { FALLBACK_CANDIDATE } from '../lib/candidateName';
 import { fmt } from '../lib/format';
-import type { Moment } from '../types/interview';
+import { applyMark, currentMark } from '../lib/reviewMarks';
+import type { MarkUpdate, Moment, Review, ReviewResponse } from '../types/interview';
 
 /** 준비 중일 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 3000;
@@ -76,6 +82,28 @@ export default function ReviewTimelinePage() {
   const select = (moment: Moment) => {
     setActiveId(moment.id);
     seekTo(moment.atSec);
+  };
+
+  const queryClient = useQueryClient();
+  const [markFailed, setMarkFailed] = useState(false);
+  const patchReview = (change: Partial<Review> | ((r: Review) => Review)) =>
+    queryClient.setQueryData<ReviewResponse>(['review', interviewId], (prev) =>
+      prev?.status === 'READY'
+        ? typeof change === 'function'
+          ? { ...change(prev), status: 'READY' }
+          : { ...prev, ...change }
+        : prev,
+    );
+
+  const mark = (itemId: string, next: MarkUpdate) => {
+    const before = review && currentMark(review, itemId, next);
+    if (!before) return;
+    setMarkFailed(false);
+    patchReview((r) => applyMark(r, itemId, next));
+    putMark(interviewId!, itemId, next).catch(() => {
+      patchReview((r) => applyMark(r, itemId, before));
+      setMarkFailed(true);
+    });
   };
 
   if (isError) {
@@ -210,11 +238,33 @@ export default function ReviewTimelinePage() {
           moments={review.moments}
           activeId={activeId}
           onSelect={select}
+          onBookmark={(m) => mark(m.id, { bookmarked: !m.bookmarked })}
           open={listOpen}
           onToggle={() => setListOpen((v) => !v)}
         />
 
         <AiReview summary={review.summary} status={review.summaryStatus} />
+
+        {markFailed && (
+          <p role="alert" className="text-[13px] text-[#FFC46B]">
+            표시를 저장하지 못해 되돌렸습니다. 다시 눌러주세요.
+          </p>
+        )}
+
+        <Findings
+          coverage={review.coverage}
+          findings={review.findings}
+          onMark={(id, state) => mark(id, { state })}
+          onSeek={seekTo}
+        />
+
+        <ReviewNotes
+          interviewId={review.interviewId}
+          reviewStatus={review.reviewStatus}
+          reviewedAt={review.reviewedAt}
+          memo={review.memo}
+          onSaved={patchReview}
+        />
       </div>
     </div>
   );

@@ -289,6 +289,33 @@ export interface Review {
 export type ReviewResponse =
   { status: 'PROCESSING'; etaSec?: number } | ({ status: 'READY' } & Review);
 
+/** PATCH /api/v1/interviews/{interviewId} — 보낸 것만 바뀐다 (#137 1-3) */
+export interface ReviewUpdate {
+  reviewStatus?: ReviewStatus;
+  /** 최대 4000자. 비우려면 빈 문자열 */
+  memo?: string;
+}
+
+export interface ReviewUpdateResponse {
+  reviewStatus: ReviewStatus;
+  /** CONFIRMED 가 된 시각. 다른 상태로 돌아가면 null */
+  reviewedAt: string | null;
+  memo: string;
+}
+
+/**
+ * PUT /api/v1/interviews/{interviewId}/review/marks/{itemId} (#137 1-4).
+ *
+ * 검토 항목은 `state` 만, 문답은 `bookmarked` 만 받는다 — 반대로 보내면 422 다.
+ */
+export type MarkUpdate = { state: Finding['state'] } | { bookmarked: boolean };
+
+export interface MarkResponse {
+  itemId: string;
+  state: Finding['state'];
+  bookmarked: boolean;
+}
+
 /**
  * GET /api/v1/sessions/{sessionId}/recording
  *

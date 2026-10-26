@@ -20,8 +20,12 @@ import type {
   InterviewListResponse,
   InterviewSummary,
   JoinSessionResponse,
+  MarkResponse,
+  MarkUpdate,
   RecordingResponse,
   ReviewResponse,
+  ReviewUpdate,
+  ReviewUpdateResponse,
   SessionState,
   StartSessionResponse,
 } from '../types/interview';
@@ -53,6 +57,9 @@ const MOCK_USER = { id: 'user_mock', nickname: '목 면접관', profileImageUrl:
 
 /** 면접 기록 조회 횟수. 준비 중 상태를 몇 번 보여줄지 센다. */
 const reviewPolls = new Map<string, number>();
+
+/** 준비가 끝난 면접 기록. 검토 상태 · 메모 · 표시를 바꾸면 다음 조회에도 남게 둔다. */
+const reviews = new Map<string, Extract<ReviewResponse, { status: 'READY' }>>();
 
 /** 녹화 조회 횟수. 합치는 중 상태를 한 번 보여주고 넘어간다. */
 const recordingPolls = new Map<string, number>();
@@ -193,7 +200,7 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
         interviewer: { nickname: MOCK_USER.nickname },
         interviewedAt: null,
         durationSec: null,
-        reviewStatus: 'PENDING',
+        reviewStatus: reviews.get(interview.interviewId)?.reviewStatus ?? 'PENDING',
         summaryStatus: null,
         counts: null,
       }));
@@ -333,7 +340,9 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
 
     if (polls <= 2) return { status: 'PROCESSING', etaSec: 90 } satisfies ReviewResponse;
 
-    return {
+    const stored = reviews.get(interviewId);
+    if (stored) return stored;
+    const ready = {
       status: 'READY',
       interviewId,
       sessionId: `ses_${interviewId}`,
@@ -360,7 +369,52 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
         { name: '협업', state: 'PARTIAL' },
         { name: '성능 최적화', state: 'MISSING' },
       ],
-      findings: [],
+      findings: [
+        {
+          id: 'f1',
+          type: 'CLAIM_VERIFIED',
+          state: 'PROPOSED',
+          rationale: '지원서의 처리량 수치를 답변에서 같은 숫자로 다시 말했습니다.',
+          competency: '서비스 설계',
+          quote: '초당 2만 건 규모의 실시간 이벤트 파이프라인을 설계·운영',
+          transcript: '파티션을 늘리고 컨슈머를 수평으로 늘려서 초당 2만 건까지 받았습니다.',
+          source: '지원서 · 경력',
+          atSec: 15,
+        },
+        {
+          id: 'f2',
+          type: 'COMPETENCY_EVIDENCE',
+          state: 'ADOPTED',
+          rationale: '장애 원인과 복구 순서를 구체적으로 설명했습니다.',
+          competency: '장애 대응',
+          quote: null,
+          transcript: '컨슈머 지연을 먼저 확인하고, 재처리 큐를 두어 밀린 알림을 다시 보냈습니다.',
+          source: '면접 답변',
+          atSec: 27,
+        },
+        {
+          id: 'f3',
+          type: 'CLAIM_UNVERIFIED',
+          state: 'PROPOSED',
+          rationale: '설계를 주도했다고 적었지만 직접 맡은 범위는 답변에서 확인되지 않았습니다.',
+          competency: '협업',
+          quote: '스트리밍 플랫폼 재설계를 주도',
+          transcript: '설계 논의에는 같이 들어갔습니다.',
+          source: '지원서 · 경력',
+          atSec: 37,
+        },
+        {
+          id: 'f4',
+          type: 'GAP',
+          state: 'PROPOSED',
+          rationale: '성능 최적화 역량을 확인할 질문이 나오지 않았습니다.',
+          competency: '성능 최적화',
+          quote: null,
+          transcript: null,
+          source: null,
+          atSec: null,
+        },
+      ],
       moments: [
         {
           id: 'm1',
@@ -412,6 +466,63 @@ export async function handleMock(path: string, init?: RequestInit): Promise<unkn
         },
       ],
     } satisfies ReviewResponse;
+    reviews.set(interviewId, ready);
+    return ready;
+  }
+
+  /* 검토 상태 · 메모 (#137 1-3) — 보낸 것만 바꾼다. CONFIRMED 가 될 때 시각을 찍는다. */
+  const patchReview = /^\/api\/v1\/interviews\/([^/]+)$/.exec(path);
+  if (patchReview && method === 'PATCH') {
+    await delay(250);
+    const stored = reviews.get(patchReview[1]);
+    if (!stored) throw { status: 404 };
+    const body = JSON.parse(String(init?.body ?? '{}')) as ReviewUpdate;
+    const status = body.reviewStatus ?? stored.reviewStatus;
+    const next = {
+      ...stored,
+      reviewStatus: status,
+      reviewedAt:
+        status !== 'CONFIRMED'
+          ? null
+          : stored.reviewStatus === 'CONFIRMED'
+            ? stored.reviewedAt
+            : new Date().toISOString(),
+      memo: body.memo ?? stored.memo,
+    };
+    reviews.set(patchReview[1], next);
+    return {
+      reviewStatus: next.reviewStatus,
+      reviewedAt: next.reviewedAt,
+      memo: next.memo,
+    } satisfies ReviewUpdateResponse;
+  }
+
+  /* 채택 · 북마크 (#137 1-4) — 검토 항목은 state 만, 문답은 bookmarked 만 받는다. */
+  const mark = /^\/api\/v1\/interviews\/([^/]+)\/review\/marks\/([^/]+)$/.exec(path);
+  if (mark && method === 'PUT') {
+    await delay(200);
+    const [, interviewId, itemId] = mark;
+    const stored = reviews.get(interviewId);
+    const finding = stored?.findings.find((f) => f.id === itemId);
+    const moment = stored?.moments.find((m) => m.id === itemId);
+    if (!stored || (!finding && !moment)) throw { status: 404 };
+    const body = JSON.parse(String(init?.body ?? '{}')) as MarkUpdate;
+    if (finding ? !('state' in body) : !('bookmarked' in body)) throw { status: 422 };
+    reviews.set(interviewId, {
+      ...stored,
+      findings: stored.findings.map((f) =>
+        f.id === itemId && 'state' in body ? { ...f, state: body.state } : f,
+      ),
+      moments: stored.moments.map((m) =>
+        m.id === itemId && 'bookmarked' in body ? { ...m, bookmarked: body.bookmarked } : m,
+      ),
+    });
+    const now = reviews.get(interviewId)!;
+    return {
+      itemId,
+      state: now.findings.find((f) => f.id === itemId)?.state ?? 'PROPOSED',
+      bookmarked: now.moments.find((m) => m.id === itemId)?.bookmarked ?? false,
+    } satisfies MarkResponse;
   }
 
   /* 녹화 재생 (#112) — 기록 상세와 따로 받는다. 처음 한 번은 합치는 중으로 답한다. */
