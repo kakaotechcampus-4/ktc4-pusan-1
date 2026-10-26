@@ -59,16 +59,24 @@ export function DropZone({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
-        className={`focus-visible:ring-brand w-full rounded-xl border border-dashed p-10 text-center transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+        className={`focus-visible:ring-brand/40 flex w-full flex-col items-center rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors focus-visible:ring-4 focus-visible:outline-none ${
           disabled
-            ? 'cursor-not-allowed border-white/10 text-white/25'
+            ? 'border-border-base bg-surface-container text-ink-dim cursor-not-allowed'
             : dragging
-              ? 'cursor-copy border-[#2B44D6] bg-[#2B44D6]/10 text-[#8FA2FF]'
-              : 'cursor-pointer border-white/20 text-white/50 hover:border-white/35'
+              ? 'border-brand bg-brand-tint text-brand-strong cursor-copy'
+              : 'border-border-input bg-surface-container text-ink-muted hover:border-brand/50 hover:bg-brand-tint/50 cursor-pointer'
         }`}
       >
-        <span className="block text-[15px]">{dragging ? '여기에 놓으세요' : label}</span>
-        <span className="text-ink-muted mt-1.5 block text-[13px]">PDF · 50MB 이하</span>
+        <span
+          aria-hidden
+          className="material-symbols-outlined bg-surface-panel text-brand shadow-card mb-3 rounded-full p-2.5 text-[24px]"
+        >
+          upload_file
+        </span>
+        <span className="text-ink block text-[15px] font-medium">
+          {dragging ? '여기에 놓으세요' : label}
+        </span>
+        <span className="text-ink-dim mt-1 block text-[13px]">PDF · 50MB 이하</span>
       </button>
 
       <input

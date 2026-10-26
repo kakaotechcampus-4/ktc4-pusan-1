@@ -6,6 +6,9 @@
  *
  * 시안의 상단 내비게이션·프로필, 엔진 준비도·동기화 면접방 수, 실시간 적용 프리뷰(질문
  * 가중치)는 우리 서버에 그 데이터가 없어 넣지 않았다.
+ *
+ * 넓은 화면은 왼쪽에 단계 목차와 채운 정도, 오른쪽에 카드 넷을 둔다. 저장 막대는 화면
+ * 아래에 붙어 따라온다 (#232).
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,6 +19,8 @@ import { ApiError, uploadErrorMessage } from '../api/client';
 import { updateContextSettings } from '../api/contextSettings';
 import { DocCard } from '../components/context/DocCard';
 import { DropZone } from '../components/context/DropZone';
+import { buttonClass } from '../components/ui/buttonClass';
+import { Skeleton } from '../components/ui/Skeleton';
 import { checkFile } from '../lib/docFile';
 import type { CompanyContext, ContextDoc, DocCategory, UploadRejection } from '../types/interview';
 
@@ -24,6 +29,13 @@ const POLL_INTERVAL_MS = 2000;
 
 /** 인재상 입력 길이 상한. 프롬프트에 그대로 실리는 글이라 한도를 둔다 */
 const TALENT_MAX = 2000;
+
+const STEPS = [
+  { id: 'basic', title: '기본 정보' },
+  { id: 'jd', title: '직무 기술서 (JD)' },
+  { id: 'internal', title: '사내 문서' },
+  { id: 'talent', title: '추가 인재상' },
+];
 
 const REJECTION_MESSAGE: Record<UploadRejection, string> = {
   'empty-file': '내용이 있는 파일을 선택해주세요.',
@@ -228,42 +240,84 @@ export default function ContextSettingsPage() {
     !docs.length,
   );
 
+  // 단계마다 무언가 채웠는지. 모두 선택이라 「완료」가 아니라 「채움」을 센다.
+  const filled = form
+    ? [
+        Boolean(form.company.trim() || form.team.trim() || form.role.trim()),
+        docsIn('jd').length > 0,
+        docsIn('internal').length > 0,
+        Boolean(form.talentProfile.trim()),
+      ]
+    : [false, false, false, false];
+  const filledCount = filled.filter(Boolean).length;
+
   return (
-    <div className="bg-surface min-h-full px-4 py-8 md:px-8">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-        <header className="flex flex-col gap-2 pb-1">
-          <span className="text-ink-dim font-mono text-[13px]">기업 컨텍스트</span>
-          <h1 className="text-ink text-2xl font-bold tracking-tight md:text-3xl">
-            기업 채용 컨텍스트 설정
-          </h1>
-          <p className="text-ink-muted max-w-2xl text-[15px] leading-relaxed">
-            여기에 등록한 내용은 앞으로 만드는 모든 면접에 함께 적용됩니다. AI 면접관이 질문과
-            평가를 만들 때 근거로 씁니다.
-          </p>
-        </header>
+    <div className="mx-auto w-full max-w-6xl px-4 pt-8 sm:px-6 lg:px-10 lg:pt-10">
+      <header className="max-w-2xl">
+        <h1 className="text-ink text-[26px] font-bold tracking-tight">기업 설정</h1>
+        <p className="text-ink-muted mt-1.5 text-[15px] leading-relaxed">
+          여기에 등록한 내용은 앞으로 만드는 모든 면접에 함께 적용됩니다. AI 가 질문과 요약을 만들
+          때 근거로 씁니다. 모두 선택 항목입니다.
+        </p>
+      </header>
 
-        {isLoading && <p className="text-ink-muted text-[15px]">불러오는 중…</p>}
+      {isLoading && (
+        <div className="mt-8 flex flex-col gap-4">
+          <Skeleton className="h-40" />
+          <Skeleton className="h-40" />
+        </div>
+      )}
 
-        {isError && (
-          <div role="alert" className="text-[15px] text-[#FFC46B]">
-            <p>기업 설정을 불러오지 못했습니다.</p>
-            <button
-              type="button"
-              onClick={() => void refetch()}
-              disabled={isFetching}
-              className="mt-2 underline disabled:opacity-50"
-            >
-              다시 확인
-            </button>
-          </div>
-        )}
+      {isError && (
+        <div role="alert" className="text-ink-muted mt-8 text-[15px]">
+          <p>기업 설정을 불러오지 못했습니다.</p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="text-brand mt-2 font-semibold disabled:opacity-50"
+          >
+            다시 시도
+          </button>
+        </div>
+      )}
 
-        {form && (
-          <>
+      {form && (
+        <div className="mt-8 lg:grid lg:grid-cols-[220px_1fr] lg:gap-10">
+          {/* 넓은 화면에서만 — 어디까지 채웠는지와 바로가기 */}
+          <nav aria-label="설정 단계" className="hidden lg:block">
+            <div className="sticky top-8">
+              <p className="text-ink-muted text-[13px]">
+                4단계 중 <span className="text-ink font-semibold">{filledCount}</span>개 채움
+              </p>
+              <div className="bg-surface-bright mt-2 h-1.5 overflow-hidden rounded-full">
+                <div
+                  className="bg-brand h-full rounded-full transition-[width]"
+                  style={{ width: `${(filledCount / 4) * 100}%` }}
+                />
+              </div>
+              <ol className="mt-5 flex flex-col gap-1">
+                {STEPS.map((step, i) => (
+                  <li key={step.id}>
+                    <a
+                      href={`#${step.id}`}
+                      className="text-ink-muted hover:bg-surface-bright hover:text-ink flex items-center gap-3 rounded-lg px-2 py-2 text-[14px]"
+                    >
+                      <StepMark n={i + 1} done={filled[i]} />
+                      {step.title}
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </nav>
+
+          <div className="flex min-w-0 flex-col gap-5">
             <Section
-              icon="corporate_fare"
+              id={STEPS[0].id}
               step={1}
-              title="기본 정보"
+              done={filled[0]}
+              title={STEPS[0].title}
               desc="면접을 만들 때 초깃값으로 쓰입니다."
             >
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -281,7 +335,7 @@ export default function ContextSettingsPage() {
                   value={form.team}
                   onChange={(v) => update({ team: v })}
                   placeholder="예: 플랫폼 팀"
-                  hint="면접을 진행하는 팀입니다. 비워 두어도 됩니다."
+                  hint="면접을 진행하는 팀입니다."
                 />
                 <TextField
                   id="role"
@@ -295,49 +349,44 @@ export default function ContextSettingsPage() {
             </Section>
 
             <Section
-              icon="description"
+              id={STEPS[1].id}
               step={2}
-              title="직무 기술서 (JD)"
+              done={filled[1]}
+              title={STEPS[1].title}
               desc="필요 역량과 우대 조건을 읽어 질문을 만듭니다."
             >
-              <DocList
-                docs={docsIn('jd')}
-                onDelete={(id) => remove.mutate(id)}
-                empty="아직 올린 JD 가 없습니다."
-              />
+              <DocList docs={docsIn('jd')} onDelete={(id) => remove.mutate(id)} />
               <DropZone
-                label="직무 기술서를 끌어다 놓으세요"
+                label="직무 기술서를 끌어다 놓거나 눌러서 고르세요"
                 onFiles={(files) => handleFiles(files, 'jd')}
                 disabled={uploading}
               />
             </Section>
 
             <Section
-              icon="menu_book"
+              id={STEPS[2].id}
               step={3}
-              title="사내 문서"
+              done={filled[2]}
+              title={STEPS[2].title}
               desc="컬처 코드, 핵심가치 문서 등을 올리면 조직에 맞춘 질문에 반영합니다."
             >
-              <DocList
-                docs={docsIn('internal')}
-                onDelete={(id) => remove.mutate(id)}
-                empty="아직 올린 사내 문서가 없습니다."
-              />
+              <DocList docs={docsIn('internal')} onDelete={(id) => remove.mutate(id)} />
               <DropZone
-                label="사내 문서를 끌어다 놓으세요"
+                label="사내 문서를 끌어다 놓거나 눌러서 고르세요"
                 onFiles={(files) => handleFiles(files, 'internal')}
                 disabled={uploading}
               />
             </Section>
 
             <Section
-              icon="psychology_alt"
+              id={STEPS[3].id}
               step={4}
-              title="추가 기업 인재상"
+              done={filled[3]}
+              title={STEPS[3].title}
               desc="문서에 없지만 꼭 확인하고 싶은 점을 적어주세요."
               aside={
-                <span className="border-border-base bg-surface-container text-ink-muted rounded-full border px-2.5 py-1 font-mono text-[12px]">
-                  {form.talentProfile.length} / {TALENT_MAX.toLocaleString()}자
+                <span className="text-ink-dim font-mono text-[12px]">
+                  {form.talentProfile.length} / {TALENT_MAX.toLocaleString()}
                 </span>
               }
             >
@@ -350,16 +399,22 @@ export default function ContextSettingsPage() {
                 placeholder={
                   '예) 주어진 요구사항을 구현한 수준을 넘어, 스스로 문제를 찾아 해결한 경험을 확인해주세요.\n예) 의견이 갈렸을 때 어떤 근거로 설득했는지 물어봐주세요.'
                 }
-                className="border-border-base bg-surface-panel text-ink placeholder:text-ink-dim focus:border-brand focus:ring-brand w-full resize-none rounded-xl border p-4 text-[15px] leading-relaxed transition-colors outline-none focus:ring-1"
+                className="border-border-input bg-surface-input text-ink placeholder:text-ink-dim focus:border-brand focus:ring-brand/20 w-full resize-y rounded-xl border p-4 text-[15px] leading-relaxed transition outline-none focus:ring-4"
               />
             </Section>
 
-            <div className="border-border-base bg-surface-panel flex flex-col gap-4 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div aria-live="polite" className="min-h-[20px] text-[13px]">
+            {/* 저장 막대는 화면 아래에 붙어 따라온다. 좁은 화면에서는 아래 탭 위에 선다. */}
+            <div className="border-border-base bg-surface-panel/95 shadow-pop sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 -mx-1 mb-6 flex flex-col gap-3 rounded-2xl border p-4 backdrop-blur sm:flex-row sm:items-center lg:bottom-6">
+              <div aria-live="polite" className="min-h-[20px] flex-1 text-[14px]">
                 {notice ? (
-                  <span className="text-[#FFC46B]">{notice}</span>
+                  <span className="text-danger">{notice}</span>
                 ) : saved ? (
-                  <span className="text-emerald-400">저장했습니다.</span>
+                  <span className="text-accent-strong inline-flex items-center gap-1.5 font-semibold">
+                    <span aria-hidden className="material-symbols-outlined text-[18px]">
+                      check_circle
+                    </span>
+                    저장했습니다.
+                  </span>
                 ) : empty ? (
                   <span className="text-ink-dim">
                     비워 두어도 됩니다. 문서 없이도 면접을 만들 수 있습니다.
@@ -371,11 +426,8 @@ export default function ContextSettingsPage() {
 
               {/* 나가는 길을 저장 버튼 옆에 둔다. 멀리 떨어져 있으면 저장하고 나가려다
                   브라우저 뒤로 가기를 쓰게 된다. */}
-              <div className="flex flex-wrap gap-2">
-                <Link
-                  to="/"
-                  className="border-border-base text-ink hover:bg-surface-bright flex items-center justify-center rounded-lg border px-4 py-2.5 text-[15px] font-medium whitespace-nowrap transition-colors"
-                >
+              <div className="flex gap-2">
+                <Link to="/" className={`${buttonClass('ghost')} flex-1 sm:flex-none`}>
                   나가기
                 </Link>
                 <button
@@ -385,12 +437,9 @@ export default function ContextSettingsPage() {
                     setLeaveAfterSave(false);
                     save.mutate(form);
                   }}
-                  className="border-border-base text-ink hover:bg-surface-bright disabled:text-ink-dim flex items-center justify-center gap-1.5 rounded-lg border px-4 py-2.5 text-[15px] font-medium whitespace-nowrap transition-colors"
+                  className={`${buttonClass('secondary')} flex-1 sm:flex-none`}
                 >
-                  <span aria-hidden className="material-symbols-outlined text-[18px]">
-                    save
-                  </span>
-                  <span>{save.isPending && !leaveAfterSave ? '저장 중…' : '저장'}</span>
+                  {save.isPending && !leaveAfterSave ? '저장 중…' : '저장'}
                 </button>
                 <button
                   type="button"
@@ -399,34 +448,47 @@ export default function ContextSettingsPage() {
                     setLeaveAfterSave(true);
                     save.mutate(form);
                   }}
-                  className="bg-brand disabled:bg-surface-bright disabled:text-ink-dim flex items-center justify-center gap-1.5 rounded-lg px-5 py-2.5 text-[15px] font-medium whitespace-nowrap text-white transition-colors hover:bg-[#1d4ed8]"
+                  className={`${buttonClass('primary')} flex-1 sm:flex-none`}
                 >
-                  <span>{save.isPending && leaveAfterSave ? '저장 중…' : '저장하고 나가기'}</span>
-                  <span aria-hidden className="material-symbols-outlined text-[18px]">
-                    arrow_forward
-                  </span>
+                  {save.isPending && leaveAfterSave ? '저장 중…' : '저장하고 나가기'}
                 </button>
               </div>
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/** 번호가 붙은 설정 묶음. 시안의 카드 한 장에 해당한다. */
+/** 단계 번호. 무언가 채웠으면 체크로 바뀐다. */
+function StepMark({ n, done }: { n: number; done: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[13px] font-bold ${
+        done ? 'bg-accent text-white' : 'bg-surface-bright text-ink-muted'
+      }`}
+    >
+      {done ? <span className="material-symbols-outlined text-[17px]">check</span> : n}
+    </span>
+  );
+}
+
+/** 번호가 붙은 설정 묶음 하나 = 카드 한 장. */
 function Section({
-  icon,
+  id,
   step,
+  done,
   title,
   desc,
   aside,
   children,
 }: {
-  /** Material Symbols 이름 */
-  icon: string;
+  /** 왼쪽 단계 목차가 가리키는 앵커 */
+  id: string;
   step: number;
+  done: boolean;
   title: string;
   desc: string;
   /** 제목 줄 오른쪽에 붙는 것 (글자 수 등) */
@@ -434,26 +496,20 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="border-border-base bg-surface-container rounded-xl border p-5 md:p-6">
-      <div className="border-border-base flex flex-col gap-2 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <span
-            aria-hidden
-            className="border-brand/20 bg-brand/10 text-brand-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border"
-          >
-            <span className="material-symbols-outlined text-[20px]">{icon}</span>
-          </span>
-          <div>
-            <h2 className="text-ink font-semibold">
-              {step}. {title}
-            </h2>
-            <p className="text-ink-muted text-[13px]">{desc}</p>
-          </div>
+    <section
+      id={id}
+      className="border-border-base bg-surface-panel shadow-card scroll-mt-6 rounded-2xl border p-5 sm:p-6"
+    >
+      <div className="flex items-start gap-3">
+        <StepMark n={step} done={done} />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-ink text-[17px] font-semibold">{title}</h2>
+          <p className="text-ink-muted mt-0.5 text-[14px]">{desc}</p>
         </div>
         {aside}
       </div>
 
-      <div className="flex flex-col gap-3 pt-4">{children}</div>
+      <div className="mt-5 flex flex-col gap-3">{children}</div>
     </section>
   );
 }
@@ -479,7 +535,7 @@ function TextField({
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="text-ink text-[13px] font-semibold">
         {label}
-        {required && <span className="ml-1 text-[#FFC46B]">*</span>}
+        {required && <span className="text-warning ml-1">*</span>}
       </label>
       <input
         id={id}
@@ -488,26 +544,16 @@ function TextField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="border-border-base bg-surface-panel text-ink placeholder:text-ink-dim focus:border-brand focus:ring-brand h-11 w-full rounded-lg border px-3.5 text-[15px] transition-colors outline-none focus:ring-1"
+        className="border-border-input bg-surface-input text-ink placeholder:text-ink-dim focus:border-brand focus:ring-brand/20 h-11 w-full rounded-xl border px-3.5 text-[15px] transition outline-none focus:ring-4"
       />
       <p className="text-ink-dim text-[12px]">{hint}</p>
     </div>
   );
 }
 
-function DocList({
-  docs,
-  onDelete,
-  empty,
-}: {
-  docs: ContextDoc[];
-  onDelete: (docId: string) => void;
-  /** 비어 있을 때 보여줄 문구. 없으면 아무것도 그리지 않는다 */
-  empty?: string;
-}) {
-  if (docs.length === 0) {
-    return empty ? <p className="text-ink-dim text-[13px]">{empty}</p> : null;
-  }
+/** 올린 문서들. 비어 있으면 아래 업로드 상자가 그 자리를 대신 말한다. */
+function DocList({ docs, onDelete }: { docs: ContextDoc[]; onDelete: (docId: string) => void }) {
+  if (docs.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-2.5">
