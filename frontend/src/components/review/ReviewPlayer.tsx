@@ -86,8 +86,10 @@ export function ReviewPlayer({
   };
 
   return (
-    <section className="border-border-base bg-surface-panel overflow-hidden rounded-2xl border">
-      <div className="relative aspect-video w-full bg-black">
+    <section className="border-border-base bg-surface-panel shadow-card overflow-hidden rounded-2xl border">
+      <div
+        className={`relative aspect-video w-full ${notice ? 'bg-surface-container' : 'bg-black'}`}
+      >
         {/* 볼 녹화가 없으면 컨트롤도 감춘다. 안내 문구 밑에 눌리지 않는 재생 버튼이
             남아 있으면 누를 수 있는 것처럼 보인다. */}
         <video
@@ -98,9 +100,15 @@ export function ReviewPlayer({
         />
 
         {notice && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/80 px-6 text-center">
-            <p className="text-[15px] text-[#FFC46B]">{notice.text}</p>
-            <p className="text-[13px] text-white/70">{notice.hint}</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-6 text-center">
+            <span
+              aria-hidden
+              className="material-symbols-outlined bg-surface-panel text-ink-dim shadow-card mb-2 rounded-full p-3 text-[28px]"
+            >
+              videocam_off
+            </span>
+            <p className="text-ink text-[15px] font-semibold">{notice.text}</p>
+            <p className="text-ink-muted text-[13px]">{notice.hint}</p>
           </div>
         )}
 
@@ -137,7 +145,8 @@ export function ReviewPlayer({
           <span className="text-ink-dim text-[15px]">/ {fmt(durationSec)}</span>
         </p>
 
-        <div className="min-w-0 flex-1">
+        {/* 좁은 화면에서는 시각 · 버튼 사이에 끼면 글자가 한 자씩 쪼개져서 줄 아래로 내린다. */}
+        <div className="order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1">
           {active ? (
             <>
               <p className="text-brand-soft truncate text-[14px] font-medium">
@@ -156,7 +165,7 @@ export function ReviewPlayer({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 sm:ml-0">
           <SkipButton onClick={() => skip(-SKIP_SEC)} disabled={Boolean(notice)} label="10초 뒤로">
             replay_10
           </SkipButton>

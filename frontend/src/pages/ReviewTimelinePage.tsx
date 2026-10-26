@@ -9,6 +9,9 @@
  *
  * 녹화가 없는 면접도 여기서 검토한다. 문답과 요약은 녹화와 무관하게 그린다.
  *
+ * 넓은 화면은 왼쪽에 영상 · 타임라인 · 문답, 오른쪽에 AI 검토 · 메모를 둔다. 좁은 화면은
+ * 세 묶음을 탭으로 나눈다. 검토 상태는 화면 아래 막대에 붙어 있다 (#232).
+ *
  * 채택 · 북마크는 응답을 기다리지 않고 상세 캐시에 먼저 반영한다. 실패하면 그 항목만
  * 되돌린다 (`lib/reviewMarks.ts`).
  */
@@ -25,12 +28,23 @@ import { Findings } from '../components/review/Findings';
 import { QaList } from '../components/review/QaList';
 import { ReviewNotes } from '../components/review/ReviewNotes';
 import { ReviewPlayer } from '../components/review/ReviewPlayer';
+import { ReviewStatusBar } from '../components/review/ReviewStatusBar';
 import { Timeline } from '../components/review/Timeline';
 import { useRecordingPlayer } from '../hooks/useRecordingPlayer';
 import { FALLBACK_CANDIDATE } from '../lib/candidateName';
+import { Badge } from '../components/ui/Badge';
+import { buttonClass } from '../components/ui/buttonClass';
 import { fmt } from '../lib/format';
+import { STATUS_LABEL, STATUS_TONE } from '../lib/interviewList';
 import { applyMark, currentMark } from '../lib/reviewMarks';
 import type { MarkUpdate, Moment, Review, ReviewResponse } from '../types/interview';
+
+type Tab = 'record' | 'ai' | 'memo';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'record', label: '영상 · 문답' },
+  { id: 'ai', label: 'AI 검토' },
+  { id: 'memo', label: '메모' },
+];
 
 /** 준비 중일 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 3000;
@@ -75,6 +89,8 @@ export default function ReviewTimelinePage() {
   // 다른 시점의 문답을 보여주는 어긋난 상태로 시작한다.
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(true);
+  // 좁은 화면에서 보이는 묶음. 넓은 화면은 셋을 한꺼번에 보여 주므로 쓰지 않는다.
+  const [tab, setTab] = useState<Tab>('record');
 
   const activeIndex = review?.moments.findIndex((m) => m.id === activeId) ?? -1;
   const active = activeIndex >= 0 ? review?.moments[activeIndex] : undefined;
@@ -117,7 +133,7 @@ export default function ReviewTimelinePage() {
             {interview.candidateName} · 면접 기록
           </h1>
         )}
-        <p className="text-[15px] text-[#FFC46B]">
+        <p className="text-warning text-[15px] font-semibold">
           {missing ? '없거나 볼 수 없는 면접입니다.' : '면접 기록을 불러오지 못했습니다.'}
         </p>
         <p className="text-ink-muted mt-1.5 text-sm">
@@ -133,7 +149,7 @@ export default function ReviewTimelinePage() {
               void refetchInterview();
             }}
             disabled={isFetching}
-            className="mt-4 text-sm text-white underline disabled:opacity-50"
+            className="text-brand mt-4 text-sm font-semibold disabled:opacity-50"
           >
             다시 확인
           </button>
@@ -154,7 +170,7 @@ export default function ReviewTimelinePage() {
         )}
         <div
           aria-live="polite"
-          className="border-border-base bg-surface-panel rounded-2xl border p-6"
+          className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-6"
         >
           <p className="text-ink text-[15px]">면접 기록을 정리하고 있습니다</p>
           <p className="text-ink-muted mt-1.5 text-sm">
@@ -172,7 +188,7 @@ export default function ReviewTimelinePage() {
             void refetchInterview();
           }}
           disabled={isFetching}
-          className="mt-4 text-sm text-white underline disabled:opacity-50"
+          className="text-brand mt-4 text-sm font-semibold disabled:opacity-50"
         >
           다시 확인
         </button>
@@ -188,91 +204,138 @@ export default function ReviewTimelinePage() {
   // 불러오는 중과 합치는 중은 면접관이 할 일이 같다 — 기다리면 된다.
   const recordingState = recording?.status ?? 'PROCESSING';
 
+  const openFindings = review.findings.filter((f) => f.state === 'PROPOSED').length;
+
   return (
-    <div className="bg-surface min-h-full px-4 py-6 sm:px-6 md:px-10 md:py-8">
-      <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-3">
-        <header className="flex flex-wrap items-end gap-x-4 gap-y-2">
-          <div className="min-w-0">
-            <p className="text-ink-dim text-[13px]">면접 기록</p>
-            <h1 className="text-ink mt-1 text-2xl font-semibold">{candidateName}</h1>
-          </div>
-          <span className="text-ink-muted pb-1 font-mono text-[13px]">
-            {review.candidate.role} · {fmt(durationSec)}
+    <div className="mx-auto w-full max-w-[1400px] px-4 pt-6 pb-36 sm:px-6 lg:px-8 lg:pb-28">
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Link
+          to="/candidates"
+          aria-label="지원자 목록으로"
+          className="text-ink-muted hover:bg-surface-bright hover:text-ink -ml-2 rounded-lg p-2"
+        >
+          <span aria-hidden className="material-symbols-outlined text-[22px]">
+            arrow_back
           </span>
-          <span className="flex-1" />
-          {/* 지원자 목록(S4)이 아직 없어 처음으로 돌아간다. */}
-          <Link
-            to="/"
-            className="bg-brand hover:bg-brand/85 rounded-lg px-5 py-3 text-[15px] font-medium text-white transition"
-          >
-            정리 마치기
-          </Link>
-        </header>
-
-        {/* 이 화면이 무엇을 하는 곳인지 먼저 적는다 — 시안의 첫 줄이다. */}
-        <p className="text-ink-muted text-[13px] leading-relaxed">
-          이 화면은 지원자를 평가하지 않습니다. 질문과 답변을 원본 영상의 위치에 연결해 두었습니다.
-          판단은 면접관이 합니다.
-        </p>
-
-        <ReviewPlayer
-          videoRef={videoRef}
-          active={active}
-          activeNo={activeIndex + 1}
-          candidateName={candidateName}
-          durationSec={durationSec}
-          recordingState={recordingState}
-          failed={recordingFailed}
-          offsetMs={offsetMs}
-        />
-
-        <Timeline
-          moments={review.moments}
-          durationSec={durationSec}
-          activeId={activeId}
-          onSelect={select}
-          seekable={recordingState === 'READY' && !recordingFailed}
-        />
-
-        <QaList
-          moments={review.moments}
-          activeId={activeId}
-          onSelect={select}
-          onBookmark={(m) => mark(m.id, { bookmarked: !m.bookmarked })}
-          open={listOpen}
-          onToggle={() => setListOpen((v) => !v)}
-        />
-
-        <AiReview summary={review.summary} status={review.summaryStatus} />
-
-        {markFailed && (
-          <p role="alert" className="text-[13px] text-[#FFC46B]">
-            표시를 저장하지 못해 되돌렸습니다. 다시 눌러주세요.
+        </Link>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-ink truncate text-[22px] font-bold tracking-tight">
+            {candidateName}
+          </h1>
+          <p className="text-ink-dim text-[13px]">
+            {[review.candidate.role, fmt(durationSec), review.interviewer.nickname]
+              .filter(Boolean)
+              .join(' · ')}
           </p>
-        )}
+        </div>
+        <Badge tone={STATUS_TONE[review.reviewStatus]}>{STATUS_LABEL[review.reviewStatus]}</Badge>
+      </header>
 
-        <Findings
-          coverage={review.coverage}
-          findings={review.findings}
-          onMark={(id, state) => mark(id, { state })}
-          onSeek={seekTo}
-        />
+      {/* 이 화면이 무엇을 하는 곳인지 먼저 적는다 — 시안의 첫 줄이다. */}
+      <p className="text-ink-muted mt-3 text-[13px] leading-relaxed">
+        이 화면은 지원자를 평가하지 않습니다. 질문과 답변을 원본 영상의 위치에 연결해 두었습니다.
+        판단은 면접관이 합니다.
+      </p>
 
-        <ReviewNotes
-          interviewId={review.interviewId}
-          reviewStatus={review.reviewStatus}
-          reviewedAt={review.reviewedAt}
-          memo={review.memo}
-          onSaved={patchReview}
-        />
+      {/* 좁은 화면 — 세 묶음을 탭으로 나눈다. 숨겨도 영상은 그대로 붙어 있어 재생이 끊기지 않는다. */}
+      <div
+        role="tablist"
+        aria-label="면접 기록"
+        className="bg-surface-bright mt-4 grid grid-cols-3 gap-1 rounded-xl p-1 lg:hidden"
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`rounded-lg py-2 text-[14px] font-semibold transition ${
+              tab === t.id ? 'bg-surface-panel text-ink shadow-card' : 'text-ink-muted'
+            }`}
+          >
+            {t.label}
+            {t.id === 'ai' && openFindings > 0 && (
+              <span className="text-warning ml-1 tabular-nums">{openFindings}</span>
+            )}
+          </button>
+        ))}
       </div>
+
+      <div className="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] lg:items-start lg:gap-6">
+        <div className={`flex flex-col gap-4 ${tab === 'record' ? '' : 'hidden lg:flex'}`}>
+          <ReviewPlayer
+            videoRef={videoRef}
+            active={active}
+            activeNo={activeIndex + 1}
+            candidateName={candidateName}
+            durationSec={durationSec}
+            recordingState={recordingState}
+            failed={recordingFailed}
+            offsetMs={offsetMs}
+          />
+
+          <Timeline
+            moments={review.moments}
+            durationSec={durationSec}
+            activeId={activeId}
+            onSelect={select}
+            seekable={recordingState === 'READY' && !recordingFailed}
+          />
+
+          <QaList
+            moments={review.moments}
+            activeId={activeId}
+            onSelect={select}
+            onBookmark={(m) => mark(m.id, { bookmarked: !m.bookmarked })}
+            open={listOpen}
+            onToggle={() => setListOpen((v) => !v)}
+          />
+        </div>
+
+        {/* 넓은 화면 — 오른쪽 열은 스크롤해도 따라온다. 길면 열 안에서 따로 스크롤한다. */}
+        <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:pb-1">
+          <div className={`flex flex-col gap-4 ${tab === 'ai' ? '' : 'hidden lg:flex'}`}>
+            <AiReview summary={review.summary} status={review.summaryStatus} />
+
+            {markFailed && (
+              <p role="alert" className="text-danger text-[13px]">
+                표시를 저장하지 못해 되돌렸습니다. 다시 눌러주세요.
+              </p>
+            )}
+
+            <Findings
+              coverage={review.coverage}
+              findings={review.findings}
+              onMark={(id, state) => mark(id, { state })}
+              onSeek={seekTo}
+            />
+          </div>
+
+          <div className={tab === 'memo' ? '' : 'hidden lg:block'}>
+            <ReviewNotes
+              interviewId={review.interviewId}
+              memo={review.memo}
+              onSaved={patchReview}
+            />
+          </div>
+        </aside>
+      </div>
+
+      <ReviewStatusBar
+        interviewId={review.interviewId}
+        reviewStatus={review.reviewStatus}
+        reviewedAt={review.reviewedAt}
+        openFindings={openFindings}
+        onSaved={patchReview}
+      />
     </div>
   );
 }
 
 function Centered({ children }: { children: ReactNode }) {
   return (
-    <div className="bg-surface flex min-h-full items-center justify-center p-8">
+    <div className="flex min-h-[70vh] items-center justify-center p-8">
       <div className="w-full max-w-md">{children}</div>
     </div>
   );
@@ -280,11 +343,8 @@ function Centered({ children }: { children: ReactNode }) {
 
 function HomeLink() {
   return (
-    <Link
-      to="/"
-      className="border-border-base bg-surface-bright text-ink hover:bg-surface-container mt-6 inline-block rounded-lg border px-5 py-3 text-[15px] font-medium transition"
-    >
-      처음으로
+    <Link to="/candidates" className={`${buttonClass('secondary')} mt-6`}>
+      지원자 목록으로
     </Link>
   );
 }

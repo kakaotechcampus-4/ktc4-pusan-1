@@ -78,7 +78,8 @@ export function InterviewRoomView({
 
   return (
     // S2는 헤더를 숨기고 화면 전체를 영상에 할당한다.
-    <div className="bg-surface relative h-screen w-screen overflow-hidden">
+    // 라이트 테마 앱 안에서 이 화면만 어두운 무대다 (index.css 의 .theme-stage).
+    <div className="theme-stage bg-surface text-ink relative h-screen w-screen overflow-hidden">
       <video
         ref={videoRef}
         autoPlay

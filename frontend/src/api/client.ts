@@ -4,7 +4,6 @@
  * 명세의 경로는 두 갈래다 — 업무 API 는 `/api/v1/...`, 헬스 체크는 `/health`.
  * 그래서 base 에는 prefix 를 넣지 않고 오리진만 둔다. prefix 는 각 호출 경로에 쓴다.
  */
-import { handleMock, USE_MOCK_API } from '../mocks/mockApi';
 import { clearAccessToken, readAccessToken } from '../lib/authToken';
 import { parseContextDoc } from '../lib/docFile';
 import type { ContextDoc, DocCategory } from '../types/interview';
@@ -28,17 +27,6 @@ export class ApiError extends Error {
 }
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  // ⚠️ 프로토타입 임시 분기. BE 연동 시 이 블록과 mocks/mockApi.ts 를 함께 지운다.
-  if (USE_MOCK_API) {
-    try {
-      const mocked = await handleMock(path, init);
-      if (mocked !== null) return mocked as T;
-    } catch (e) {
-      const status = (e as { status?: number }).status ?? 500;
-      throw new ApiError('MOCK', status);
-    }
-  }
-
   const accessToken = readAccessToken();
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,

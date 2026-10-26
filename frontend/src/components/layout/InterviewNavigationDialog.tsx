@@ -79,7 +79,7 @@ export function InterviewNavigationDialog({
       ref={dialog}
       onCancel={onClose}
       aria-labelledby="interview-navigation-title"
-      className="border-border-base bg-surface-panel text-ink m-auto w-[min(440px,calc(100%-32px))] rounded-xl border p-6 backdrop:bg-black/70"
+      className="border-border-base bg-surface-panel text-ink shadow-pop backdrop:bg-ink/30 m-auto w-[min(440px,calc(100%-32px))] rounded-2xl border p-6"
     >
       <form
         onSubmit={(e) => {
@@ -117,7 +117,7 @@ export function InterviewNavigationDialog({
             </select>
           </label>
         )}
-        <p role="status" className="text-sm text-[#FFC46B]">
+        <p role="status" className="text-warning text-sm">
           {error}
         </p>
         <div className="flex justify-end gap-2">

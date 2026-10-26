@@ -14,7 +14,7 @@ export interface AiReviewProps {
 
 export function AiReview({ summary, status }: AiReviewProps) {
   return (
-    <section className="border-border-base bg-surface-panel rounded-2xl border p-4 sm:p-5">
+    <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-4 sm:p-5">
       <div className="border-border-base flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b pb-4">
         <span aria-hidden className="bg-brand-soft h-1.5 w-1.5 rounded-full" />
         <h2 className="text-ink text-[15px] font-semibold">AI 평가</h2>

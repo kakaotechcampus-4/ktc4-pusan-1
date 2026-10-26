@@ -388,7 +388,7 @@ export type JoinFailure =
 /* ---------------------------------------------------------------- *
  * 통화 중 (전사·추천 질문)
  *
- * LiveKit text stream irya.transcript.v1로 받는다. 기존 목 대본도 같은 타입을 쓴다.
+ * LiveKit text stream irya.transcript.v1로 받는다.
  * ---------------------------------------------------------------- */
 
 export interface Utterance {

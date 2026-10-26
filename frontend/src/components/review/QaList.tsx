@@ -16,7 +16,7 @@ export interface QaListProps {
 
 export function QaList({ moments, activeId, onSelect, onBookmark, open, onToggle }: QaListProps) {
   return (
-    <section className="border-border-base bg-surface-panel rounded-2xl border p-4 sm:p-5">
+    <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-4 sm:p-5">
       <button
         type="button"
         onClick={onToggle}
@@ -90,7 +90,7 @@ export function QaList({ moments, activeId, onSelect, onBookmark, open, onToggle
                   aria-pressed={m.bookmarked}
                   aria-label={`${i + 1}번 문답 북마크`}
                   className={`absolute top-3 right-3 rounded-lg p-1.5 transition ${
-                    m.bookmarked ? 'text-[#FFC46B]' : 'text-ink-dim hover:text-ink'
+                    m.bookmarked ? 'text-warning' : 'text-ink-dim hover:text-ink'
                   }`}
                 >
                   <span

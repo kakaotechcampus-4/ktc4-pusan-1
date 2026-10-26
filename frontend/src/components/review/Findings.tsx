@@ -23,8 +23,8 @@ const COVERAGE_LABEL: Record<Coverage['state'], string> = {
 };
 
 const COVERAGE_STYLE: Record<Coverage['state'], string> = {
-  CONFIRMED: 'border-brand/50 bg-brand/15 text-brand-soft',
-  PARTIAL: 'border-[#FFC46B]/40 bg-[#FFC46B]/10 text-[#FFC46B]',
+  CONFIRMED: 'border-accent/30 bg-accent-tint text-accent-strong',
+  PARTIAL: 'border-warning/30 bg-warning-tint text-warning',
   MISSING: 'border-border-base bg-surface-bright text-ink-dim',
 };
 
@@ -39,7 +39,7 @@ export function Findings({ coverage, findings, onMark, onSeek }: FindingsProps) 
   const open = findings.filter((f) => f.state === 'PROPOSED').length;
 
   return (
-    <section className="border-border-base bg-surface-panel rounded-2xl border p-4 sm:p-5">
+    <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-4 sm:p-5">
       <div className="border-border-base flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b pb-4">
         <h2 className="text-ink text-[15px] font-semibold">검토 항목</h2>
         <span className="bg-surface-bright text-ink-muted rounded-full px-2 py-0.5 font-mono text-[12px]">
@@ -70,12 +70,16 @@ export function Findings({ coverage, findings, onMark, onSeek }: FindingsProps) 
           {findings.map((f) => (
             <li
               key={f.id}
-              className={`border-border-base rounded-xl border p-4 ${
-                f.state === 'REJECTED' ? 'bg-surface-container opacity-60' : 'bg-surface-container'
+              className={`rounded-xl border p-4 ${
+                f.state === 'ADOPTED'
+                  ? 'border-accent/40 bg-accent-tint/40'
+                  : f.state === 'REJECTED'
+                    ? 'border-border-base bg-surface-container opacity-60'
+                    : 'border-border-base bg-surface-panel'
               }`}
             >
               <div className="flex flex-wrap items-center gap-2">
-                <span className="bg-surface-bright text-ink rounded px-2 py-0.5 text-[12px] font-medium">
+                <span className="bg-brand-tint text-brand-strong rounded-md px-2 py-0.5 text-[12px] font-semibold">
                   {TYPE_LABEL[f.type]}
                 </span>
                 {f.competency && <span className="text-ink-muted text-[13px]">{f.competency}</span>}
@@ -111,14 +115,14 @@ export function Findings({ coverage, findings, onMark, onSeek }: FindingsProps) 
                     <button
                       type="button"
                       onClick={() => onMark(f.id, 'ADOPTED')}
-                      className="bg-brand hover:bg-brand/85 rounded-lg px-3 py-1.5 text-[13px] font-medium text-white"
+                      className="bg-brand hover:bg-brand-strong rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white"
                     >
                       근거로 채택
                     </button>
                     <button
                       type="button"
                       onClick={() => onMark(f.id, 'REJECTED')}
-                      className="border-border-base bg-surface-bright text-ink hover:bg-surface-panel rounded-lg border px-3 py-1.5 text-[13px]"
+                      className="border-border-base bg-surface-panel text-ink hover:bg-surface-bright rounded-lg border px-3 py-1.5 text-[13px] font-medium"
                     >
                       반려
                     </button>
@@ -131,7 +135,7 @@ export function Findings({ coverage, findings, onMark, onSeek }: FindingsProps) 
                     <button
                       type="button"
                       onClick={() => onMark(f.id, 'PROPOSED')}
-                      className="text-ink-muted hover:text-ink text-[13px] underline"
+                      className="text-ink-muted hover:text-ink -my-1 py-1 text-[13px] underline"
                     >
                       되돌리기
                     </button>

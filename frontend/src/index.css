@@ -1,23 +1,63 @@
 @import 'tailwindcss';
 
-/* 디자인 토큰 — Stitch 시안(dark)에서 옮겼다.
-   화면마다 색을 직접 적지 않고 이 이름을 쓴다. */
+/* 디자인 토큰 — 라이트 테마 (#232). 레퍼런스는 brighthire.com.
+   글자로 쓰는 색은 흰 바탕 · 옅은 바탕 위에서 WCAG AA(4.5:1)를 넘게 골랐다. accent 는
+   장식용이라 글자 · 아이콘 바탕에는 accent-strong 을 쓴다.
+   화면마다 색을 직접 적지 않고 이 이름을 쓴다. 이름은 다크 시절 그대로 두고 값만
+   바꿨다 — surface 는 페이지 바탕, panel 은 카드, bright 는 칩 · hover 자리다. */
 @theme {
-  --color-surface: #0b0f17;
-  --color-surface-panel: #151924;
-  --color-surface-container: #171c26;
-  --color-surface-bright: #1e2433;
-  --color-surface-input: #0f131d;
-  --color-border-base: #262c3d;
-  --color-border-input: #2a3144;
-  --color-brand: #2563eb;
-  --color-brand-soft: #60a5fa;
-  --color-ink: #f8fafc;
-  --color-ink-muted: #94a3b8;
-  --color-ink-dim: #64748b;
+  --color-surface: #f7f8fb;
+  --color-surface-panel: #ffffff;
+  --color-surface-container: #f9fafc;
+  --color-surface-bright: #f1f3f8;
+  --color-surface-input: #ffffff;
+  --color-border-base: #e4e7ef;
+  --color-border-input: #d7dbe6;
 
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --color-brand: #4b4fe0;
+  --color-brand-strong: #3d40c4;
+  --color-brand-soft: #5558e8;
+  --color-brand-tint: #eef0ff;
+
+  /* 완료 · 확인 · 랜딩 CTA */
+  --color-accent: #2ec4a6;
+  --color-accent-strong: #0e7f6a;
+  --color-accent-tint: #e6faf5;
+
+  --color-warning: #9a5a00;
+  --color-warning-tint: #fff6e5;
+  --color-danger: #c4343a;
+  --color-danger-tint: #fdecec;
+
+  --color-ink: #141826;
+  --color-ink-muted: #5b6275;
+  --color-ink-dim: #6b7287;
+
+  --shadow-card: 0 1px 2px rgb(20 24 38 / 0.04), 0 4px 16px rgb(20 24 38 / 0.04);
+  --shadow-pop: 0 12px 40px rgb(20 24 38 / 0.12);
+
+  --font-sans:
+    'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* 면접 진행 화면은 영상 위에 반투명 HUD 를 얹는 어두운 무대다. 화상회의 화면이 모두
+   그렇듯 여기만 어두운 값을 다시 입힌다 — 유틸리티는 같은 이름의 변수를 읽으므로
+   컴포넌트는 그대로 두고 감싸는 요소에 이 클래스만 붙인다. */
+.theme-stage {
+  color-scheme: dark;
+  --color-surface: #0e1220;
+  --color-surface-panel: #161b2c;
+  --color-surface-container: #1a2033;
+  --color-surface-bright: #232a40;
+  --color-surface-input: #121726;
+  --color-border-base: #2a3148;
+  --color-border-input: #343c56;
+  --color-brand-soft: #8f93ff;
+  --color-brand-tint: #2a2d63;
+  --color-ink: #f5f7fb;
+  --color-ink-muted: #a6aec4;
+  --color-ink-dim: #6f7894;
 }
 
 /* Material Symbols — 시안이 아이콘 폰트를 쓴다. */
@@ -78,9 +118,41 @@ body,
   height: 100%;
 }
 
+html {
+  color-scheme: light;
+}
+
+/* 키보드로 다닐 때 지금 어디 있는지 보이게 한다. 마우스 클릭에는 뜨지 않는다(:focus-visible).
+   ring 을 직접 그리는 요소는 outline-none 으로 이 기본값을 끈다. */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* 움직임 줄이기를 켠 사람에게는 회전 · 깜빡임 · 미끄러짐을 멈춘다. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 랜딩의 #features 같은 안쪽 링크가 뚝 끊기지 않게. 움직임을 줄인 사람에게는 끈다. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
   background-color: var(--color-surface);
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  /* 한글이 「면/접」처럼 단어 중간에서 줄을 바꾸지 않게 한다. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
