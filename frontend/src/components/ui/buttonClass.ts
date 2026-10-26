@@ -10,7 +10,7 @@ const VARIANT: Record<ButtonVariant, string> = {
   primary: 'bg-brand text-white hover:bg-brand-strong',
   secondary: 'border border-border-base bg-surface-panel text-ink hover:bg-surface-bright',
   ghost: 'text-ink-muted hover:bg-surface-bright hover:text-ink',
-  accent: 'bg-accent text-white hover:bg-accent-strong',
+  accent: 'bg-accent-strong text-white hover:brightness-95',
   danger: 'bg-danger text-white hover:brightness-95',
 };
 

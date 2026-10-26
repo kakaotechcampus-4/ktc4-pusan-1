@@ -467,7 +467,7 @@ function StepMark({ n, done }: { n: number; done: boolean }) {
     <span
       aria-hidden
       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[13px] font-bold ${
-        done ? 'bg-accent text-white' : 'bg-surface-bright text-ink-muted'
+        done ? 'bg-accent-strong text-white' : 'bg-surface-bright text-ink-muted'
       }`}
     >
       {done ? <span className="material-symbols-outlined text-[17px]">check</span> : n}

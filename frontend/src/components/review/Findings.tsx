@@ -135,7 +135,7 @@ export function Findings({ coverage, findings, onMark, onSeek }: FindingsProps) 
                     <button
                       type="button"
                       onClick={() => onMark(f.id, 'PROPOSED')}
-                      className="text-ink-muted hover:text-ink text-[13px] underline"
+                      className="text-ink-muted hover:text-ink -my-1 py-1 text-[13px] underline"
                     >
                       되돌리기
                     </button>

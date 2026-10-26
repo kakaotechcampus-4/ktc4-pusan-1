@@ -92,7 +92,7 @@ export function ReviewStatusBar({
                 className={`rounded-lg px-3 py-2 text-[14px] font-semibold transition disabled:opacity-60 sm:px-4 ${
                   on
                     ? id === 'CONFIRMED'
-                      ? 'bg-accent shadow-card text-white'
+                      ? 'bg-accent-strong shadow-card text-white'
                       : 'bg-surface-panel text-ink shadow-card'
                     : 'text-ink-muted hover:text-ink'
                 }`}

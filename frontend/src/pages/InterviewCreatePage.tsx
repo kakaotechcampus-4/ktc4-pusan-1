@@ -231,7 +231,7 @@ export default function InterviewCreatePage() {
               </p>
               <Link
                 to="/settings/context"
-                className="text-brand shrink-0 text-[13px] font-semibold"
+                className="text-brand -my-1 shrink-0 py-1 text-[13px] font-semibold"
               >
                 기업 설정
               </Link>
@@ -417,7 +417,7 @@ function SectionCard({
         <span
           aria-hidden
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[13px] font-bold ${
-            done ? 'bg-accent text-white' : 'bg-brand-tint text-brand'
+            done ? 'bg-accent-strong text-white' : 'bg-brand-tint text-brand'
           }`}
         >
           {done ? <span className="material-symbols-outlined text-[17px]">check</span> : step}

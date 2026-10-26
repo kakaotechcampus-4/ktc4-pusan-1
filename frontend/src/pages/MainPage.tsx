@@ -158,7 +158,7 @@ export default function MainPage() {
               <h2 className="text-ink text-[17px] font-semibold">최근 면접</h2>
               <span className="flex-1" />
               {items.length > 0 && (
-                <Link to="/candidates" className="text-brand text-[14px] font-semibold">
+                <Link to="/candidates" className="text-brand -my-1 py-1 text-[14px] font-semibold">
                   전체 보기
                 </Link>
               )}
