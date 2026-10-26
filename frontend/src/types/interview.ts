@@ -132,9 +132,16 @@ export interface SessionState {
  */
 export type SummaryStatus = 'PROCESSING' | 'READY' | 'FAILED';
 
+/**
+ * 요약이 FAILED 인 까닭 중 화면이 따로 말할 것. 저장된 발화가 없으면 NO_TRANSCRIPT.
+ * 그 밖의 실패는 null — 늦게 온 결과로 READY 가 될 수 있다.
+ */
+export type SummaryFailureReason = 'NO_TRANSCRIPT';
+
 export interface InterviewSummary {
   sessionId: string;
   status: SummaryStatus;
+  failureReason: SummaryFailureReason | null;
   /** status 가 READY 일 때만 채워진다 */
   content: {
     /** 면접 전체를 한 문단으로 */
@@ -279,6 +286,8 @@ export interface Review {
   coverage: Coverage[];
   moments: Moment[];
   findings: Finding[];
+  /** summaryStatus 가 FAILED 일 때의 까닭 */
+  failureReason: SummaryFailureReason | null;
 }
 
 /**

@@ -945,6 +945,19 @@
             ],
             "title": "Durationsec"
           },
+          "failureReason": {
+            "anyOf": [
+              {
+                "const": "NO_TRANSCRIPT",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "요약이 FAILED 인 까닭 중 면접관에게 다르게 말해야 하는 것. 저장된 발화가 하나도 없으면 NO_TRANSCRIPT 다 — 요약할 대화가 없었다. 그 밖의 실패(시간 초과 · 분석 실패)는 null 이고, 늦게 도착한 결과로 READY 가 될 수 있다.",
+            "title": "Failurereason"
+          },
           "findings": {
             "items": {
               "$ref": "#/components/schemas/ReviewFinding"
@@ -1339,6 +1352,19 @@
           "durationSec": {
             "title": "Durationsec",
             "type": "integer"
+          },
+          "failureReason": {
+            "anyOf": [
+              {
+                "const": "NO_TRANSCRIPT",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "요약이 FAILED 인 까닭 중 면접관에게 다르게 말해야 하는 것. 저장된 발화가 하나도 없으면 NO_TRANSCRIPT 다 — 요약할 대화가 없었다. 그 밖의 실패(시간 초과 · 분석 실패)는 null 이고, 늦게 도착한 결과로 READY 가 될 수 있다.",
+            "title": "Failurereason"
           },
           "sessionId": {
             "title": "Sessionid",

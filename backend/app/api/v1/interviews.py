@@ -51,7 +51,7 @@ from app.schemas import (
     ReviewUpdateResponse,
     SummaryContent,
 )
-from app.services.review import build_review, item_kinds
+from app.services.review import build_review, failure_reason, item_kinds
 
 router = APIRouter(prefix="/interviews", tags=["면접"])
 
@@ -324,6 +324,7 @@ def get_review(
         coverage=[ReviewCoverage.model_validate(c) for c in review.coverage],
         moments=[ReviewMoment.model_validate(m) for m in review.moments],
         findings=[ReviewFinding.model_validate(f) for f in review.findings],
+        failure_reason=failure_reason(store, session.id, shown),
     )
 
 

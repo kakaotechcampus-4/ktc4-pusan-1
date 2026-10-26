@@ -82,6 +82,8 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
             "coverage",
             "moments",
             "findings",
+            # FAILED 의 까닭 — 요약할 대화가 없었으면 NO_TRANSCRIPT.
+            "failureReason",
         },
         "statuses": {"200", "202", "401", "404"},
     },
@@ -126,7 +128,7 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     # 409 는 아직 끝나지 않은 면접이다 — 요약할 대상 자체가 없다.
     ("get", "/api/v1/sessions/{sessionId}/summary"): {
         "path_params": ["sessionId"],
-        "response": {"sessionId", "status", "content", "durationSec"},
+        "response": {"sessionId", "status", "content", "durationSec", "failureReason"},
         "statuses": {"200", "401", "404", "409"},
     },
     # 테크스펙 「API」 의 녹화 재생 예시 (#112). 합치는 중이면 검토 API 처럼 202.

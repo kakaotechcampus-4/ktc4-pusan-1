@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
-from app.domain.models import SummaryStatus
+from app.domain.models import Role, SummaryStatus, Utterance
 from app.domain.store import InMemoryStore
 from tests.conftest import DEMO, age
 
@@ -95,7 +95,13 @@ def test_a_fresh_summary_is_processing_with_the_fe_shape(
     assert got.status_code == 200
     body = got.json()
     # FE 의 InterviewSummary 그대로.
-    assert set(body) == {"sessionId", "status", "content", "durationSec"}
+    assert set(body) == {
+        "sessionId",
+        "status",
+        "content",
+        "durationSec",
+        "failureReason",
+    }
     assert body["sessionId"] == session_id
     assert body["status"] == "PROCESSING"
     assert body["content"] is None
@@ -141,6 +147,45 @@ def test_waiting_too_long_becomes_failed(
     body = summary(client, session_id).json()
     assert body["status"] == "FAILED"
     assert body["content"] is None
+
+
+def test_failing_with_nothing_said_tells_why(
+    client: TestClient, store: InMemoryStore, session_id: str
+) -> None:
+    """저장된 발화가 없으면 FAILED 의 까닭을 NO_TRANSCRIPT 로 알린다.
+
+    면접관에게는 「AI 가 실패했다」와 「요약할 대화가 없었다」가 할 일이 다르다.
+    """
+    ended(client, session_id)
+    assert summary(client, session_id).json()["failureReason"] is None
+
+    age(store, session_id, settings.summary_timeout + timedelta(seconds=1))
+
+    body = summary(client, session_id).json()
+    assert body["status"] == "FAILED"
+    assert body["failureReason"] == "NO_TRANSCRIPT"
+
+
+def test_failing_after_a_conversation_has_no_reason(
+    client: TestClient, store: InMemoryStore, session_id: str
+) -> None:
+    """대화가 있었는데 실패했으면 까닭을 붙이지 않는다 — 늦게 결과가 올 수 있다."""
+    ended(client, session_id)
+    store.upsert_utterance(
+        Utterance(
+            session_id=session_id,
+            utterance_id="u1",
+            speaker=Role.CANDIDATE,
+            text="캐시를 도입해 응답 시간을 줄였습니다.",
+            started_at_ms=1000,
+            ended_at_ms=4000,
+        )
+    )
+    age(store, session_id, settings.summary_timeout + timedelta(seconds=1))
+
+    body = summary(client, session_id).json()
+    assert body["status"] == "FAILED"
+    assert body["failureReason"] is None
 
 
 def test_just_under_the_limit_is_still_processing(

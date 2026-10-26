@@ -97,10 +97,11 @@ services:
       # ai 의 STT 키(STT_API_KEY)와 헷갈리지 않게 .env 에서는 이름을 따로 둡니다.
       ELICE_API_KEY: ${HELPY_API_KEY:-}
       HELPY_DOC_BASE_URL: ${HELPY_DOC_BASE_URL:-}
-      # 면접이 끝난 뒤 요약을 기다리는 한도(초)입니다. 넘기면 FAILED 로 넘어가
-      # 화면이 멈춥니다. 비워 두면 3분입니다 — 요약 파이프라인이 붙은 뒤
-      # 실제로 얼마나 걸리는지 보고 조정하라고 밖으로 빼 두었습니다.
-      SUMMARY_TIMEOUT_SECONDS: ${SUMMARY_TIMEOUT_SECONDS:-180}
+      # 면접이 끝난 뒤 요약을 기다리는 한도(초)입니다. 넘기면 FAILED 로 넘어갑니다.
+      # 비워 두면 10분입니다. REVIEW 는 전사 종료 신호를 최대 60초 기다린 뒤 나가고,
+      # 요약 · 타임라인 · findings 가 LLM 한도(60초)로 돌며 일시 실패면 30초 쉬고
+      # 다시 돕니다. 3분으로는 한 번 재시도하면 넘겨 요약이 실패로 보였습니다 (#164).
+      SUMMARY_TIMEOUT_SECONDS: ${SUMMARY_TIMEOUT_SECONDS:-600}
       # 녹화 버킷입니다 (#112). 아래 egress 설정의 bucket 과 같아야 합니다.
       # 비우면 녹화를 걸지 않습니다 — 컨테이너가 인스턴스 역할을 받도록(IMDS 홉 2)
       # 하고 역할에 rec/ 권한을 준 뒤 .env 에 넣어 켭니다. 자격증명은 넣지 않습니다.
@@ -219,7 +220,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-6-luna}
       PREP_POLL_INTERVAL_SECONDS: ${PREP_POLL_INTERVAL_SECONDS:-5}
       # REVIEW 재시도를 BE 한도 안에서만 하도록 BE 와 같은 값을 쓴다 (#234).
-      REVIEW_DEADLINE_SECONDS: ${SUMMARY_TIMEOUT_SECONDS:-180}
+      REVIEW_DEADLINE_SECONDS: ${SUMMARY_TIMEOUT_SECONDS:-600}
     depends_on:
       backend:
         condition: service_healthy
