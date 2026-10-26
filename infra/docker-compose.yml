@@ -218,6 +218,8 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-6-luna}
       PREP_POLL_INTERVAL_SECONDS: ${PREP_POLL_INTERVAL_SECONDS:-5}
+      # REVIEW 재시도를 BE 한도 안에서만 하도록 BE 와 같은 값을 쓴다 (#234).
+      REVIEW_DEADLINE_SECONDS: ${SUMMARY_TIMEOUT_SECONDS:-180}
     depends_on:
       backend:
         condition: service_healthy

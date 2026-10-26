@@ -65,6 +65,9 @@ chmod 600 .env
 | `BACKEND_BASE_URL` | 백엔드 `/internal/v1` 주소. 비공개 값이라 커밋하지 않습니다 | 없음 |
 | `BACKEND_API_KEY` | 백엔드 내부 API 인증 키. `Authorization: Bearer`로 전달하며, compose에서는 `INTERNAL_API_KEY`와 공유합니다. 비워 두면 인증 헤더를 보내지 않습니다 | 없음 |
 | `BACKEND_TIMEOUT_SECONDS` | 백엔드 HTTP 요청 제한 시간(초), 0 초과 60 이하. 전사 WebSocket의 접속 제한 시간으로도 씁니다 | `10` |
+| `PREP_POLL_INTERVAL_SECONDS` | 폴러가 빈 큐를 다시 묻기까지 기다리는 시간(초), 0 초과 300 이하 | `5` |
+| `PREP_RETRY_AFTER_SECONDS` | 다시 될 수 있는 실패 뒤 그 작업을 쉬는 시간(초), 0 이상 3600 이하 | `30` |
+| `REVIEW_DEADLINE_SECONDS` | REVIEW 재시도가 요청 시각 기준 이 시간(초) 안에 끝날 수 있을 때만 쉬었다가 다시 돌립니다. 백엔드 `SUMMARY_TIMEOUT_SECONDS`와 같게 둡니다 | `180` |
 | `TRANSCRIPT_ACK_TIMEOUT_SECONDS` | 전사 프레임 ACK 대기 시간(초), 0 초과 120 이하. **백엔드와 미합의한 잠정값** | `5` |
 | `TRANSCRIPT_MAX_PENDING` | ACK를 못 받은 발화를 몇 개까지 들고 있을지, 0 초과 10000 이하. **백엔드와 미합의한 잠정값** | `200` |
 | `TRANSCRIPT_RECONNECT_BACKOFF_SECONDS` | 전사 WebSocket 재연결 대기(초), 0 이상 30 이하. **백엔드와 미합의한 잠정값** | `0.5` |
@@ -213,6 +216,12 @@ uv run irya-ai-poller        # BACKEND_BASE_URL·BACKEND_API_KEY, LLM_* 필요
   이때는 큐가 막혔다는 뜻이라 ERROR 로그를 남깁니다.
 - 컨텍스트 응답의 `utterances`는 떼고 `InterviewContext`로 읽습니다. `REVIEW` 작업은
   요약·타임라인·findings를 동시에 돌려 세션 review로 저장합니다(#224, #226).
+- **REVIEW 재시도는 BE 한도 안에 끝날 때만 합니다.** 셋 중 하나가 다시 될 수 있는 이유로
+  실패하면 작업 전체를 쉬었다가 다시 돌리는데, BE는 요청 시각부터 `SUMMARY_TIMEOUT_SECONDS`
+  (기본 180초)가 지나면 요약을 FAILED로 돌리고 그 뒤의 결과를 받지 않습니다. 그래서
+  "지금까지 지난 시간 + 쉬는 시간 + 이번 시도에 걸린 시간"이 `REVIEW_DEADLINE_SECONDS`를
+  넘기면 쉬지 않고 바로 저장합니다. 실패한 부분만 빠집니다(findings는 키 없음, 타임라인은
+  빈 목록, 요약이면 작업 전체 실패)(#234).
 - 작업마다 `agent=`(모델 호출)와 `total=`(조회부터 저장까지) 소요를 INFO로 남깁니다.
   이력서 본문과 지원자 이름은 로그에 없습니다. LLM이 없으면 추출형 기준선으로 돌되
   경고를 남깁니다.
