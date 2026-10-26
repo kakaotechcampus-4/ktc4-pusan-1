@@ -8,8 +8,10 @@
  */
 
 import { useMutation } from '@tanstack/react-query';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { kakaoLogin } from '../api/auth';
+import loginVisual from '../assets/illustrations/login-visual.webp';
+import { Logo } from '../components/ui/Logo';
 import { saveAccessToken } from '../lib/authToken';
 import { buildKakaoAuthorizeUrl, kakaoConfigured } from '../lib/kakao';
 import { USE_MOCK_API } from '../mocks/mockApi';
@@ -49,78 +51,95 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="bg-surface relative flex min-h-full items-center justify-center overflow-hidden p-4 md:p-8">
-      {/* 시안의 배경 광원. 정보는 없고 카드가 떠 보이게 하는 장식이다. */}
-      <div
-        aria-hidden
-        className="bg-brand/10 pointer-events-none fixed top-1/4 left-1/2 h-[450px] w-[650px] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[120px]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none fixed top-1/3 left-1/3 h-[380px] w-[380px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-500/10 blur-[100px]"
-      />
+    <div className="bg-surface-panel grid min-h-full lg:grid-cols-[1fr_1.05fr]">
+      <div className="flex flex-col px-5 py-6 sm:px-10">
+        <Link to="/" aria-label="IRYA 홈" className="self-start">
+          <Logo />
+        </Link>
 
-      <div className="relative w-full max-w-md">
-        <div className="border-border-base bg-surface-panel relative overflow-hidden rounded-2xl border p-6 shadow-2xl shadow-black/60 md:p-9">
-          {/* 카드 상단의 얇은 광택 */}
-          <div
-            aria-hidden
-            className="via-brand-soft/40 absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent"
-          />
-
-          <div className="mb-7 flex flex-col items-center text-center">
-            <span
-              aria-hidden
-              className="border-brand-soft/30 bg-brand shadow-brand/30 mb-3 flex h-12 w-12 items-center justify-center rounded-xl border text-white shadow-lg"
-            >
-              <span className="material-symbols-outlined text-[26px]">record_voice_over</span>
-            </span>
-            <span className="text-ink text-lg font-bold tracking-tight">IRYA</span>
-            <h1 className="text-ink pt-2 text-2xl font-bold tracking-tight">면접관 로그인</h1>
-            <p className="text-ink-muted mt-2 text-sm leading-relaxed">
-              AI 면접 진행과 기록 열람을 위한 계정입니다.
-              <br />
-              지원자는 받은 초대 링크로 바로 입장합니다.
-            </p>
-          </div>
+        <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-12">
+          <h1 className="text-ink text-[28px] font-bold tracking-tight">면접관 로그인</h1>
+          <p className="text-ink-muted mt-2 text-[15px] leading-relaxed">
+            면접을 만들고 기록을 검토하려면 로그인해주세요.
+          </p>
 
           <button
             type="button"
             onClick={start}
             disabled={!kakaoConfigured}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FEE500] py-3.5 text-sm font-semibold text-[#191600] transition-colors hover:bg-[#F2D900] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/35"
+            // 카카오 로그인 버튼 가이드의 색 · 심볼을 따른다.
+            className="mt-8 flex h-13 w-full items-center justify-center gap-2.5 rounded-xl bg-[#FEE500] text-[15px] font-semibold text-black/85 transition-colors hover:bg-[#F2D900] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <span aria-hidden className="material-symbols-outlined text-[20px]">
-              chat_bubble
-            </span>
-            카카오 계정으로 로그인
+            <svg aria-hidden viewBox="0 0 24 24" className="h-5 w-5 fill-black/85">
+              <path d="M12 4C7.03 4 3 7.13 3 10.98c0 2.5 1.7 4.7 4.25 5.93l-1.08 3.97c-.1.35.3.63.6.43l4.73-3.13c.49.05.99.08 1.5.08 4.97 0 9-3.13 9-6.98S16.97 4 12 4Z" />
+            </svg>
+            카카오 로그인
           </button>
 
           {/* 자리를 미리 잡아 둔다. 문구가 뜰 때 버튼이 밀려 내려가면 두 번 누르게 된다. */}
           <div aria-live="polite" className="mt-3 min-h-[20px]">
             {!kakaoConfigured && (
-              <p className="text-center text-[13px] text-[#FFC46B]">
+              <p className="text-warning text-center text-[13px]">
                 카카오 앱 키가 설정되지 않았습니다. <code>VITE_KAKAO_CLIENT_ID</code> 를 넣어주세요.
               </p>
             )}
           </div>
-
-          <p className="text-ink-dim mt-6 text-center text-[12px] leading-relaxed">
-            로그인하면 카카오 닉네임과 프로필 사진을 받아옵니다.
-          </p>
 
           {USE_MOCK_API && (
             <button
               type="button"
               onClick={() => mockLogin.mutate()}
               disabled={mockLogin.isPending}
-              className="border-border-base text-ink-muted hover:bg-surface-bright mt-4 w-full rounded-xl border border-dashed py-2.5 text-[13px] transition"
+              className="border-border-input text-ink-muted hover:bg-surface-bright w-full rounded-xl border border-dashed py-2.5 text-[13px] transition"
             >
               {mockLogin.isPending ? '들어가는 중…' : '목 데이터로 둘러보기 (개발용)'}
             </button>
           )}
-        </div>
+
+          <div className="bg-surface border-border-base mt-8 flex gap-3 rounded-xl border p-4">
+            <span aria-hidden className="material-symbols-outlined text-brand text-[20px]">
+              info
+            </span>
+            <p className="text-ink-muted text-[13px] leading-relaxed">
+              지원자는 로그인하지 않아도 됩니다. 받은 초대 링크를 열면 바로 입장합니다.
+            </p>
+          </div>
+
+          <p className="text-ink-dim mt-6 text-[12px] leading-relaxed">
+            로그인하면 카카오 닉네임과 프로필 사진을 받아오며,{' '}
+            <Link to="/terms" className="text-ink-muted underline underline-offset-2">
+              이용약관
+            </Link>
+            과{' '}
+            <Link to="/privacy" className="text-ink-muted underline underline-offset-2">
+              개인정보처리방침
+            </Link>
+            에 동의하는 것으로 봅니다.
+          </p>
+        </main>
       </div>
+
+      {/* 넓은 화면에서만 보이는 장식. 정보는 없다. */}
+      <aside
+        aria-hidden
+        className="from-brand-tint relative hidden overflow-hidden bg-gradient-to-br to-[#e9faf5] lg:block"
+      >
+        <img
+          src={loginVisual}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover mix-blend-multiply"
+        />
+        <div className="absolute inset-x-0 bottom-0 p-12">
+          <p className="text-ink text-[26px] leading-snug font-bold">
+            면접은 사람이,
+            <br />
+            <span className="text-brand">정리는 AI가.</span>
+          </p>
+          <p className="text-ink-muted mt-2 text-[15px]">
+            녹화 · 자막 · 근거가 한 화면에 이어집니다.
+          </p>
+        </div>
+      </aside>
     </div>
   );
 }

@@ -3,6 +3,7 @@
  *
  *   /login                  면접관 로그인 (카카오)
  *   /oauth/kakao/callback   카카오 콜백 — code 를 토큰으로 바꾼다
+ *   /terms · /privacy       이용약관 · 개인정보처리방침 — 로그인 없이 열린다
  *   /                       로그인 전에는 랜딩, 로그인 후에는 대시보드
  *   /settings/context       기업 컨텍스트 설정 — 조직당 하나, 모든 면접에 적용
  *   /interviews/new         면접 만들기 — 지원자 정보 · 이력서 · 초대 링크
@@ -52,6 +53,8 @@ const CandidateDetailPage = lazy(() => import('./pages/CandidateDetailPage'));
 const CandidateMemoPage = lazy(() => import('./pages/CandidateMemoPage'));
 const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
 const ReviewTimelinePage = lazy(() => import('./pages/ReviewTimelinePage'));
+const TermsPage = lazy(() => import('./pages/TermsPage'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 const InterviewRoomPreview = lazy(() =>
   import('./mocks/InterviewRoomPreview').then((m) => ({ default: m.InterviewRoomPreview })),
 );
@@ -270,6 +273,22 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/oauth/kakao/callback" element={<KakaoCallbackPage />} />
+      <Route
+        path="/terms"
+        element={
+          <Suspense fallback={<ChunkFallback />}>
+            <TermsPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/privacy"
+        element={
+          <Suspense fallback={<ChunkFallback />}>
+            <PrivacyPage />
+          </Suspense>
+        }
+      />
       <Route path="/" element={<Home />} />
       <Route
         path="/settings/context"

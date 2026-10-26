@@ -18,6 +18,8 @@ import { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { kakaoLogin } from '../api/auth';
 import { ApiError } from '../api/client';
+import { buttonClass } from '../components/ui/buttonClass';
+import { Logo } from '../components/ui/Logo';
 import { saveAccessToken } from '../lib/authToken';
 import { consumeKakaoState } from '../lib/kakao';
 import { consumeLoginReturnTo } from '../lib/loginReturnTo';
@@ -100,30 +102,35 @@ export default function KakaoCallbackPage() {
   const failure = exchange.isError ? FAILURE[toFailureKind(exchange.error)] : null;
 
   return (
-    <div className="bg-surface flex min-h-full items-center justify-center p-8">
-      <div className="border-border-base bg-surface-panel w-full max-w-md rounded-2xl border p-7 text-center">
+    <div className="bg-surface flex min-h-full flex-col items-center justify-center gap-8 p-6">
+      <Logo />
+      <div className="border-border-base bg-surface-panel shadow-card w-full max-w-sm rounded-2xl border p-7 text-center">
         {failure ? (
           <>
-            <span aria-hidden className="material-symbols-outlined text-[28px] text-[#FFC46B]">
+            <span
+              aria-hidden
+              className="material-symbols-outlined bg-warning-tint text-warning rounded-full p-2.5 text-[26px]"
+            >
               error
             </span>
-            <h1 className="text-ink mt-3 text-lg font-semibold">{failure.title}</h1>
+            <h1 className="text-ink mt-4 text-[18px] font-semibold">{failure.title}</h1>
             <p className="text-ink-muted mt-2 text-[14px] leading-relaxed">{failure.detail}</p>
             <button
               type="button"
               onClick={() => void navigate('/login', { replace: true })}
-              className="bg-brand mt-6 w-full rounded-xl py-3 text-[15px] font-medium text-white transition hover:bg-blue-700"
+              className={`${buttonClass('primary')} mt-6 w-full`}
             >
               로그인 화면으로
             </button>
           </>
         ) : (
           <div aria-live="polite">
-            <p className="text-ink text-[15px]">로그인하는 중입니다</p>
-            <p className="text-ink-dim mt-1.5 text-[13px]">잠시만 기다려주세요.</p>
-            <div className="mt-4 h-1 overflow-hidden rounded-full bg-white/10">
-              <div className="bg-brand h-full w-1/3 animate-[indeterminate_1.4s_ease-in-out_infinite] rounded-full" />
-            </div>
+            <span
+              aria-hidden
+              className="border-brand-tint border-t-brand mx-auto block h-9 w-9 animate-spin rounded-full border-[3px]"
+            />
+            <p className="text-ink mt-4 text-[16px] font-semibold">로그인하는 중입니다</p>
+            <p className="text-ink-muted mt-1.5 text-[14px]">잠시만 기다려주세요.</p>
           </div>
         )}
       </div>
