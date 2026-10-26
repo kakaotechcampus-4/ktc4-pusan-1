@@ -3,22 +3,17 @@
  *
  * 면접을 만들러 가는 입구다. 기업 컨텍스트가 비어 있으면 면접을 만들어도 AI 가 근거로 쓸
  * 자료가 없으므로, 설정 화면으로 먼저 보낸다.
- *
- * 로그아웃은 저장된 토큰을 지우는 것이 전부다 — BE 에 로그아웃 API 가 없다(#119).
- * 토큰은 7일이면 만료되고 갱신 수단도 없어, 만료되면 다시 카카오 로그인을 거친다.
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { getMe } from '../api/auth';
 import { getCurrentContext } from '../api/context';
-import { clearAccessToken } from '../lib/authToken';
 import { useAccessToken } from '../hooks/useAccessToken';
+import { useLogout } from '../hooks/useLogout';
 
 export default function MainPage() {
-  const navigate = useNavigate();
   const token = useAccessToken();
-  const qc = useQueryClient();
 
   const {
     data: context,
@@ -34,12 +29,7 @@ export default function MainPage() {
   // RequireAuth 가 이미 불러 둔 값을 그대로 쓴다 — 같은 키라 요청이 더 나가지 않는다.
   const { data: me } = useQuery({ queryKey: ['me', token], queryFn: getMe });
 
-  const logout = () => {
-    clearAccessToken();
-    // 남은 응답을 지운다. 안 그러면 다음 사람이 로그인했을 때 이전 사람의 화면이 잠깐 보인다.
-    qc.clear();
-    void navigate('/login', { replace: true });
-  };
+  const logout = useLogout();
 
   // ready는 서버에 등록된 문서다. 본문 추출 완료 여부는 이 응답으로 알 수 없다.
   const ready = Boolean(context?.docs.some((d) => d.status === 'ready'));

@@ -37,7 +37,7 @@ import MainPage from './pages/MainPage';
 import { getMe } from './api/auth';
 import { ApiError } from './api/client';
 import { useAccessToken } from './hooks/useAccessToken';
-import { InterviewerHeader } from './components/layout/InterviewerHeader';
+import { AppShell } from './components/layout/AppShell';
 import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from './lib/candidateName';
 import type { JoinSessionResponse, Role } from './types/interview';
 
@@ -53,7 +53,7 @@ const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 
 /** 청크를 받는 동안 잠깐 보인다. 배경색만 맞춰 깜빡임을 줄인다. */
 function ChunkFallback() {
-  return <div className="bg-surface h-screen w-screen" />;
+  return <div className="bg-surface h-screen w-full" />;
 }
 
 interface LocalTracks {
@@ -190,12 +190,13 @@ function Home() {
   );
 }
 
-/** 업무 화면에서 어디서든 목록·설정·새 면접으로 이동할 수 있다. */
+/** 업무 화면은 사이드바(좁으면 아래 탭) 틀 안에 그린다. 어디서든 목록·설정·새 면접으로 간다. */
 function InterviewerPage({ children }: { children: ReactNode }) {
   return (
     <RequireAuth>
-      <InterviewerHeader />
-      <Suspense fallback={<ChunkFallback />}>{children}</Suspense>
+      <AppShell>
+        <Suspense fallback={<ChunkFallback />}>{children}</Suspense>
+      </AppShell>
     </RequireAuth>
   );
 }
