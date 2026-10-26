@@ -9,13 +9,15 @@
  * 상태와 내용은 GET /sessions/{sessionId}/summary의 서버 응답을 그대로 따른다.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { getSessionState, getSummary } from '../api/interview';
 import { ApiError } from '../api/client';
 import { buttonClass } from '../components/ui/buttonClass';
 import { Card } from '../components/ui/Card';
 import { fmt } from '../lib/format';
+import type { SummaryFailureReason } from '../types/interview';
+import { failureMessage, latePollInterval } from '../lib/summaryState';
 
 /** 생성 중일 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 2000;
@@ -33,9 +35,20 @@ export default function InterviewSummaryPage() {
     queryFn: () => getSummary(sessionId!),
     // sessionId 가 없으면 조회할 대상이 없다.
     enabled: Boolean(sessionId),
-    // 생성이 끝날 때까지 되묻는다. 완료되면 false 를 돌려 폴링을 멈춘다.
-    refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? POLL_INTERVAL_MS : false),
+    // 생성이 끝날 때까지 되묻는다. 실패로 보여도 늦은 결과가 올 수 있으면 천천히
+    // 더 묻는다 (`lib/summaryState.ts`). READY 면 멈춘다.
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      if (data?.status === 'PROCESSING') return POLL_INTERVAL_MS;
+      if (data?.status === 'FAILED')
+        return latePollInterval(data.failureReason, q.state.dataUpdateCount);
+      return false;
+    },
   });
+
+  // 지금까지 받은 응답 수. 실패 뒤 얼마나 더 기다렸는지 센다 — 응답마다 다시 그려진다.
+  const summaryChecks =
+    useQueryClient().getQueryState(['summary', sessionId])?.dataUpdateCount ?? 0;
 
   // 면접 기록은 면접(interview) 단위라 세션에서 interviewId 를 얻어 온다.
   const {
@@ -96,17 +109,16 @@ export default function InterviewSummaryPage() {
         </Card>
       )}
 
-      {(failed || summary?.status === 'FAILED') && (
+      {failed && (
         <Card className="mt-8">
           <p className="text-warning text-[16px] font-semibold">
-            {missing ? '없거나 볼 수 없는 면접입니다.' : '요약을 만들지 못했습니다.'}
+            {missing ? '없거나 볼 수 없는 면접입니다.' : '요약을 불러오지 못했습니다.'}
           </p>
           <p className="text-ink-muted mt-1.5 text-[14px] leading-relaxed">
             {missing
               ? '링크가 올바른지, 이 면접을 만든 계정으로 로그인했는지 확인해주세요.'
-              : '면접 기록은 남아 있습니다. 잠시 후 다시 확인해주세요.'}
+              : '네트워크를 확인한 뒤 다시 시도해주세요.'}
           </p>
-          {/* 다시 생성하는 API는 없다. 결과 조회만 다시 시도한다. */}
           {!missing && (
             <button
               type="button"
@@ -118,6 +130,13 @@ export default function InterviewSummaryPage() {
             </button>
           )}
         </Card>
+      )}
+
+      {!failed && summary?.status === 'FAILED' && (
+        <FailedSummary
+          reason={summary.failureReason}
+          waiting={Boolean(latePollInterval(summary.failureReason, summaryChecks))}
+        />
       )}
 
       {summary?.status === 'READY' && summary.content && (
@@ -169,5 +188,38 @@ export default function InterviewSummaryPage() {
         </Link>
       </div>
     </div>
+  );
+}
+
+/** 요약이 실패로 보일 때. 늦게 올 수 있으면 기다리는 중임을 함께 보여 준다. */
+function FailedSummary({
+  reason,
+  waiting,
+}: {
+  reason: SummaryFailureReason | null;
+  waiting: boolean;
+}) {
+  const { title, detail } = failureMessage(reason, waiting);
+  return (
+    <Card className="mt-8" aria-live="polite">
+      <div className="flex items-center gap-3">
+        {waiting ? (
+          <span
+            aria-hidden
+            className="border-brand-tint border-t-brand h-5 w-5 shrink-0 animate-spin rounded-full border-[3px]"
+          />
+        ) : (
+          <span aria-hidden className="text-warning">
+            <span className="material-symbols-outlined text-[22px]">
+              {reason === 'NO_TRANSCRIPT' ? 'mic_off' : 'error'}
+            </span>
+          </span>
+        )}
+        <p className={`text-[16px] font-semibold ${waiting ? 'text-ink' : 'text-warning'}`}>
+          {title}
+        </p>
+      </div>
+      <p className="text-ink-muted mt-2 text-[14px] leading-relaxed">{detail}</p>
+    </Card>
   );
 }

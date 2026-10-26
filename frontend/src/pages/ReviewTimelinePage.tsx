@@ -36,6 +36,7 @@ import { Badge } from '../components/ui/Badge';
 import { buttonClass } from '../components/ui/buttonClass';
 import { fmt } from '../lib/format';
 import { STATUS_LABEL, STATUS_TONE } from '../lib/interviewList';
+import { latePollInterval } from '../lib/summaryState';
 import { applyMark, currentMark } from '../lib/reviewMarks';
 import type { MarkUpdate, Moment, Review, ReviewResponse } from '../types/interview';
 
@@ -55,8 +56,19 @@ export default function ReviewTimelinePage() {
     queryKey: ['review', interviewId],
     queryFn: () => getReview(interviewId!),
     enabled: Boolean(interviewId),
-    refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? POLL_INTERVAL_MS : false),
+    // 준비 중이면 자주, 요약만 실패로 보이면 늦은 결과를 천천히 기다린다
+    // (`lib/summaryState.ts`). 다시 받아도 메모 칸은 자기 글을 들고 있어 밀리지 않는다.
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      if (d?.status === 'PROCESSING') return POLL_INTERVAL_MS;
+      if (d?.status === 'READY' && d.summaryStatus === 'FAILED')
+        return latePollInterval(d.failureReason, q.state.dataUpdateCount);
+      return false;
+    },
   });
+  // 실패 뒤 얼마나 더 기다렸는지 — AI 평가 카드가 「늦어진다 / 실패했다」를 고른다.
+  const queryClient = useQueryClient();
+  const reviewChecks = queryClient.getQueryState(['review', interviewId])?.dataUpdateCount ?? 0;
 
   // 기록이 준비 중이어도 어떤 지원자의 면접인지 실제 면접 조회로 확인한다.
   const { data: interview, refetch: refetchInterview } = useQuery({
@@ -100,7 +112,6 @@ export default function ReviewTimelinePage() {
     seekTo(moment.atSec);
   };
 
-  const queryClient = useQueryClient();
   const [markFailed, setMarkFailed] = useState(false);
   const patchReview = (change: Partial<Review> | ((r: Review) => Review)) =>
     queryClient.setQueryData<ReviewResponse>(['review', interviewId], (prev) =>
@@ -296,7 +307,12 @@ export default function ReviewTimelinePage() {
         {/* 넓은 화면 — 오른쪽 열은 스크롤해도 따라온다. 길면 열 안에서 따로 스크롤한다. */}
         <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:pb-1">
           <div className={`flex flex-col gap-4 ${tab === 'ai' ? '' : 'hidden lg:flex'}`}>
-            <AiReview summary={review.summary} status={review.summaryStatus} />
+            <AiReview
+              summary={review.summary}
+              status={review.summaryStatus}
+              failureReason={review.failureReason}
+              waiting={Boolean(latePollInterval(review.failureReason, reviewChecks))}
+            />
 
             {markFailed && (
               <p role="alert" className="text-danger text-[13px]">

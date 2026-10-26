@@ -289,6 +289,15 @@ class ReviewResponse(Schema):
     coverage: list[ReviewCoverage]
     moments: list[ReviewMoment]
     findings: list[ReviewFinding]
+    failure_reason: Literal["NO_TRANSCRIPT"] | None = Field(
+        default=None,
+        serialization_alias="failureReason",
+        description=(
+            "요약이 FAILED 인 까닭 중 면접관에게 다르게 말해야 하는 것. 저장된 발화가 "
+            "하나도 없으면 NO_TRANSCRIPT 다 — 요약할 대화가 없었다. 그 밖의 실패(시간 "
+            "초과 · 분석 실패)는 null 이고, 늦게 도착한 결과로 READY 가 될 수 있다."
+        ),
+    )
 
 
 class ReviewUpdateRequest(Schema):
@@ -363,6 +372,15 @@ class SummaryResponse(Schema):
         default=None, description="READY 일 때만 찬다."
     )
     duration_sec: int = Field(serialization_alias="durationSec")
+    failure_reason: Literal["NO_TRANSCRIPT"] | None = Field(
+        default=None,
+        serialization_alias="failureReason",
+        description=(
+            "요약이 FAILED 인 까닭 중 면접관에게 다르게 말해야 하는 것. 저장된 발화가 "
+            "하나도 없으면 NO_TRANSCRIPT 다 — 요약할 대화가 없었다. 그 밖의 실패(시간 "
+            "초과 · 분석 실패)는 null 이고, 늦게 도착한 결과로 READY 가 될 수 있다."
+        ),
+    )
 
 
 # ── 기업 컨텍스트 ────────────────────────────────────────

@@ -22,7 +22,9 @@ from app.domain.models import (
     InterviewPrep,
     ReviewMark,
     SessionSummary,
+    SummaryStatus,
 )
+from app.domain.store import Store
 
 JsonList = list[dict[str, Any]]
 
@@ -159,3 +161,18 @@ def item_kinds(summary: SessionSummary) -> dict[str, ItemKind]:
     kinds: dict[str, ItemKind] = {m["momentId"]: "moment" for m in summary.moments}
     kinds.update((f["findingId"], "finding") for f in summary.findings)
     return kinds
+
+
+def failure_reason(
+    store: Store, session_id: str, status: SummaryStatus
+) -> Literal["NO_TRANSCRIPT"] | None:
+    """요약이 FAILED 인 까닭 중 화면이 따로 말해야 하는 것.
+
+    저장된 발화가 하나도 없으면 Agent 는 `empty` 를 보내고 BE 는 FAILED 로 둔다.
+    면접관에게 그것은 「AI 가 실패했다」가 아니라 「요약할 대화가 없었다」다 —
+    마이크를 확인할 일이지 기다릴 일이 아니다. 그 밖의 실패는 늦게 온 결과로
+    READY 가 될 수 있어 따로 이름을 붙이지 않는다.
+    """
+    if status is not SummaryStatus.FAILED:
+        return None
+    return None if store.list_utterances(session_id) else "NO_TRANSCRIPT"

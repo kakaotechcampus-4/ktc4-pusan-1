@@ -5,14 +5,18 @@
  * 「AI 가 할 말이 없었다」로 읽히므로, 왜 비었는지를 적는다.
  */
 
-import type { SummaryContent, SummaryStatus } from '../../types/interview';
+import { failureMessage } from '../../lib/summaryState';
+import type { SummaryContent, SummaryFailureReason, SummaryStatus } from '../../types/interview';
 
 export interface AiReviewProps {
   summary: SummaryContent | null;
   status: SummaryStatus;
+  failureReason: SummaryFailureReason | null;
+  /** 실패로 보이지만 늦은 결과를 아직 기다리는 중 */
+  waiting: boolean;
 }
 
-export function AiReview({ summary, status }: AiReviewProps) {
+export function AiReview({ summary, status, failureReason, waiting }: AiReviewProps) {
   return (
     <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-4 sm:p-5">
       <div className="border-border-base flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b pb-4">
@@ -40,11 +44,20 @@ export function AiReview({ summary, status }: AiReviewProps) {
           )}
         </div>
       ) : (
-        <p className="text-ink-muted mt-4 text-[15px] leading-relaxed">
-          {status === 'FAILED'
-            ? '요약을 만들지 못했습니다. 아래 문답과 녹화로 검토할 수 있습니다.'
-            : '요약을 만들고 있습니다.'}
-        </p>
+        <div className="mt-4" aria-live="polite">
+          {status === 'FAILED' ? (
+            <>
+              <p className={`text-[15px] font-semibold ${waiting ? 'text-ink' : 'text-warning'}`}>
+                {failureMessage(failureReason, waiting).title}
+              </p>
+              <p className="text-ink-muted mt-1 text-[14px] leading-relaxed">
+                {failureMessage(failureReason, waiting).detail}
+              </p>
+            </>
+          ) : (
+            <p className="text-ink-muted text-[15px]">요약을 만들고 있습니다.</p>
+          )}
+        </div>
       )}
 
       <p className="border-border-base text-ink-dim mt-4 border-t pt-4 text-[13px] leading-relaxed">

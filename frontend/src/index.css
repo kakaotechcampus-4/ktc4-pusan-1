@@ -41,25 +41,6 @@
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
-/* 면접 진행 화면은 영상 위에 반투명 HUD 를 얹는 어두운 무대다. 화상회의 화면이 모두
-   그렇듯 여기만 어두운 값을 다시 입힌다 — 유틸리티는 같은 이름의 변수를 읽으므로
-   컴포넌트는 그대로 두고 감싸는 요소에 이 클래스만 붙인다. */
-.theme-stage {
-  color-scheme: dark;
-  --color-surface: #0e1220;
-  --color-surface-panel: #161b2c;
-  --color-surface-container: #1a2033;
-  --color-surface-bright: #232a40;
-  --color-surface-input: #121726;
-  --color-border-base: #2a3148;
-  --color-border-input: #343c56;
-  --color-brand-soft: #8f93ff;
-  --color-brand-tint: #2a2d63;
-  --color-ink: #f5f7fb;
-  --color-ink-muted: #a6aec4;
-  --color-ink-dim: #6f7894;
-}
-
 /* Material Symbols — 시안이 아이콘 폰트를 쓴다. */
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined';
@@ -97,6 +78,80 @@
   }
   100% {
     transform: translateX(400%);
+  }
+}
+
+/* 면접 화면의 떠 있는 유리판 (#236).
+   영상 위에 거의 투명하게 떠 있다가, 마우스를 올리거나 키보드로 들어가면 또렷해진다.
+   안쪽 컴포넌트는 그대로 색 토큰을 쓰고, 여기서 토큰을 밝은 값으로 바꿔 흰 글씨가 된다. */
+.glass {
+  --color-ink: #ffffff;
+  --color-ink-muted: rgb(255 255 255 / 0.8);
+  --color-ink-dim: rgb(255 255 255 / 0.62);
+  --color-border-base: rgb(255 255 255 / 0.16);
+  --color-border-input: rgb(255 255 255 / 0.28);
+  --color-surface-panel: rgb(255 255 255 / 0.06);
+  --color-surface-container: rgb(255 255 255 / 0.1);
+  --color-surface-bright: rgb(255 255 255 / 0.16);
+  --color-brand: #9ea2ff;
+  --color-brand-strong: #ffffff;
+  --color-brand-tint: rgb(158 162 255 / 0.22);
+  --color-accent-strong: #6ff0d6;
+  --color-warning: #ffd27a;
+  --color-danger: #ff8f94;
+  --color-danger-tint: rgb(255 143 148 / 0.18);
+
+  color: var(--color-ink);
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    inset 0 -1px 0 rgb(255 255 255 / 0.06),
+    0 10px 36px rgb(6 8 20 / 0.22);
+  backdrop-filter: blur(16px) saturate(170%);
+  -webkit-backdrop-filter: blur(16px) saturate(170%);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease;
+}
+
+/* 평소에는 흐리게, 들여다볼 때 또렷하게. 지금 오가는 자막처럼 늘 읽혀야 하는 것은 이 클래스를 안 쓴다. */
+.glass-dim {
+  opacity: 0.5;
+  transition: opacity 0.3s ease;
+}
+
+.glass:hover,
+.glass:focus-within {
+  background: rgb(255 255 255 / 0.16);
+  border-color: rgb(255 255 255 / 0.32);
+}
+
+.glass:hover .glass-dim,
+.glass:focus-within .glass-dim {
+  opacity: 1;
+}
+
+/* 마우스가 없는 기기는 올릴 수가 없다. 처음부터 또렷하게 둔다. */
+@media (hover: none) {
+  .glass {
+    background: rgb(255 255 255 / 0.14);
+  }
+  .glass-dim {
+    opacity: 1;
+  }
+}
+
+/* 자막 한 줄이 아래에서 떠오른다. */
+@keyframes caption-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 

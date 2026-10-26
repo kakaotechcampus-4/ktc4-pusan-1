@@ -41,6 +41,7 @@ from app.schemas import (
     SummaryResponse,
 )
 from app.services import recording as recording_module
+from app.services.review import failure_reason
 
 router = APIRouter(prefix="/sessions", tags=["세션"])
 
@@ -280,6 +281,7 @@ def get_summary(session: OwnedSessionDep, store: StoreDep) -> SummaryResponse:
         status=summary.status,
         content=content,
         duration_sec=_duration_sec(session),
+        failure_reason=failure_reason(store, session.id, summary.status),
     )
 
 
