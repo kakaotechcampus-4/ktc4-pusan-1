@@ -14,6 +14,7 @@ import pytest
 
 from irya_ai.backend import BackendClient
 from irya_ai.config import Settings
+from irya_ai.findings import FindingsAgent, FindingsError
 from irya_ai.prep import FakePrepGenerator, PrepAgent, PrepError
 from irya_ai.prep_poller import (
     HOLD_PRUNE_SIZE,
@@ -640,6 +641,8 @@ def test_the_agent_is_the_project_llm_only_when_both_values_are_set() -> None:
     assert client is None
     assert agent.model == "extractive-baseline"
     assert review.model == "extractive-baseline"
+    assert review.findings is not None
+    assert review.findings.model == "extractive-baseline"
 
     configured = Settings(
         _env_file=None, llm_base_url="https://gateway.invalid/dep", llm_api_key="k"
@@ -654,6 +657,11 @@ def test_the_agent_is_the_project_llm_only_when_both_values_are_set() -> None:
         assert review.timeline.timeout_seconds == configured.llm_timeout_seconds
         assert review.summary.summarizer.client is client
         assert review.timeline.generator.client is client
+        assert review.findings is not None
+        assert review.findings.model == configured.llm_model
+        assert review.findings.timeout_seconds == configured.llm_timeout_seconds
+        assert review.findings.generator.client is client
+        assert review.findings.generator.model == configured.llm_model
     finally:
         if client is not None:
             asyncio.run(client.close())
@@ -1003,6 +1011,70 @@ async def test_findings_that_failed_for_good_are_left_out_not_sent_empty() -> No
 
     assert done.outcome == "stored"
     assert "findings" not in backend.put_bodies[0]
+
+
+async def test_the_wired_findings_agent_puts_the_claims_it_finds_in_the_body() -> None:
+    # The real agents from build_agents(), not fakes: the extractive baseline
+    # reports a resume claim quoted word for word in a candidate answer.
+    backend = review_backend()
+    backend.contexts["ses_1"]["resumeClaims"] = [
+        {
+            "claimId": "clm_1",
+            "resumeId": "doc_1",
+            "quote": "Redis를 붙였습니다",
+            "section": "프로젝트",
+        }
+    ]
+    _, review, client = build_agents(Settings(_env_file=None))
+    assert client is None
+    poller = poller_for(backend, review=review)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["model"] == "extractive-baseline"
+    assert [m["qaId"] for m in body["moments"]] == ["qa_utt_q1"]
+    assert [(f["type"], f["claimId"]) for f in body["findings"]] == [
+        ("CLAIM_VERIFIED", "clm_1")
+    ]
+    assert body["findings"][0]["evidenceQuote"] == "Redis를 붙였습니다"
+    assert body["findings"][0]["evidenceTMs"] == 6000
+
+
+class RaisingFindingsGenerator:
+    def __init__(self, code: str, *, retryable: bool) -> None:
+        self.code = code
+        self.retryable = retryable
+
+    async def generate(self, context, finals):  # noqa: ANN001, ANN201
+        raise FindingsError(self.code, retryable=self.retryable)
+
+
+async def test_a_findings_agent_that_fails_for_good_costs_the_others_nothing() -> None:
+    # Through the real FindingsAgent: a reply that will not parse is final,
+    # so the summary and timeline go out now, without a findings key. The
+    # context needs a claim, or the agent reports "empty" without a call.
+    backend = review_backend()
+    backend.contexts["ses_1"]["resumeClaims"] = [
+        {"claimId": "clm_1", "resumeId": "doc_1", "quote": "Kafka", "section": None}
+    ]
+    findings = FindingsAgent(
+        RaisingFindingsGenerator("LLM_INVALID_OUTPUT", retryable=False),
+        model="fake",
+    )
+    poller = poller_for(backend, review=review_agents(findings=findings))
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["summary"]
+    assert [m["qaId"] for m in body["moments"]] == ["qa_utt_q1"]
+    assert "findings" not in body
+    assert poller.holds == {}
 
 
 async def test_a_review_log_names_counts_and_times_but_no_words(
