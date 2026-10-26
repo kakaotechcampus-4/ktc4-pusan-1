@@ -6,14 +6,23 @@
  *
  * 점수도 순위도 만들지 않는다. 숫자는 「무엇을 아직 안 봤는지」를 가리킬 뿐이다 —
  * 판단은 면접관이 한다.
+ *
+ * 줄을 누르면 미리보기 시트가 열리고, 거기서 면접 기록으로 간다 (#232).
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listInterviews } from '../api/interview';
-import { durationLabel, pendingReason, STATUS_LABEL } from '../lib/interviewList';
-import type { ReviewStatus } from '../types/interview';
+import emptyInterviews from '../assets/illustrations/empty-interviews.webp';
+import { Badge } from '../components/ui/Badge';
+import { buttonClass } from '../components/ui/buttonClass';
+import { Card } from '../components/ui/Card';
+import { EmptyState } from '../components/ui/EmptyState';
+import { Sheet } from '../components/ui/Sheet';
+import { Skeleton } from '../components/ui/Skeleton';
+import { durationLabel, pendingReason, STATUS_LABEL, STATUS_TONE } from '../lib/interviewList';
+import type { InterviewListItem, ReviewStatus } from '../types/interview';
 
 type Filter = 'all' | ReviewStatus;
 type Sort = 'recent' | 'name' | 'needsReview';
@@ -87,206 +96,306 @@ export default function InterviewListPage() {
   const countFor = (id: Filter) =>
     id === 'all' ? searched.length : searched.filter((item) => item.reviewStatus === id).length;
 
+  // 줄을 누르면 오른쪽(좁으면 아래) 시트로 미리 본다. 목록을 떠나지 않고 훑어보게 한다.
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const preview = items.find((item) => item.interviewId === previewId);
+  const sheetSide = window.matchMedia('(min-width: 1024px)').matches ? 'right' : 'bottom';
+
   return (
-    <div className="min-h-full bg-[#121316] text-[#eaecef]">
-      <main className="mx-auto max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8">
-        <header className="border-b border-[#272a33] pb-5">
-          <p className="text-ink-muted font-mono text-xs">지원자 검토</p>
-          <h1 className="mt-1 text-xl font-bold sm:text-2xl">지원자 목록</h1>
-          <p className="mt-2 text-xs text-[#9498a4]">
-            내가 만든 면접입니다. 근거와 면접 기록을 검토합니다. 점수와 순위는 제공하지 않습니다.
-          </p>
-        </header>
+    <div className="mx-auto w-full max-w-6xl px-4 pt-8 pb-10 sm:px-6 lg:px-10 lg:pt-10">
+      <header>
+        <h1 className="text-ink text-[26px] font-bold tracking-tight">지원자</h1>
+        <p className="text-ink-muted mt-1.5 text-[15px]">
+          내가 만든 면접입니다. 점수와 순위는 매기지 않습니다 — 판단은 면접관이 합니다.
+        </p>
+      </header>
 
-        {isLoading && <p className="mt-8 text-sm text-[#9498a4]">불러오는 중…</p>}
+      {isLoading && (
+        <div className="mt-8 flex flex-col gap-2">
+          <Skeleton className="h-11 w-80" />
+          <Skeleton className="mt-3 h-16" />
+          <Skeleton className="h-16" />
+          <Skeleton className="h-16" />
+        </div>
+      )}
 
-        {isError && (
-          <div role="alert" className="mt-8 text-sm text-amber-300">
-            <p>지원자 목록을 불러오지 못했습니다.</p>
-            <button
-              type="button"
-              onClick={() => void refetch()}
-              disabled={isFetching}
-              className="mt-2 underline disabled:opacity-50"
-            >
-              다시 확인
-            </button>
-          </div>
-        )}
+      {isError && (
+        <div role="alert" className="text-ink-muted mt-8 text-[15px]">
+          <p>지원자 목록을 불러오지 못했습니다.</p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="text-brand mt-2 font-semibold disabled:opacity-50"
+          >
+            다시 시도
+          </button>
+        </div>
+      )}
 
-        {/*
-          조회가 한 번 성공한 뒤 재조회가 실패하면 v5 는 앞의 data 를 그대로 들고 있다.
-          그러면 오류 배너와 「아직 만든 면접이 없습니다」가 같이 떠서 서로 다른 말을 한다.
-        */}
-        {data && !isError && items.length === 0 && (
-          <section className="mt-8 rounded-lg border border-[#272a33] bg-[#18191f] p-6">
-            <h2 className="text-sm font-semibold">아직 만든 면접이 없습니다</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#9498a4]">
-              면접을 만들면 여기에 쌓입니다.
-            </p>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Link
-                to="/interviews/new"
-                className="inline-flex rounded border border-[#3f4452] bg-[#202229] px-3 py-2 text-xs font-semibold text-[#eaecef] hover:bg-[#282b34]"
-              >
+      {/*
+        조회가 한 번 성공한 뒤 재조회가 실패하면 v5 는 앞의 data 를 그대로 들고 있다.
+        그러면 오류 배너와 「아직 만든 면접이 없습니다」가 같이 떠서 서로 다른 말을 한다.
+      */}
+      {data && !isError && items.length === 0 && (
+        <Card className="mt-8">
+          <EmptyState
+            image={emptyInterviews}
+            title="아직 만든 면접이 없습니다"
+            description="면접을 만들면 여기에 쌓입니다."
+            action={
+              <Link to="/interviews/new" className={buttonClass('primary')}>
                 면접 만들기
               </Link>
-            </div>
-          </section>
-        )}
+            }
+          />
+        </Card>
+      )}
 
-        {items.length > 0 && (
-          <>
-            <section className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {FILTERS.map((item) => (
+      {items.length > 0 && (
+        <>
+          <div className="mt-7 flex flex-col gap-3 lg:flex-row lg:items-center">
+            {/* 상태 탭 — 숫자는 검색까지 적용한 결과를 센다 */}
+            <div
+              role="group"
+              aria-label="검토 상태"
+              className="bg-surface-bright flex gap-1 overflow-x-auto rounded-xl p-1"
+            >
+              {FILTERS.map((item) => {
+                const on = filter === item.id;
+                return (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => setFilter(item.id)}
-                    aria-pressed={filter === item.id}
-                    className={`shrink-0 rounded-full border px-3 py-2 text-xs ${
-                      filter === item.id
-                        ? 'border-[#eaecef] bg-[#f0f2f5] font-bold text-[#121316]'
-                        : 'border-[#2e323c] bg-[#202229] text-[#9498a4] hover:bg-[#282b34]'
+                    aria-pressed={on}
+                    className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-[13px] font-semibold transition sm:gap-1.5 sm:px-3.5 sm:text-[14px] ${
+                      on ? 'bg-surface-panel text-ink shadow-card' : 'text-ink-muted hover:text-ink'
                     }`}
                   >
                     {item.label}
-                    <span className="ml-1.5 font-mono text-[10px]">{countFor(item.id)}</span>
+                    <span
+                      className={`rounded-full px-1.5 text-[12px] tabular-nums ${on ? 'bg-brand-tint text-brand-strong' : 'text-ink-dim'}`}
+                    >
+                      {countFor(item.id)}
+                    </span>
                   </button>
-                ))}
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <label className="sr-only" htmlFor="candidate-search">
-                  지원자 이름 검색
-                </label>
+                );
+              })}
+            </div>
+            <span className="flex-1" />
+            <div className="flex gap-2">
+              <label className="relative min-w-0 flex-1 lg:w-60 lg:flex-none">
+                <span className="sr-only">지원자 이름 검색</span>
+                <span
+                  aria-hidden
+                  className="material-symbols-outlined text-ink-dim pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[20px]"
+                >
+                  search
+                </span>
                 <input
                   id="candidate-search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="지원자 이름 검색"
-                  className="placeholder:text-ink-muted min-w-0 rounded border border-[#2e323c] bg-[#17191f] px-3 py-2 text-xs text-[#eaecef] sm:w-56"
+                  placeholder="이름 검색"
+                  className={`${FIELD} w-full pl-10`}
                 />
-                <label className="sr-only" htmlFor="candidate-sort">
-                  정렬
-                </label>
+              </label>
+              <label className="shrink-0">
+                <span className="sr-only">정렬</span>
                 <select
                   id="candidate-sort"
                   value={sort}
                   onChange={(event) => setSort(event.target.value as Sort)}
-                  className="rounded border border-[#2e323c] bg-[#17191f] px-3 py-2 text-xs text-[#c4c7c9]"
+                  className={`${FIELD} pr-8`}
                 >
                   <option value="recent">최신순</option>
                   <option value="name">이름순</option>
                   <option value="needsReview">확인 필요 많은순</option>
                 </select>
-              </div>
-            </section>
-
-            <div className="mt-4 overflow-x-auto rounded-lg border border-[#272a33] bg-[#15161b]">
-              <table className="w-full min-w-[860px] border-collapse text-left text-xs">
-                <thead className="text-ink-muted bg-[#15161b]">
-                  <tr className="border-b border-[#272a33]">
-                    {[
-                      '지원자',
-                      '검토 상태',
-                      '면접',
-                      '확인 항목',
-                      '확인 필요',
-                      '근거 채택',
-                      '면접 길이',
-                    ].map((label) => (
-                      <th
-                        key={label}
-                        scope="col"
-                        className="px-3 py-3 font-medium whitespace-nowrap"
-                      >
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((item) => {
-                    const reason = pendingReason(item);
-                    const duration = durationLabel(item.durationSec);
-                    return (
-                      <tr
-                        key={item.interviewId}
-                        className="border-b border-[#22242c] last:border-0 hover:bg-white/[0.015]"
-                      >
-                        <td className="px-3 py-4">
-                          {/* 아직 지원자 상세 화면이 없다. 면접 기록이 가장 가까운 다음 화면이다. */}
-                          <Link
-                            to={`/review/${item.interviewId}`}
-                            className="block min-w-40 hover:text-white"
-                          >
-                            <span className="block font-semibold">
-                              {item.candidateName ?? UNNAMED}
-                            </span>
-                            {item.role && (
-                              <span className="text-ink-muted mt-1 block text-[10px]">
-                                {item.role}
-                              </span>
-                            )}
-                          </Link>
-                        </td>
-                        <td className="px-3 py-4">
-                          <span
-                            className={`rounded border px-2 py-1 text-[10px] whitespace-nowrap ${
-                              item.reviewStatus === 'PENDING'
-                                ? 'border-amber-500/50 bg-[#ffe082] font-bold text-[#212121]'
-                                : 'border-[#2e323c] bg-[#202229] text-[#c4c7c9]'
-                            }`}
-                          >
-                            {STATUS_LABEL[item.reviewStatus]}
-                          </span>
-                        </td>
-                        <td className="px-3 py-4 whitespace-nowrap">
-                          {item.interviewedAt ? (
-                            <span className="block font-mono">{dateLabel(item.interviewedAt)}</span>
-                          ) : (
-                            <span className="text-ink-muted block">아직 보지 않음</span>
-                          )}
-                          <span className="text-ink-muted mt-1 block text-[10px]">
-                            {item.interviewer.nickname}
-                          </span>
-                        </td>
-                        {reason ? (
-                          // 숫자 세 칸이 모두 같은 이유로 비므로 한 칸으로 합쳐 한 번만 말한다.
-                          <td colSpan={3} className="text-ink-muted px-3 py-4">
-                            {reason}
-                          </td>
-                        ) : (
-                          <>
-                            <td className="px-3 py-4 font-mono whitespace-nowrap">
-                              {item.counts!.coverageConfirmed}/{item.counts!.coverageTotal}
-                            </td>
-                            <td className="px-3 py-4 font-mono whitespace-nowrap">
-                              {item.counts!.needsReview}건
-                            </td>
-                            <td className="px-3 py-4 font-mono whitespace-nowrap">
-                              {item.counts!.adopted}/{item.counts!.findings}
-                            </td>
-                          </>
-                        )}
-                        <td className="px-3 py-4 font-mono whitespace-nowrap">
-                          {duration === null ? <span className="text-ink-muted">—</span> : duration}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {filtered.length === 0 && (
-                <p className="p-8 text-center text-sm text-[#9498a4]">
-                  조건에 맞는 지원자가 없습니다.
-                </p>
-              )}
+              </label>
             </div>
-          </>
+          </div>
+
+          <div className="border-border-base bg-surface-panel shadow-card mt-4 overflow-hidden rounded-2xl border">
+            {/* 넓은 화면 — 표 머리 */}
+            <div className="border-border-base text-ink-dim hidden grid-cols-[minmax(0,2fr)_110px_minmax(0,1.3fr)_minmax(0,1.6fr)_80px_24px] gap-4 border-b px-5 py-3 text-[13px] font-medium md:grid">
+              <span>지원자</span>
+              <span>검토 상태</span>
+              <span>면접</span>
+              <span>확인 항목 · 확인 필요 · 근거 채택</span>
+              <span>길이</span>
+              <span />
+            </div>
+            <ul className="divide-border-base divide-y">
+              {filtered.map((item) => {
+                const reason = pendingReason(item);
+                const duration = durationLabel(item.durationSec);
+                const name = item.candidateName ?? UNNAMED;
+                return (
+                  <li key={item.interviewId}>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewId(item.interviewId)}
+                      className="hover:bg-surface-container grid w-full grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1.5 px-5 py-4 text-left transition-colors md:grid-cols-[minmax(0,2fr)_110px_minmax(0,1.3fr)_minmax(0,1.6fr)_80px_24px]"
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <span className="bg-brand-tint text-brand flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[14px] font-bold">
+                          {name.slice(0, 1)}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="text-ink block truncate text-[15px] font-semibold">
+                            {name}
+                          </span>
+                          {item.role && (
+                            <span className="text-ink-dim block truncate text-[13px]">
+                              {item.role}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                      <span>
+                        <Badge tone={STATUS_TONE[item.reviewStatus]}>
+                          {STATUS_LABEL[item.reviewStatus]}
+                        </Badge>
+                      </span>
+                      <span className="text-ink-muted col-span-2 truncate pl-12 text-[13px] md:col-span-1 md:pl-0 md:text-[14px]">
+                        {item.interviewedAt ? dateLabel(item.interviewedAt) : '아직 진행 전'}
+                      </span>
+                      <span className="text-ink-muted col-span-2 pl-12 text-[13px] md:col-span-1 md:pl-0 md:text-[14px]">
+                        {reason ?? (
+                          // 넓은 화면은 표 머리가 이름을 대신 말한다. 좁은 화면에서만 이름을 붙인다.
+                          <span className="tabular-nums">
+                            <span className="md:hidden">역량 </span>
+                            {item.counts!.coverageConfirmed}/{item.counts!.coverageTotal} ·{' '}
+                            <span className="md:hidden">확인 필요 </span>
+                            <span
+                              className={
+                                item.counts!.needsReview > 0 ? 'text-warning font-semibold' : ''
+                              }
+                            >
+                              {item.counts!.needsReview}건
+                            </span>{' '}
+                            · <span className="md:hidden">채택 </span>
+                            {item.counts!.adopted}/{item.counts!.findings}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-ink-muted hidden text-[14px] tabular-nums md:block">
+                        {duration ?? '—'}
+                      </span>
+                      {/* Google Fonts 의 아이콘 CSS 가 레이어 밖에서 inline-block 을 줘서 아이콘에 직접
+                          hidden 을 걸면 지지 않는다. 숨기는 일은 감싸개가 한다. */}
+                      <span aria-hidden className="text-ink-dim hidden md:block">
+                        <span className="material-symbols-outlined text-[20px]">chevron_right</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {filtered.length === 0 && (
+              <p className="text-ink-muted p-10 text-center text-[15px]">
+                조건에 맞는 지원자가 없습니다.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
+      <Sheet
+        open={Boolean(preview)}
+        onClose={() => setPreviewId(null)}
+        title="지원자 미리보기"
+        side={sheetSide}
+      >
+        {preview && <Preview item={preview} />}
+      </Sheet>
+    </div>
+  );
+}
+
+/** 입력 칸 · 고르기 칸 공통 모양 */
+const FIELD =
+  'h-11 rounded-xl border border-border-input bg-surface-input px-3.5 text-[14px] text-ink placeholder:text-ink-dim outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/20';
+
+/** 시트 안 — 한 사람의 요약과 면접 기록으로 가는 길 */
+function Preview({ item }: { item: InterviewListItem }) {
+  const reason = pendingReason(item);
+  const duration = durationLabel(item.durationSec);
+  const name = item.candidateName ?? UNNAMED;
+  return (
+    <>
+      <div className="flex items-center gap-3">
+        <span className="bg-brand-tint text-brand flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[18px] font-bold">
+          {name.slice(0, 1)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-ink truncate text-[18px] font-bold">{name}</p>
+          <p className="text-ink-dim truncate text-[14px]">{item.role || '직무 미입력'}</p>
+        </div>
+        <Badge tone={STATUS_TONE[item.reviewStatus]}>{STATUS_LABEL[item.reviewStatus]}</Badge>
+      </div>
+
+      <dl className="border-border-base mt-6 grid grid-cols-2 gap-4 border-t pt-5 text-[14px]">
+        <Fact
+          label="면접 일시"
+          value={item.interviewedAt ? dateLabel(item.interviewedAt) : '아직 진행 전'}
+        />
+        <Fact label="면접 길이" value={duration ?? '—'} />
+        <Fact label="면접관" value={item.interviewer.nickname} />
+      </dl>
+
+      <div className="bg-surface-container mt-6 rounded-2xl p-4">
+        <p className="text-ink text-[14px] font-semibold">AI 검토 항목</p>
+        {reason ? (
+          <p className="text-ink-muted mt-2 text-[14px]">{reason}</p>
+        ) : (
+          <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <Count
+              label="확인된 역량"
+              value={`${item.counts!.coverageConfirmed}/${item.counts!.coverageTotal}`}
+            />
+            <Count
+              label="확인 필요"
+              value={`${item.counts!.needsReview}건`}
+              warn={item.counts!.needsReview > 0}
+            />
+            <Count label="근거 채택" value={`${item.counts!.adopted}/${item.counts!.findings}`} />
+          </dl>
         )}
-      </main>
+      </div>
+
+      {/* 아직 지원자 상세 화면이 없다. 면접 기록이 가장 가까운 다음 화면이다. */}
+      <Link
+        to={`/review/${item.interviewId}`}
+        className={`${buttonClass('primary', 'lg')} mt-6 w-full`}
+      >
+        면접 기록 열기
+        <span aria-hidden className="material-symbols-outlined text-[20px]">
+          arrow_forward
+        </span>
+      </Link>
+    </>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-ink-dim text-[12px]">{label}</dt>
+      <dd className="text-ink mt-0.5 truncate font-medium">{value}</dd>
+    </div>
+  );
+}
+
+function Count({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className="bg-surface-panel rounded-xl px-2 py-3">
+      <dd className={`text-[18px] font-bold tabular-nums ${warn ? 'text-warning' : 'text-ink'}`}>
+        {value}
+      </dd>
+      <dt className="text-ink-dim mt-0.5 text-[12px]">{label}</dt>
     </div>
   );
 }

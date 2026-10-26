@@ -18,24 +18,18 @@ import { getCurrentContext } from '../api/context';
 import { listInterviews } from '../api/interview';
 import emptyInterviews from '../assets/illustrations/empty-interviews.webp';
 import emptyReview from '../assets/illustrations/empty-review.webp';
-import { Badge, type BadgeTone } from '../components/ui/Badge';
+import { Badge } from '../components/ui/Badge';
 import { buttonClass } from '../components/ui/buttonClass';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 import { useAccessToken } from '../hooks/useAccessToken';
 import { FALLBACK_CANDIDATE } from '../lib/candidateName';
-import { STATUS_LABEL } from '../lib/interviewList';
-import type { InterviewListItem, ReviewStatus } from '../types/interview';
+import { STATUS_LABEL, STATUS_TONE } from '../lib/interviewList';
+import type { InterviewListItem } from '../types/interview';
 
 /** 최근 면접은 몇 건만 — 더 보려면 지원자 화면으로 간다 */
 const RECENT = 5;
-
-const STATUS_TONE: Record<ReviewStatus, BadgeTone> = {
-  PENDING: 'warning',
-  IN_REVIEW: 'brand',
-  CONFIRMED: 'accent',
-};
 
 const dateLabel = (value: string) =>
   new Intl.DateTimeFormat('ko-KR', {
