@@ -3,7 +3,7 @@
  *
  *   /login                  면접관 로그인 (카카오)
  *   /oauth/kakao/callback   카카오 콜백 — code 를 토큰으로 바꾼다
- *   /                       메인 — 면접 만들기 입구
+ *   /                       로그인 전에는 랜딩, 로그인 후에는 대시보드
  *   /settings/context       기업 컨텍스트 설정 — 조직당 하나, 모든 면접에 적용
  *   /interviews/new         면접 만들기 — 지원자 정보 · 이력서 · 초대 링크
  *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
@@ -31,6 +31,7 @@ import InterviewCreatePage from './pages/InterviewCreatePage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
 import KakaoCallbackPage from './pages/KakaoCallbackPage';
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import MainPage from './pages/MainPage';
 import { getMe } from './api/auth';
@@ -57,7 +58,7 @@ const InterviewRoomPreview = lazy(() =>
 
 /** 청크를 받는 동안 잠깐 보인다. 배경색만 맞춰 깜빡임을 줄인다. */
 function ChunkFallback() {
-  return <div className="h-screen w-screen bg-[#0B0E14]" />;
+  return <div className="bg-surface h-screen w-screen" />;
 }
 
 interface LocalTracks {
@@ -190,6 +191,21 @@ function InterviewEntry() {
   return interviewer ? <RequireAuth>{flow}</RequireAuth> : flow;
 }
 
+/**
+ * `/` 하나로 두 사람을 받는다. 토큰이 없으면 처음 온 사람이라 랜딩을, 있으면 대시보드를
+ * 그린다. 토큰이 만료됐으면 대시보드 쪽 `RequireAuth` 가 로그인으로 보낸다.
+ */
+function Home() {
+  const token = useAccessToken();
+  return token ? (
+    <InterviewerPage>
+      <MainPage />
+    </InterviewerPage>
+  ) : (
+    <LandingPage />
+  );
+}
+
 /** 업무 화면에서 어디서든 목록·설정·새 면접으로 이동할 수 있다. */
 function InterviewerPage({ children }: { children: ReactNode }) {
   return (
@@ -254,14 +270,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/oauth/kakao/callback" element={<KakaoCallbackPage />} />
-      <Route
-        path="/"
-        element={
-          <InterviewerPage>
-            <MainPage />
-          </InterviewerPage>
-        }
-      />
+      <Route path="/" element={<Home />} />
       <Route
         path="/settings/context"
         element={

@@ -101,9 +101,19 @@ html {
   color-scheme: light;
 }
 
+/* 랜딩의 #features 같은 안쪽 링크가 뚝 끊기지 않게. 움직임을 줄인 사람에게는 끈다. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
   background-color: var(--color-surface);
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  /* 한글이 「면/접」처럼 단어 중간에서 줄을 바꾸지 않게 한다. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
