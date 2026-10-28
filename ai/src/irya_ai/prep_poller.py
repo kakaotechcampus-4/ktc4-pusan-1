@@ -333,6 +333,21 @@ class ReviewAgents:
     findings: FindingsRunner | None = None
     model: str = ""
 
+    @property
+    def attempt_seconds(self) -> float:
+        """The longest one run can take: the longest of the agents' timeouts.
+
+        The three run side by side, so one run lasts as long as its slowest
+        agent, and that agent gives up at its timeout. A findings runner
+        without a timeout (the protocol does not require one) adds nothing.
+        """
+
+        return max(
+            self.summary.timeout_seconds,
+            self.timeline.timeout_seconds,
+            getattr(self.findings, "timeout_seconds", 0.0),
+        )
+
     async def run(
         self, context: InterviewContext, snapshot: TranscriptSnapshot
     ) -> ReviewParts:
@@ -624,16 +639,19 @@ class PrepPoller:
     def _retry_fits(self, since: float | None, parts: ReviewParts) -> bool:
         """Would a hold and another run of the agents end before the deadline?
 
-        The next attempt is assumed to take as long as this one did; a
-        timeout fails at the timeout, a busy gateway fails at once and the
-        retry that then succeeds takes longer than that, so this is a floor.
-        A ``requestedAt`` this process cannot read is not retried: Backend's
+        The next attempt is planned for the longest it can take: the agents'
+        timeout, or this attempt's time if that was longer. A busy gateway
+        fails at once, and planning the retry from those few seconds would
+        let it run into its timeout past the deadline (#242). A
+        ``requestedAt`` this process cannot read is not retried: Backend's
         limit cannot be placed, and storing loses less than a blind wait.
         """
 
+        assert self.review is not None
         if since is None:
             return False
-        next_end = since + self.retry_after_seconds + parts.agent_ms / 1000
+        attempt = max(parts.agent_ms / 1000, self.review.attempt_seconds)
+        next_end = since + self.retry_after_seconds + attempt
         return next_end <= self.review_deadline_seconds
 
     def _unexpected(self, job: PendingJob, exc: Exception) -> None:

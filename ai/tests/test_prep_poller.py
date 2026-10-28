@@ -8,7 +8,6 @@ and checks what the poller did with it.
 import asyncio
 import json
 import logging
-from dataclasses import replace
 from datetime import datetime, timedelta
 
 import httpx
@@ -16,7 +15,11 @@ import pytest
 
 from irya_ai.backend import BackendClient
 from irya_ai.config import Settings
-from irya_ai.findings import FindingsAgent, FindingsError
+from irya_ai.findings import (
+    ExtractiveFindingsGenerator,
+    FindingsAgent,
+    FindingsError,
+)
 from irya_ai.prep import FakePrepGenerator, PrepAgent, PrepError
 from irya_ai.prep_poller import (
     HOLD_PRUNE_SIZE,
@@ -900,11 +903,13 @@ async def test_a_retry_that_would_end_past_the_deadline_stores_what_finished(
 
 
 @pytest.mark.parametrize(
-    ("seconds_after_request", "outcome"), [(149, "held"), (151, "stored")]
+    ("seconds_after_request", "outcome"), [(89, "held"), (91, "stored")]
 )
-async def test_the_hold_itself_counts_against_the_deadline(
+async def test_the_hold_and_a_full_length_retry_count_against_the_deadline(
     seconds_after_request: float, outcome: str
 ) -> None:
+    # The fakes fail at once, but the retry is planned for the agents' 60s
+    # timeout: 89 + 30 + 60 fits in 180, 91 + 30 + 60 does not.
     backend = review_backend()
     poller = poller_for(
         backend,
@@ -917,33 +922,41 @@ async def test_the_hold_itself_counts_against_the_deadline(
     assert (await poller.run_once()).outcome == outcome
 
 
-def test_the_next_try_is_assumed_to_take_as_long_as_this_one() -> None:
+def test_the_next_try_is_planned_for_the_longest_it_can_take() -> None:
+    # The fakes' timeouts are 30s (summary) and 60s (timeline).
     poller = poller_for(
-        FakeBackend(), retry_after_seconds=30, review_deadline_seconds=180
+        FakeBackend(),
+        review=review_agents(),
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
     )
 
-    # 100s gone, 30s hold, then an attempt as long as the 60s timeout: 190.
-    assert not poller._retry_fits(100.0, ReviewParts(agent_ms=60_000))
-    assert poller._retry_fits(100.0, ReviewParts(agent_ms=40_000))
+    # An attempt that failed at once still plans a 60s retry: 90 + 30 + 60.
+    assert poller._retry_fits(90.0, ReviewParts(agent_ms=2_000))
+    assert not poller._retry_fits(91.0, ReviewParts(agent_ms=2_000))
+    # An attempt that took longer than the timeout plans for that instead.
+    assert poller._retry_fits(50.0, ReviewParts(agent_ms=100_000))
+    assert not poller._retry_fits(51.0, ReviewParts(agent_ms=100_000))
     # No readable request time, no deadline to place the retry against.
     assert not poller._retry_fits(None, ReviewParts(agent_ms=0))
 
 
-class TakesLong:
-    """Review agents whose run is reported as having taken ``agent_ms``.
+def test_one_run_lasts_as_long_as_the_slowest_agent() -> None:
+    from irya_ai.analysis import ContextAnalysisAgent
 
-    The fakes finish at once; this stands in for a model call that ran to
-    its timeout, which is what the poller plans the next attempt from.
-    """
+    summary = ContextAnalysisAgent(ExtractiveSummarizer(), timeout_seconds=30)
+    timeline = ReviewTimelineAgent(
+        ExtractiveTimelineGenerator(), model="fake", timeout_seconds=45
+    )
+    findings = FindingsAgent(
+        ExtractiveFindingsGenerator(), model="fake", timeout_seconds=90
+    )
 
-    def __init__(self, inner: ReviewAgents, agent_ms: int) -> None:
-        self.inner = inner
-        self.agent_ms = agent_ms
-        self.model = inner.model
-
-    async def run(self, context, snapshot) -> ReviewParts:  # noqa: ANN001
-        parts = await self.inner.run(context, snapshot)
-        return replace(parts, agent_ms=self.agent_ms)
+    assert ReviewAgents(summary, timeline, findings).attempt_seconds == 90
+    assert ReviewAgents(summary, timeline, None).attempt_seconds == 45
+    # A runner without a timeout adds nothing.
+    fake = FakeFindings(FakeFindingsResult("empty"))
+    assert ReviewAgents(summary, timeline, fake).attempt_seconds == 45
 
 
 async def test_a_findings_timeout_twice_in_a_row_still_stores_the_summary() -> None:
@@ -956,7 +969,7 @@ async def test_a_findings_timeout_twice_in_a_row_still_stores_the_summary() -> N
     wall = {"at": after_request(60)}
     poller = poller_for(
         backend,
-        review=TakesLong(passing_failure("findings"), agent_ms=60_000),
+        review=passing_failure("findings"),
         clock=clock,
         retry_after_seconds=30,
         review_deadline_seconds=180,
@@ -974,6 +987,26 @@ async def test_a_findings_timeout_twice_in_a_row_still_stores_the_summary() -> N
     assert body["status"] == "completed"
     assert body["summary"]
     assert "findings" not in body
+
+
+async def test_a_fast_failure_does_not_plan_a_retry_that_cannot_finish() -> None:
+    # A rate limit comes back in a second. Planning the retry from that
+    # second would hold at 100s and let the retry run to its 60s timeout at
+    # 190s, past Backend's 180s; the plan uses the timeout, so it stores now.
+    backend = review_backend()
+    poller = poller_for(
+        backend,
+        review=passing_failure("timeline"),
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
+        wall_clock=after_request(100),
+    )
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["summary"]
+    assert backend.put_bodies[0]["moments"] == []
 
 
 async def test_a_request_time_this_process_cannot_read_is_not_retried(
