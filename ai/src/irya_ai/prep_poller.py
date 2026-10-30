@@ -281,10 +281,15 @@ class ReviewParts:
     def payload(self, *, model: str) -> ReviewPayload:
         assert self.summary is not None
         findings = None
-        if self.findings is not None and self.findings.status != "failed":
+        status = None if self.findings is None else self.findings.status
+        if self.findings is not None and status != "failed":
             findings = list(self.findings.findings)
         return review_payload(
-            self.summary, self.timeline, findings=findings, model=model
+            self.summary,
+            self.timeline,
+            findings=findings,
+            findings_status=status,
+            model=model,
         )
 
     def log_fields(self) -> str:

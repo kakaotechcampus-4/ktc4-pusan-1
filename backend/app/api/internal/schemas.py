@@ -197,6 +197,9 @@ class ReviewUpsert(AiShape):
     #: `None` 은 findings 를 안 돌렸다는 뜻이다 — 키 자체가 없다. 빈 목록
     #: (「찾아봤는데 없다」)과 달라서, 이때는 있던 값을 그대로 둔다.
     findings: list[Finding] | None = None
+    #: AI `FindingsResult.status`. `findings` 가 없을 때 그것이 「안 돌림」인지
+    #: 「돌렸는데 실패」인지를 가른다 (#244). 목록이 오면 BE 는 목록만 본다.
+    findings_status: Literal["completed", "partial", "empty", "failed"] | None = None
     model: PgAnyText = ""
     #: 작업을 받을 때의 `requestedAt` 을 돌려준다. 요약 자리의 요청 시각은 면접
     #: 종료 때 한 번 찍히고 바뀌지 않아 맞춰 볼 일이 없다. 받기만 한다.

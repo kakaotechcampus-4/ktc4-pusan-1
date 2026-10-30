@@ -80,6 +80,35 @@ def test_a_summary_past_its_limit_is_judged_here_too(
 
     assert response.status_code == 200
     assert response.json()["summaryStatus"] == "FAILED"
+    # 분석이 오지 않았다. 「찾았는데 없다」로 보이면 안 된다 (#244).
+    assert response.json()["findingsStatus"] == "FAILED"
+
+
+@pytest.mark.parametrize(
+    ("findings", "failed", "expected"),
+    [
+        (None, True, "FAILED"),
+        ([], False, "EMPTY"),
+        (DEMO["review"]["findings"], False, "COMPLETED"),
+        # 이 필드 전에 끝난 면접 — 목록으로 가른다.
+        (None, False, "EMPTY"),
+    ],
+)
+def test_the_findings_status_tells_failure_from_nothing_found(
+    client: TestClient,
+    store: InMemoryStore,
+    findings: list[dict[str, Any]] | None,
+    failed: bool,
+    expected: str,
+):
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    summary = store.get_summary(session_id)
+    assert summary is not None
+    summary.complete("요약", [], findings=findings, findings_failed=failed)
+    store.save_summary(summary)
+
+    assert get_review(client, interview_id).json()["findingsStatus"] == expected
 
 
 # ── READY ───────────────────────────────────────────────
