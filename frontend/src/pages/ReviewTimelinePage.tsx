@@ -112,7 +112,9 @@ export default function ReviewTimelinePage() {
     seekTo(moment.atSec);
   };
 
-  const [markFailed, setMarkFailed] = useState(false);
+  // 표시를 저장하지 못했을 때 보여 줄 한 줄. 다시 눌러 되는 실패와 확정 때문에 막힌
+  // 것을 구분한다 — 확정 뒤에는 다시 눌러도 같은 409 다 (#247).
+  const [markFailed, setMarkFailed] = useState<string | null>(null);
   const patchReview = (change: Partial<Review> | ((r: Review) => Review)) =>
     queryClient.setQueryData<ReviewResponse>(['review', interviewId], (prev) =>
       prev?.status === 'READY'
@@ -125,11 +127,18 @@ export default function ReviewTimelinePage() {
   const mark = (itemId: string, next: MarkUpdate) => {
     const before = review && currentMark(review, itemId, next);
     if (!before) return;
-    setMarkFailed(false);
+    setMarkFailed(null);
     patchReview((r) => applyMark(r, itemId, next));
-    putMark(interviewId!, itemId, next).catch(() => {
+    putMark(interviewId!, itemId, next).catch((e: unknown) => {
       patchReview((r) => applyMark(r, itemId, before));
-      setMarkFailed(true);
+      const locked = e instanceof ApiError && e.code === 'REVIEW_CONFIRMED';
+      setMarkFailed(
+        locked
+          ? '검토가 확정되어 바꾸지 못했습니다. 아래에서 「검토 중」으로 돌린 뒤 다시 눌러주세요.'
+          : '표시를 저장하지 못해 되돌렸습니다. 다시 눌러주세요.',
+      );
+      // 다른 창에서 확정했을 수 있다 — 버튼도 같이 잠기게 상태를 다시 읽는다.
+      if (locked) void queryClient.invalidateQueries({ queryKey: ['review', interviewId] });
     });
   };
 
@@ -316,7 +325,7 @@ export default function ReviewTimelinePage() {
 
             {markFailed && (
               <p role="alert" className="text-danger text-[13px]">
-                표시를 저장하지 못해 되돌렸습니다. 다시 눌러주세요.
+                {markFailed}
               </p>
             )}
 
@@ -325,6 +334,7 @@ export default function ReviewTimelinePage() {
               findings={review.findings}
               onMark={(id, state) => mark(id, { state })}
               onSeek={seekTo}
+              locked={review.reviewStatus === 'CONFIRMED'}
             />
           </div>
 
