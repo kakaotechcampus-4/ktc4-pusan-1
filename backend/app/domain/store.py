@@ -88,6 +88,7 @@ class Store(Protocol):
 
         전사 원점(`transcript_origin_at`)은 쓰지 않는다 — `mark_origin` 만 쓴다.
         전사 종료(`transcript_closed_at`)도 쓰지 않는다 — `mark_transcript` 만 쓴다.
+        동의(`consent*`)도 쓰지 않는다 — `record_consent` 만 쓴다.
         """
         ...
 
@@ -106,6 +107,24 @@ class Store(Protocol):
         재전송되거나 순서가 뒤바뀌어 와도, 시작 · 종료 저장과 겹쳐도 서로를
         덮어쓰지 않는다. 값이 바뀌었으면 True, 세션이 없거나 더 이른 값이
         이미 있으면 False.
+        """
+        ...
+
+    def record_consent(
+        self,
+        session_id: str,
+        *,
+        at: datetime,
+        policy_version: str,
+        candidate_name: str | None,
+    ) -> Session | None:
+        """지원자의 녹화 · 전사 동의를 기록한다. 먼저 들어온 값이 이긴다 (#245).
+
+        `mark_origin` 과 같은 이유로 읽고-고쳐-쓰기가 아니다. 지원자가 버튼을
+        두 번 누르거나 새로고침해도 처음 동의한 시각 · 문구 버전 · 이름이 그대로
+        남아야 한다. 저장된 세션을 돌려주고, 세션이 없으면 None.
+
+        `save_session` 은 이 세 컬럼을 건드리지 않는다.
         """
         ...
 
@@ -465,6 +484,10 @@ class InMemoryStore:
         # 값이 낡았어도 덮어쓰지 않는다.
         saved.transcript_origin_at = stored.transcript_origin_at
         saved.transcript_closed_at = stored.transcript_closed_at
+        # 동의도 record_consent 만 쓴다 (#245).
+        saved.consented_at = stored.consented_at
+        saved.consent_policy_version = stored.consent_policy_version
+        saved.consent_candidate_name = stored.consent_candidate_name
         self._sessions[session.id] = saved
         return True
 
@@ -482,6 +505,23 @@ class InMemoryStore:
             return False
         stored.transcript_origin_at = at
         return True
+
+    def record_consent(
+        self,
+        session_id: str,
+        *,
+        at: datetime,
+        policy_version: str,
+        candidate_name: str | None,
+    ) -> Session | None:
+        stored = self._sessions.get(session_id)
+        if stored is None:
+            return None
+        if stored.consented_at is None:
+            stored.consented_at = at
+            stored.consent_policy_version = policy_version
+            stored.consent_candidate_name = candidate_name
+        return deepcopy(stored)
 
     # ── 기업 컨텍스트 ───────────────────────────────────
 

@@ -152,6 +152,10 @@ def test_join_role_matrix(
     status: int,
 ) -> None:
     headers = {"anon": ANON, "other": other, "owner": {}}[who]
+    # 동의는 여기서 보려는 게 아니다. 지원자 입장은 동의가 먼저라(#245) 깔고 본다.
+    client.post(
+        f"{V1}/sessions/{session_id}/consent", json={"policyVersion": "2026-10-30"}
+    )
 
     got = _join(client, session_id, role, headers)
 
@@ -166,6 +170,9 @@ def test_bad_token_still_joins_as_candidate(
 ) -> None:
     """만료 · 위조 토큰을 쥐고 초대 링크를 연 사람도 지원자로는 들어온다."""
     headers = {"Authorization": token}
+    client.post(
+        f"{V1}/sessions/{session_id}/consent", json={"policyVersion": "2026-10-30"}
+    )
 
     assert _join(client, session_id, "CANDIDATE", headers).status_code == 200
     assert _join(client, session_id, "INTERVIEWER", headers).status_code == 401

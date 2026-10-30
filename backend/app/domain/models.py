@@ -162,6 +162,16 @@ class Session:
     #: 뜻이라 면접 후 분석을 이때 내준다. 새 연결이 붙으면 비운다 — 1012(교체) ·
     #: 네트워크 끊김은 아직 보낼 발화가 남았을 수 있어 채우지 않는다.
     transcript_closed_at: datetime | None = None
+    #: 지원자가 녹화 · 전사 동의를 누른 시각 (#245). 비어 있으면 아직 동의가 없다.
+    #: 지원자는 로그인하지 않으므로 이 세 값이 동의 기록 전부다. 한 번 채우면
+    #: 바뀌지 않는다 — 먼저 들어온 값이 이긴다.
+    consented_at: datetime | None = None
+    #: 동의 화면이 실제로 보여 준 안내문 버전. 나중에 문구를 바꿔도 이 지원자가
+    #: 무엇을 읽고 동의했는지 남는다.
+    consent_policy_version: str | None = None
+    #: 동의 시점의 지원자 이름. `Interview.candidate_name` 을 그대로 떠 둔다 —
+    #: 면접관이 나중에 이름을 고쳐도 동의 기록은 그때 그 이름을 가리킨다.
+    consent_candidate_name: str | None = None
 
     @property
     def room_name(self) -> str:

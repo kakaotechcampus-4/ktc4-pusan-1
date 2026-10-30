@@ -151,7 +151,8 @@ class PostgresStore:
             """
             SELECT id, interview_id, status, created_at,
                    started_at, ended_at, transcript_origin_at,
-                   transcript_closed_at
+                   transcript_closed_at, consented_at,
+                   consent_policy_version, consent_candidate_name
             FROM session
             WHERE interview_id = %s AND ended_at IS NOT NULL
             ORDER BY ended_at DESC, id DESC
@@ -173,6 +174,9 @@ class PostgresStore:
                    s.started_at AS s_started_at, s.ended_at AS s_ended_at,
                    s.transcript_origin_at AS s_transcript_origin_at,
                    s.transcript_closed_at AS s_transcript_closed_at,
+                   s.consented_at AS s_consented_at,
+                   s.consent_policy_version AS s_consent_policy_version,
+                   s.consent_candidate_name AS s_consent_candidate_name,
                    ss.status AS summary_status
             FROM interview i
             LEFT JOIN LATERAL (
@@ -201,6 +205,9 @@ class PostgresStore:
                     ended_at=row["s_ended_at"],
                     transcript_origin_at=row["s_transcript_origin_at"],
                     transcript_closed_at=row["s_transcript_closed_at"],
+                    consented_at=row["s_consented_at"],
+                    consent_policy_version=row["s_consent_policy_version"],
+                    consent_candidate_name=row["s_consent_candidate_name"],
                 ),
                 None
                 if row["summary_status"] is None
@@ -230,7 +237,8 @@ class PostgresStore:
             """
             SELECT id, interview_id, status, created_at,
                    started_at, ended_at, transcript_origin_at,
-                   transcript_closed_at
+                   transcript_closed_at, consented_at,
+                   consent_policy_version, consent_candidate_name
             FROM session WHERE id = %s
             """,
             (session_id,),
@@ -248,6 +256,9 @@ class PostgresStore:
             ended_at=row["ended_at"],
             transcript_origin_at=row["transcript_origin_at"],
             transcript_closed_at=row["transcript_closed_at"],
+            consented_at=row["consented_at"],
+            consent_policy_version=row["consent_policy_version"],
+            consent_candidate_name=row["consent_candidate_name"],
         )
 
     @staticmethod
@@ -317,6 +328,47 @@ class PostgresStore:
                 "UPDATE session SET transcript_closed_at = %s WHERE id = %s",
                 (closed_at, session_id),
             )
+
+    def record_consent(
+        self,
+        session_id: str,
+        *,
+        at: datetime,
+        policy_version: str,
+        candidate_name: str | None,
+    ) -> Session | None:
+        """`mark_origin` 과 같은 이유로 한 문장이다 — 먼저 들어온 동의가 이긴다.
+
+        두 번째 요청은 아무것도 바꾸지 않고 저장된 값을 돌려준다. 지원자가 버튼을
+        두 번 누르거나 새로고침해도 기록이 흔들리지 않는다.
+
+        세 값이 모두 `consented_at IS NULL` 하나로 갈린다 — SET 의 오른쪽은 갱신
+        전 행을 보기 때문이다. 각각 `COALESCE` 로 두면 첫 동의에 이름이 없었을 때
+        두 번째 요청이 이름만 끼워 넣어, 시각과 이름이 다른 동의에서 온 기록이
+        만들어진다. 그건 거짓이다.
+        """
+        row = self._one(
+            """
+            UPDATE session SET
+                consented_at = COALESCE(consented_at, %(at)s),
+                consent_policy_version = CASE WHEN consented_at IS NULL
+                    THEN %(version)s ELSE consent_policy_version END,
+                consent_candidate_name = CASE WHEN consented_at IS NULL
+                    THEN %(name)s ELSE consent_candidate_name END
+            WHERE id = %(id)s
+            RETURNING id, interview_id, status, created_at,
+                      started_at, ended_at, transcript_origin_at,
+                      transcript_closed_at, consented_at,
+                      consent_policy_version, consent_candidate_name
+            """,
+            {
+                "at": at,
+                "version": policy_version,
+                "name": candidate_name,
+                "id": session_id,
+            },
+        )
+        return None if row is None else self._to_session(row)
 
     # ── 요약 ────────────────────────────────────────────────
 

@@ -109,8 +109,20 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
             "startedAt",
             "endedAt",
             "transcriptOriginAt",
+            # ⚠️ 명세에 없다 (#245). 지원자 동의 시각 — FE 가 새로고침 때 동의
+            # 화면을 다시 띄울지 이 값으로 가른다.
+            "consentedAt",
         },
         "statuses": {"200", "404"},
+    },
+    # ⚠️ Notion 명세에 없다 (#245). 지원자는 로그인하지 않아 인증이 없고,
+    # 동의 없이는 지원자로 입장하지 못한다(아래 join 403 `CONSENT_REQUIRED`).
+    # `policyVersion` 은 동의 화면이 보여 준 문구 버전을 FE 가 그대로 보낸다.
+    ("post", "/api/v1/sessions/{sessionId}/consent"): {
+        "path_params": ["sessionId"],
+        "request": {"policyVersion", "candidateName"},
+        "response": {"sessionId", "candidateName", "policyVersion", "consentedAt"},
+        "statuses": {"200", "404", "409"},
     },
     ("post", "/api/v1/sessions/{sessionId}/join"): {
         "path_params": ["sessionId"],

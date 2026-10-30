@@ -229,6 +229,93 @@ def test_mark_origin_on_unknown_session_is_false(subject: Store):
     assert subject.mark_origin("ses_nope", _seed(subject).created_at) is False
 
 
+def test_record_consent_keeps_the_first(subject: Store):
+    """먼저 들어온 동의가 이긴다 (#245).
+
+    지원자가 버튼을 두 번 누르거나 새로고침해도 처음 동의한 시각 · 문구 버전 ·
+    이름이 그대로 남아야 한다. 두 번째 요청도 저장된 기록을 그대로 돌려준다.
+    """
+    session = _seed(subject)
+    first = session.created_at
+    second = first + timedelta(seconds=5)
+
+    stored = subject.record_consent(
+        session.id, at=first, policy_version="v1", candidate_name="김지원"
+    )
+    assert stored is not None
+    assert stored.consented_at == first
+
+    again = subject.record_consent(
+        session.id, at=second, policy_version="v2", candidate_name="박다른"
+    )
+    assert again is not None
+    assert again.consented_at == first
+    assert again.consent_policy_version == "v1"
+    assert again.consent_candidate_name == "김지원"
+
+    found = subject.get_session(session.id)
+    assert found is not None
+    assert found.consented_at == first
+    assert found.consent_policy_version == "v1"
+    assert found.consent_candidate_name == "김지원"
+
+
+def test_record_consent_without_a_name_stays_without_one(subject: Store):
+    """이름 없이 동의했으면 나중 요청이 이름만 끼워 넣지 못한다.
+
+    시각은 첫 동의, 이름은 두 번째 동의에서 온 기록이 만들어지면 그건 거짓이다.
+    """
+    session = _seed(subject)
+    first = session.created_at
+
+    stored = subject.record_consent(
+        session.id, at=first, policy_version="v1", candidate_name=None
+    )
+    assert stored is not None
+    assert stored.consent_candidate_name is None
+
+    again = subject.record_consent(
+        session.id,
+        at=first + timedelta(seconds=5),
+        policy_version="v1",
+        candidate_name="나중에",
+    )
+    assert again is not None
+    assert again.consented_at == first
+    assert again.consent_candidate_name is None
+
+
+def test_save_session_does_not_touch_consent(subject: Store):
+    """동의가 없을 때 읽은 세션을 나중에 저장해도 동의가 지워지면 안 된다."""
+    stale = _seed(subject)
+    at = stale.created_at
+    assert (
+        subject.record_consent(
+            stale.id, at=at, policy_version="v1", candidate_name="김지원"
+        )
+        is not None
+    )
+
+    assert stale.start() is True
+    assert subject.save_session(stale) is True
+
+    found = subject.get_session(stale.id)
+    assert found is not None
+    assert found.status is SessionStatus.INTERVIEWING
+    assert found.consented_at == at
+    assert found.consent_policy_version == "v1"
+
+
+def test_record_consent_on_unknown_session_is_none(subject: Store):
+    _seed(subject)
+    assert (
+        subject.record_consent(
+            "ses_nope", at=utcnow(), policy_version="v1", candidate_name=None
+        )
+        is None
+    )
+
+
 def test_conditional_save_rejects_stale_expectation(subject: Store):
     """기대한 상태가 아니면 쓰지 않고 False 를 준다.
 

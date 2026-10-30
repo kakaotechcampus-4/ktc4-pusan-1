@@ -129,6 +129,14 @@ class SessionStateResponse(Schema):
             "단위만 다르고 원점은 이 값을 쓴다. startedAt 과는 다른 값이다."
         ),
     )
+    consented_at: datetime | None = Field(
+        serialization_alias="consentedAt",
+        description=(
+            "지원자가 녹화 · 전사에 동의한 시각 (#245). 비어 있으면 아직 동의가 "
+            "없고, 그 상태로는 지원자가 입장하지 못한다. FE 는 이 값으로 동의 "
+            "화면을 다시 띄울지 결정한다."
+        ),
+    )
 
 
 class StartSessionResponse(Schema):
@@ -143,6 +151,47 @@ class EndSessionResponse(Schema):
     ended_at: datetime = Field(serialization_alias="endedAt")
 
 
+# ── 지원자 동의 ─────────────────────────────────────────
+#
+# 지원자는 로그인하지 않는다. 그래서 동의 기록이 「누구의 동의인가」를 말해 주려면
+# 면접에 적힌 지원자 이름을 동의 시점에 떠 두는 수밖에 없다 (#245).
+
+
+class ConsentRequest(Schema):
+    policy_version: str = Field(
+        alias="policyVersion",
+        max_length=40,
+        examples=["2026-10-30"],
+        description=(
+            "동의 화면이 실제로 보여 준 안내문 버전. 화면을 그린 쪽이 FE 라서 "
+            "FE 가 보낸 값을 그대로 저장한다 — 나중에 문구를 바꿔도 이 지원자가 "
+            "무엇을 읽고 동의했는지 남는다."
+        ),
+    )
+    candidate_name: str | None = Field(
+        default=None,
+        alias="candidateName",
+        max_length=20,
+        examples=["김지원"],
+        description=(
+            "지원자가 동의 화면에서 직접 적은 이름. 비우면 면접에 적힌 이름을 쓴다."
+        ),
+    )
+
+
+class ConsentResponse(Schema):
+    session_id: str = Field(serialization_alias="sessionId")
+    candidate_name: str | None = Field(
+        serialization_alias="candidateName",
+        description="동의 기록에 남은 이름. 면접관이 나중에 이름을 고쳐도 안 바뀐다.",
+    )
+    policy_version: str = Field(serialization_alias="policyVersion")
+    consented_at: datetime = Field(
+        serialization_alias="consentedAt",
+        description="처음 동의한 시각. 다시 눌러도 이 값은 바뀌지 않는다.",
+    )
+
+
 # ── 진입 ────────────────────────────────────────────────
 
 
@@ -152,7 +201,8 @@ class JoinRequest(Schema):
         description=(
             "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 "
             "사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 "
-            "`ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다."
+            "`ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다. "
+            "`CANDIDATE` 는 동의가 먼저다 — 없으면 403 `CONSENT_REQUIRED`."
         ),
     )
 

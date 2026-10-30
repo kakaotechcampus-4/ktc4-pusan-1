@@ -33,6 +33,78 @@
         "title": "Body_upload_resume_api_v1_interviews__interviewId__resume_post",
         "type": "object"
       },
+      "ConsentRequest": {
+        "properties": {
+          "candidateName": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "지원자가 동의 화면에서 직접 적은 이름. 비우면 면접에 적힌 이름을 쓴다.",
+            "examples": [
+              "김지원"
+            ],
+            "title": "Candidatename"
+          },
+          "policyVersion": {
+            "description": "동의 화면이 실제로 보여 준 안내문 버전. 화면을 그린 쪽이 FE 라서 FE 가 보낸 값을 그대로 저장한다 — 나중에 문구를 바꿔도 이 지원자가 무엇을 읽고 동의했는지 남는다.",
+            "examples": [
+              "2026-10-30"
+            ],
+            "maxLength": 40,
+            "title": "Policyversion",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policyVersion"
+        ],
+        "title": "ConsentRequest",
+        "type": "object"
+      },
+      "ConsentResponse": {
+        "properties": {
+          "candidateName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "동의 기록에 남은 이름. 면접관이 나중에 이름을 고쳐도 안 바뀐다.",
+            "title": "Candidatename"
+          },
+          "consentedAt": {
+            "description": "처음 동의한 시각. 다시 눌러도 이 값은 바뀌지 않는다.",
+            "format": "date-time",
+            "title": "Consentedat",
+            "type": "string"
+          },
+          "policyVersion": {
+            "title": "Policyversion",
+            "type": "string"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "candidateName",
+          "policyVersion",
+          "consentedAt"
+        ],
+        "title": "ConsentResponse",
+        "type": "object"
+      },
       "ContextDocResponse": {
         "description": "FE 의 `ContextDoc` 과 같은 모양.\n\n`progress` 는 내보내지 않는다 — 업로드 진행률은 클라이언트만 아는 값이다.",
         "properties": {
@@ -510,7 +582,7 @@
           "role": {
             "$ref": "#/components/schemas/Role",
             "default": "CANDIDATE",
-            "description": "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 `ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다."
+            "description": "입장할 역할. `CANDIDATE` 는 누구나 된다. `INTERVIEWER` 는 그 면접을 만든 사용자의 토큰이 있어야 한다 — 없으면 401, 다른 사용자면 403 `ROLE_NOT_ALLOWED`. 서버는 역할을 바꾸지 않고 검증만 한다. `CANDIDATE` 는 동의가 먼저다 — 없으면 403 `CONSENT_REQUIRED`."
           }
         },
         "title": "JoinRequest",
@@ -1153,6 +1225,19 @@
             ],
             "title": "Candidatename"
           },
+          "consentedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "지원자가 녹화 · 전사에 동의한 시각 (#245). 비어 있으면 아직 동의가 없고, 그 상태로는 지원자가 입장하지 못한다. FE 는 이 값으로 동의 화면을 다시 띄울지 결정한다.",
+            "title": "Consentedat"
+          },
           "endedAt": {
             "anyOf": [
               {
@@ -1210,7 +1295,8 @@
           "status",
           "startedAt",
           "endedAt",
-          "transcriptOriginAt"
+          "transcriptOriginAt",
+          "consentedAt"
         ],
         "title": "SessionStateResponse",
         "type": "object"
@@ -2699,6 +2785,79 @@
         ]
       }
     },
+    "/api/v1/sessions/{sessionId}/consent": {
+      "post": {
+        "description": "지원자의 녹화 · 전사 동의를 기록한다 (#245).\n\n지원자는 로그인하지 않으므로 열려 있다. 대신 동의 없이는 지원자로 입장할 수\n없어서(`POST /join` 403 `CONSENT_REQUIRED`) 동의가 녹화 · 전사의 앞단이 된다.\n\n**먼저 들어온 동의가 이긴다.** 두 번 눌러도 200 이고, 돌려주는 값은 처음\n동의한 기록이다 — 새로고침 · 중복 클릭에 기록이 흔들리면 안 된다.",
+        "operationId": "consent_session_api_v1_sessions__sessionId__consent_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session을 찾을 수 없음"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "이미 종료된 Session 이라 동의를 받을 수 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "지원자 녹화 · 전사 동의",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
     "/api/v1/sessions/{sessionId}/end": {
       "post": {
         "description": "Session 을 종료 상태로 변경하고 종료 시각을 기록한다.\n\n참가자 disconnect 와 면접 종료는 별개다 — 참가자가 나가도 Session 은 살아 있고\n이 API 를 불러야 종료된다. 반대로 여기서는 LiveKit Room 을 닫아\n남아 있는 참가자를 끊는다.",
@@ -2846,7 +3005,7 @@
                 }
               }
             },
-            "description": "면접관으로 입장하는데 이 면접의 주인이 아님"
+            "description": "면접관으로 입장하는데 이 면접의 주인이 아님 / 지원자 동의 전"
           },
           "404": {
             "content": {

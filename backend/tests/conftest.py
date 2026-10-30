@@ -31,6 +31,8 @@ class FakeMedia:
         self.rooms: list[str] = []
         self.closed: list[str] = []
         self.participants = 0
+        #: `participant_count` 를 부른 room 들. 안 불렀어야 하는 자리를 본다.
+        self.counted: list[str] = []
         self.webhook_event: object | None = None
         #: (room, track_sid, filepath)
         self.egress_started: list[tuple[str, str, str]] = []
@@ -44,6 +46,7 @@ class FakeMedia:
         self.rooms.append(room)
 
     async def participant_count(self, room: str) -> int:
+        self.counted.append(room)
         return self.participants
 
     async def close_room(self, room: str) -> None:

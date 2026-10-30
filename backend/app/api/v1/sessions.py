@@ -25,9 +25,12 @@ from app.domain.models import (
     SessionStatus,
     SessionSummary,
     SummaryStatus,
+    utcnow,
 )
 from app.domain.store import Store
 from app.schemas import (
+    ConsentRequest,
+    ConsentResponse,
     EndSessionResponse,
     JoinRequest,
     JoinResponse,
@@ -50,6 +53,10 @@ router = APIRouter(prefix="/sessions", tags=["세션"])
 SessionIdPath = Annotated[str, Path(alias="sessionId")]
 
 _NOT_FOUND = (404, "Session을 찾을 수 없음 (남의 세션 포함)")
+
+# 명세(Notion)의 ErrorCode 목록에 없는 코드다. `ErrorCode` enum 에 넣으면
+# `test_spec_conformance` 가 명세와 어긋났다고 잡는다 — 문자열로 둔다 (#238 과 같다).
+_CONSENT_REQUIRED = "CONSENT_REQUIRED"
 
 
 def _load(store: Store, session_id: str) -> Session:
@@ -80,6 +87,56 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
         started_at=session.started_at,
         ended_at=session.ended_at,
         transcript_origin_at=session.transcript_origin_at,
+        consented_at=session.consented_at,
+    )
+
+
+@router.post(
+    "/{sessionId}/consent",
+    response_model=ConsentResponse,
+    summary="지원자 녹화 · 전사 동의",
+    responses=responses(
+        (404, "Session을 찾을 수 없음"),
+        (409, "이미 종료된 Session 이라 동의를 받을 수 없음"),
+    ),
+)
+def consent_session(
+    session_id: SessionIdPath, body: ConsentRequest, store: StoreDep
+) -> ConsentResponse:
+    """지원자의 녹화 · 전사 동의를 기록한다 (#245).
+
+    지원자는 로그인하지 않으므로 열려 있다. 대신 동의 없이는 지원자로 입장할 수
+    없어서(`POST /join` 403 `CONSENT_REQUIRED`) 동의가 녹화 · 전사의 앞단이 된다.
+
+    **먼저 들어온 동의가 이긴다.** 두 번 눌러도 200 이고, 돌려주는 값은 처음
+    동의한 기록이다 — 새로고침 · 중복 클릭에 기록이 흔들리면 안 된다.
+    """
+    session = _load(store, session_id)
+    if session.status is SessionStatus.ENDED:
+        raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
+
+    # 동의자 이름: 지원자가 직접 적었으면 그것, 아니면 면접에 적힌 이름을 떠 둔다.
+    # 지원자가 로그인하지 않으니 이 이름이 「누가 동의했는가」의 유일한 근거다.
+    # 공백만 적은 건 안 적은 것으로 본다 — 면접 생성과 같은 규칙.
+    typed = (body.candidate_name or "").strip() or None
+    interview = store.get_interview(session.interview_id)
+    name = typed or (interview.candidate_name if interview else None)
+
+    stored = store.record_consent(
+        session.id,
+        at=utcnow(),
+        policy_version=body.policy_version,
+        candidate_name=name,
+    )
+    if stored is None:  # 조회와 기록 사이에 지워졌다
+        raise ApiError(ErrorCode.SESSION_NOT_FOUND, 404, "Session 을 찾을 수 없습니다.")
+    assert stored.consented_at is not None  # 방금 넣었거나 이미 있었다
+    assert stored.consent_policy_version is not None
+    return ConsentResponse(
+        session_id=stored.id,
+        candidate_name=stored.consent_candidate_name,
+        policy_version=stored.consent_policy_version,
+        consented_at=stored.consented_at,
     )
 
 
@@ -89,7 +146,7 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
     summary="면접 입장",
     responses=responses(
         (401, "면접관으로 입장하는데 로그인이 안 됨"),
-        (403, "면접관으로 입장하는데 이 면접의 주인이 아님"),
+        (403, "면접관으로 입장하는데 이 면접의 주인이 아님 / 지원자 동의 전"),
         (404, "Session을 찾을 수 없음"),
         (409, "이미 종료된 Session 등 현재 상태에서 입장할 수 없음"),
     ),
@@ -128,6 +185,17 @@ async def join_session(
 
     if session.status is SessionStatus.ENDED:
         raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
+
+    # 동의 없는 지원자는 들여보내지 않는다 (#245). 토큰이 없으면 LiveKit Room 에
+    # 트랙을 올릴 수 없고, 녹화(`track_published` webhook)도 전사(Agent)도 그
+    # 트랙에서 시작하므로 이 문 하나로 지원자의 음성 · 영상이 막힌다.
+    # 정원 조회보다 먼저 둔다 — 못 들어갈 요청마다 LiveKit 을 부르지 않게.
+    if body.role is Role.CANDIDATE and session.consented_at is None:
+        raise ApiError(
+            _CONSENT_REQUIRED,
+            403,
+            "녹화 · 전사 동의가 필요합니다.",
+        )
 
     # 정원은 LiveKit 이 접속 시점에 강제한다. 여기 검사는 사전 안내용이고
     # 조회와 접속 사이의 경쟁 조건까지 막지는 못한다.

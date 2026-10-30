@@ -56,6 +56,16 @@ ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_origin_at TIMESTAMPTZ;
 -- 신호라 면접 후 분석(REVIEW)을 이때 내준다. 새 연결이 붙으면 다시 비운다.
 ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_closed_at TIMESTAMPTZ;
 
+-- 지원자의 녹화 · 전사 동의 (#245). 지원자는 로그인하지 않으므로 이 세 컬럼이
+-- 동의 기록 전부다. 세션에 1:1 이라 따로 테이블을 두지 않았다 — 세션이 지워지면
+-- 동의 기록도 같이 지워져야 하고(11/20 데이터 삭제), 상태 조회 한 번에 같이 읽힌다.
+--
+-- consent_candidate_name 은 interview.candidate_name 을 동의 시점에 떠 둔 값이다.
+-- 면접관이 나중에 이름을 고쳐도 「누가 동의했는가」는 그때 그 이름으로 남는다.
+ALTER TABLE session ADD COLUMN IF NOT EXISTS consented_at TIMESTAMPTZ;
+ALTER TABLE session ADD COLUMN IF NOT EXISTS consent_policy_version TEXT;
+ALTER TABLE session ADD COLUMN IF NOT EXISTS consent_candidate_name TEXT;
+
 -- ── 기업 컨텍스트 ──────────────────────────────────────────
 --
 -- 면접이 아니라 조직에 딸린다. 회사 정보와 JD 는 면접마다 바뀌지 않으므로 설정에
