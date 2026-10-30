@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { InterviewComparison } from '../components/review/InterviewComparison';
 import { InterviewWorkspacePanel } from '../components/review/InterviewWorkspacePanel';
 import { listInterviews } from '../api/interview';
 import { Badge } from '../components/ui/Badge';
@@ -63,6 +64,7 @@ export default function InterviewListPage() {
   const [sort, setSort] = useState<SortRule[]>([]);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
+  const [comparing, setComparing] = useState<[string, string] | null>(null);
   const [columnOrder, setColumnOrder] = useState<ColumnKey[]>(COLUMNS.map((column) => column.key));
   const [hidden, setHidden] = useState<Set<ColumnKey>>(new Set());
   const [widths, setWidths] = useState<Record<string, number>>(
@@ -417,6 +419,17 @@ export default function InterviewListPage() {
       {selected.length > 0 && (
         <div className="border-brand/20 bg-brand-tint text-brand-strong mt-3 flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm">
           <strong>{selected.length}건 선택</strong>
+          <button
+            type="button"
+            disabled={selected.length !== 2}
+            onClick={() => {
+              if (selected.length === 2)
+                setComparing([selected[0].interviewId, selected[1].interviewId]);
+            }}
+            className="rounded px-2 py-1 underline disabled:opacity-40"
+          >
+            나란히 비교
+          </button>
           <button type="button" onClick={() => void copy()} className="rounded px-2 py-1 underline">
             선택 행 복사
           </button>
@@ -470,7 +483,8 @@ export default function InterviewListPage() {
           </button>
         </div>
       )}
-      {query.data && !query.isError && (
+      {comparing && <InterviewComparison ids={comparing} onBack={() => setComparing(null)} />}
+      {query.data && !query.isError && !comparing && (
         <div className="border-border-base bg-surface-panel shadow-card mt-4 overflow-hidden rounded-2xl border">
           <div className="max-h-[70dvh] overflow-auto">
             <table
