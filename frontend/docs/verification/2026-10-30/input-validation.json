@@ -1,0 +1,6 @@
+{
+  "transcriptsAcknowledged": 4,
+  "questionsStoredAndSent": 7,
+  "source": "STT/질문 생성 대역",
+  "transport": "실제 HTTP·WebSocket·LiveKit"
+}

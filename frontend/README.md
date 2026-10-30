@@ -116,6 +116,10 @@ src/
 | `/interview/:sessionId/summary`          | 면접 종료 후 요약                   | 필요   |
 | `/review/:interviewId`                   | 면접 기록 — 녹화 · 타임라인 · 검토  | 필요   |
 
+`/report/:interviewId`는 리포트 직접 진입 경로이며 관리 화면과 표시 컴포넌트를 공유합니다.
+관리 목록은 면접 ID로 구분하며 행 안 검토·메모·두 명 비교·CSV/XLSX 전달을 지원합니다.
+[실제 통합 검증과 남은 선행 작업](docs/verification/2026-10-30/README.md)을 확인하세요.
+
 ## 로컬 실행
 
 목 API 는 없습니다(#232 에서 걷어냄). 화면을 보려면 BE 를 띄웁니다.
@@ -140,7 +144,7 @@ cd backend && DATABASE_URL=postgresql://irya:test@localhost:55432/irya uv run py
 
 ## 알려진 이슈
 
-**번들 크기** — 진입 화면은 243 kB (gzip 78 kB) 입니다. `livekit-client` 가 520 kB 로 큰데,
+**번들 크기** — 현재 검증 빌드의 진입 청크는 약 338 kB (gzip 103 kB) 입니다. `livekit-client` 가 556 kB 로 큰데,
 카메라·마이크를 쓰는 화면(`DeviceCheckPage` · `InterviewRoom`)만 `lazy()` 로 분리해서
 진입·요약 화면에서는 받지 않습니다. 빌드 시 뜨는 500 kB 경고는 분리된 그 청크에 대한 것이라
 의도된 상태입니다.

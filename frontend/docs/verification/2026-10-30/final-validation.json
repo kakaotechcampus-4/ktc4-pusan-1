@@ -1,0 +1,11 @@
+{
+  "interviewId": "int_qa_live",
+  "sessionStatus": "ENDED",
+  "reviewStatus": "CONFIRMED",
+  "reportStatus": "READY",
+  "memoMatches": true,
+  "listMatches": true,
+  "xlsxSheets": 4,
+  "xlsxSelectedInterviews": 2,
+  "providers": "fixed STT/review inputs; extractive report; real HTTP/WS/RTC/PostgreSQL"
+}

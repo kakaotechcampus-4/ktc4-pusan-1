@@ -1,0 +1,6 @@
+{
+  "sessionStatus": "ENDED",
+  "memoPreserved": true,
+  "reviewSource": "고정 LLM 대역",
+  "storage": "실제 API/PostgreSQL"
+}

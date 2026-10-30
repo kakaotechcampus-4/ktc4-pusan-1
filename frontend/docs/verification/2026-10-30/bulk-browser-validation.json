@@ -1,0 +1,10 @@
+{
+  "checkedRows": 50,
+  "selected1000": true,
+  "requests": [
+    {
+      "path": "/api/v1/interviews",
+      "duration": 23.100000001490116
+    }
+  ]
+}
