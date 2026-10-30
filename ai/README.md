@@ -271,6 +271,25 @@ uv run irya-ai findings context.json stored-finals.json
 REVIEW 폴러가 요약·타임라인과 함께 돌려 `findings`로 보냅니다(#226). LLM 설정이 없으면
 이 baseline이 들어갑니다. 실제 LLM 품질 측정은 후속입니다. [계약과 검증 범위](docs/findings.md).
 
+## 면접 리포트
+
+면접관이 검토 화면에서 채택한 findings만 근거로, 역량마다 확인된 점·확인되지 않은 점·다음에
+물어볼 질문을 씁니다(#239, 기획 F10). 점수·합격 판단은 만들지 않습니다.
+
+```bash
+uv run irya-ai report data/samples/report_context.json --backend extractive
+uv run irya-ai report report_context.json            # LLM_* 설정 필요
+```
+
+- 보내는 것은 문장과 근거 id(`{text, findingId}`)뿐입니다. 인용문·시각·역량 이름은 BE가 id로
+  붙입니다(#238). 채택 목록에 없는 id를 단 문장, 다른 역량의 근거를 단 문장, 근거에 없는
+  수치가 들어간 문장은 버립니다. `nextQuestions`는 질문이라 근거를 달지 않고, 채택된
+  근거가 없는 역량에도 씁니다(안 다룬 역량이 다음 면접의 질문거리).
+- `status`는 검토 저장과 같은 어휘입니다. 문장을 다 살리면 `completed`, 일부 버리면 `partial`,
+  근거 있는 문장이 하나도 없으면 `empty`, 모델 오류면 `failed`.
+- 게이트웨이 출력 상한(2,000토큰, #171)에 맞춰 역량을 4개씩 나눠 부르고 합칩니다.
+- 폴러에 `REPORT` 작업을 붙이는 일은 #249 입니다.
+
 ## Verify
 
 ```bash
@@ -289,10 +308,11 @@ src/irya_ai/
 ├── schemas/           파이프라인 입출력 계약 (Pydantic)
 │   ├── transcript.py  Track · Utterance · Word · TranscriptSnapshot
 │   ├── context.py     Company · JobDescription · Competency · Rubric · Candidate · Resume · ResumeClaim
-│   ├── analysis.py    QAPair · Finding · SuggestedQuestion · ReviewReport
+│   ├── analysis.py    QAPair · Finding · SuggestedQuestion
 │   ├── summary.py     SummaryPoint · SummaryResult · AnalysisResult
 │   ├── timeline.py    Moment · TimelineResult (리뷰 타임라인)
 │   ├── prep.py        PrepDraft · PrepResult (면접 전 사전 가공)
+│   ├── report.py      ReportContext · ReportDraft · ReportResult (면접 리포트)
 │   └── jobs.py        PendingJob (BE 할 일 큐)
 ├── pipeline/          Q&A 구조화 · 근거 접지
 ├── stt/               LiveKit 브리지 · PCM 청킹 · Elice HTTP · 세션 정렬 · 비동기 전사 스트림
@@ -303,6 +323,8 @@ src/irya_ai/
 ├── openai_timeline.py 프로젝트 LLM(Luna/Terra) 타임라인 초안
 ├── prep.py            JD·이력서 초안 검증 → Competency · ResumeClaim (면접 전 사전 가공)
 ├── openai_prep.py     프로젝트 LLM(Luna) 사전 가공 초안
+├── report.py          채택 findings → 역량별 리포트 문장 검증 (면접 리포트)
+├── openai_report.py   프로젝트 LLM(Luna) 리포트 초안
 ├── prep_poller.py     BE 할 일 큐 → PrepAgent → 결과 저장 (irya-ai-poller)
 ├── backend.py         BE 내부 API(/internal/v1) HTTP 클라이언트
 └── simulator/         대본 JSON을 STT 이벤트 스트림으로 재생
