@@ -40,7 +40,7 @@ export default function InterviewRoom({
 }: InterviewRoomProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { error, leave } = useInterviewRoom({
+  const { error, leave, interviewId } = useInterviewRoom({
     sessionId,
     role,
     videoRef,
@@ -69,6 +69,10 @@ export default function InterviewRoom({
   return (
     <InterviewRoomView
       role={role}
+      sessionId={sessionId}
+      // 메모는 면접 단위로 저장한다. 방에 붙어 상태를 조회하기 전에는 null 이고,
+      // 그동안 입력은 받아 두었다가 아이디가 오면 보낸다.
+      interviewId={interviewId}
       remoteName={remoteName}
       videoRef={videoRef}
       audioRef={audioRef}

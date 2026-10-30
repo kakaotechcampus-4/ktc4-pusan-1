@@ -6,7 +6,7 @@
  *
  * 역할에 따라 얹는 것이 다르다.
  *
- *   면접관  전사 · 꼬리질문 · 면접 종료
+ *   면접관  전사 · 꼬리질문 · 메모 · 면접 종료
  *   지원자  없음 · 나가기
  *
  * 지원자에게는 전사를 감춘다. 본인 발화가 실시간으로 받아적히는 것을 보면 답변이 위축된다.
@@ -16,12 +16,13 @@
  */
 
 import { ConnectionState } from 'livekit-client';
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useState, type MouseEvent, type RefObject } from 'react';
 import { fmt } from '../../lib/format';
 import type { Role } from '../../types/interview';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { Logo } from '../ui/Logo';
 import { LocalPreview } from './LocalPreview';
+import { MemoPanel } from './MemoPanel';
 import { SpeakerBadge } from './SpeakerBadge';
 import { SuggestionPanel } from './SuggestionPanel';
 import { TranscriptPanel } from './TranscriptPanel';
@@ -29,6 +30,10 @@ import { TranscriptPanel } from './TranscriptPanel';
 export interface InterviewRoomViewProps {
   /** 내 역할. 화면에 무엇을 얹을지 결정한다 */
   role: Role;
+  /** 메모 초안을 이 탭에 남겨 두는 자리를 가른다 */
+  sessionId: string;
+  /** 메모를 저장할 면접. 방에 붙어 상태를 조회한 뒤에 온다 */
+  interviewId: string | null;
   /** 상대 이름. 면접관에겐 지원자 이름, 지원자에겐 면접관 이름이다 */
   remoteName: string;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -51,6 +56,8 @@ export interface InterviewRoomViewProps {
 
 export function InterviewRoomView({
   role,
+  sessionId,
+  interviewId,
   remoteName,
   videoRef,
   audioRef,
@@ -76,14 +83,25 @@ export function InterviewRoomView({
     return () => clearInterval(t);
   }, [connection]);
 
+  // 영상이나 빈 자리를 눌러도 메모에서 커서가 빠지지 않게 한다 (#219). 누를 것이 없는
+  // 자리라 포커스가 넘어가도 얻는 것이 없고, 넘어가면 이어서 친 글자가 아무 데도 안 간다.
+  // 패널 안쪽은 막지 않는다 — 자막을 긁어 복사하는 것까지 막을 이유는 없다.
+  const keepCaret = (e: MouseEvent) => {
+    if (e.target === e.currentTarget) e.preventDefault();
+  };
+
   return (
-    // 상대 영상이 화면 전체를 채우고, 상태 막대 · 꼬리질문 · 자동 기록 · 내 화면은 그 위에
-    // 유리판으로 뜬다 (#236). 유리판은 평소 거의 투명하고 마우스를 올리면 또렷해진다.
-    <div className="relative h-screen w-screen overflow-hidden bg-[radial-gradient(120%_90%_at_20%_0%,#2b2f7a_0%,#141836_45%,#0b0e1c_100%)] text-white">
+    // 상대 영상이 화면 전체를 채우고, 상태 막대 · 꼬리질문 · 메모 · 자동 기록 · 내 화면은
+    // 그 위에 유리판으로 뜬다 (#236). 유리판은 평소 거의 투명하고 마우스를 올리면 또렷해진다.
+    <div
+      onMouseDown={keepCaret}
+      className="relative h-screen w-screen overflow-hidden bg-[radial-gradient(120%_90%_at_20%_0%,#2b2f7a_0%,#141836_45%,#0b0e1c_100%)] text-white"
+    >
       <video
         ref={videoRef}
         autoPlay
         playsInline
+        onMouseDown={keepCaret}
         className="absolute inset-0 h-full w-full object-cover"
       />
       <audio ref={audioRef} autoPlay />
@@ -196,10 +214,16 @@ export function InterviewRoomView({
         </span>
       )}
 
-      {/* 오른쪽 위 — AI 꼬리질문. 면접관 전용이다 */}
+      {/* 오른쪽 — AI 꼬리질문과 메모. 면접관 전용이다.
+          메모를 꼬리질문 바로 아래에 둔다 — 질문을 고정하고 받아적는 일이 한 자리에서
+          끝나야 면접 중에 눈과 마우스가 화면을 왕복하지 않는다.
+          아래는 내 화면(오른쪽 아래)이 쓰는 자리라 비워 둔다. */}
       {isInterviewer && (
-        <div className="absolute top-[72px] right-3 flex max-h-[38vh] w-[min(380px,calc(100%-24px))] sm:top-[80px] sm:right-4 md:max-h-[calc(100%-26rem)] lg:max-h-[calc(100%-22rem)]">
-          <SuggestionPanel />
+        <div className="absolute top-[72px] right-3 bottom-[19.5rem] flex w-[min(380px,calc(100%-24px))] flex-col gap-2 sm:top-[80px] sm:right-4 sm:bottom-[11rem]">
+          <div className="flex max-h-[38vh] shrink-0">
+            <SuggestionPanel />
+          </div>
+          <MemoPanel sessionId={sessionId} interviewId={interviewId} />
         </div>
       )}
 
