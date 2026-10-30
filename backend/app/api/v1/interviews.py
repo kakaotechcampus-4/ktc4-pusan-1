@@ -24,7 +24,9 @@ from app.domain.models import (
     Context,
     Interview,
     InterviewPrep,
+    InterviewReport,
     Resume,
+    ReviewStatus,
     Session,
     SessionSummary,
     SummaryStatus,
@@ -40,6 +42,8 @@ from app.schemas import (
     InterviewResponse,
     MarkResponse,
     MarkUpdateRequest,
+    ReportCompetency,
+    ReportResponse,
     ReviewCandidate,
     ReviewCounts,
     ReviewCoverage,
@@ -51,6 +55,7 @@ from app.schemas import (
     ReviewUpdateResponse,
     SummaryContent,
 )
+from app.services.report import adopted_findings, build_competencies
 from app.services.review import build_review, failure_reason, item_kinds
 
 router = APIRouter(prefix="/interviews", tags=["면접"])
@@ -374,6 +379,131 @@ def put_mark(
         session.id, item_id, state=body.state, bookmarked=body.bookmarked
     )
     return MarkResponse(item_id=item_id, state=mark.state, bookmarked=mark.bookmarked)
+
+
+@router.post(
+    "/{interviewId}/report",
+    response_model=ReviewProcessingResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="면접 리포트 생성 요청",
+    responses=responses(
+        LOGIN_REQUIRED,
+        _NOT_FOUND,
+        (409, "검토 미확정 · 채택한 근거 0개 · 이미 만들고 있음"),
+    ),
+)
+def post_report(
+    interview: OwnedInterviewDep, store: StoreDep
+) -> ReviewProcessingResponse:
+    """면접 리포트를 만들기 시작한다 (#238). 만드는 일은 AI 가 한다.
+
+    **면접 하나에 리포트 하나다.** 다시 누르면 앞의 것을 덮는다 — 검토를 확정하면
+    채택이 더 바뀌지 않으니(#247) 버전을 남길 이유가 없다.
+
+    세 가지를 미리 막는다. 셋 다 409 이고 `ErrorCode` 에는 넣지 않는다 — 리포트
+    화면 하나에서만 뜻이 있는 상태다(`PREP_OUTDATED` 와 같은 결).
+
+    1. 검토가 확정되지 않았다 — 리포트는 확정된 판단을 넘기는 문서다
+    2. 채택한 근거가 0개다 — 쓸 근거가 없으면 리포트도 없다
+    3. 이미 만들고 있다 — 한도(`report_timeout`)를 넘기면 다시 누를 수 있다
+    """
+    if interview.review_status is not ReviewStatus.CONFIRMED:
+        raise ApiError("REVIEW_NOT_CONFIRMED", 409, "검토를 먼저 확정해 주세요.")
+
+    # 채택 여부는 리포트 전체에서 한 함수만 센다 (#238). 여기서 센 것과 AI 가 받는
+    # 것이 다르면 「채택했는데 리포트에 없다」가 된다.
+    session = store.last_ended_session(interview.id)
+    summary = None if session is None else store.get_summary(session.id)
+    if (
+        session is None
+        or summary is None
+        or not adopted_findings(summary, store.list_marks(session.id))
+    ):
+        raise ApiError("NO_ADOPTED_FINDING", 409, "근거를 1개 이상 채택해 주세요.")
+
+    # 기준 세션을 리포트에 박아 둔다. 조회도 AI 입력도 이 세션만 본다 — 나중에 세션이
+    # 하나 더 끝나도 이미 만든 리포트의 근거 시각이 흔들리지 않는다.
+    opened = store.start_report(
+        InterviewReport(interview_id=interview.id, session_id=session.id),
+        settings.report_timeout,
+    )
+    if not opened:
+        raise ApiError("REPORT_IN_PROGRESS", 409, "이미 리포트를 만들고 있습니다.")
+    return ReviewProcessingResponse()
+
+
+@router.get(
+    "/{interviewId}/report",
+    response_model=ReportResponse,
+    summary="면접 리포트 조회",
+    responses={
+        202: {"model": ReviewProcessingResponse, "description": "만드는 중"},
+        **responses(
+            LOGIN_REQUIRED, (404, "면접이 없거나(남의 면접 포함) 리포트가 아직 없음")
+        ),
+    },
+)
+def get_report(
+    interview: OwnedInterviewDep, user: CurrentUserDep, store: StoreDep
+) -> ReportResponse | JSONResponse:
+    """면접 리포트 (#238) — 면접에 없던 사람에게 넘기는 인계 문서.
+
+    아직 만든 적이 없으면 404 다(`REPORT_NOT_FOUND`). 없는 면접 · 남의 면접도 404
+    이지만 코드가 다르다 — FE 가 「리포트 만들기」를 보일지 「면접이 없습니다」를
+    보일지 가른다.
+
+    만드는 중이면 202 다. 한도를 넘겼으면 그 자리에서 FAILED 로 접는다 — 아무도
+    기다려 주지 않아도 화면은 끝나야 한다(요약 · 면접 전 분석과 같은 판정).
+
+    **실패해도 200 이다.** 머리(지원자 · 면접관 · 메모)는 그대로 내보낸다. 실패
+    화면에서도 「누구의 어떤 면접인가」는 읽혀야 하고, 거기서 다시 만들 수 있다.
+
+    역량 카드는 BE 가 붙인다. AI 는 문장과 `findingId` 만 보냈고(#163) 이름 · 필수
+    여부 · 상태 · 지원서 문장 · 면접 발화 · 시각은 검토 화면과 같은 함수를 지난다.
+    """
+    report = store.get_report(interview.id)
+    if report is None:
+        raise ApiError(ErrorCode.REPORT_NOT_FOUND, 404, "리포트가 아직 없습니다.")
+    if report.status is SummaryStatus.PROCESSING:
+        report = store.expire_report(interview.id, settings.report_timeout) or report
+    if report.status is SummaryStatus.PROCESSING:
+        return _processing()
+
+    ready = report.status is SummaryStatus.READY
+    session = store.get_session(report.session_id)
+    # 자리가 비어 있어도(요약 행이 지워진 옛 세션) 역량 카드는 JD 수만큼 나가야
+    # 한다 — 빈 요약을 넣으면 전부 MISSING 으로 「다루지 않음」이 보인다.
+    summary = store.get_summary(report.session_id) or SessionSummary(
+        session_id=report.session_id
+    )
+    cards = (
+        build_competencies(
+            store.get_prep(interview.id),
+            summary,
+            store.list_marks(report.session_id),
+            report.competencies,
+        )
+        if ready
+        else []
+    )
+    began, _ = _timing(session)
+    return ReportResponse(
+        status="READY" if ready else "FAILED",
+        interview_id=interview.id,
+        session_id=report.session_id,
+        generated_at=report.completed_at,
+        review_status=interview.review_status,
+        candidate=ReviewCandidate(
+            name=interview.candidate_name,
+            role=store.ensure_context(Context(owner_id=user.id)).role,
+        ),
+        interviewer=InterviewerSummary(nickname=user.nickname),
+        interviewed_at=began,
+        memo=interview.memo,
+        overview=report.overview if ready else "",
+        competencies=[ReportCompetency.model_validate(c) for c in cards],
+        failure_reason=None if ready else report.failure_reason,
+    )
 
 
 def _processing() -> JSONResponse:

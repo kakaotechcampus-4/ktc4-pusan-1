@@ -87,6 +87,34 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         },
         "statuses": {"200", "202", "401", "404"},
     },
+    # ⚠️ Notion 명세에 없다. #238 이슈 본문이 계약이다. 만드는 중에는 검토와 같은
+    # 202 { status, etaSec } 를 쓴다.
+    ("post", "/api/v1/interviews/{interviewId}/report"): {
+        "path_params": ["interviewId"],
+        "response": {"status", "etaSec"},
+        # 409 셋: 검토 미확정 · 채택한 근거 0개 · 이미 만들고 있음.
+        "statuses": {"202", "401", "404", "409"},
+    },
+    ("get", "/api/v1/interviews/{interviewId}/report"): {
+        "path_params": ["interviewId"],
+        "response": {
+            "status",
+            "interviewId",
+            "sessionId",
+            "generatedAt",
+            "reviewStatus",
+            "candidate",
+            "interviewer",
+            "interviewedAt",
+            # 면접관 메모는 AI 입력에서만 빠지고 응답에는 들어간다.
+            "memo",
+            "overview",
+            "competencies",
+            # FAILED 의 까닭 — 채택한 근거로 쓸 문장이 없었으면 NO_EVIDENCE.
+            "failureReason",
+        },
+        "statuses": {"200", "202", "401", "404"},
+    },
     ("post", "/api/v1/interviews/{interviewId}/sessions"): {
         "path_params": ["interviewId"],
         "response": {
@@ -203,6 +231,7 @@ ERROR_CODE = {
     "INTERNAL_ERROR",
     "INTERVIEW_NOT_FOUND",
     "SESSION_NOT_FOUND",
+    "REPORT_NOT_FOUND",
     "SESSION_ENDED",
     "INVALID_SESSION_STATE",
     "ROOM_FULL",

@@ -246,6 +246,57 @@ class ResumeClaim(AiShape):
     section: PgAnyText | None = None
 
 
+class ReportStatementUpsert(AiShape):
+    """리포트 문장 하나 — AI 가 쓴 한 줄과 그 근거의 id (#238).
+
+    근거 본문(역량 이름 · 지원서 문장 · 면접 발화 · 시각)은 보내지 않는다. BE 가
+    `findingId` 로 붙인다 (#163) — 같은 근거가 검토 화면과 리포트에서 다르게 보이면
+    안 된다.
+    """
+
+    text: PgAnyText
+    finding_id: PgText
+
+
+class ReportCompetencyUpsert(AiShape):
+    """역량 하나의 카드. `competencyId` 는 받은 컨텍스트에 있던 것이어야 한다.
+
+    `nextQuestions` 만 근거 없이 온다 — 다음에 물어볼 것은 이 카드의 결론이라
+    「근거 없는 문장은 버린다」의 예외다 (#239 와 맞춘 규칙).
+    """
+
+    competency_id: PgText
+    confirmed: list[ReportStatementUpsert] = Field(default_factory=list)
+    unconfirmed: list[ReportStatementUpsert] = Field(default_factory=list)
+    next_questions: list[PgAnyText] = Field(default_factory=list)
+
+
+class ReportUpsert(AiShape):
+    """`PUT /internal/v1/interviews/{interviewId}/report` — 리포트 본문 (#238).
+
+    `status` 는 AI 쪽 네 값 그대로다. 화면의 두 값(READY · FAILED)으로 줄이는 매핑은
+    라우터 한 곳에만 둔다 — `ReviewUpsert` 와 같은 이유다.
+
+    `requestedAt` 은 받은 작업의 것을 그대로 돌려받는다. 그 사이 면접관이 다시
+    눌렀으면 결과를 409 로 거절한다. 시간대가 없으면 저장된 값과 비교할 수 없어
+    422 다.
+    """
+
+    status: Literal["completed", "partial", "empty", "failed"]
+    requested_at: AwareDatetime
+    overview: PgAnyText = ""
+    model: PgAnyText = ""
+    competencies: list[ReportCompetencyUpsert] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _done_means_there_is_something_to_show(self) -> "ReportUpsert":
+        # 개요 없이 READY 로 넘어가면 FE 는 빈 리포트를 그린다. 「채택한 근거로 쓸
+        # 게 없었다」는 `empty` 로 말해야 한다 — 그쪽은 실패 화면이 따로 있다.
+        if self.status in ("completed", "partial") and not self.overview.strip():
+            raise ValueError("completed/partial 이면 overview 가 비어 있을 수 없다")
+        return self
+
+
 class PrepUpsert(AiShape):
     """`PUT /internal/v1/interviews/{interviewId}/prep` — AI `PrepResult` (PR #156).
 

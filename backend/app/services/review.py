@@ -74,7 +74,7 @@ def build_review(
 
     return Review(
         coverage=[
-            {"name": c["name"], "state": _coverage(c["competencyId"], findings)}
+            {"name": c["name"], "state": coverage_state(c["competencyId"], findings)}
             for c in competencies
         ],
         moments=[
@@ -111,8 +111,11 @@ def build_review(
     )
 
 
-def _coverage(competency_id: str, findings: JsonList) -> CoverageState:
-    """역량 하나의 상태 (#137 1-2 「coverage 규칙」). 모순이 근거를 덮는다."""
+def coverage_state(competency_id: str, findings: JsonList) -> CoverageState:
+    """역량 하나의 상태 (#137 1-2 「coverage 규칙」). 모순이 근거를 덮는다.
+
+    리포트(#238)도 이것을 부른다 — 거기서는 채택한 findings 만 넣는다.
+    """
     types = {f["type"] for f in findings if f.get("competencyId") == competency_id}
     if FindingType.CLAIM_CONTRADICTED in types:
         return CoverageState.PARTIAL
