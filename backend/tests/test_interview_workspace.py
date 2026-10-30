@@ -1,10 +1,12 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.domain.models import Interview, Session
 from app.infra.postgres import PostgresStore
+from tests.conftest import age
 
 
 def test_saved_memo_and_existing_invitation_before_analysis(client: TestClient, other):
@@ -64,3 +66,22 @@ def test_latest_session_tie_break_matches_postgres(store):
             Session(interview_id=interview.id, id=session_id, created_at=stamp)
         )
     assert store.latest_session(interview.id).id == "ses_b"
+
+
+def test_expired_findings_match_before_and_after_opening_review(client, store):
+    interview_id = client.post("/api/v1/interviews", json={}).json()["interviewId"]
+    session_id = client.post(f"/api/v1/interviews/{interview_id}/sessions").json()[
+        "sessionId"
+    ]
+    client.post(f"/api/v1/sessions/{session_id}/end")
+    age(store, session_id, settings.summary_timeout + timedelta(seconds=1))
+    before = client.get("/api/v1/interviews").json()["items"][0]
+    detail = client.get(f"/api/v1/interviews/{interview_id}/review").json()
+    after = client.get("/api/v1/interviews").json()["items"][0]
+    assert before["summaryStatus"] == after["summaryStatus"] == "FAILED"
+    assert (
+        before["findingsStatus"]
+        == detail["findingsStatus"]
+        == after["findingsStatus"]
+        == "FAILED"
+    )
