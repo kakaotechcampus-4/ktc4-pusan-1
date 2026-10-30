@@ -31,6 +31,9 @@ export function TranscriptPanel() {
       <button
         type="button"
         onClick={toggleTranscript}
+        // 자막을 접으려고 눌렀을 때 메모에서 커서가 빠지지 않게 한다 (#219).
+        // 포커스는 mousedown 에서 넘어가므로 그것만 막는다 — Tab 으로는 그대로 온다.
+        onMouseDown={(e) => e.preventDefault()}
         aria-expanded={transcriptOpen}
         className="glass-dim flex w-full items-center gap-2 px-4 py-2.5 text-left"
       >
