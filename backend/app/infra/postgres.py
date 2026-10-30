@@ -28,6 +28,8 @@ from app.domain.models import (
     FindingState,
     Interview,
     InterviewPrep,
+    InterviewReport,
+    InterviewWorkspace,
     Job,
     JobKind,
     Recording,
@@ -211,6 +213,89 @@ class PostgresStore:
         ]
 
     # ── 세션 ────────────────────────────────────────────────
+
+    def latest_session(self, interview_id: str) -> Session | None:
+        row = self._one(
+            "SELECT * FROM session WHERE interview_id = %s "
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+            (interview_id,),
+        )
+        return self._to_session(row) if row else None
+
+    def list_interview_workspaces(
+        self, interviewer_id: str
+    ) -> list[InterviewWorkspace]:
+        base = self.list_interviews(interviewer_id)
+        if not base:
+            return []
+        ids = [interview.id for interview, _, _ in base]
+        session_ids = [session.id for _, session, _ in base if session]
+        # 행마다 조회하지 않는다. 목록 크기와 관계없이 일곱 번의 묶음 조회다.
+        latest = {
+            row["interview_id"]: self._to_session(row)
+            for row in self._all(
+                "SELECT DISTINCT ON (interview_id) * FROM session "
+                "WHERE interview_id = ANY(%s) "
+                "ORDER BY interview_id, created_at DESC, id DESC",
+                (ids,),
+            )
+        }
+        summaries = {
+            row["session_id"]: self._to_summary(row)
+            for row in self._all(
+                "SELECT * FROM session_summary WHERE session_id = ANY(%s)",
+                (session_ids,),
+            )
+        }
+        preps = {
+            row["interview_id"]: InterviewPrep(
+                **{**row, "status": SummaryStatus(row["status"])}
+            )
+            for row in self._all(
+                "SELECT interview_id, status, competencies, resume_claims, model, "
+                "requested_at, completed_at FROM interview_prep "
+                "WHERE interview_id = ANY(%s)",
+                (ids,),
+            )
+        }
+        marks: dict[str, list[ReviewMark]] = {}
+        for row in self._all(
+            "SELECT * FROM review_mark WHERE session_id = ANY(%s)", (session_ids,)
+        ):
+            marks.setdefault(row["session_id"], []).append(self._to_mark(row))
+        recordings = {
+            row["session_id"]: Recording(
+                session_id=row["session_id"],
+                status=SummaryStatus(row["status"]),
+                s3_key=row["s3_key"],
+                egress_started_at=row["egress_started_at"],
+                duration_ms=row["duration_ms"],
+                completed_at=row["completed_at"],
+            )
+            for row in self._all(
+                "SELECT * FROM recording WHERE session_id = ANY(%s)", (session_ids,)
+            )
+        }
+        reports = {
+            row["interview_id"]: self._to_report(row)
+            for row in self._all(
+                "SELECT * FROM interview_report WHERE interview_id = ANY(%s)",
+                (ids,),
+            )
+        }
+        return [
+            InterviewWorkspace(
+                interview=interview,
+                latest_session=latest.get(interview.id),
+                session=session,
+                summary=summaries.get(session.id) if session else None,
+                prep=preps.get(interview.id),
+                marks=marks.get(session.id, []) if session else [],
+                recording=recordings.get(session.id) if session else None,
+                report=reports.get(interview.id),
+            )
+            for interview, session, _ in base
+        ]
 
     def add_session(self, session: Session) -> None:
         with self._pool.connection() as conn:
@@ -701,6 +786,194 @@ class PostgresStore:
             session_id=row["session_id"],
             interview_id=row["interview_id"],
             requested_at=row["requested_at"],
+        )
+
+    # ── 면접 리포트 (#238) ───────────────────────────────
+
+    def start_report(self, report: InterviewReport, limit: timedelta) -> bool:
+        """「이미 만들고 있는가」와 쓰기가 한 문장이다.
+
+        `ON CONFLICT` 의 `WHERE` 가 「PROCESSING 이고 한도 안」을 막는다. 거기 걸리면
+        0행이고, 그 밖에는 EXCLUDED 로 전부 덮는다 — 한 면접에 리포트는 하나다.
+
+        시각은 `expire_summary` 와 같은 이유로 앱이 찍는다.
+        """
+        moment = utcnow()
+        row = self._one(
+            """
+            INSERT INTO interview_report (
+                interview_id, session_id, status, overview, competencies,
+                failure_reason, model, requested_at, completed_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (interview_id) DO UPDATE SET
+                session_id = EXCLUDED.session_id,
+                status = EXCLUDED.status,
+                overview = EXCLUDED.overview,
+                competencies = EXCLUDED.competencies,
+                failure_reason = EXCLUDED.failure_reason,
+                model = EXCLUDED.model,
+                requested_at = EXCLUDED.requested_at,
+                completed_at = EXCLUDED.completed_at
+            WHERE NOT (
+                interview_report.status = %s
+                AND interview_report.requested_at >= %s
+            )
+         RETURNING interview_id
+            """,
+            (
+                report.interview_id,
+                report.session_id,
+                report.status.value,
+                report.overview,
+                Jsonb(report.competencies),
+                report.failure_reason,
+                report.model,
+                report.requested_at,
+                report.completed_at,
+                SummaryStatus.PROCESSING.value,
+                moment - limit,
+            ),
+        )
+        return row is not None
+
+    def get_report(self, interview_id: str) -> InterviewReport | None:
+        row = self._one(
+            """
+            SELECT interview_id, session_id, status, overview, competencies,
+                   failure_reason, model, requested_at, completed_at
+            FROM interview_report WHERE interview_id = %s
+            """,
+            (interview_id,),
+        )
+        if row is None:
+            return None
+        return self._to_report(row)
+
+    def finish_report(self, report: InterviewReport) -> bool:
+        """`finish_prep` 과 같다 — 요청 시각 대조와 「FAILED 는 READY 를 덮지
+        않는다」가 `WHERE` 안에 있다. session_id 는 건드리지 않는다: 리포트를 연
+        세션이 기준이고, 결과가 그 세션 것인지는 요청 시각이 가린다."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE interview_report
+                   SET status = %s,
+                       overview = %s,
+                       competencies = %s,
+                       failure_reason = %s,
+                       model = %s,
+                       completed_at = %s
+                 WHERE interview_id = %s
+                   AND requested_at = %s
+                   AND NOT (%s = %s AND status = %s)
+                """,
+                (
+                    report.status.value,
+                    report.overview,
+                    Jsonb(report.competencies),
+                    report.failure_reason,
+                    report.model,
+                    report.completed_at,
+                    report.interview_id,
+                    report.requested_at,
+                    report.status.value,
+                    SummaryStatus.FAILED.value,
+                    SummaryStatus.READY.value,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def expire_report(
+        self, interview_id: str, limit: timedelta
+    ) -> InterviewReport | None:
+        """`expire_summary` 와 같은 한 문장이다. 0행이면 지금 값을 읽어 돌려준다.
+
+        `failure_reason` 을 비운다 — 기다리다 못 만든 것은 근거가 없어서 못 만든 것과
+        다르다. `model` 은 건드리지 않는다: 아직 아무도 쓰지 않았다.
+        """
+        moment = utcnow()
+        row = self._one(
+            """
+            UPDATE interview_report
+               SET status = %s,
+                   overview = '',
+                   competencies = '[]'::jsonb,
+                   failure_reason = NULL,
+                   completed_at = %s
+             WHERE interview_id = %s
+               AND status = %s
+               AND requested_at < %s
+         RETURNING interview_id, session_id, status, overview, competencies,
+                   failure_reason, model, requested_at, completed_at
+            """,
+            (
+                SummaryStatus.FAILED.value,
+                moment,
+                interview_id,
+                SummaryStatus.PROCESSING.value,
+                moment - limit,
+            ),
+        )
+        if row is not None:
+            return self._to_report(row)
+        return self.get_report(interview_id)
+
+    def next_report(self, limit: timedelta) -> Job | None:
+        """만료 UPDATE 한 번, 고르는 SELECT 한 번이다. 시각은 앱이 찍는다.
+
+        세션은 행에 박힌 것을 그대로 싣는다 — 가장 최근 세션을 다시 고르지 않는다.
+        """
+        moment = utcnow()
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE interview_report
+                   SET status = %s,
+                       overview = '',
+                       competencies = '[]'::jsonb,
+                       failure_reason = NULL,
+                       completed_at = %s
+                 WHERE status = %s AND requested_at < %s
+                """,
+                (
+                    SummaryStatus.FAILED.value,
+                    moment,
+                    SummaryStatus.PROCESSING.value,
+                    moment - limit,
+                ),
+            )
+        row = self._one(
+            """
+            SELECT interview_id, session_id, requested_at
+            FROM interview_report
+            WHERE status = %s
+            ORDER BY requested_at
+            LIMIT 1
+            """,
+            (SummaryStatus.PROCESSING.value,),
+        )
+        if row is None:
+            return None
+        return Job(
+            kind=JobKind.REPORT,
+            session_id=row["session_id"],
+            interview_id=row["interview_id"],
+            requested_at=row["requested_at"],
+        )
+
+    @staticmethod
+    def _to_report(row: dict[str, Any]) -> InterviewReport:
+        return InterviewReport(
+            interview_id=row["interview_id"],
+            session_id=row["session_id"],
+            status=SummaryStatus(row["status"]),
+            overview=row["overview"],
+            competencies=list(row["competencies"]),
+            failure_reason=row["failure_reason"],
+            model=row["model"],
+            requested_at=row["requested_at"],
+            completed_at=row["completed_at"],
         )
 
     # ── 내부 ────────────────────────────────────────────────
@@ -1213,9 +1486,9 @@ class PostgresStore:
             inserted = conn.execute(
                 """
                 INSERT INTO suggestion (
-                    session_id, suggestion_id, content, status, created_at
+                    session_id, suggestion_id, content, status, created_at, reason
                 )
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id, suggestion_id) DO NOTHING
                 RETURNING 1
                 """,
@@ -1225,6 +1498,7 @@ class PostgresStore:
                     suggestion.content,
                     suggestion.status.value,
                     suggestion.created_at,
+                    suggestion.reason,
                 ),
             ).fetchone()
             if inserted is None:
@@ -1248,7 +1522,7 @@ class PostgresStore:
         rows = self._all(
             """
             SELECT s.session_id, s.suggestion_id, s.content,
-                   s.status, s.created_at,
+                   s.status, s.created_at, s.reason,
                    COALESCE(
                        (SELECT array_agg(e.utterance_id ORDER BY e.position)
                         FROM suggestion_evidence e
@@ -1267,6 +1541,7 @@ class PostgresStore:
                 session_id=row["session_id"],
                 suggestion_id=row["suggestion_id"],
                 content=row["content"],
+                reason=row["reason"],
                 evidence_utterance_ids=list(row["evidence_utterance_ids"]),
                 status=SuggestionStatus(row["status"]),
                 created_at=row["created_at"],

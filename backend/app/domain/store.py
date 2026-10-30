@@ -9,6 +9,7 @@
 """
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
@@ -20,6 +21,8 @@ from app.domain.models import (
     FindingState,
     Interview,
     InterviewPrep,
+    InterviewReport,
+    InterviewWorkspace,
     Job,
     JobKind,
     Recording,
@@ -71,6 +74,12 @@ class Store(Protocol):
         않는다. 같은 시각에 끝났으면 id 가 큰 쪽이다. 끝난 세션이 없으면 None.
         """
         ...
+
+    def latest_session(self, interview_id: str) -> Session | None: ...
+
+    def list_interview_workspaces(
+        self, interviewer_id: str
+    ) -> list[InterviewWorkspace]: ...
 
     def add_session(self, session: Session) -> None: ...
 
@@ -294,6 +303,60 @@ class Store(Protocol):
         """
         ...
 
+    # ── 면접 리포트 (#238) ───────────────────────────────
+
+    def start_report(self, report: InterviewReport, limit: timedelta) -> bool:
+        """리포트 자리를 PROCESSING 으로 연다. 열었으면 True.
+
+        이미 만들고 있으면(PROCESSING 이고 한도 안이면) 아무것도 바꾸지 않고 False —
+        라우터가 그걸 409 로 바꾼다. 그 밖에는 **덮는다**. 한 면접에 리포트는 하나고,
+        다시 누르면 그 자리를 새로 만든다 — 버전을 남기지 않는다.
+
+        판정과 쓰기가 한 문장이다. 읽고 판정하고 쓰면 그 사이에 들어온 요청과 둘 다
+        PROCESSING 을 열고, 둘 중 하나의 결과는 요청 시각이 안 맞아 버려진다.
+
+        한도를 넘긴 PROCESSING 은 만들고 있는 게 아니다 — 폴러가 죽은 자리라서 다시
+        열어 준다.
+        """
+        ...
+
+    def get_report(self, interview_id: str) -> InterviewReport | None: ...
+
+    def finish_report(self, report: InterviewReport) -> bool:
+        """AI 의 결과를 받는다. 썼으면 True.
+
+        `finish_prep` 과 같다. 저장된 요청 시각이 `report.requested_at` 과 같을 때만
+        쓴다 — 다르면 면접관이 그 사이에 다시 눌렀고, 늦게 온 것은 옛 요청의 결과다.
+        FAILED 는 READY 를 덮지 않는다 (#132). 판정과 갱신은 한 문장이다.
+
+        **기준 세션은 바꾸지 않는다.** `report.session_id` 는 무시하고 열어 둘 때 박은
+        것을 지킨다 — 근거의 발화와 시각이 그 세션에 매여 있다.
+        """
+        ...
+
+    def expire_report(
+        self, interview_id: str, limit: timedelta
+    ) -> InterviewReport | None:
+        """한도를 넘긴 리포트를 FAILED 로 넘기고 **최종 상태**를 돌려준다.
+
+        `expire_summary` 와 같다 — 조회가 이것만 부르면 판정 · 전이 · 저장이 한 군데서
+        끝난다. 한도를 안 넘겼으면 지금 값 그대로, 자리가 없으면 None.
+
+        한도 초과는 `failure_reason` 을 비운다. 기다리다 못 만든 것과 채택한 근거로
+        쓸 문장이 없던 것은 면접관이 할 일이 다르다.
+        """
+        ...
+
+    def next_report(self, limit: timedelta) -> Job | None:
+        """AI 폴러에게 내줄 REPORT 하나. 요청이 오래된 것부터, 없으면 None (#238).
+
+        먼저 한도를 넘긴 PROCESSING 을 FAILED 로 넘긴다 — `next_prep` 과 같은 이유다.
+
+        세션은 리포트가 박아 둔 것을 싣는다. 채택한 근거가 그 세션의 findings 라서,
+        여기서 가장 최근 세션을 다시 고르면 다른 면접의 발화가 붙는다.
+        """
+        ...
+
     # ── 검토 표시 (#163) ─────────────────────────────────
 
     def update_mark(
@@ -382,6 +445,8 @@ class InMemoryStore:
         self._summaries: dict[str, SessionSummary] = {}
         #: interview_id -> 면접 전 분석
         self._preps: dict[str, InterviewPrep] = {}
+        #: interview_id -> 면접 리포트 (면접 하나에 하나)
+        self._reports: dict[str, InterviewReport] = {}
         #: (session_id, item_id) -> 채택 · 북마크
         self._marks: dict[tuple[str, str], ReviewMark] = {}
         self._recordings: dict[str, Recording] = {}
@@ -444,6 +509,36 @@ class InMemoryStore:
             ended, key=lambda s: (s.ended_at or s.created_at, s.id), default=None
         )
         return None if last is None else deepcopy(last)
+
+    def latest_session(self, interview_id: str) -> Session | None:
+        return deepcopy(
+            max(
+                (
+                    session
+                    for session in self._sessions.values()
+                    if session.interview_id == interview_id
+                ),
+                key=lambda session: (session.created_at, session.id),
+                default=None,
+            )
+        )
+
+    def list_interview_workspaces(
+        self, interviewer_id: str
+    ) -> list[InterviewWorkspace]:
+        return [
+            InterviewWorkspace(
+                interview=interview,
+                latest_session=self.latest_session(interview.id),
+                session=session,
+                summary=self.get_summary(session.id) if session else None,
+                prep=self.get_prep(interview.id),
+                marks=self.list_marks(session.id) if session else [],
+                recording=self.get_recording(session.id) if session else None,
+                report=self.get_report(interview.id),
+            )
+            for interview, session, _ in self.list_interviews(interviewer_id)
+        ]
 
     def add_session(self, session: Session) -> None:
         self._sessions[session.id] = deepcopy(session)
@@ -704,6 +799,68 @@ class InMemoryStore:
                 )
         return min(jobs, key=lambda j: j.requested_at, default=None)
 
+    # ── 면접 리포트 (#238) ───────────────────────────────
+
+    def start_report(self, report: InterviewReport, limit: timedelta) -> bool:
+        stored = self._reports.get(report.interview_id)
+        if (
+            stored is not None
+            and stored.status is SummaryStatus.PROCESSING
+            and not stored.overdue(limit)
+        ):
+            return False
+        self._reports[report.interview_id] = deepcopy(report)
+        return True
+
+    def get_report(self, interview_id: str) -> InterviewReport | None:
+        found = self._reports.get(interview_id)
+        return None if found is None else deepcopy(found)
+
+    def finish_report(self, report: InterviewReport) -> bool:
+        stored = self._reports.get(report.interview_id)
+        if stored is None or stored.requested_at != report.requested_at:
+            return False
+        if (
+            report.status is SummaryStatus.FAILED
+            and stored.status is SummaryStatus.READY
+        ):
+            return False
+        # 기준 세션은 열어 둘 때 박은 것을 지킨다. Postgres 쪽 UPDATE 는 이 열을
+        # 아예 건드리지 않으니, 여기서도 받은 값을 쓰면 두 저장소가 갈라진다.
+        self._reports[report.interview_id] = replace(
+            deepcopy(report), session_id=stored.session_id
+        )
+        return True
+
+    def expire_report(
+        self, interview_id: str, limit: timedelta
+    ) -> InterviewReport | None:
+        stored = self._reports.get(interview_id)
+        if stored is None:
+            return None
+        if stored.overdue(limit):
+            stored.give_up()
+        return deepcopy(stored)
+
+    def next_report(self, limit: timedelta) -> Job | None:
+        now = utcnow()
+        for report in self._reports.values():
+            if report.overdue(limit, now):
+                report.give_up()
+
+        jobs = [
+            Job(
+                JobKind.REPORT,
+                report.session_id,
+                report.interview_id,
+                report.requested_at,
+            )
+            for report in self._reports.values()
+            if report.status is SummaryStatus.PROCESSING
+            and report.session_id in self._sessions
+        ]
+        return min(jobs, key=lambda j: j.requested_at, default=None)
+
     def _latest_session(self, interview_id: str) -> Session | None:
         mine = [s for s in self._sessions.values() if s.interview_id == interview_id]
         return max(mine, key=lambda s: s.created_at, default=None)
@@ -801,6 +958,7 @@ class InMemoryStore:
 
         self._summaries.clear()
         self._preps.clear()
+        self._reports.clear()
         self._marks.clear()
         self._recordings.clear()
         self._users.clear()

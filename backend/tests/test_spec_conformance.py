@@ -22,7 +22,16 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     # `interviewerId` 가 없다.
     ("post", "/api/v1/interviews"): {
         "request": {"candidateName"},
-        "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
+        "response": {
+            "interviewId",
+            "interviewerId",
+            "candidateName",
+            "createdAt",
+            "memo",
+            "reviewStatus",
+            "reviewedAt",
+            "latestSession",
+        },
         "statuses": {"201", "401", "422"},
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-1 이다.
@@ -43,7 +52,16 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     },
     ("get", "/api/v1/interviews/{interviewId}"): {
         "path_params": ["interviewId"],
-        "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
+        "response": {
+            "interviewId",
+            "interviewerId",
+            "candidateName",
+            "createdAt",
+            "memo",
+            "reviewStatus",
+            "reviewedAt",
+            "latestSession",
+        },
         "statuses": {"200", "401", "404"},
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-3 이다.
@@ -85,6 +103,34 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
             # 검토 항목 생성 결과 — 실패와 빈 목록을 가른다 (#244).
             "findingsStatus",
             # FAILED 의 까닭 — 요약할 대화가 없었으면 NO_TRANSCRIPT.
+            "failureReason",
+        },
+        "statuses": {"200", "202", "401", "404"},
+    },
+    # ⚠️ Notion 명세에 없다. #238 이슈 본문이 계약이다. 만드는 중에는 검토와 같은
+    # 202 { status, etaSec } 를 쓴다.
+    ("post", "/api/v1/interviews/{interviewId}/report"): {
+        "path_params": ["interviewId"],
+        "response": {"status", "etaSec"},
+        # 409 셋: 검토 미확정 · 채택한 근거 0개 · 이미 만들고 있음.
+        "statuses": {"202", "401", "404", "409"},
+    },
+    ("get", "/api/v1/interviews/{interviewId}/report"): {
+        "path_params": ["interviewId"],
+        "response": {
+            "status",
+            "interviewId",
+            "sessionId",
+            "generatedAt",
+            "reviewStatus",
+            "candidate",
+            "interviewer",
+            "interviewedAt",
+            # 면접관 메모는 AI 입력에서만 빠지고 응답에는 들어간다.
+            "memo",
+            "overview",
+            "competencies",
+            # FAILED 의 까닭 — 채택한 근거로 쓸 문장이 없었으면 NO_EVIDENCE.
             "failureReason",
         },
         "statuses": {"200", "202", "401", "404"},
@@ -205,6 +251,7 @@ ERROR_CODE = {
     "INTERNAL_ERROR",
     "INTERVIEW_NOT_FOUND",
     "SESSION_NOT_FOUND",
+    "REPORT_NOT_FOUND",
     "SESSION_ENDED",
     "INVALID_SESSION_STATE",
     "ROOM_FULL",

@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 
@@ -511,10 +511,12 @@ class JobKind(StrEnum):
 
     PREP    면접 전 분석 — 역량 · 이력서 주장 (#162)
     REVIEW  면접 후 분석 — 요약 · 타임라인 · findings (#164)
+    REPORT  면접 리포트 — 채택한 근거로 만드는 인계 문서 (#238)
     """
 
     PREP = "PREP"
     REVIEW = "REVIEW"
+    REPORT = "REPORT"
 
 
 @dataclass(frozen=True)
@@ -551,6 +553,56 @@ class InterviewPrep:
     completed_at: datetime | None = None
 
 
+@dataclass
+class InterviewReport:
+    """면접 리포트 — 면접에 없던 사람에게 넘기는 인계 문서 (#238).
+
+    면접 하나에 하나다. 면접관이 「리포트 만들기」를 누르면 PROCESSING 으로 열고,
+    다시 누르면 그 자리를 덮는다 — 버전을 남기지 않는다. 상태 기계는 요약과 같아서
+    `SummaryStatus` 를 쓴다.
+
+    `session_id` 는 리포트를 만든 기준 세션이다. **조회도 이 세션을 본다** — AI 가
+    돌려준 문장은 그때의 findings 에 붙어 있어서, 그 뒤에 새 세션이 끝났다고 그쪽
+    findings 로 조인하면 남의 발화가 붙는다.
+
+    `competencies` 는 AI 가 보낸 역량별 문장을 camelCase JSON 그대로 둔다. BE 는
+    `competencyId` · `findingId` 로 조인만 하고(#163) 안을 해석하지 않는다.
+
+    `failure_reason` 은 실패를 면접관에게 다르게 말해야 하는 경우뿐이다. 채택한
+    근거가 하나도 쓸 만하지 않았으면 NO_EVIDENCE 고(기다릴 일이 아니라 근거를 더
+    채택할 일이다), 그 밖의 실패는 null 이다.
+    """
+
+    interview_id: str
+    session_id: str
+    status: SummaryStatus = SummaryStatus.PROCESSING
+    overview: str = ""
+    competencies: list[dict[str, Any]] = field(default_factory=list)
+    failure_reason: Literal["NO_EVIDENCE"] | None = None
+    model: str = ""
+    requested_at: datetime = field(default_factory=utcnow)
+    completed_at: datetime | None = None
+
+    def overdue(self, limit: timedelta, now: datetime | None = None) -> bool:
+        """기다린 시간이 한도를 넘었나. `SessionSummary.overdue` 와 같다."""
+        if self.status is not SummaryStatus.PROCESSING:
+            return False
+        return (now or utcnow()) - self.requested_at > limit
+
+    def give_up(self, reason: Literal["NO_EVIDENCE"] | None = None) -> None:
+        """리포트를 못 만들었다고 확정한다. 본문은 비운다.
+
+        한도 초과는 `reason` 이 없다 — 면접관이 할 일이 「다시 만들기」뿐이다.
+        채택한 근거로 쓸 문장이 하나도 안 나왔으면 NO_EVIDENCE 고, 그때는 기다릴
+        일이 아니라 근거를 더 채택할 일이라 화면이 다르게 말해야 한다.
+        """
+        self.status = SummaryStatus.FAILED
+        self.overview = ""
+        self.competencies = []
+        self.failure_reason = reason
+        self.completed_at = utcnow()
+
+
 class SuggestionStatus(StrEnum):
     """꼬리질문의 상태. Agent 는 보내지 않고 BE 가 갖는다 (`irya_ai.schemas.wire`).
 
@@ -570,8 +622,7 @@ class Suggestion:
     통로가 달라, 꼬리질문이 제 근거보다 먼저 도착할 수 있다. 근거는 받은 순서대로
     따로 저장하고(`suggestion_evidence`), 타임라인을 읽을 때 전사와 잇는다.
 
-    `reason` 은 아직 없다. 생성기는 만들지만 전송 계약에서 빠져 있고, 넣을지는
-    회의 안건으로 남아 있다 (#73).
+    `reason` 은 선택적인 확인 포인트다. 과거 질문은 None으로 읽는다.
     """
 
     session_id: str
@@ -580,3 +631,18 @@ class Suggestion:
     evidence_utterance_ids: list[str]
     status: SuggestionStatus = SuggestionStatus.NEW
     created_at: datetime = field(default_factory=utcnow)
+    reason: str | None = None
+
+
+@dataclass
+class InterviewWorkspace:
+    """관리 목록의 자료를 묶어 읽는다. 상세 본문은 공개 목록에 싣지 않는다."""
+
+    interview: Interview
+    latest_session: Session | None
+    session: Session | None
+    summary: SessionSummary | None
+    prep: InterviewPrep | None
+    marks: list[ReviewMark]
+    recording: Recording | None
+    report: InterviewReport | None
