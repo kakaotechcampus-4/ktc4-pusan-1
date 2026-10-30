@@ -39,7 +39,14 @@ export interface FindingsProps {
   locked?: boolean;
 }
 
-export function Findings({ coverage, findings, findingsStatus, onMark, onSeek, locked }: FindingsProps) {
+export function Findings({
+  coverage,
+  findings,
+  findingsStatus,
+  onMark,
+  onSeek,
+  locked,
+}: FindingsProps) {
   const open = findings.filter((f) => f.state === 'PROPOSED').length;
   const note = progressNote(open, findingsStatus);
 
