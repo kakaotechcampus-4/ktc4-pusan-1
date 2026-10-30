@@ -74,6 +74,7 @@ export default function InterviewListPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [copyText, setCopyText] = useState<string | null>(null);
   const [exportRange, setExportRange] = useState('filtered');
+  const [exportProgress, setExportProgress] = useState<string | null>(null);
   const anchor = useRef<string | null>(null);
   const resizeCleanup = useRef<(() => void) | null>(null);
   useEffect(() => () => resizeCleanup.current?.(), []);
@@ -219,6 +220,22 @@ export default function InterviewListPage() {
   };
   const exportRows =
     exportRange === 'all' ? items : exportRange === 'selected' ? selected : filtered;
+  const exportXlsx = async () => {
+    setExportProgress('자료 확인 중');
+    setNotice(null);
+    try {
+      const { candidateExport } = await import('../lib/candidateExport');
+      const blob = await candidateExport(exportRows, (done, total) =>
+        setExportProgress(`${done}/${total}건 확인`),
+      );
+      saveDownload(blob, 'IRYA_면접기록.xlsx');
+      setNotice(`${exportRows.length}건을 내보냈습니다.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '내보내기에 실패했습니다.');
+    } finally {
+      setExportProgress(null);
+    }
+  };
   const cell = (item: InterviewListItem, key: ColumnKey): ReactNode => {
     if (key === 'name')
       return (
@@ -310,6 +327,14 @@ export default function InterviewListPage() {
             className={buttonClass('secondary')}
           >
             CSV 내보내기
+          </button>
+          <button
+            type="button"
+            disabled={!exportRows.length || exportProgress !== null}
+            onClick={() => void exportXlsx()}
+            className={buttonClass('primary')}
+          >
+            {exportProgress ?? 'XLSX 내보내기'}
           </button>
         </div>
       </header>
