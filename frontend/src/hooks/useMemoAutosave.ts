@@ -2,6 +2,7 @@ import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { updateReview } from '../api/review';
 import { readAccessToken } from '../lib/authToken';
 import { createMemoQueue } from '../lib/memoQueue';
+import { clearMemoDrafts } from '../lib/memoDraft';
 import { queryClient } from '../lib/queryClient';
 import type { Review, ReviewUpdateResponse } from '../types/interview';
 
@@ -33,9 +34,13 @@ const EMPTY = {
 };
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('irya:token-changed', () => queue.clear());
+  const clear = () => {
+    queue.clear();
+    clearMemoDrafts();
+  };
+  window.addEventListener('irya:token-changed', clear);
   window.addEventListener('storage', (event) => {
-    if (event.key === 'accessToken' || event.key === null) queue.clear();
+    if (event.key === 'accessToken' || event.key === null) clear();
   });
 }
 

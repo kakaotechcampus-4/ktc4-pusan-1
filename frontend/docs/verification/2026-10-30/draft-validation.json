@@ -1,0 +1,7 @@
+{
+  "backendPausedDuringInput": true,
+  "serverMemoBeforeRecovery": "",
+  "tabDraftRestoredAfterReload": true,
+  "serverMemoSavedAfterRecovery": true,
+  "noMockHTTP": true
+}

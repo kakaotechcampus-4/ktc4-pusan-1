@@ -20,6 +20,10 @@
 | [#270](https://github.com/kakaotechcampus-4/ktc4-pusan-1/pull/270) | `feature/suggestion-focus-ai`        | `feature/239-report-generator`      |
 | [#271](https://github.com/kakaotechcampus-4/ktc4-pusan-1/pull/271) | `feature/249-report-poller`          | `feature/suggestion-focus-ai`       |
 
+## 최종 통합
+
+[#281](https://github.com/kakaotechcampus-4/ktc4-pusan-1/pull/281)에서 기존 #253·#254 충돌을 해결하고, FE 51개·BE 789개·AI 989개를 다시 검사했다. 아래 기능 PR 통합 뒤 base를 develop으로 바꿔 반영한다. 원격 병합·배포는 하지 않았다.
+
 ## 후속 이슈
 
 - [면접 당시 회사·직무 스냅샷 보존](https://github.com/kakaotechcampus-4/ktc4-pusan-1/issues/272)

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { getInterview } from '../../api/interview';
+import { memoDraftKey, readMemoDraft, writeMemoDraft } from '../../lib/memoDraft';
 import { MEMO_MAX, useMemoAutosave } from '../../hooks/useMemoAutosave';
 
 export function MemoPanel({ interviewId }: { interviewId: string | null }) {
@@ -15,7 +16,21 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
   });
   const [open, setOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const input = useRef<HTMLTextAreaElement>(null);
+  const restored = useRef<string | null>(null);
+  const draftKey =
+    owner.data && interviewId ? memoDraftKey(owner.data.interviewerId, interviewId) : null;
   const ready = owner.data?.memo !== undefined && hydrated;
+  useEffect(() => {
+    if (!ready || !draftKey) return;
+    if (restored.current !== draftKey) {
+      restored.current = draftKey;
+      const draft = readMemoDraft(draftKey);
+      if (draft !== null && draft !== owner.data?.memo) setMemo(draft);
+      else if (draft !== null) writeMemoDraft(draftKey, null);
+    } else if (state === 'saved' && readMemoDraft(draftKey) === memo) {
+      writeMemoDraft(draftKey, null);
+    }
+  }, [ready, draftKey, owner.data?.memo, state, memo, setMemo]);
   useEffect(() => {
     if (ready && open && window.matchMedia('(min-width: 768px)').matches)
       input.current?.focus({ preventScroll: true });
@@ -53,7 +68,11 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
             maxLength={MEMO_MAX}
             disabled={!ready}
             value={memo}
-            onChange={(event) => setMemo(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value.replaceAll('\0', '').slice(0, MEMO_MAX);
+              if (draftKey) writeMemoDraft(draftKey, value);
+              setMemo(value);
+            }}
             onBlur={() => void flush()}
             placeholder="면접 중 메모"
             className="text-ink border-border-base min-h-10 w-full flex-1 resize-none rounded-xl border bg-white/5 p-2 text-[15px] leading-relaxed disabled:opacity-50"
