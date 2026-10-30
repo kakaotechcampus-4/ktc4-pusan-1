@@ -25,7 +25,16 @@ def test_create_interview(client: TestClient, owner: User):
     assert body["interviewerId"] == owner.id
     assert body["candidateName"] is None
     assert body["createdAt"]
-    assert set(body) == {"interviewId", "interviewerId", "candidateName", "createdAt"}
+    assert set(body) == {
+        "interviewId",
+        "interviewerId",
+        "candidateName",
+        "createdAt",
+        "memo",
+        "reviewStatus",
+        "reviewedAt",
+        "latestSession",
+    }
 
 
 def test_create_interview_accepts_candidate_name(client: TestClient):
@@ -158,6 +167,13 @@ def test_list_is_mine_newest_first_on_last_ended_session(
         "reviewStatus": "PENDING",
         "summaryStatus": None,
         "counts": None,
+        "memo": "",
+        "latestSession": None,
+        "reviewSessionId": None,
+        "findingsStatus": None,
+        "recordingStatus": None,
+        "reportStatus": None,
+        "reportSessionId": None,
     }
     done = items[1]
     assert done["interviewedAt"] is not None

@@ -22,7 +22,16 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     # `interviewerId` 가 없다.
     ("post", "/api/v1/interviews"): {
         "request": {"candidateName"},
-        "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
+        "response": {
+            "interviewId",
+            "interviewerId",
+            "candidateName",
+            "createdAt",
+            "memo",
+            "reviewStatus",
+            "reviewedAt",
+            "latestSession",
+        },
         "statuses": {"201", "401", "422"},
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-1 이다.
@@ -43,7 +52,16 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     },
     ("get", "/api/v1/interviews/{interviewId}"): {
         "path_params": ["interviewId"],
-        "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
+        "response": {
+            "interviewId",
+            "interviewerId",
+            "candidateName",
+            "createdAt",
+            "memo",
+            "reviewStatus",
+            "reviewedAt",
+            "latestSession",
+        },
         "statuses": {"200", "401", "404"},
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-3 이다.

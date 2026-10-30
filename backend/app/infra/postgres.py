@@ -29,6 +29,7 @@ from app.domain.models import (
     Interview,
     InterviewPrep,
     InterviewReport,
+    InterviewWorkspace,
     Job,
     JobKind,
     Recording,
@@ -216,6 +217,89 @@ class PostgresStore:
         ]
 
     # ── 세션 ────────────────────────────────────────────────
+
+    def latest_session(self, interview_id: str) -> Session | None:
+        row = self._one(
+            "SELECT * FROM session WHERE interview_id = %s "
+            "ORDER BY created_at DESC, id DESC LIMIT 1",
+            (interview_id,),
+        )
+        return self._to_session(row) if row else None
+
+    def list_interview_workspaces(
+        self, interviewer_id: str
+    ) -> list[InterviewWorkspace]:
+        base = self.list_interviews(interviewer_id)
+        if not base:
+            return []
+        ids = [interview.id for interview, _, _ in base]
+        session_ids = [session.id for _, session, _ in base if session]
+        # 행마다 조회하지 않는다. 목록 크기와 관계없이 일곱 번의 묶음 조회다.
+        latest = {
+            row["interview_id"]: self._to_session(row)
+            for row in self._all(
+                "SELECT DISTINCT ON (interview_id) * FROM session "
+                "WHERE interview_id = ANY(%s) "
+                "ORDER BY interview_id, created_at DESC, id DESC",
+                (ids,),
+            )
+        }
+        summaries = {
+            row["session_id"]: self._to_summary(row)
+            for row in self._all(
+                "SELECT * FROM session_summary WHERE session_id = ANY(%s)",
+                (session_ids,),
+            )
+        }
+        preps = {
+            row["interview_id"]: InterviewPrep(
+                **{**row, "status": SummaryStatus(row["status"])}
+            )
+            for row in self._all(
+                "SELECT interview_id, status, competencies, resume_claims, model, "
+                "requested_at, completed_at FROM interview_prep "
+                "WHERE interview_id = ANY(%s)",
+                (ids,),
+            )
+        }
+        marks: dict[str, list[ReviewMark]] = {}
+        for row in self._all(
+            "SELECT * FROM review_mark WHERE session_id = ANY(%s)", (session_ids,)
+        ):
+            marks.setdefault(row["session_id"], []).append(self._to_mark(row))
+        recordings = {
+            row["session_id"]: Recording(
+                session_id=row["session_id"],
+                status=SummaryStatus(row["status"]),
+                s3_key=row["s3_key"],
+                egress_started_at=row["egress_started_at"],
+                duration_ms=row["duration_ms"],
+                completed_at=row["completed_at"],
+            )
+            for row in self._all(
+                "SELECT * FROM recording WHERE session_id = ANY(%s)", (session_ids,)
+            )
+        }
+        reports = {
+            row["interview_id"]: self._to_report(row)
+            for row in self._all(
+                "SELECT * FROM interview_report WHERE interview_id = ANY(%s)",
+                (ids,),
+            )
+        }
+        return [
+            InterviewWorkspace(
+                interview=interview,
+                latest_session=latest.get(interview.id),
+                session=session,
+                summary=summaries.get(session.id) if session else None,
+                prep=preps.get(interview.id),
+                marks=marks.get(session.id, []) if session else [],
+                recording=recordings.get(session.id) if session else None,
+                report=reports.get(interview.id),
+            )
+            for interview, session, _ in base
+        ]
 
     def add_session(self, session: Session) -> None:
         with self._pool.connection() as conn:

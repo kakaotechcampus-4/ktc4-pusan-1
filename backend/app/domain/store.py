@@ -22,6 +22,7 @@ from app.domain.models import (
     Interview,
     InterviewPrep,
     InterviewReport,
+    InterviewWorkspace,
     Job,
     JobKind,
     Recording,
@@ -73,6 +74,12 @@ class Store(Protocol):
         않는다. 같은 시각에 끝났으면 id 가 큰 쪽이다. 끝난 세션이 없으면 None.
         """
         ...
+
+    def latest_session(self, interview_id: str) -> Session | None: ...
+
+    def list_interview_workspaces(
+        self, interviewer_id: str
+    ) -> list[InterviewWorkspace]: ...
 
     def add_session(self, session: Session) -> None: ...
 
@@ -515,6 +522,36 @@ class InMemoryStore:
             ended, key=lambda s: (s.ended_at or s.created_at, s.id), default=None
         )
         return None if last is None else deepcopy(last)
+
+    def latest_session(self, interview_id: str) -> Session | None:
+        return deepcopy(
+            max(
+                (
+                    session
+                    for session in self._sessions.values()
+                    if session.interview_id == interview_id
+                ),
+                key=lambda session: (session.created_at, session.id),
+                default=None,
+            )
+        )
+
+    def list_interview_workspaces(
+        self, interviewer_id: str
+    ) -> list[InterviewWorkspace]:
+        return [
+            InterviewWorkspace(
+                interview=interview,
+                latest_session=self.latest_session(interview.id),
+                session=session,
+                summary=self.get_summary(session.id) if session else None,
+                prep=self.get_prep(interview.id),
+                marks=self.list_marks(session.id) if session else [],
+                recording=self.get_recording(session.id) if session else None,
+                report=self.get_report(interview.id),
+            )
+            for interview, session, _ in self.list_interviews(interviewer_id)
+        ]
 
     def add_session(self, session: Session) -> None:
         self._sessions[session.id] = deepcopy(session)

@@ -640,3 +640,17 @@ class Suggestion:
     evidence_utterance_ids: list[str]
     status: SuggestionStatus = SuggestionStatus.NEW
     created_at: datetime = field(default_factory=utcnow)
+
+
+@dataclass
+class InterviewWorkspace:
+    """관리 목록의 자료를 묶어 읽는다. 상세 본문은 공개 목록에 싣지 않는다."""
+
+    interview: Interview
+    latest_session: Session | None
+    session: Session | None
+    summary: SessionSummary | None
+    prep: InterviewPrep | None
+    marks: list[ReviewMark]
+    recording: Recording | None
+    report: InterviewReport | None
