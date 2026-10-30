@@ -51,6 +51,7 @@ export default function InterviewRoom({
       ready: videoTrack !== null || audioTrack !== null,
       videoTrack,
       audioTrack,
+      onSessionEnded: () => onEnded(null),
     });
   const [endError, setEndError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);

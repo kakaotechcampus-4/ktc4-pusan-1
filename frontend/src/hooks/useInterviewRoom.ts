@@ -47,6 +47,7 @@ interface UseInterviewRoomOptions {
    * 소유권을 호출자가 계속 들고 있으면(App.tsx 의 DeviceGate) 넘기지 않아도 된다.
    */
   onTracksPublished?: () => void;
+  onSessionEnded?: () => void;
 }
 
 export function useInterviewRoom({
@@ -58,6 +59,7 @@ export function useInterviewRoom({
   videoTrack,
   audioTrack,
   onTracksPublished,
+  onSessionEnded,
 }: UseInterviewRoomOptions) {
   const roomRef = useRef<LiveKitRoom | null>(null);
   const [interviewId, setInterviewId] = useState<string | null>(null);
@@ -66,7 +68,7 @@ export function useInterviewRoom({
     microphone: true,
     camera: true,
     speaker: true,
-    busy: false,
+    busy: true,
   });
   const [mediaNotice, setMediaNotice] = useState<string | null>(null);
   const [previewVideo, setPreviewVideo] = useState<MediaStreamTrack | null>(videoTrack);
@@ -74,9 +76,9 @@ export function useInterviewRoom({
 
   // 트랙과 콜백을 deps 에 넣으면 트랙 도착이나 콜백 교체마다 재접속이 일어난다.
   // 최신 값을 ref 로 넘겨 이펙트 안에서만 읽는다.
-  const latestRef = useRef({ videoTrack, audioTrack, onTracksPublished });
+  const latestRef = useRef({ videoTrack, audioTrack, onTracksPublished, onSessionEnded });
   useEffect(() => {
-    latestRef.current = { videoTrack, audioTrack, onTracksPublished };
+    latestRef.current = { videoTrack, audioTrack, onTracksPublished, onSessionEnded };
   });
 
   useEffect(() => {
@@ -103,6 +105,21 @@ export function useInterviewRoom({
 
     let cancelled = false;
     let room: LiveKitRoom | null = null;
+    let notifiedEnded = false;
+    // 상대의 일시 이탈과 실제 종료를 구분한다. 종료된 세션에서만 기기 점검 화면을 닫는다.
+    const checkEnded = async () => {
+      if (role !== 'CANDIDATE' || cancelled || notifiedEnded) return;
+      try {
+        const state = await getSessionState(sessionId);
+        if (!cancelled && !notifiedEnded && state.status === 'ENDED') {
+          notifiedEnded = true;
+          await room?.disconnect(true);
+          latestRef.current.onSessionEnded?.();
+        }
+      } catch {
+        // 통신 실패만으로 면접 종료를 단정하지 않는다.
+      }
+    };
 
     void (async () => {
       try {
@@ -157,6 +174,7 @@ export function useInterviewRoom({
             if (participant.identity !== remoteSpeaker) return;
             setRemoteJoined(false);
             setSpeaking(null);
+            void checkEnded();
           })
           // 발화 중 화자 표시. 서버 speech.start와 별개로 즉시 반응한다.
           //
@@ -171,7 +189,10 @@ export function useInterviewRoom({
             const isLocal = speakers.some((p) => p === room?.localParticipant);
             setSpeaking(isRemote ? remoteSpeaker : isLocal ? localSpeaker : null);
           })
-          .on(RoomEvent.Disconnected, () => setRemoteJoined(false))
+          .on(RoomEvent.Disconnected, () => {
+            setRemoteJoined(false);
+            void checkEnded();
+          })
           // 꼬리질문. 서버가 RoomService 로 보내므로 participant 가 비어서 온다 —
           // 보낸 사람으로 거르면 하나도 받지 못한다. 토픽만 본다.
           .on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
@@ -253,11 +274,14 @@ export function useInterviewRoom({
             ...previous,
             microphone: room!.localParticipant.isMicrophoneEnabled,
             camera: room!.localParticipant.isCameraEnabled,
+            busy: false,
           }));
         } catch (e) {
           // 발행 실패가 통화를 막지는 않는다 — 지원자 영상과 전사는 계속 본다.
           // setError 를 세우면 화면 전체가 실패 오버레이로 덮인다.
           console.warn('로컬 트랙 발행 실패', e);
+          setMedia((previous) => ({ ...previous, busy: false }));
+          setMediaNotice('기기 전송을 시작하지 못했습니다. 장치와 권한을 확인해 주세요.');
         }
 
         /* 이미 들어와 있는 지원자 트랙 구독 */
