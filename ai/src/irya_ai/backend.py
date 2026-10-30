@@ -212,6 +212,8 @@ class BackendClient:
         body = payload.model_dump(by_alias=True, mode="json")
         if payload.findings is None:
             del body["findings"]
+        if payload.findings_status is None:
+            del body["findingsStatus"]
         body["requestedAt"] = requested_at
         await self.request_json(
             "PUT",

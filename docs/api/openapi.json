@@ -324,6 +324,16 @@
         "title": "FindingType",
         "type": "string"
       },
+      "FindingsStatus": {
+        "description": "검토 항목(findings)을 만든 결과 (#244). 요약의 상태와 따로 간다.\n\n「찾아봤는데 없다」(EMPTY)와 「만들지 못했다」(FAILED)가 화면에서 같아 보이면\n면접관은 실패를 「역량 근거 없음」으로 읽는다. 아직 보고가 없으면 `None` 이다.",
+        "enum": [
+          "COMPLETED",
+          "EMPTY",
+          "FAILED"
+        ],
+        "title": "FindingsStatus",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -965,6 +975,10 @@
             "title": "Findings",
             "type": "array"
           },
+          "findingsStatus": {
+            "$ref": "#/components/schemas/FindingsStatus",
+            "description": "검토 항목을 만든 결과. EMPTY 는 찾아봤는데 없다, FAILED 는 만들지 못했다 — FAILED 면 `findings` 가 비고 coverage 의 MISSING 은 「없음」이 아니라 「확인 불가」다 (#244)."
+          },
           "interviewId": {
             "title": "Interviewid",
             "type": "string"
@@ -1054,7 +1068,8 @@
           "summary",
           "coverage",
           "moments",
-          "findings"
+          "findings",
+          "findingsStatus"
         ],
         "title": "ReviewResponse",
         "type": "object"

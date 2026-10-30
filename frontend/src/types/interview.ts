@@ -239,6 +239,12 @@ export interface Moment {
 }
 
 /** 역량 하나가 면접에서 얼마나 확인됐는가 */
+/**
+ * 검토 항목을 만든 결과 (#244). EMPTY 는 찾아봤는데 없다, FAILED 는 만들지 못했다.
+ * FAILED 면 `findings` 는 비고 coverage 의 MISSING 은 「없음」이 아니라 「확인 불가」다.
+ */
+export type FindingsStatus = 'COMPLETED' | 'EMPTY' | 'FAILED';
+
 export interface Coverage {
   name: string;
   state: 'CONFIRMED' | 'PARTIAL' | 'MISSING';
@@ -286,6 +292,7 @@ export interface Review {
   coverage: Coverage[];
   moments: Moment[];
   findings: Finding[];
+  findingsStatus: FindingsStatus;
   /** summaryStatus 가 FAILED 일 때의 까닭 */
   failureReason: SummaryFailureReason | null;
 }

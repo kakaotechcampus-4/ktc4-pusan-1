@@ -184,7 +184,9 @@ class ReviewPayload(CamelModel):
 
     ``findings`` is ``None`` when no findings agent ran, and the key is left
     out of the body then (:meth:`BackendClient.put_review`): an empty list
-    would read as "looked and found nothing".
+    would read as "looked and found nothing". ``findings_status`` is the
+    findings agent's own status, so a run that failed (``findings`` left out)
+    reads apart from one that never ran (#244).
     """
 
     status: Literal["completed", "partial", "empty", "failed"]
@@ -192,6 +194,7 @@ class ReviewPayload(CamelModel):
     key_points: list[str] = Field(default_factory=list)
     moments: list[Moment] = Field(default_factory=list)
     findings: list[Finding] | None = None
+    findings_status: Literal["completed", "partial", "empty", "failed"] | None = None
     model: str = ""
 
 
@@ -200,6 +203,7 @@ def review_payload(
     timeline: TimelineResult | None,
     *,
     findings: list[Finding] | None = None,
+    findings_status: Literal["completed", "partial", "empty", "failed"] | None = None,
     model: str,
 ) -> ReviewPayload:
     """Fold the three agents' results into the one row Backend stores.
@@ -222,6 +226,7 @@ def review_payload(
         key_points=list(result.key_points) if result and text else [],
         moments=list(timeline.moments) if timeline else [],
         findings=findings,
+        findings_status=findings_status,
         model=model,
     )
 
