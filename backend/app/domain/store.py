@@ -185,12 +185,14 @@ class Store(Protocol):
         *,
         moments: list[dict[str, Any]] | None = None,
         findings: list[dict[str, Any]] | None = None,
+        findings_failed: bool = False,
         model: str = "",
     ) -> bool:
         """Agent 의 실패 보고. READY 가 아니면 FAILED 로 넘기고 본문을 비운다.
 
         요약만 실패했으면 같이 온 타임라인 · findings 는 받아 둔다 (#164). `findings`
         가 `None` 이면 Agent 가 findings 를 안 돌린 것이라 있던 값을 그대로 둔다.
+        `findings_failed` 는 `SessionSummary.take_findings` 의 규칙대로 남는다 (#244).
 
         READY 면 아무것도 바꾸지 않고 False 다. Agent 의 재시도 · 재실행에서 실패
         한 번이 이미 성공한 요약을 지우면 안 된다 (#132). 판정과 갱신은 한 문장이다
@@ -579,13 +581,18 @@ class InMemoryStore:
         *,
         moments: list[dict[str, Any]] | None = None,
         findings: list[dict[str, Any]] | None = None,
+        findings_failed: bool = False,
         model: str = "",
     ) -> bool:
         stored = self._summaries.get(session_id)
         if stored is None or stored.status is SummaryStatus.READY:
             return False
-        kept = stored.findings if findings is None else findings
-        stored.give_up(moments=deepcopy(moments), findings=deepcopy(kept), model=model)
+        stored.give_up(
+            moments=deepcopy(moments),
+            findings=deepcopy(findings),
+            findings_failed=findings_failed,
+            model=model,
+        )
         return True
 
     def expire_summary(
@@ -595,7 +602,7 @@ class InMemoryStore:
         if stored is None:
             return None
         if stored.overdue(limit):
-            stored.give_up()
+            stored.expire()
         return deepcopy(stored)
 
     # ── 녹화 ────────────────────────────────────────────
@@ -673,7 +680,7 @@ class InMemoryStore:
         now = utcnow()
         for summary in self._summaries.values():
             if summary.overdue(limit, now):
-                summary.give_up()
+                summary.expire()
 
         jobs: list[Job] = []
         for summary in self._summaries.values():

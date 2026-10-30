@@ -27,6 +27,7 @@ from app.domain.models import (
     DocCategory,
     DocKind,
     DocStatus,
+    FindingsStatus,
     FindingState,
     Interview,
     InterviewPrep,
@@ -625,6 +626,7 @@ def test_expiring_a_summary_past_the_limit_marks_it_failed(subject: Store):
     stored = subject.get_summary(session.id)
     assert stored is not None
     assert stored.status is SummaryStatus.FAILED
+    assert stored.findings_status is FindingsStatus.FAILED
 
 
 def test_expiring_a_summary_within_the_limit_changes_nothing(subject: Store):
@@ -1631,12 +1633,14 @@ def test_summary_keeps_moments_and_findings(subject: Store):
     assert found.model == "gpt-6-luna"
 
 
-def test_giving_up_empties_the_analysis():
+def test_expiring_empties_the_analysis():
     summary = SessionSummary(session_id="ses_x", moments=[MOMENT], findings=[FINDING])
 
-    summary.give_up()
+    summary.expire()
 
     assert (summary.moments, summary.findings, summary.model) == ([], [], "")
+    # Agent 가 보고하지 않았다 — 「찾았는데 없다」가 아니다 (#244).
+    assert summary.findings_status is FindingsStatus.FAILED
 
 
 def test_mark_roundtrip(subject: Store):
@@ -1830,6 +1834,7 @@ def test_review_expires_an_overdue_summary_instead_of_handing_it_out(subject: St
     assert stored is not None
     assert stored.status is SummaryStatus.FAILED
     assert stored.model == ""
+    assert stored.findings_status is FindingsStatus.FAILED
 
 
 def _moment(moment_id: str = "mom_1") -> dict[str, Any]:
@@ -1874,6 +1879,47 @@ def test_a_failure_report_without_findings_keeps_the_stored_ones(subject: Store)
     assert stored is not None
     assert stored.moments == [_moment()]
     assert stored.findings == [_finding("fnd_old")]
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        (None, FindingsStatus.FAILED),
+        (FindingsStatus.EMPTY, FindingsStatus.EMPTY),
+        (FindingsStatus.COMPLETED, FindingsStatus.COMPLETED),
+    ],
+)
+def test_a_findings_failure_does_not_overwrite_an_earlier_result(
+    subject: Store, before: FindingsStatus | None, after: FindingsStatus
+):
+    """실패 보고는 아직 결과가 없을 때만 남는다 (#244)."""
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.findings_status = before
+    subject.save_summary(summary)
+
+    assert subject.fail_summary(session.id, findings_failed=True) is True
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.findings_status is after
+
+
+@pytest.mark.parametrize(
+    ("findings", "expected"),
+    [([], FindingsStatus.EMPTY), ([FINDING], FindingsStatus.COMPLETED)],
+)
+def test_a_findings_list_sets_its_status(
+    subject: Store, findings: list[dict[str, Any]], expected: FindingsStatus
+):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    assert subject.fail_summary(session.id, findings=findings) is True
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.findings_status is expected
 
 
 def test_a_failure_report_with_moments_does_not_touch_a_ready_summary(
