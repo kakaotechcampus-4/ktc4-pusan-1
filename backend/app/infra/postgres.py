@@ -151,7 +151,7 @@ class PostgresStore:
             """
             SELECT id, interview_id, status, created_at,
                    started_at, ended_at, transcript_origin_at,
-                   transcript_closed_at
+                   transcript_closed_at, consent_at, consent_version
             FROM session
             WHERE interview_id = %s AND ended_at IS NOT NULL
             ORDER BY ended_at DESC, id DESC
@@ -173,6 +173,8 @@ class PostgresStore:
                    s.started_at AS s_started_at, s.ended_at AS s_ended_at,
                    s.transcript_origin_at AS s_transcript_origin_at,
                    s.transcript_closed_at AS s_transcript_closed_at,
+                   s.consent_at AS s_consent_at,
+                   s.consent_version AS s_consent_version,
                    ss.status AS summary_status
             FROM interview i
             LEFT JOIN LATERAL (
@@ -201,6 +203,8 @@ class PostgresStore:
                     ended_at=row["s_ended_at"],
                     transcript_origin_at=row["s_transcript_origin_at"],
                     transcript_closed_at=row["s_transcript_closed_at"],
+                    consent_at=row["s_consent_at"],
+                    consent_version=row["s_consent_version"],
                 ),
                 None
                 if row["summary_status"] is None
@@ -218,9 +222,9 @@ class PostgresStore:
                 INSERT INTO session (
                     id, interview_id, status, created_at,
                     started_at, ended_at, transcript_origin_at,
-                    transcript_closed_at
+                    transcript_closed_at, consent_at, consent_version
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 self._session_values(session),
             )
@@ -230,7 +234,7 @@ class PostgresStore:
             """
             SELECT id, interview_id, status, created_at,
                    started_at, ended_at, transcript_origin_at,
-                   transcript_closed_at
+                   transcript_closed_at, consent_at, consent_version
             FROM session WHERE id = %s
             """,
             (session_id,),
@@ -248,6 +252,8 @@ class PostgresStore:
             ended_at=row["ended_at"],
             transcript_origin_at=row["transcript_origin_at"],
             transcript_closed_at=row["transcript_closed_at"],
+            consent_at=row["consent_at"],
+            consent_version=row["consent_version"],
         )
 
     @staticmethod
@@ -317,6 +323,19 @@ class PostgresStore:
                 "UPDATE session SET transcript_closed_at = %s WHERE id = %s",
                 (closed_at, session_id),
             )
+
+    def record_consent(self, session_id: str, at: datetime, version: str) -> bool:
+        """먼저 받은 동의만 남는다. 조건과 갱신이 한 문장이다 (#245)."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE session
+                   SET consent_at = %s, consent_version = %s
+                 WHERE id = %s AND consent_at IS NULL
+                """,
+                (at, version, session_id),
+            )
+            return cursor.rowcount == 1
 
     # ── 요약 ────────────────────────────────────────────────
 
@@ -716,6 +735,8 @@ class PostgresStore:
             session.ended_at,
             session.transcript_origin_at,
             session.transcript_closed_at,
+            session.consent_at,
+            session.consent_version,
         )
 
     # ── 녹화 ────────────────────────────────────────────
