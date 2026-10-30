@@ -1,0 +1,107 @@
+{
+  "interviewerBefore": {
+    "url": "?sessionId=ses_e04f7279&role=INTERVIEWER",
+    "state": "connected",
+    "microphone": true,
+    "camera": true,
+    "remote": [
+      {
+        "identity": "CANDIDATE",
+        "microphone": true,
+        "camera": true
+      }
+    ],
+    "videoPlaying": true,
+    "audioMuted": false
+  },
+  "candidateBefore": {
+    "url": "?sessionId=ses_e04f7279&role=CANDIDATE",
+    "state": "connected",
+    "microphone": true,
+    "camera": true,
+    "remote": [
+      {
+        "identity": "INTERVIEWER",
+        "microphone": true,
+        "camera": true
+      }
+    ],
+    "videoPlaying": true,
+    "audioMuted": false
+  },
+  "remoteMicrophoneOff": {
+    "ok": true,
+    "state": "connected",
+    "microphone": true,
+    "camera": true,
+    "remote": [
+      {
+        "identity": "INTERVIEWER",
+        "microphone": false,
+        "camera": true
+      }
+    ],
+    "videoPlaying": true,
+    "audioMuted": false
+  },
+  "remoteCameraOff": {
+    "ok": true,
+    "state": "connected",
+    "microphone": true,
+    "camera": true,
+    "remote": [
+      {
+        "identity": "INTERVIEWER",
+        "microphone": false,
+        "camera": false
+      }
+    ],
+    "videoPlaying": false,
+    "audioMuted": false
+  },
+  "remoteRestored": {
+    "ok": true,
+    "state": "connected",
+    "microphone": true,
+    "camera": true,
+    "remote": [
+      {
+        "identity": "INTERVIEWER",
+        "microphone": true,
+        "camera": true
+      }
+    ],
+    "videoPlaying": true,
+    "audioMuted": false
+  },
+  "speakerOff": {
+    "url": "?sessionId=ses_e04f7279&role=INTERVIEWER",
+    "state": "connected",
+    "microphone": true,
+    "camera": true,
+    "remote": [
+      {
+        "identity": "CANDIDATE",
+        "microphone": true,
+        "camera": true
+      }
+    ],
+    "videoPlaying": true,
+    "audioMuted": true
+  },
+  "speakerRestored": {
+    "url": "?sessionId=ses_e04f7279&role=INTERVIEWER",
+    "state": "connected",
+    "microphone": true,
+    "camera": true,
+    "remote": [
+      {
+        "identity": "CANDIDATE",
+        "microphone": true,
+        "camera": true
+      }
+    ],
+    "videoPlaying": true,
+    "audioMuted": false
+  }
+}
