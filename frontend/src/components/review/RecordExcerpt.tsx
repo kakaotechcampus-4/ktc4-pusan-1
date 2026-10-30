@@ -17,7 +17,7 @@ export function RecordExcerpt({ source, quote, transcript, atSec, onSeek }: Reco
           <button
             type="button"
             onClick={() => onSeek(atSec)}
-            className="text-brand rounded px-2 py-1 font-mono underline"
+            className="border-border-base text-ink-muted hover:text-ink rounded-full border px-2.5 py-0.5 font-mono text-[12px]"
             aria-label={`${fmt(atSec)}로 이동`}
           >
             {fmt(atSec)}
