@@ -1661,6 +1661,17 @@
             "title": "Evidenceutteranceids",
             "type": "array"
           },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
           "status": {
             "$ref": "#/components/schemas/SuggestionStatus"
           },
