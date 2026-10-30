@@ -40,7 +40,7 @@ export default function InterviewRoom({
 }: InterviewRoomProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { error, leave } = useInterviewRoom({
+  const { error, leave, media, mediaNotice, previewVideo, toggleMedia } = useInterviewRoom({
     sessionId,
     role,
     videoRef,
@@ -74,9 +74,10 @@ export default function InterviewRoom({
       audioRef={audioRef}
       error={error}
       ending={ending}
-      notice={endError ?? undefined}
+      notice={endError ?? mediaNotice ?? undefined}
+      media={{ ...media, onToggle: (kind) => void toggleMedia(kind) }}
       onEnd={() => void handleEnd()}
-      localVideoTrack={videoTrack}
+      localVideoTrack={previewVideo}
       localAudioTrack={audioTrack}
     />
   );

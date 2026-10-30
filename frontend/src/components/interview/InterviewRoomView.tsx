@@ -25,6 +25,7 @@ import { LocalPreview } from './LocalPreview';
 import { SpeakerBadge } from './SpeakerBadge';
 import { SuggestionPanel } from './SuggestionPanel';
 import { TranscriptPanel } from './TranscriptPanel';
+import { MediaControls, type MediaControlsProps } from './MediaControls';
 
 export interface InterviewRoomViewProps {
   /** 내 역할. 화면에 무엇을 얹을지 결정한다 */
@@ -47,6 +48,7 @@ export interface InterviewRoomViewProps {
    * 시연 중 질문을 받기 전에 화면이 먼저 답하도록 한다.
    */
   notice?: string;
+  media?: Omit<MediaControlsProps, 'enabled'>;
 }
 
 export function InterviewRoomView({
@@ -60,6 +62,7 @@ export function InterviewRoomView({
   localVideoTrack,
   localAudioTrack,
   notice,
+  media,
 }: InterviewRoomViewProps) {
   const connection = useInterviewStore((s) => s.connection);
   const remoteJoined = useInterviewStore((s) => s.remoteJoined);
@@ -223,6 +226,8 @@ export function InterviewRoomView({
           />
         </div>
       ) : null}
+
+      {media && <MediaControls {...media} enabled={connection === 'connected'} />}
 
       {/* 종료 실패 등 안내 — 가운데 아래 */}
       {notice && (

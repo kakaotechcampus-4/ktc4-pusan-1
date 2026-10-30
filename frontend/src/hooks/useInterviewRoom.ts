@@ -61,6 +61,15 @@ export function useInterviewRoom({
 }: UseInterviewRoomOptions) {
   const roomRef = useRef<LiveKitRoom | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [media, setMedia] = useState({
+    microphone: true,
+    camera: true,
+    speaker: true,
+    busy: false,
+  });
+  const [mediaNotice, setMediaNotice] = useState<string | null>(null);
+  const [previewVideo, setPreviewVideo] = useState<MediaStreamTrack | null>(videoTrack);
+  const mediaBusy = useRef(false);
 
   // 트랙과 콜백을 deps 에 넣으면 트랙 도착이나 콜백 교체마다 재접속이 일어난다.
   // 최신 값을 ref 로 넘겨 이펙트 안에서만 읽는다.
@@ -238,6 +247,11 @@ export function useInterviewRoom({
 
           // 발행 성공을 알린다. DeviceGate가 원본 트랙을 소유한 경로에서는 계속 그쪽이 정리한다.
           onTracksPublished?.();
+          setMedia((previous) => ({
+            ...previous,
+            microphone: room!.localParticipant.isMicrophoneEnabled,
+            camera: room!.localParticipant.isCameraEnabled,
+          }));
         } catch (e) {
           // 발행 실패가 통화를 막지는 않는다 — 지원자 영상과 전사는 계속 본다.
           // setError 를 세우면 화면 전체가 실패 오버레이로 덮인다.
@@ -266,6 +280,12 @@ export function useInterviewRoom({
       room?.removeAllListeners();
       // 원본 트랙은 DeviceGate 소유다. StrictMode 재접속 때 먼저 stop하면
       // 다음 Room에 끝난 트랙이 전달되므로 최종 이탈 때만 DeviceGate가 회수한다.
+      // SDK가 카메라 재시작 때 만든 트랙은 DeviceGate의 원본과 별도로 회수한다.
+      room?.localParticipant.trackPublications.forEach((publication) => {
+        const raw = publication.track?.mediaStreamTrack;
+        if (raw && raw !== latestRef.current.videoTrack && raw !== latestRef.current.audioTrack)
+          publication.track?.stop();
+      });
       void room?.disconnect(false);
       if (roomRef.current === room) roomRef.current = null;
       reset();
@@ -292,11 +312,46 @@ export function useInterviewRoom({
         result = { sessionId, status: state.status, endedAt: state.endedAt };
       }
     }
-    await roomRef.current?.disconnect(false);
+    await roomRef.current?.disconnect(true);
     return result;
   };
 
   // roomRef.current 를 렌더 중에 읽으면 연결 이후 값이 갱신되지 않는다.
   // ref 자체를 넘겨 이벤트 핸들러·이펙트 안에서 읽게 한다.
-  return { roomRef, error, leave };
+  const toggleMedia = async (kind: 'microphone' | 'camera' | 'speaker') => {
+    const room = roomRef.current;
+    if (!room || mediaBusy.current) return;
+    mediaBusy.current = true;
+    setMedia((previous) => ({ ...previous, busy: true }));
+    setMediaNotice(null);
+    try {
+      if (kind === 'microphone')
+        await room.localParticipant.setMicrophoneEnabled(
+          !room.localParticipant.isMicrophoneEnabled,
+        );
+      if (kind === 'camera')
+        await room.localParticipant.setCameraEnabled(!room.localParticipant.isCameraEnabled);
+      if (kind === 'speaker' && audioRef.current) {
+        audioRef.current.muted = !audioRef.current.muted;
+        if (!audioRef.current.muted) await room.startAudio();
+      }
+      const video = [...room.localParticipant.videoTrackPublications.values()].find(
+        (publication) => publication.source === 'camera',
+      );
+      setPreviewVideo(
+        room.localParticipant.isCameraEnabled ? (video?.track?.mediaStreamTrack ?? null) : null,
+      );
+    } catch {
+      setMediaNotice('기기 상태를 바꾸지 못했습니다. 장치와 권한을 확인해 주세요.');
+    } finally {
+      setMedia({
+        microphone: room.localParticipant.isMicrophoneEnabled,
+        camera: room.localParticipant.isCameraEnabled,
+        speaker: !audioRef.current?.muted,
+        busy: false,
+      });
+      mediaBusy.current = false;
+    }
+  };
+  return { roomRef, error, leave, media, mediaNotice, previewVideo, toggleMedia };
 }
