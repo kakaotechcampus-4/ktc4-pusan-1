@@ -160,7 +160,9 @@ def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListRespo
         item.review_session_id = session.id if session else None
         item.findings_status = (
             (
-                summary.findings_status
+                FindingsStatus.FAILED
+                if summary.overdue(settings.summary_timeout)
+                else summary.findings_status
                 or (
                     FindingsStatus.COMPLETED
                     if summary.findings
