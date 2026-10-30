@@ -6,7 +6,7 @@
  *
  * 역할에 따라 얹는 것이 다르다.
  *
- *   면접관  전사 · 꼬리질문 · 메모 · 면접 종료
+ *   면접관  전사 · 꼬리질문 · 면접 종료
  *   지원자  없음 · 나가기
  *
  * 지원자에게는 전사를 감춘다. 본인 발화가 실시간으로 받아적히는 것을 보면 답변이 위축된다.
@@ -16,30 +16,22 @@
  */
 
 import { ConnectionState } from 'livekit-client';
-import { useEffect, useState, type MouseEvent, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { fmt } from '../../lib/format';
 import type { Consent, Role } from '../../types/interview';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { Logo } from '../ui/Logo';
 import { LocalPreview } from './LocalPreview';
-import { MemoPanel } from './MemoPanel';
 import { SpeakerBadge } from './SpeakerBadge';
 import { SuggestionPanel } from './SuggestionPanel';
+import { MemoPanel } from './MemoPanel';
 import { TranscriptPanel } from './TranscriptPanel';
+import { MediaControls, type MediaControlsProps } from './MediaControls';
 
 export interface InterviewRoomViewProps {
   /** 내 역할. 화면에 무엇을 얹을지 결정한다 */
   role: Role;
-  /** 메모 초안을 이 탭에 남겨 두는 자리를 가른다 */
-  sessionId: string;
-  /** 메모를 저장할 면접. 방에 붙어 상태를 조회한 뒤에 온다 */
-  interviewId: string | null;
-  /**
-   * 지원자 동의 기록 (#245). 면접관에게만 쓴다.
-   *
-   * 지원자가 들어오기 전에는 비어 있다 — 동의해야 들어올 수 있으므로 들어온 뒤에는
-   * 반드시 찬다. 비어 있는 것을 「거부했다」로 읽으면 안 된다.
-   */
+  interviewId?: string | null;
   consent?: Consent | null;
   /** 상대 이름. 면접관에겐 지원자 이름, 지원자에겐 면접관 이름이다 */
   remoteName: string;
@@ -59,11 +51,11 @@ export interface InterviewRoomViewProps {
    * 시연 중 질문을 받기 전에 화면이 먼저 답하도록 한다.
    */
   notice?: string;
+  media?: Omit<MediaControlsProps, 'enabled'>;
 }
 
 export function InterviewRoomView({
   role,
-  sessionId,
   interviewId,
   consent,
   remoteName,
@@ -75,8 +67,10 @@ export function InterviewRoomView({
   localVideoTrack,
   localAudioTrack,
   notice,
+  media,
 }: InterviewRoomViewProps) {
   const connection = useInterviewStore((s) => s.connection);
+  const questionsExpanded = useInterviewStore((s) => s.questionsExpanded);
   const remoteJoined = useInterviewStore((s) => s.remoteJoined);
   const [elapsed, setElapsed] = useState(0);
 
@@ -91,25 +85,14 @@ export function InterviewRoomView({
     return () => clearInterval(t);
   }, [connection]);
 
-  // 영상이나 빈 자리를 눌러도 메모에서 커서가 빠지지 않게 한다 (#219). 누를 것이 없는
-  // 자리라 포커스가 넘어가도 얻는 것이 없고, 넘어가면 이어서 친 글자가 아무 데도 안 간다.
-  // 패널 안쪽은 막지 않는다 — 자막을 긁어 복사하는 것까지 막을 이유는 없다.
-  const keepCaret = (e: MouseEvent) => {
-    if (e.target === e.currentTarget) e.preventDefault();
-  };
-
   return (
-    // 상대 영상이 화면 전체를 채우고, 상태 막대 · 꼬리질문 · 메모 · 자동 기록 · 내 화면은
-    // 그 위에 유리판으로 뜬다 (#236). 유리판은 평소 거의 투명하고 마우스를 올리면 또렷해진다.
-    <div
-      onMouseDown={keepCaret}
-      className="relative h-screen w-screen overflow-hidden bg-[radial-gradient(120%_90%_at_20%_0%,#2b2f7a_0%,#141836_45%,#0b0e1c_100%)] text-white"
-    >
+    // 상대 영상이 화면 전체를 채우고, 상태 막대 · 꼬리질문 · 자동 기록 · 내 화면은 그 위에
+    // 유리판으로 뜬다 (#236). 유리판은 평소 거의 투명하고 마우스를 올리면 또렷해진다.
+    <div className="relative h-dvh w-screen overflow-hidden bg-[radial-gradient(120%_90%_at_20%_0%,#2b2f7a_0%,#141836_45%,#0b0e1c_100%)] text-white">
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        onMouseDown={keepCaret}
         className="absolute inset-0 h-full w-full object-cover"
       />
       <audio ref={audioRef} autoPlay />
@@ -187,9 +170,7 @@ export function InterviewRoomView({
           </span>
         </div>
 
-        {/* 지원자가 녹화 · 전사에 동의했는지. 면접관만 본다 (#245).
-            흐리지 않는다 — 녹화 중인 면접에서 이건 늘 보여야 하는 사실이다. */}
-        {isInterviewer && <ConsentBadge consent={consent ?? null} />}
+        {isInterviewer && consent !== undefined && <ConsentBadge consent={consent} />}
 
         {/* 진행 중 표시는 흐리지 않는다 — 녹화 · 통화 중인지는 늘 보여야 한다 */}
         {live && (
@@ -226,47 +207,38 @@ export function InterviewRoomView({
         </span>
       )}
 
-      {/* 오른쪽 — AI 꼬리질문과 메모. 면접관 전용이다.
-          메모를 꼬리질문 바로 아래에 둔다 — 질문을 고정하고 받아적는 일이 한 자리에서
-          끝나야 면접 중에 눈과 마우스가 화면을 왕복하지 않는다.
-          아래는 내 화면(오른쪽 아래)이 쓰는 자리라 비워 둔다. */}
-      {isInterviewer && (
-        <div className="absolute top-[72px] right-3 bottom-[19.5rem] flex w-[min(380px,calc(100%-24px))] flex-col gap-2 sm:top-[80px] sm:right-4 sm:bottom-[11rem]">
-          <div className="flex max-h-[38vh] shrink-0">
-            <SuggestionPanel />
+      {isInterviewer ? (
+        <div className="interview-panels" data-expanded={questionsExpanded}>
+          <div className="pointer-events-auto flex min-h-0 flex-col gap-2 [grid-area:questions]">
+            <div className="min-h-0 flex-1">
+              <SuggestionPanel />
+            </div>
+            <MemoPanel interviewId={interviewId ?? null} />
           </div>
-          <MemoPanel sessionId={sessionId} interviewId={interviewId} />
+          <div className="pointer-events-auto min-h-0 w-full max-w-2xl [grid-area:transcript]">
+            <TranscriptPanel />
+          </div>
+          {(localVideoTrack || localAudioTrack) && (
+            <div className="pointer-events-none w-28 self-start justify-self-end [grid-area:preview] md:w-48">
+              <LocalPreview
+                videoTrack={localVideoTrack ?? null}
+                audioTrack={localAudioTrack ?? null}
+                className="aspect-video w-full rounded-2xl ring-1 ring-white/40"
+              />
+            </div>
+          )}
         </div>
-      )}
-
-      {/* 왼쪽 아래 — 실시간 자막. 면접관 전용이다 */}
-      {isInterviewer && (
-        <div className="absolute inset-x-3 bottom-3 sm:inset-x-auto sm:bottom-4 sm:left-4 sm:w-[min(560px,calc(100%-19rem))]">
-          <TranscriptPanel />
-        </div>
-      )}
-
-      {/* 오른쪽 아래 — 내 화면. 대기 화면 위에 그려져 기다리는 동안 카메라를 볼 수 있다.
-          클릭을 가로채지 않도록 pointer-events 를 끈다. 좁은 화면의 면접관은 자막이
-          바닥을 쓰므로 그 위로 올린다. */}
-      {(localVideoTrack || localAudioTrack) && (
-        // 위치는 래퍼가 잡는다. LocalPreview 는 자기 루트에 relative 를 두므로
-        // 여기서 absolute 를 같이 넘기면 두 position 유틸리티가 충돌한다.
-        <div
-          className={`pointer-events-none absolute right-3 w-36 sm:right-4 sm:bottom-4 sm:w-60 ${
-            isInterviewer ? 'bottom-[13.5rem]' : 'bottom-3'
-          }`}
-        >
+      ) : localVideoTrack || localAudioTrack ? (
+        <div className="pointer-events-none absolute right-4 bottom-24 w-36 sm:w-60">
           <LocalPreview
             videoTrack={localVideoTrack ?? null}
             audioTrack={localAudioTrack ?? null}
-            className="aspect-video w-full rounded-2xl shadow-[0_12px_32px_rgba(6,8,20,.35)] ring-1 ring-white/40"
+            className="aspect-video w-full rounded-2xl ring-1 ring-white/40"
           />
-          <span className="glass absolute bottom-3 left-2 rounded-md px-2 py-0.5 text-[11px] font-medium">
-            나
-          </span>
         </div>
-      )}
+      ) : null}
+
+      {media && <MediaControls {...media} enabled={connection === 'connected'} />}
 
       {/* 종료 실패 등 안내 — 가운데 아래 */}
       {notice && (
@@ -300,7 +272,7 @@ function ConsentBadge({ consent }: { consent: Consent | null }) {
   const when = Number.isNaN(at.getTime()) ? consent.agreedAt : at.toLocaleString('ko-KR');
   return (
     <span
-      title={`${when} · 문구 ${consent.version}`}
+      title={consent.version ? `${when} · 문구 ${consent.version}` : when}
       className="bg-accent-tint text-accent-strong inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold"
     >
       <span aria-hidden className="material-symbols-outlined text-[16px]">

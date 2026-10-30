@@ -40,17 +40,19 @@ export default function InterviewRoom({
 }: InterviewRoomProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { error, leave, interviewId, consent } = useInterviewRoom({
-    sessionId,
-    role,
-    videoRef,
-    audioRef,
-    // DeviceGate 를 통과한 뒤에만 그려지므로 사실상 항상 참이다. 그래도 트랙에서
-    // 끌어낸다 — 트랙 없이 접속하면 아무것도 발행하지 못한 채 정원 한 자리를 차지한다.
-    ready: videoTrack !== null || audioTrack !== null,
-    videoTrack,
-    audioTrack,
-  });
+  const { error, leave, media, mediaNotice, previewVideo, toggleMedia, interviewId, consent } =
+    useInterviewRoom({
+      sessionId,
+      role,
+      videoRef,
+      audioRef,
+      // DeviceGate 를 통과한 뒤에만 그려지므로 사실상 항상 참이다. 그래도 트랙에서
+      // 끌어낸다 — 트랙 없이 접속하면 아무것도 발행하지 못한 채 정원 한 자리를 차지한다.
+      ready: videoTrack !== null || audioTrack !== null,
+      videoTrack,
+      audioTrack,
+      onSessionEnded: () => onEnded(null),
+    });
   const [endError, setEndError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
 
@@ -69,9 +71,6 @@ export default function InterviewRoom({
   return (
     <InterviewRoomView
       role={role}
-      sessionId={sessionId}
-      // 메모는 면접 단위로 저장한다. 방에 붙어 상태를 조회하기 전에는 null 이고,
-      // 그동안 입력은 받아 두었다가 아이디가 오면 보낸다.
       interviewId={interviewId}
       consent={consent}
       remoteName={remoteName}
@@ -79,9 +78,10 @@ export default function InterviewRoom({
       audioRef={audioRef}
       error={error}
       ending={ending}
-      notice={endError ?? undefined}
+      notice={endError ?? mediaNotice ?? undefined}
+      media={{ ...media, onToggle: (kind) => void toggleMedia(kind) }}
       onEnd={() => void handleEnd()}
-      localVideoTrack={videoTrack}
+      localVideoTrack={previewVideo}
       localAudioTrack={audioTrack}
     />
   );

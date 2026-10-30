@@ -1,3 +1,4 @@
+import { preserveMemoFocus } from '../../lib/memoFocus';
 /**
  * 실시간 전사 — 시안의 LIVE SCRIPT 패널.
  *
@@ -26,16 +27,14 @@ export function TranscriptPanel() {
   }, [last?.id, last?.text, transcriptOpen]);
 
   return (
-    <section className="glass overflow-hidden rounded-3xl">
+    <section className="glass interview-readable flex h-full min-h-0 flex-col overflow-hidden rounded-3xl">
       {/* 헤더 전체가 접기 버튼이다. 말하면서 누르는 것이라 누를 곳이 넓어야 한다 */}
       <button
         type="button"
         onClick={toggleTranscript}
-        // 자막을 접으려고 눌렀을 때 메모에서 커서가 빠지지 않게 한다 (#219).
-        // 포커스는 mousedown 에서 넘어가므로 그것만 막는다 — Tab 으로는 그대로 온다.
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={preserveMemoFocus}
         aria-expanded={transcriptOpen}
-        className="glass-dim flex w-full items-center gap-2 px-4 py-2.5 text-left"
+        className="flex w-full shrink-0 items-center gap-2 px-4 py-2.5 text-left"
       >
         <span className="h-2 w-2 animate-pulse rounded-full bg-[#ff5a63]" />
         <span className="text-ink text-[14px] font-semibold">실시간 자막</span>
@@ -52,7 +51,7 @@ export function TranscriptPanel() {
       {transcriptOpen && (
         <div
           ref={listRef}
-          className="flex max-h-48 [scrollbar-width:none] flex-col gap-1 overflow-y-auto px-2.5 pb-3 [&::-webkit-scrollbar]:hidden"
+          className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-2.5 pb-3"
         >
           {transcriptDegraded && (
             <p className="text-warning px-1.5 text-[14px] leading-relaxed">
@@ -61,7 +60,7 @@ export function TranscriptPanel() {
           )}
 
           {utterances.length === 0 && !transcriptDegraded && (
-            <p className="text-ink-dim glass-dim px-1.5 text-[14px]">
+            <p className="text-ink-dim px-1.5 text-[14px]">
               대화가 시작되면 여기에 자막이 올라옵니다.
             </p>
           )}
@@ -78,7 +77,7 @@ export function TranscriptPanel() {
               <div
                 key={u.id}
                 className={`flex animate-[caption-in_.35s_ease-out] items-baseline gap-2 rounded-xl border-l-2 py-1.5 pr-2 pl-2.5 ${
-                  latest ? `bg-surface-container ${st.border}` : 'glass-dim border-transparent'
+                  latest ? `bg-surface-container ${st.border}` : 'border-transparent'
                 }`}
               >
                 <span
