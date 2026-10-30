@@ -232,6 +232,41 @@ def test_mark_origin_on_unknown_session_is_false(subject: Store):
     assert subject.mark_origin("ses_nope", _seed(subject).created_at) is False
 
 
+def test_record_consent_keeps_the_first(subject: Store):
+    """먼저 받은 동의가 남는다 (#245).
+
+    재입장 때마다 동의 화면을 지나가므로 실제로 여러 번 온다.
+    """
+    session = _seed(subject)
+    first = session.created_at
+    later = first + timedelta(minutes=10)
+
+    assert subject.record_consent(session.id, first, "2026-10-30") is True
+    assert subject.record_consent(session.id, later, "2026-11-01") is False
+
+    found = subject.get_session(session.id)
+    assert found is not None
+    assert (found.consent_at, found.consent_version) == (first, "2026-10-30")
+
+
+def test_save_session_does_not_touch_consent(subject: Store):
+    """동의 전에 읽은 세션을 나중에 저장해도 동의 기록이 지워지면 안 된다."""
+    stale = _seed(subject)
+    subject.record_consent(stale.id, stale.created_at, "2026-10-30")
+
+    assert stale.start() is True
+    assert subject.save_session(stale) is True
+
+    found = subject.get_session(stale.id)
+    assert found is not None
+    assert found.consent_at == stale.created_at
+    assert found.consent_version == "2026-10-30"
+
+
+def test_record_consent_on_unknown_session_is_false(subject: Store):
+    assert subject.record_consent("ses_nope", _seed(subject).created_at, "v1") is False
+
+
 def test_conditional_save_rejects_stale_expectation(subject: Store):
     """기대한 상태가 아니면 쓰지 않고 False 를 준다.
 

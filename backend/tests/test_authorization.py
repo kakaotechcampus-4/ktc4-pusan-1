@@ -149,7 +149,9 @@ def _join(client: TestClient, session_id: str, role: str, headers: dict[str, str
 )
 def test_join_role_matrix(
     client: TestClient,
+    # 동의는 역할과 무관하다. 지원자 입장이 막히지 않게 받아 두고 역할만 본다 (#245).
     session_id: str,
+    consented: str,
     other: dict[str, str],
     who: str,
     role: str,
@@ -166,7 +168,7 @@ def test_join_role_matrix(
 
 @pytest.mark.parametrize("token", ["Bearer garbage", "Bearer "])
 def test_bad_token_still_joins_as_candidate(
-    client: TestClient, session_id: str, token: str
+    client: TestClient, session_id: str, consented: str, token: str
 ) -> None:
     """만료 · 위조 토큰을 쥐고 초대 링크를 연 사람도 지원자로는 들어온다."""
     headers = {"Authorization": token}

@@ -90,6 +90,19 @@ class Store(Protocol):
 
         전사 원점(`transcript_origin_at`)은 쓰지 않는다 — `mark_origin` 만 쓴다.
         전사 종료(`transcript_closed_at`)도 쓰지 않는다 — `mark_transcript` 만 쓴다.
+        동의(`consent_at` · `consent_version`)도 쓰지 않는다 — `record_consent` 만 쓴다.
+        """
+        ...
+
+    def record_consent(self, session_id: str, at: datetime, version: str) -> bool:
+        """지원자 동의를 기록한다. **이미 있으면 덮지 않는다** (#245).
+
+        먼저 받은 동의가 남아야 한다 — 뒤에 온 요청으로 시각과 문구 판이 바뀌면
+        「언제 무엇에 동의받았는가」가 달라진다. 동의 화면은 재입장 때도 지나갈 수
+        있어 실제로 여러 번 온다.
+
+        `mark_origin` 과 같이 저장소가 한 문장으로 판단한다. 기록했으면 True,
+        세션이 없거나 이미 동의가 있으면 False — 둘 다 부른 쪽에서는 성공이다.
         """
         ...
 
@@ -521,10 +534,12 @@ class InMemoryStore:
         if expected_status is not None and stored.status is not expected_status:
             return False
         saved = deepcopy(session)
-        # 원점은 mark_origin 만, 종료는 mark_transcript 만 쓴다. 들고 온 객체의
-        # 값이 낡았어도 덮어쓰지 않는다.
+        # 원점은 mark_origin 만, 종료는 mark_transcript 만, 동의는 record_consent 만
+        # 쓴다. 들고 온 객체의 값이 낡았어도 덮어쓰지 않는다.
         saved.transcript_origin_at = stored.transcript_origin_at
         saved.transcript_closed_at = stored.transcript_closed_at
+        saved.consent_at = stored.consent_at
+        saved.consent_version = stored.consent_version
         self._sessions[session.id] = saved
         return True
 
@@ -541,6 +556,14 @@ class InMemoryStore:
         if origin is not None and origin <= at:
             return False
         stored.transcript_origin_at = at
+        return True
+
+    def record_consent(self, session_id: str, at: datetime, version: str) -> bool:
+        stored = self._sessions.get(session_id)
+        if stored is None or stored.consent_at is not None:
+            return False
+        stored.consent_at = at
+        stored.consent_version = version
         return True
 
     # ── 기업 컨텍스트 ───────────────────────────────────

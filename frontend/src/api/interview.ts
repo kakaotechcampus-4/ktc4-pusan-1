@@ -5,6 +5,7 @@
  */
 
 import type {
+  Consent,
   CreateSessionResponse,
   EndSessionResponse,
   Interview,
@@ -92,6 +93,20 @@ export const joinSession = (sessionId: string, role: Role) =>
   });
 
 /**
+ * 지원자가 녹화 · 전사 · 분석에 동의했음을 서버에 남긴다 (#245).
+ *
+ * 보여 준 문구의 판을 같이 보낸다 — 서버는 그 값을 그대로 적어 두고, 나중에
+ * 「무엇에 동의받았는가」에 이것으로 답한다.
+ *
+ * 여러 번 불러도 된다. 먼저 받은 동의가 그대로 남고 그 기록이 돌아온다.
+ */
+export const agreeConsent = (sessionId: string, version: string) =>
+  request<Consent>(`${V1}/sessions/${sessionId}/consent`, {
+    method: 'POST',
+    body: JSON.stringify({ version }),
+  });
+
+/**
  * 서버 에러를 화면이 구분할 수 있는 사유로 바꾼다.
  *
  * 코드가 먼저고 status 는 폴백이다 — 409 하나에 "이미 종료" 와 "정원 초과" 가
@@ -107,6 +122,8 @@ const FAILURE_BY_CODE: Record<string, JoinFailure> = {
   ROOM_FULL: 'room-full',
   // 로그인은 됐는데 이 면접의 주인이 아니다 (#141). 다시 시도해도 같은 결과다.
   ROLE_NOT_ALLOWED: 'not-allowed',
+  // 동의를 받기 전에는 지원자를 들여보내지 않는다 (#245). 서버가 막는다.
+  CONSENT_REQUIRED: 'consent-required',
   // 토큰이 없거나 만료됐다. client.ts 가 이미 지웠으므로 로그인 말고는 길이 없다.
   UNAUTHORIZED: 'signed-out',
 };
