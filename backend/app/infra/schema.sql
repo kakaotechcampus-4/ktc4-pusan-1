@@ -319,3 +319,6 @@ CREATE TABLE IF NOT EXISTS suggestion_evidence (
 -- 발화에서 꼬리질문을 거꾸로 찾는다 (타임라인의 「이 말로 나온 질문」).
 CREATE INDEX IF NOT EXISTS suggestion_evidence_utterance_idx
     ON suggestion_evidence (session_id, utterance_id);
+
+-- 확인 포인트는 선택 사항이므로 이전 질문은 NULL 그대로 둔다.
+ALTER TABLE suggestion ADD COLUMN IF NOT EXISTS reason TEXT;

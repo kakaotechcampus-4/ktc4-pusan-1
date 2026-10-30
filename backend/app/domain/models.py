@@ -630,8 +630,7 @@ class Suggestion:
     통로가 달라, 꼬리질문이 제 근거보다 먼저 도착할 수 있다. 근거는 받은 순서대로
     따로 저장하고(`suggestion_evidence`), 타임라인을 읽을 때 전사와 잇는다.
 
-    `reason` 은 아직 없다. 생성기는 만들지만 전송 계약에서 빠져 있고, 넣을지는
-    회의 안건으로 남아 있다 (#73).
+    `reason` 은 선택적인 확인 포인트다. 과거 질문은 None으로 읽는다.
     """
 
     session_id: str
@@ -640,6 +639,7 @@ class Suggestion:
     evidence_utterance_ids: list[str]
     status: SuggestionStatus = SuggestionStatus.NEW
     created_at: datetime = field(default_factory=utcnow)
+    reason: str | None = None
 
 
 @dataclass

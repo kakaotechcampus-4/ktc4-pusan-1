@@ -271,6 +271,8 @@ class SuggestionResponse(Schema):
     status: SuggestionStatus
     created_at: datetime = Field(serialization_alias="createdAt")
 
+    reason: str | None = None
+
 
 class SuggestionListResponse(Schema):
     items: list[SuggestionResponse] = Field(description="도착한 순서대로.")

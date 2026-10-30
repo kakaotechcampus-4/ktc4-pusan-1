@@ -1507,9 +1507,9 @@ class PostgresStore:
             inserted = conn.execute(
                 """
                 INSERT INTO suggestion (
-                    session_id, suggestion_id, content, status, created_at
+                    session_id, suggestion_id, content, status, created_at, reason
                 )
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id, suggestion_id) DO NOTHING
                 RETURNING 1
                 """,
@@ -1519,6 +1519,7 @@ class PostgresStore:
                     suggestion.content,
                     suggestion.status.value,
                     suggestion.created_at,
+                    suggestion.reason,
                 ),
             ).fetchone()
             if inserted is None:
@@ -1542,7 +1543,7 @@ class PostgresStore:
         rows = self._all(
             """
             SELECT s.session_id, s.suggestion_id, s.content,
-                   s.status, s.created_at,
+                   s.status, s.created_at, s.reason,
                    COALESCE(
                        (SELECT array_agg(e.utterance_id ORDER BY e.position)
                         FROM suggestion_evidence e
@@ -1561,6 +1562,7 @@ class PostgresStore:
                 session_id=row["session_id"],
                 suggestion_id=row["suggestion_id"],
                 content=row["content"],
+                reason=row["reason"],
                 evidence_utterance_ids=list(row["evidence_utterance_ids"]),
                 status=SuggestionStatus(row["status"]),
                 created_at=row["created_at"],
