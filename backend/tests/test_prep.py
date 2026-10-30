@@ -366,6 +366,8 @@ def test_unstorable_text_is_refused(
         ("GET", "/jobs/pending"),
         ("GET", "/sessions/ses_x/context"),
         ("PUT", "/interviews/int_x/prep"),
+        ("GET", "/interviews/int_x/report/context"),
+        ("PUT", "/interviews/int_x/report"),
     ],
 )
 def test_the_key_is_required(

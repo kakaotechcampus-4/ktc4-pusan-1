@@ -209,8 +209,9 @@ def test_cloudfront_url_is_signed_with_our_key_for_three_hours(cdn):
     before = utcnow()
     url, expires = recording.presign("rec/ses_1/merged.webm")
 
-    # 초 단위로 내린 값이라 3시간보다 1초 미만 짧을 수 있다.
-    assert timedelta(hours=3, seconds=-1) < expires - before <= timedelta(hours=3)
+    # 초 단위로 내린 값이라 3시간에서 1초 미만 어긋날 수 있다 — 양쪽 다.
+    ttl = expires - before
+    assert timedelta(hours=3, seconds=-1) < ttl < timedelta(hours=3, seconds=1)
     base, _, query = url.partition("?")
     assert base == "https://d123.cloudfront.net/rec/ses_1/merged.webm"
     params = dict(p.split("=", 1) for p in query.split("&"))

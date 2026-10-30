@@ -196,6 +196,31 @@ CREATE TABLE IF NOT EXISTS interview_prep (
     completed_at   TIMESTAMPTZ
 );
 
+-- 면접 리포트 (#238) — 면접에 없던 사람에게 넘기는 인계 문서. 면접 하나에 하나라
+-- interview_id 가 그대로 PK 고, 다시 누르면 그 행을 덮는다 — 버전을 남기지 않는다.
+-- 검토를 확정한 뒤 「리포트 만들기」를 누르면 PROCESSING 으로 열리고, AI 폴러가
+-- `PUT /internal/v1/interviews/{id}/report` 로 써 넣으면 READY 다.
+--
+-- session_id 는 리포트를 만든 기준 세션이다. 조회도 이 세션을 본다 — 문장에 붙은
+-- findingId 가 그때의 findings 라서, 그 뒤에 끝난 세션으로 조인하면 다른 면접의
+-- 발화가 붙는다. 역량별 문장은 AI 의 것을 camelCase JSON 그대로 두고, BE 는
+-- competencyId · findingId 로 조인만 한다(#163).
+--
+-- failure_reason 은 「채택한 근거로 쓸 문장이 없었다」(NO_EVIDENCE) 뿐이다. 한도를
+-- 넘겨 실패하면 비어 있다 — 화면이 다르게 말해야 하는 경우만 채운다.
+CREATE TABLE IF NOT EXISTS interview_report (
+    interview_id    TEXT        PRIMARY KEY REFERENCES interview (id) ON DELETE CASCADE,
+    session_id      TEXT        NOT NULL REFERENCES session (id) ON DELETE CASCADE,
+    -- SummaryStatus. session.status 와 같은 이유로 CHECK 를 걸지 않는다.
+    status          TEXT        NOT NULL,
+    overview        TEXT        NOT NULL DEFAULT '',
+    competencies    JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    failure_reason  TEXT,
+    model           TEXT        NOT NULL DEFAULT '',
+    requested_at    TIMESTAMPTZ NOT NULL,
+    completed_at    TIMESTAMPTZ
+);
+
 -- ── 사용자 ──────────────────────────────────────────────
 --
 -- 카카오 로그인으로 들어온 면접관 (#118). `user` 는 예약어라 app_user 다.
