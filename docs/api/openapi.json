@@ -397,6 +397,16 @@
             ],
             "title": "Durationsec"
           },
+          "findingsStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindingsStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "interviewId": {
             "title": "Interviewid",
             "type": "string"
@@ -416,6 +426,63 @@
           },
           "interviewer": {
             "$ref": "#/components/schemas/InterviewerSummary"
+          },
+          "latestSession": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterviewSession"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memo": {
+            "default": "",
+            "title": "Memo",
+            "type": "string"
+          },
+          "recordingStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reportSessionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reportsessionid"
+          },
+          "reportStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewSessionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewsessionid"
           },
           "reviewStatus": {
             "$ref": "#/components/schemas/ReviewStatus"
@@ -492,6 +559,37 @@
           "interviewerId": {
             "title": "Interviewerid",
             "type": "string"
+          },
+          "latestSession": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterviewSession"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memo": {
+            "default": "",
+            "title": "Memo",
+            "type": "string"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus",
+            "default": "PENDING"
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewedat"
           }
         },
         "required": [
@@ -501,6 +599,34 @@
           "createdAt"
         ],
         "title": "InterviewResponse",
+        "type": "object"
+      },
+      "InterviewSession": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "inviteUrl": {
+            "title": "Inviteurl",
+            "type": "string"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "required": [
+          "sessionId",
+          "status",
+          "inviteUrl",
+          "createdAt"
+        ],
+        "title": "InterviewSession",
         "type": "object"
       },
       "InterviewerSummary": {
