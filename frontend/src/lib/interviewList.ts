@@ -12,7 +12,7 @@ import type { InterviewListItem, ReviewStatus } from '../types/interview';
 export const STATUS_LABEL: Record<ReviewStatus, string> = {
   PENDING: '검토 대기',
   IN_REVIEW: '검토 중',
-  CONFIRMED: '확정',
+  CONFIRMED: '완료',
 };
 
 /** 상태 배지 색 — 대기는 눈에 띄게, 확정은 끝났다는 민트 */
@@ -36,6 +36,8 @@ export function pendingReason(item: InterviewListItem): string | null {
   if (item.counts) return null;
   if (item.summaryStatus === 'FAILED') return '정리 실패';
   if (item.summaryStatus === 'PROCESSING') return '정리 중';
+  if (item.latestSession?.status === 'INTERVIEWING') return '진행 중';
+  if (item.latestSession?.status === 'WAITING') return '면접 전';
   // 시각이 없으면 아직 아무도 들어오지 않았다.
   if (item.interviewedAt === null) return '면접 전';
   // 시작은 했는데 길이가 없다 = 아직 끝나지 않았다 (서버가 ended_at 없으면 null 을 준다).
