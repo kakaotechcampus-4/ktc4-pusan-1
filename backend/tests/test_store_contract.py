@@ -1974,3 +1974,78 @@ def test_a_failure_report_with_moments_does_not_touch_a_ready_summary(
     assert stored is not None
     assert stored.status is SummaryStatus.READY
     assert stored.moments == [_moment("mom_keep")]
+
+
+# ── 면접 삭제 (#246) ────────────────────────────────────
+
+
+def test_delete_interview_takes_everything_with_it(subject: Store):
+    """면접 하나에 달린 기록 전부가 같이 간다. DB 는 CASCADE, 인메모리는 손으로."""
+    session = _seed(subject)
+    interview_id = session.interview_id
+    subject.ensure_prep(InterviewPrep(interview_id=interview_id))
+    subject.save_resume(_resume(interview_id), b"%PDF-1.7\n")
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+    subject.ensure_recording(session.id)  # DB 의 save_recording 은 UPDATE 다
+    subject.save_recording(
+        Recording(session_id=session.id, status=SummaryStatus.READY, s3_key="rec/x")
+    )
+    subject.update_mark(session.id, "mom_x", state=FindingState.ADOPTED)
+    subject.upsert_utterance(_utterance(session))
+    subject.add_suggestion(_suggestion(session))
+
+    assert subject.delete_interview(interview_id) == [session.id]
+
+    assert subject.get_interview(interview_id) is None
+    assert subject.get_session(session.id) is None
+    assert subject.get_prep(interview_id) is None
+    assert subject.get_resume(interview_id) is None
+    assert subject.get_resume_text(interview_id) is None
+    assert subject.get_summary(session.id) is None
+    assert subject.get_recording(session.id) is None
+    assert subject.list_marks(session.id) == []
+    assert subject.list_utterances(session.id) == []
+    assert subject.list_suggestions(session.id) == []
+
+
+def test_delete_interview_without_sessions_gives_an_empty_list(subject: Store):
+    """세션을 안 만든 면접도 지워진다. 빈 목록과 None 은 다르다 — 지울 파일이 없다."""
+    interview = Interview(interviewer_id="user_123")
+    subject.add_interview(interview)
+
+    assert subject.delete_interview(interview.id) == []
+    assert subject.get_interview(interview.id) is None
+
+
+def test_delete_unknown_interview_is_none(subject: Store):
+    assert subject.delete_interview("int_nope") is None
+
+
+def test_delete_interview_refuses_while_a_session_is_live(subject: Store):
+    """진행 중이면 안 지운다 — 지운 뒤에도 S3 에 녹화가 더 올라온다."""
+    session = _seed(subject)
+    session.start()
+    subject.save_session(session)
+
+    assert subject.delete_interview(session.interview_id) is None
+    assert subject.get_interview(session.interview_id) is not None
+    assert subject.get_session(session.id) is not None
+
+
+def test_delete_interview_refuses_while_a_recording_is_merging(subject: Store):
+    """녹화를 합치는 중이면 안 지운다 — 합친 파일이 뒤늦게 올라온다."""
+    session = _seed(subject)
+    subject.ensure_recording(session.id)  # PROCESSING
+
+    assert subject.delete_interview(session.interview_id) is None
+    assert subject.get_session(session.id) is not None
+
+
+def test_delete_interview_leaves_the_other_interviews(subject: Store):
+    mine = _seed(subject)
+    other = _seed(subject)
+
+    assert subject.delete_interview(mine.interview_id) == [mine.id]
+
+    assert subject.get_interview(other.interview_id) is not None
+    assert subject.get_session(other.id) is not None

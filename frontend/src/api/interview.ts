@@ -45,6 +45,14 @@ export const listInterviews = () => request<InterviewListResponse>(`${V1}/interv
 export const getInterview = (interviewId: string) =>
   request<Interview>(`${V1}/interviews/${interviewId}`);
 
+/**
+ * 면접을 지운다 (#246). 문답 · 요약 · 메모 · 녹화 파일까지 같이 사라지고 되돌릴 수 없다.
+ *
+ * 진행 중이거나 녹화를 합치는 중이면 409 다 — 면접을 끝낸 뒤에 다시 해야 한다.
+ */
+export const deleteInterview = (interviewId: string) =>
+  request<void>(`${V1}/interviews/${interviewId}`, { method: 'DELETE' });
+
 /** 화상면접 Session 을 만들고 지원자 초대 링크(inviteUrl)를 발급받는다. */
 export const createSession = (interviewId: string) =>
   request<CreateSessionResponse>(`${V1}/interviews/${interviewId}/sessions`, { method: 'POST' });
