@@ -24,7 +24,7 @@ import { Logo } from '../ui/Logo';
 import { LocalPreview } from './LocalPreview';
 import { SpeakerBadge } from './SpeakerBadge';
 import { SuggestionPanel } from './SuggestionPanel';
-import { LiveMemoPanel } from './LiveMemoPanel';
+import { MemoPanel } from './MemoPanel';
 import { TranscriptPanel } from './TranscriptPanel';
 import { MediaControls, type MediaControlsProps } from './MediaControls';
 
@@ -209,7 +209,7 @@ export function InterviewRoomView({
             <div className="min-h-0 flex-1">
               <SuggestionPanel />
             </div>
-            <LiveMemoPanel interviewId={interviewId ?? null} />
+            <MemoPanel interviewId={interviewId ?? null} />
           </div>
           <div className="pointer-events-auto min-h-0 w-full max-w-2xl [grid-area:transcript]">
             <TranscriptPanel />

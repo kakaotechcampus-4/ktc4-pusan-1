@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getInterview } from '../../api/interview';
 import { MEMO_MAX, useMemoAutosave } from '../../hooks/useMemoAutosave';
 
-export function LiveMemoPanel({ interviewId }: { interviewId: string | null }) {
+export function MemoPanel({ interviewId }: { interviewId: string | null }) {
   const owner = useQuery({
     queryKey: ['interview', interviewId],
     queryFn: () => getInterview(interviewId!),
