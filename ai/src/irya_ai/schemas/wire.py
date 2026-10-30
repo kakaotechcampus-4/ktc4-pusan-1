@@ -158,6 +158,8 @@ class SuggestionPayload(CamelModel):
     content: str = Field(min_length=1)
     evidence_utterance_ids: list[str] = Field(min_length=1, examples=[["utt_001"]])
 
+    reason: str | None = None
+
 
 def suggestion_payload(question: SuggestedQuestion) -> SuggestionPayload:
     """Translate one verified ``SuggestedQuestion`` into the agreed payload.
@@ -172,6 +174,7 @@ def suggestion_payload(question: SuggestedQuestion) -> SuggestionPayload:
     return SuggestionPayload(
         suggestion_id=question.question_id,
         content=question.content,
+        reason=question.reason,
         evidence_utterance_ids=question.evidence_utterance_ids,
     )
 
