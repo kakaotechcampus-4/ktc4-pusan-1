@@ -1,0 +1,9 @@
+{
+  "pr253MergedLocally": true,
+  "pr254MergedLocally": true,
+  "confirmedMarkChangeHTTP": 409,
+  "reopenAllowed": true,
+  "existingFullFlowReportAfterRestart": "READY",
+  "consentContract": "awaiting user decision",
+  "remoteDevelopMerged": false
+}
