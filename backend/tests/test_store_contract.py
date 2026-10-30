@@ -2219,3 +2219,32 @@ def test_next_report_expires_an_overdue_report_instead_of_handing_it_out(
     assert stored is not None
     assert stored.status is SummaryStatus.FAILED
     assert stored.failure_reason is None
+
+
+def test_workspace_reads_latest_and_review_sessions_in_one_owner_scope(store):
+    from app.domain.models import InterviewReport
+
+    interview = Interview(interviewer_id="workspace_owner")
+    store.add_interview(interview)
+    ended = Session(
+        interview_id=interview.id, status=SessionStatus.ENDED, ended_at=utcnow()
+    )
+    store.add_session(ended)
+    latest = Session(interview_id=interview.id)
+    store.add_session(latest)
+    store.ensure_summary(
+        SessionSummary(
+            session_id=ended.id, status=SummaryStatus.READY, overview="면접 요약"
+        )
+    )
+    store.start_report(
+        InterviewReport(interview_id=interview.id, session_id=ended.id),
+        timedelta(seconds=180),
+    )
+    [row] = store.list_interview_workspaces("workspace_owner")
+    assert row.interview.id == interview.id
+    assert row.latest_session.id == latest.id
+    assert row.session.id == ended.id
+    assert row.summary.overview == "면접 요약"
+    assert row.report.session_id == ended.id
+    assert store.list_interview_workspaces("another_owner") == []
