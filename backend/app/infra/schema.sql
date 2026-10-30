@@ -56,6 +56,12 @@ ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_origin_at TIMESTAMPTZ;
 -- 신호라 면접 후 분석(REVIEW)을 이때 내준다. 새 연결이 붙으면 다시 비운다.
 ALTER TABLE session ADD COLUMN IF NOT EXISTS transcript_closed_at TIMESTAMPTZ;
 
+-- 지원자가 녹화 · 전사 · 분석에 동의한 시각과 그때 보여 준 문구의 판 (#245).
+-- 비어 있으면 아직 동의를 안 받았다는 뜻이고, 그 상태에서는 지원자가 입장하지 못한다.
+-- 먼저 받은 동의만 남긴다 — 덮어쓰면 언제 무엇에 동의받았는지가 달라진다.
+ALTER TABLE session ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ;
+ALTER TABLE session ADD COLUMN IF NOT EXISTS consent_version TEXT NOT NULL DEFAULT '';
+
 -- ── 기업 컨텍스트 ──────────────────────────────────────────
 --
 -- 면접이 아니라 조직에 딸린다. 회사 정보와 JD 는 면접마다 바뀌지 않으므로 설정에
@@ -153,6 +159,9 @@ CREATE TABLE IF NOT EXISTS recording (
 -- 시간 한도를 넘겨 FAILED 가 되면 비운다.
 ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS moments JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS findings JSONB NOT NULL DEFAULT '[]'::jsonb;
+-- FindingsStatus (#244). findings 를 만들지 못한 것과 찾았는데 없는 것을 가른다.
+-- NULL 은 아직 보고가 없다 — 이 컬럼 전에 끝난 면접도 NULL 이다.
+ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS findings_status TEXT;
 -- 결과를 만든 모델 (#164). `interview_prep.model` 과 같다. 결과가 없으면 비어 있다.
 ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT '';
 

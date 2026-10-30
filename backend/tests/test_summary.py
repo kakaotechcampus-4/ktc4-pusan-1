@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
-from app.domain.models import Role, SummaryStatus, Utterance
+from app.domain.models import FindingsStatus, Role, SummaryStatus, Utterance
 from app.domain.store import InMemoryStore
 from tests.conftest import DEMO, age
 
@@ -449,6 +449,29 @@ def test_an_empty_findings_list_clears_them(
     stored = store.get_summary(session_id)
     assert stored is not None
     assert stored.findings == []
+
+
+@pytest.mark.parametrize("status", ["completed", "failed"])
+def test_a_findings_failure_is_stored_apart_from_an_empty_list(
+    client: TestClient, store: InMemoryStore, session_id: str, key: str, status: str
+) -> None:
+    """findings 만 실패했으면 목록 없이 실패만 온다. 빈 목록과 다르게 남는다 (#244)."""
+    ended(client, session_id)
+
+    put_ai_review(
+        client,
+        session_id,
+        key,
+        status=status,
+        summary="" if status == "failed" else DEMO["review"]["summary"],
+        findings=None,
+        findingsStatus="failed",
+    )
+
+    stored = store.get_summary(session_id)
+    assert stored is not None
+    assert (stored.findings, stored.findings_status) == ([], FindingsStatus.FAILED)
+    assert stored.moments == DEMO["review"]["moments"]
 
 
 def test_a_finding_state_we_do_not_know_is_kept(

@@ -25,9 +25,12 @@ from app.domain.models import (
     SessionStatus,
     SessionSummary,
     SummaryStatus,
+    utcnow,
 )
 from app.domain.store import Store
 from app.schemas import (
+    ConsentRequest,
+    ConsentResponse,
     EndSessionResponse,
     JoinRequest,
     JoinResponse,
@@ -80,7 +83,49 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
         started_at=session.started_at,
         ended_at=session.ended_at,
         transcript_origin_at=session.transcript_origin_at,
+        consent=_consent_of(session),
     )
+
+
+def _consent_of(session: Session) -> ConsentResponse | None:
+    """동의 기록. 안 받았으면 None 이다."""
+    if session.consent_at is None:
+        return None
+    return ConsentResponse(
+        agreed_at=session.consent_at, version=session.consent_version
+    )
+
+
+@router.post(
+    "/{sessionId}/consent",
+    response_model=ConsentResponse,
+    summary="지원자 동의 기록",
+    responses=responses((404, "Session을 찾을 수 없음"), (409, "이미 종료된 Session")),
+)
+async def agree_consent(
+    session_id: SessionIdPath, body: ConsentRequest, store: StoreDep
+) -> ConsentResponse:
+    """지원자가 녹화 · 전사 · 분석에 동의했음을 기록한다 (#245).
+
+    지원자는 로그인하지 않는다. 그래서 입장(`join`)과 같이 열어 둔다 — 초대 링크의
+    sessionId 를 아는 사람만 부를 수 있다.
+
+    **여러 번 불러도 된다.** 먼저 받은 동의가 그대로 남고 그 기록을 돌려준다.
+    재입장 때도 동의 화면을 지나가므로 실제로 여러 번 온다. 덮어쓰면 「언제 무엇에
+    동의받았는가」가 뒤에 온 요청으로 바뀐다.
+    """
+    session = await run_in_threadpool(_load, store, session_id)
+    if session.status is SessionStatus.ENDED:
+        # 끝난 면접에는 녹화할 것이 없다. 동의를 받아 둘 이유도 없다.
+        raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
+
+    await run_in_threadpool(store.record_consent, session_id, utcnow(), body.version)
+    # 기록했든 이미 있었든 저장소에 남은 것을 읽어 돌려준다 — 먼저 받은 동의가 답이다.
+    saved = await run_in_threadpool(_load, store, session_id)
+    consent = _consent_of(saved)
+    if consent is None:  # 기록 직후 세션이 지워진 경우 말고는 닿지 않는다
+        raise ApiError(ErrorCode.SESSION_NOT_FOUND, 404, "Session 을 찾을 수 없습니다.")
+    return consent
 
 
 @router.post(
@@ -90,6 +135,7 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
     responses=responses(
         (401, "면접관으로 입장하는데 로그인이 안 됨"),
         (403, "면접관으로 입장하는데 이 면접의 주인이 아님"),
+        (403, "지원자가 아직 녹화 · 전사 · 분석에 동의하지 않음"),
         (404, "Session을 찾을 수 없음"),
         (409, "이미 종료된 Session 등 현재 상태에서 입장할 수 없음"),
     ),
@@ -128,6 +174,18 @@ async def join_session(
 
     if session.status is SessionStatus.ENDED:
         raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
+
+    # 동의 없이는 지원자를 들여보내지 않는다 (#245). 화면에서만 막으면 우리 화면을
+    # 거치지 않고 이 API 를 부르는 길이 남는다 — 지원자 입장은 로그인이 없어 누구나
+    # 부를 수 있으므로 서버가 막아야 「동의 전에는 녹화되지 않는다」가 성립한다.
+    # 녹화는 트랙이 올라올 때 시작하므로(`api/v1/webhooks.py`), 방에 못 들어오면
+    # 지원자의 영상 · 음성은 한 조각도 올라가지 않는다.
+    if body.role is Role.CANDIDATE and session.consent_at is None:
+        raise ApiError(
+            ErrorCode.CONSENT_REQUIRED,
+            403,
+            "녹화 · 전사 · 분석에 동의해야 입장할 수 있습니다.",
+        )
 
     # 정원은 LiveKit 이 접속 시점에 강제한다. 여기 검사는 사전 안내용이고
     # 조회와 접속 사이의 경쟁 조건까지 막지는 못한다.

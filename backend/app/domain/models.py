@@ -162,6 +162,14 @@ class Session:
     #: 뜻이라 면접 후 분석을 이때 내준다. 새 연결이 붙으면 비운다 — 1012(교체) ·
     #: 네트워크 끊김은 아직 보낼 발화가 남았을 수 있어 채우지 않는다.
     transcript_closed_at: datetime | None = None
+    #: 지원자가 녹화 · 전사 · 분석에 동의한 시각 (#245). 비어 있으면 아직 안 받았다.
+    #:
+    #: 세션에 둔다 — 동의는 「이 면접을 녹화해도 되는가」라서 면접 한 번이 단위다.
+    #: 다시 들어와도 묻지 않고, 면접을 새로 만들면 다시 묻는다.
+    consent_at: datetime | None = None
+    #: 동의받은 문구의 판 (`CONSENT_VERSION`). 문구가 바뀌면 값이 달라지므로
+    #: 나중에 **무엇에 동의했는지**를 답할 수 있다. 시각만 남기면 그걸 못 한다.
+    consent_version: str = ""
 
     @property
     def room_name(self) -> str:
@@ -286,6 +294,18 @@ class SummaryStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class FindingsStatus(StrEnum):
+    """검토 항목(findings)을 만든 결과 (#244). 요약의 상태와 따로 간다.
+
+    「찾아봤는데 없다」(EMPTY)와 「만들지 못했다」(FAILED)가 화면에서 같아 보이면
+    면접관은 실패를 「역량 근거 없음」으로 읽는다. 아직 보고가 없으면 `None` 이다.
+    """
+
+    COMPLETED = "COMPLETED"
+    EMPTY = "EMPTY"
+    FAILED = "FAILED"
+
+
 @dataclass
 class SessionSummary:
     """세션 하나의 요약. 면접이 끝나는 순간 PROCESSING 으로 태어난다.
@@ -305,6 +325,7 @@ class SessionSummary:
     #: BE 는 id 로 조인 · 집계만 한다(#163). 써 넣는 길은 #164 다.
     moments: list[dict[str, Any]] = field(default_factory=list)
     findings: list[dict[str, Any]] = field(default_factory=list)
+    findings_status: FindingsStatus | None = None
     #: 결과를 만든 모델. Agent 가 보낸 값 그대로다 (#164).
     model: str = ""
 
@@ -333,6 +354,7 @@ class SessionSummary:
         *,
         moments: list[dict[str, Any]] | None = None,
         findings: list[dict[str, Any]] | None = None,
+        findings_failed: bool = False,
         model: str = "",
     ) -> None:
         """Agent 가 만든 요약을 받는다."""
@@ -340,7 +362,7 @@ class SessionSummary:
         self.overview = overview
         self.key_points = list(key_points)
         self.moments = list(moments or [])
-        self.findings = list(findings or [])
+        self.take_findings(findings, failed=findings_failed)
         self.model = model
         self.completed_at = utcnow()
 
@@ -349,6 +371,7 @@ class SessionSummary:
         *,
         moments: list[dict[str, Any]] | None = None,
         findings: list[dict[str, Any]] | None = None,
+        findings_failed: bool = False,
         model: str = "",
     ) -> None:
         """요약을 못 만들었다고 확정한다. 본문은 비운다.
@@ -360,8 +383,30 @@ class SessionSummary:
         self.overview = ""
         self.key_points = []
         self.moments = list(moments or [])
-        self.findings = list(findings or [])
+        self.take_findings(findings, failed=findings_failed)
         self.model = model
+
+    def expire(self) -> None:
+        """한도를 넘겨 실패로 닫는다. Agent 의 보고가 없었으니 findings 도 실패다."""
+        self.give_up(findings=[])
+        self.findings_status = FindingsStatus.FAILED
+
+    def take_findings(
+        self, findings: list[dict[str, Any]] | None, *, failed: bool = False
+    ) -> None:
+        """findings 를 받는다. `None` 은 「이번엔 없음」이라 있던 값을 덮지 않는다.
+
+        실패 보고는 아직 결과가 없을 때만 남는다 — 실패 한 번이 앞서 받은 결과를
+        지우지 않는다 (#132 와 같은 이유). DB 구현의
+        `COALESCE(새 값, 있던 값, 실패)` 와 같은 규칙이다.
+        """
+        if findings is not None:
+            self.findings = list(findings)
+            self.findings_status = (
+                FindingsStatus.COMPLETED if findings else FindingsStatus.EMPTY
+            )
+        elif failed and self.findings_status is None:
+            self.findings_status = FindingsStatus.FAILED
         self.completed_at = utcnow()
 
 

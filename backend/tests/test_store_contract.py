@@ -27,6 +27,7 @@ from app.domain.models import (
     DocCategory,
     DocKind,
     DocStatus,
+    FindingsStatus,
     FindingState,
     Interview,
     InterviewPrep,
@@ -227,6 +228,41 @@ def test_save_session_does_not_touch_origin(subject: Store):
 
 def test_mark_origin_on_unknown_session_is_false(subject: Store):
     assert subject.mark_origin("ses_nope", _seed(subject).created_at) is False
+
+
+def test_record_consent_keeps_the_first(subject: Store):
+    """먼저 받은 동의가 남는다 (#245).
+
+    재입장 때마다 동의 화면을 지나가므로 실제로 여러 번 온다.
+    """
+    session = _seed(subject)
+    first = session.created_at
+    later = first + timedelta(minutes=10)
+
+    assert subject.record_consent(session.id, first, "2026-10-30") is True
+    assert subject.record_consent(session.id, later, "2026-11-01") is False
+
+    found = subject.get_session(session.id)
+    assert found is not None
+    assert (found.consent_at, found.consent_version) == (first, "2026-10-30")
+
+
+def test_save_session_does_not_touch_consent(subject: Store):
+    """동의 전에 읽은 세션을 나중에 저장해도 동의 기록이 지워지면 안 된다."""
+    stale = _seed(subject)
+    subject.record_consent(stale.id, stale.created_at, "2026-10-30")
+
+    assert stale.start() is True
+    assert subject.save_session(stale) is True
+
+    found = subject.get_session(stale.id)
+    assert found is not None
+    assert found.consent_at == stale.created_at
+    assert found.consent_version == "2026-10-30"
+
+
+def test_record_consent_on_unknown_session_is_false(subject: Store):
+    assert subject.record_consent("ses_nope", _seed(subject).created_at, "v1") is False
 
 
 def test_conditional_save_rejects_stale_expectation(subject: Store):
@@ -625,6 +661,7 @@ def test_expiring_a_summary_past_the_limit_marks_it_failed(subject: Store):
     stored = subject.get_summary(session.id)
     assert stored is not None
     assert stored.status is SummaryStatus.FAILED
+    assert stored.findings_status is FindingsStatus.FAILED
 
 
 def test_expiring_a_summary_within_the_limit_changes_nothing(subject: Store):
@@ -1631,12 +1668,14 @@ def test_summary_keeps_moments_and_findings(subject: Store):
     assert found.model == "gpt-6-luna"
 
 
-def test_giving_up_empties_the_analysis():
+def test_expiring_empties_the_analysis():
     summary = SessionSummary(session_id="ses_x", moments=[MOMENT], findings=[FINDING])
 
-    summary.give_up()
+    summary.expire()
 
     assert (summary.moments, summary.findings, summary.model) == ([], [], "")
+    # Agent 가 보고하지 않았다 — 「찾았는데 없다」가 아니다 (#244).
+    assert summary.findings_status is FindingsStatus.FAILED
 
 
 def test_mark_roundtrip(subject: Store):
@@ -1830,6 +1869,7 @@ def test_review_expires_an_overdue_summary_instead_of_handing_it_out(subject: St
     assert stored is not None
     assert stored.status is SummaryStatus.FAILED
     assert stored.model == ""
+    assert stored.findings_status is FindingsStatus.FAILED
 
 
 def _moment(moment_id: str = "mom_1") -> dict[str, Any]:
@@ -1876,6 +1916,47 @@ def test_a_failure_report_without_findings_keeps_the_stored_ones(subject: Store)
     assert stored.findings == [_finding("fnd_old")]
 
 
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        (None, FindingsStatus.FAILED),
+        (FindingsStatus.EMPTY, FindingsStatus.EMPTY),
+        (FindingsStatus.COMPLETED, FindingsStatus.COMPLETED),
+    ],
+)
+def test_a_findings_failure_does_not_overwrite_an_earlier_result(
+    subject: Store, before: FindingsStatus | None, after: FindingsStatus
+):
+    """실패 보고는 아직 결과가 없을 때만 남는다 (#244)."""
+    session = _seed(subject)
+    summary = subject.ensure_summary(SessionSummary(session_id=session.id))
+    summary.findings_status = before
+    subject.save_summary(summary)
+
+    assert subject.fail_summary(session.id, findings_failed=True) is True
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.findings_status is after
+
+
+@pytest.mark.parametrize(
+    ("findings", "expected"),
+    [([], FindingsStatus.EMPTY), ([FINDING], FindingsStatus.COMPLETED)],
+)
+def test_a_findings_list_sets_its_status(
+    subject: Store, findings: list[dict[str, Any]], expected: FindingsStatus
+):
+    session = _seed(subject)
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+
+    assert subject.fail_summary(session.id, findings=findings) is True
+
+    stored = subject.get_summary(session.id)
+    assert stored is not None
+    assert stored.findings_status is expected
+
+
 def test_a_failure_report_with_moments_does_not_touch_a_ready_summary(
     subject: Store,
 ):
@@ -1893,3 +1974,78 @@ def test_a_failure_report_with_moments_does_not_touch_a_ready_summary(
     assert stored is not None
     assert stored.status is SummaryStatus.READY
     assert stored.moments == [_moment("mom_keep")]
+
+
+# ── 면접 삭제 (#246) ────────────────────────────────────
+
+
+def test_delete_interview_takes_everything_with_it(subject: Store):
+    """면접 하나에 달린 기록 전부가 같이 간다. DB 는 CASCADE, 인메모리는 손으로."""
+    session = _seed(subject)
+    interview_id = session.interview_id
+    subject.ensure_prep(InterviewPrep(interview_id=interview_id))
+    subject.save_resume(_resume(interview_id), b"%PDF-1.7\n")
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+    subject.ensure_recording(session.id)  # DB 의 save_recording 은 UPDATE 다
+    subject.save_recording(
+        Recording(session_id=session.id, status=SummaryStatus.READY, s3_key="rec/x")
+    )
+    subject.update_mark(session.id, "mom_x", state=FindingState.ADOPTED)
+    subject.upsert_utterance(_utterance(session))
+    subject.add_suggestion(_suggestion(session))
+
+    assert subject.delete_interview(interview_id) == [session.id]
+
+    assert subject.get_interview(interview_id) is None
+    assert subject.get_session(session.id) is None
+    assert subject.get_prep(interview_id) is None
+    assert subject.get_resume(interview_id) is None
+    assert subject.get_resume_text(interview_id) is None
+    assert subject.get_summary(session.id) is None
+    assert subject.get_recording(session.id) is None
+    assert subject.list_marks(session.id) == []
+    assert subject.list_utterances(session.id) == []
+    assert subject.list_suggestions(session.id) == []
+
+
+def test_delete_interview_without_sessions_gives_an_empty_list(subject: Store):
+    """세션을 안 만든 면접도 지워진다. 빈 목록과 None 은 다르다 — 지울 파일이 없다."""
+    interview = Interview(interviewer_id="user_123")
+    subject.add_interview(interview)
+
+    assert subject.delete_interview(interview.id) == []
+    assert subject.get_interview(interview.id) is None
+
+
+def test_delete_unknown_interview_is_none(subject: Store):
+    assert subject.delete_interview("int_nope") is None
+
+
+def test_delete_interview_refuses_while_a_session_is_live(subject: Store):
+    """진행 중이면 안 지운다 — 지운 뒤에도 S3 에 녹화가 더 올라온다."""
+    session = _seed(subject)
+    session.start()
+    subject.save_session(session)
+
+    assert subject.delete_interview(session.interview_id) is None
+    assert subject.get_interview(session.interview_id) is not None
+    assert subject.get_session(session.id) is not None
+
+
+def test_delete_interview_refuses_while_a_recording_is_merging(subject: Store):
+    """녹화를 합치는 중이면 안 지운다 — 합친 파일이 뒤늦게 올라온다."""
+    session = _seed(subject)
+    subject.ensure_recording(session.id)  # PROCESSING
+
+    assert subject.delete_interview(session.interview_id) is None
+    assert subject.get_session(session.id) is not None
+
+
+def test_delete_interview_leaves_the_other_interviews(subject: Store):
+    mine = _seed(subject)
+    other = _seed(subject)
+
+    assert subject.delete_interview(mine.interview_id) == [mine.id]
+
+    assert subject.get_interview(other.interview_id) is not None
+    assert subject.get_session(other.id) is not None
