@@ -17,7 +17,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getReview, putMark } from '../api/review';
 import { ApiError } from '../api/client';
@@ -44,15 +44,19 @@ import type { MarkUpdate, Moment, Review, ReviewResponse } from '../types/interv
 type Tab = 'record' | 'ai' | 'memo';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'record', label: '영상 · 문답' },
-  { id: 'ai', label: 'AI 검토' },
+  { id: 'ai', label: '면접 요약' },
   { id: 'memo', label: '메모' },
 ];
 
 /** 준비 중일 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 3000;
 
-export default function ReviewTimelinePage() {
-  const { interviewId } = useParams<{ interviewId: string }>();
+export default function ReviewTimelinePage({
+  interviewId: providedId,
+  embedded = false,
+}: { interviewId?: string; embedded?: boolean } = {}) {
+  const { interviewId: routeId } = useParams<{ interviewId: string }>();
+  const interviewId = providedId ?? routeId;
   const { data, isError, error, isFetching, refetch } = useQuery({
     queryKey: ['review', interviewId],
     queryFn: () => getReview(interviewId!),
@@ -103,7 +107,7 @@ export default function ReviewTimelinePage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(true);
   // 좁은 화면에서 보이는 묶음. 넓은 화면은 셋을 한꺼번에 보여 주므로 쓰지 않는다.
-  const [tab, setTab] = useState<Tab>('record');
+  const [tab, setTab] = useState<Tab>(embedded ? 'ai' : 'record');
 
   const activeIndex = review?.moments.findIndex((m) => m.id === activeId) ?? -1;
   const active = activeIndex >= 0 ? review?.moments[activeIndex] : undefined;
@@ -113,6 +117,8 @@ export default function ReviewTimelinePage() {
     seekTo(moment.atSec);
   };
 
+  const pendingMarks = useRef(new Set<string>());
+  const [pendingMarkIds, setPendingMarkIds] = useState<Set<string>>(new Set());
   const [markFailed, setMarkFailed] = useState(false);
   const patchReview = (change: Partial<Review> | ((r: Review) => Review)) =>
     queryClient.setQueryData<ReviewResponse>(['review', interviewId], (prev) =>
@@ -125,13 +131,21 @@ export default function ReviewTimelinePage() {
 
   const mark = (itemId: string, next: MarkUpdate) => {
     const before = review && currentMark(review, itemId, next);
-    if (!before) return;
+    if (!before || pendingMarks.current.has(itemId)) return;
+    pendingMarks.current.add(itemId);
+    setPendingMarkIds(new Set(pendingMarks.current));
     setMarkFailed(false);
     patchReview((r) => applyMark(r, itemId, next));
-    putMark(interviewId!, itemId, next).catch(() => {
-      patchReview((r) => applyMark(r, itemId, before));
-      setMarkFailed(true);
-    });
+    putMark(interviewId!, itemId, next)
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.code === 'REVIEW_CONFIRMED') void refetch();
+        patchReview((r) => applyMark(r, itemId, before));
+        setMarkFailed(true);
+      })
+      .finally(() => {
+        pendingMarks.current.delete(itemId);
+        setPendingMarkIds(new Set(pendingMarks.current));
+      });
   };
 
   if (isError) {
@@ -219,12 +233,22 @@ export default function ReviewTimelinePage() {
   const openFindings = review.findings.filter((f) => f.state === 'PROPOSED').length;
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 pt-6 pb-36 sm:px-6 lg:px-8 lg:pb-28">
+    <div
+      className={
+        embedded
+          ? 'w-full p-4'
+          : 'mx-auto w-full max-w-[1400px] px-4 pt-6 pb-36 sm:px-6 lg:px-8 lg:pb-28'
+      }
+    >
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Link
           to="/candidates"
           aria-label="지원자 목록으로"
-          className="text-ink-muted hover:bg-surface-bright hover:text-ink -ml-2 rounded-lg p-2"
+          className={
+            embedded
+              ? 'hidden'
+              : 'text-ink-muted hover:bg-surface-bright hover:text-ink -ml-2 rounded-lg p-2'
+          }
         >
           <span aria-hidden className="material-symbols-outlined text-[22px]">
             arrow_back
@@ -329,6 +353,8 @@ export default function ReviewTimelinePage() {
               coverage={review.coverage}
               findings={review.findings}
               findingsStatus={review.findingsStatus}
+              locked={review.reviewStatus === 'CONFIRMED'}
+              pendingIds={pendingMarkIds}
               onMark={(id, state) => mark(id, { state })}
               onSeek={seekTo}
             />
@@ -345,6 +371,7 @@ export default function ReviewTimelinePage() {
       </div>
 
       <ReviewStatusBar
+        embedded={embedded}
         interviewId={review.interviewId}
         reviewStatus={review.reviewStatus}
         reviewedAt={review.reviewedAt}

@@ -22,9 +22,19 @@ export interface FindingsProps {
   findingsStatus: FindingsStatus;
   onMark: (findingId: string, state: Finding['state']) => void;
   onSeek: (sec: number) => void;
+  locked?: boolean;
+  pendingIds?: ReadonlySet<string>;
 }
 
-export function Findings({ coverage, findings, findingsStatus, onMark, onSeek }: FindingsProps) {
+export function Findings({
+  coverage,
+  findings,
+  findingsStatus,
+  onMark,
+  onSeek,
+  locked = false,
+  pendingIds,
+}: FindingsProps) {
   const open = findings.filter((f) => f.state === 'PROPOSED').length;
   const note = progressNote(open, findingsStatus);
 
@@ -38,6 +48,11 @@ export function Findings({ coverage, findings, findingsStatus, onMark, onSeek }:
         {note && <span className="text-ink-dim text-[13px]">{note}</span>}
       </div>
 
+      {locked && (
+        <p className="text-ink-muted mt-3 text-xs">
+          검토가 완료된 상태에서는 포함 여부를 바꿀 수 없습니다.
+        </p>
+      )}
       {coverage.length > 0 && (
         <ul aria-label="역량 커버리지" className="mt-4 flex flex-wrap gap-2">
           {coverage.map((c) => (
@@ -91,6 +106,7 @@ export function Findings({ coverage, findings, findingsStatus, onMark, onSeek }:
                   <>
                     <button
                       type="button"
+                      disabled={locked || pendingIds?.has(f.id)}
                       onClick={() => onMark(f.id, 'ADOPTED')}
                       className="bg-brand hover:bg-brand-strong rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white"
                     >
@@ -98,6 +114,7 @@ export function Findings({ coverage, findings, findingsStatus, onMark, onSeek }:
                     </button>
                     <button
                       type="button"
+                      disabled={locked || pendingIds?.has(f.id)}
                       onClick={() => onMark(f.id, 'REJECTED')}
                       className="border-border-base bg-surface-panel text-ink hover:bg-surface-bright rounded-lg border px-3 py-1.5 text-[13px] font-medium"
                     >
@@ -111,6 +128,7 @@ export function Findings({ coverage, findings, findingsStatus, onMark, onSeek }:
                     </span>
                     <button
                       type="button"
+                      disabled={locked || pendingIds?.has(f.id)}
                       onClick={() => onMark(f.id, 'PROPOSED')}
                       className="text-ink-muted hover:text-ink -my-1 py-1 text-[13px] underline"
                     >

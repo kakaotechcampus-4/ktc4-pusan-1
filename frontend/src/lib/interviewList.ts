@@ -12,7 +12,7 @@ import type { InterviewListItem, ReviewStatus } from '../types/interview';
 export const STATUS_LABEL: Record<ReviewStatus, string> = {
   PENDING: '검토 대기',
   IN_REVIEW: '검토 중',
-  CONFIRMED: '확정',
+  CONFIRMED: '완료',
 };
 
 /** 상태 배지 색 — 대기는 눈에 띄게, 확정은 끝났다는 민트 */

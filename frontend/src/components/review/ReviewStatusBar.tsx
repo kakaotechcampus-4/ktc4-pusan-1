@@ -14,6 +14,7 @@ const STATUSES: ReviewStatus[] = ['PENDING', 'IN_REVIEW', 'CONFIRMED'];
 
 export interface ReviewStatusBarProps {
   interviewId: string;
+  embedded?: boolean;
   reviewStatus: ReviewStatus;
   reviewedAt: string | null;
   /** 아직 채택도 반려도 안 한 검토 항목 수 */
@@ -25,6 +26,7 @@ export interface ReviewStatusBarProps {
 
 export function ReviewStatusBar({
   interviewId,
+  embedded = false,
   reviewStatus,
   reviewedAt,
   openFindings,
@@ -49,7 +51,13 @@ export function ReviewStatusBar({
 
   return (
     // 좁은 화면은 아래 탭 위, 넓은 화면은 사이드바 오른쪽에 붙는다 (AppShell 의 폭과 같다).
-    <div className="border-border-base bg-surface-panel/95 fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 border-t backdrop-blur-xl lg:bottom-0 lg:left-64">
+    <div
+      className={
+        embedded
+          ? 'border-border-base bg-surface-panel relative mt-4 border-t'
+          : 'border-border-base bg-surface-panel/95 fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 border-t backdrop-blur-xl lg:bottom-0 lg:left-64'
+      }
+    >
       <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
         <p aria-live="polite" className="min-w-0 flex-1 text-[14px]">
           {failed ? (

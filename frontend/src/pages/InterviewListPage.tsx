@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { InterviewWorkspacePanel } from '../components/review/InterviewWorkspacePanel';
 import { listInterviews } from '../api/interview';
 import { Badge } from '../components/ui/Badge';
 import { buttonClass } from '../components/ui/buttonClass';
@@ -44,7 +45,6 @@ const dateLabel = (value: string | null) =>
     : '면접 전';
 
 export default function InterviewListPage() {
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const query = useQuery({
     queryKey: ['interviews'],
@@ -59,6 +59,7 @@ export default function InterviewListPage() {
         ? 3000
         : false,
   });
+  const expanded = params.get('interview');
   const [sort, setSort] = useState<SortRule[]>([]);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
@@ -152,7 +153,18 @@ export default function InterviewListPage() {
     document.addEventListener('pointercancel', end);
     resizeCleanup.current = end;
   };
-  const open = (item: InterviewListItem) => navigate(`/review/${item.interviewId}`);
+  const openId = (id: string | null) => {
+    const next = new URLSearchParams(params);
+    if (id) {
+      next.set('interview', id);
+      const index = filtered.findIndex((item) => item.interviewId === id);
+      if (index >= 0) setPage(Math.floor(index / PAGE_SIZE));
+    } else next.delete('interview');
+    setParams(next, { replace: true });
+  };
+  const open = (item: InterviewListItem) =>
+    openId(expanded === item.interviewId ? null : item.interviewId);
+
   const value = (item: InterviewListItem, key: ColumnKey): string => {
     const counts = item.counts;
     if (key === 'name') return item.candidateName || '이름 없는 지원자';
@@ -561,30 +573,73 @@ export default function InterviewListPage() {
               </thead>
               <tbody>
                 {pageItems.map((item) => (
-                  <tr
-                    key={item.interviewId}
-                    className={selection.has(item.interviewId) ? 'bg-brand-tint' : ''}
-                  >
-                    <td
-                      className={`border-border-base sticky left-0 z-10 border-b p-3 ${selection.has(item.interviewId) ? 'bg-brand-tint' : 'bg-surface-panel'}`}
+                  <Fragment key={item.interviewId}>
+                    <tr
+                      key={item.interviewId}
+                      className={selection.has(item.interviewId) ? 'bg-brand-tint' : ''}
                     >
-                      <input
-                        type="checkbox"
-                        aria-label={`${item.candidateName || '이름 없는 지원자'} 선택`}
-                        readOnly
-                        checked={selection.has(item.interviewId)}
-                        onClick={(event) => selectOne(item.interviewId, event.shiftKey)}
-                      />
-                    </td>
-                    {visibleColumns.map((column) => (
                       <td
-                        key={column.key}
-                        className={`border-border-base border-b px-3 py-3 ${column.key === 'name' ? `sticky left-11 z-10 ${selection.has(item.interviewId) ? 'bg-brand-tint' : 'bg-surface-panel'}` : ''}`}
+                        className={`border-border-base sticky left-0 z-10 border-b p-3 ${selection.has(item.interviewId) ? 'bg-brand-tint' : 'bg-surface-panel'}`}
                       >
-                        {cell(item, column.key)}
+                        <input
+                          type="checkbox"
+                          aria-label={`${item.candidateName || '이름 없는 지원자'} 선택`}
+                          readOnly
+                          checked={selection.has(item.interviewId)}
+                          onClick={(event) => selectOne(item.interviewId, event.shiftKey)}
+                        />
                       </td>
-                    ))}
-                  </tr>
+                      {visibleColumns.map((column) => (
+                        <td
+                          key={column.key}
+                          className={`border-border-base border-b px-3 py-3 ${column.key === 'name' ? `sticky left-11 z-10 ${selection.has(item.interviewId) ? 'bg-brand-tint' : 'bg-surface-panel'}` : ''}`}
+                        >
+                          {cell(item, column.key)}
+                        </td>
+                      ))}
+                    </tr>
+                    {expanded === item.interviewId && (
+                      <tr>
+                        <td colSpan={visibleColumns.length + 1}>
+                          <InterviewWorkspacePanel
+                            key={item.interviewId}
+                            interviewId={item.interviewId}
+                            onClose={() => openId(null)}
+                            onPrevious={
+                              filtered.findIndex(
+                                (entry) => entry.interviewId === item.interviewId,
+                              ) > 0
+                                ? () =>
+                                    openId(
+                                      filtered[
+                                        filtered.findIndex(
+                                          (entry) => entry.interviewId === item.interviewId,
+                                        ) - 1
+                                      ].interviewId,
+                                    )
+                                : undefined
+                            }
+                            onNext={
+                              filtered.findIndex(
+                                (entry) => entry.interviewId === item.interviewId,
+                              ) +
+                                1 <
+                              filtered.length
+                                ? () =>
+                                    openId(
+                                      filtered[
+                                        filtered.findIndex(
+                                          (entry) => entry.interviewId === item.interviewId,
+                                        ) + 1
+                                      ].interviewId,
+                                    )
+                                : undefined
+                            }
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
