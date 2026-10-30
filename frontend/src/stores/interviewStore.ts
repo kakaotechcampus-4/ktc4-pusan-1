@@ -33,6 +33,10 @@ interface InterviewState {
 
   /** AI 꼬리질문. 면접관에게만 온다 (#212) */
   suggestions: Suggestion[];
+  hiddenSuggestionIds: string[];
+  lastHiddenSuggestionId: string | null;
+  dismissSuggestion: (id: string) => void;
+  undoDismissSuggestion: () => void;
 
   setSession: (id: string) => void;
   setConnection: (s: RoomConnectionState) => void;
@@ -55,6 +59,8 @@ export const useInterviewStore = create<InterviewState>((set) => ({
   transcriptDegraded: false,
   transcriptOpen: true,
   suggestions: [],
+  hiddenSuggestionIds: [],
+  lastHiddenSuggestionId: null,
 
   setSession: (sessionId) => set({ sessionId }),
   setConnection: (connection) => set({ connection }),
@@ -133,6 +139,17 @@ export const useInterviewStore = create<InterviewState>((set) => ({
       };
     }),
 
+  dismissSuggestion: (id) =>
+    set((s) => ({
+      hiddenSuggestionIds: [...new Set([...s.hiddenSuggestionIds, id])],
+      lastHiddenSuggestionId: id,
+    })),
+  undoDismissSuggestion: () =>
+    set((s) => ({
+      hiddenSuggestionIds: s.hiddenSuggestionIds.filter((id) => id !== s.lastHiddenSuggestionId),
+      lastHiddenSuggestionId: null,
+    })),
+
   /** 면접관이 「이걸 묻겠다」고 눌렀다 · 눌렀던 것을 풀었다 */
   toggleSuggestionPin: (id) =>
     set((s) => ({
@@ -148,5 +165,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
       utterances: [],
       transcriptDegraded: false,
       suggestions: [],
+      hiddenSuggestionIds: [],
+      lastHiddenSuggestionId: null,
     }),
 }));

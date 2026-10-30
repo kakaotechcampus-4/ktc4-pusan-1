@@ -13,6 +13,7 @@
  * DOM 에 있어야 읽힌다 — 상자째 나타나면 스크린리더가 놓친다.
  */
 
+import { useRef } from 'react';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { visibleSuggestions } from '../../lib/visibleSuggestions';
 
@@ -20,7 +21,14 @@ export function SuggestionPanel() {
   const suggestions = useInterviewStore((s) => s.suggestions);
   const togglePin = useInterviewStore((s) => s.toggleSuggestionPin);
 
-  const ordered = visibleSuggestions(suggestions);
+  const hidden = useInterviewStore((s) => s.hiddenSuggestionIds);
+  const dismiss = useInterviewStore((s) => s.dismissSuggestion);
+  const undo = useInterviewStore((s) => s.undoDismissSuggestion);
+  const lastHidden = useInterviewStore((s) => s.lastHiddenSuggestionId);
+  const gesture = useRef<{ id: string; x: number; y: number } | null>(null);
+  const ordered = visibleSuggestions(suggestions).filter(
+    (suggestion) => !hidden.includes(suggestion.id),
+  );
 
   return (
     // 영상 위 오른쪽에 뜬 유리판이다 (#236). 평소에는 흐리고 마우스를 올리면 또렷해진다.
@@ -40,6 +48,14 @@ export function SuggestionPanel() {
         )}
       </div>
 
+      {lastHidden && (
+        <div role="status" className="flex items-center justify-between gap-2 px-4 py-2 text-xs">
+          <span>질문을 지웠습니다.</span>
+          <button type="button" onClick={undo} className="underline">
+            취소
+          </button>
+        </div>
+      )}
       {/* 꼬리질문은 소리로는 오지 않고 화면에만 있다. 그래서 읽어 주는 것이 맞다 */}
       <div
         aria-live="polite"
@@ -51,35 +67,66 @@ export function SuggestionPanel() {
           </p>
         ) : (
           ordered.map((s) => (
-            <button
+            <div
               key={s.id}
-              type="button"
-              onClick={() => togglePin(s.id)}
-              aria-pressed={s.pinned}
-              className={`flex animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition ${
-                s.pinned
-                  ? 'border-brand/40 bg-brand-tint'
-                  : 'border-border-base bg-surface-panel hover:bg-surface-container'
-              }`}
+              className="flex shrink-0 gap-1"
+              style={{ touchAction: 'pan-y' }}
+              onPointerDown={(event) => {
+                gesture.current = { id: s.id, x: event.clientX, y: event.clientY };
+              }}
+              onPointerCancel={() => {
+                gesture.current = null;
+              }}
+              onPointerUp={(event) => {
+                const start = gesture.current;
+                gesture.current = null;
+                if (
+                  start?.id === s.id &&
+                  Math.abs(event.clientX - start.x) >= 64 &&
+                  Math.abs(event.clientX - start.x) > Math.abs(event.clientY - start.y) * 1.5
+                ) {
+                  event.preventDefault();
+                  dismiss(s.id);
+                }
+              }}
             >
-              <span
-                aria-hidden
-                className={`material-symbols-outlined mt-0.5 text-[18px] ${
-                  s.pinned ? 'text-brand' : 'text-ink-dim'
-                }`}
-                style={s.pinned ? { fontVariationSettings: "'FILL' 1" } : undefined}
-              >
-                push_pin
-              </span>
-              {/* 질문 글자는 고정 여부와 무관하게 가장 진한 색을 쓴다 — 읽어야 하는 것이다 */}
-              <span
-                className={`text-ink flex-1 text-[15px] leading-relaxed ${
-                  s.pinned ? 'font-semibold' : ''
+              <button
+                type="button"
+                onClick={() => togglePin(s.id)}
+                aria-pressed={s.pinned}
+                className={`flex min-w-0 flex-1 animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition ${
+                  s.pinned
+                    ? 'border-brand/40 bg-brand-tint'
+                    : 'border-border-base bg-surface-panel hover:bg-surface-container'
                 }`}
               >
-                {s.content}
-              </span>
-            </button>
+                <span
+                  aria-hidden
+                  className={`material-symbols-outlined mt-0.5 text-[18px] ${
+                    s.pinned ? 'text-brand' : 'text-ink-dim'
+                  }`}
+                  style={s.pinned ? { fontVariationSettings: "'FILL' 1" } : undefined}
+                >
+                  push_pin
+                </span>
+                {/* 질문 글자는 고정 여부와 무관하게 가장 진한 색을 쓴다 — 읽어야 하는 것이다 */}
+                <span
+                  className={`text-ink flex-1 text-[15px] leading-relaxed ${
+                    s.pinned ? 'font-semibold' : ''
+                  }`}
+                >
+                  {s.content}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => dismiss(s.id)}
+                aria-label={`${s.content} 지우기`}
+                className="text-ink-muted shrink-0 self-center rounded-lg px-2 py-3 text-xs hover:bg-white/10"
+              >
+                지우기
+              </button>
+            </div>
           ))
         )}
       </div>
