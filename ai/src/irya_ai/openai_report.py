@@ -76,7 +76,9 @@ CLAIM_CONTRADICTED·CLAIM_UNVERIFIED·GAP인 근거는 unconfirmed에 씁니다.
 next_questions는 그 역량에 대해 다음 면접에서 물어볼 질문입니다.
 최대 {MAX_NEXT_QUESTIONS}개입니다.
 근거는 달지 않습니다. 물어볼 것이 없으면 빈 목록입니다.
-채택된 근거가 없는 역량은 세 목록을 모두 비웁니다.
+채택된 근거가 없는 역량(state가 MISSING인 역량 등)은 confirmed·unconfirmed를
+비우고 next_questions만 씁니다. 다루지 않은 역량이 다음 면접에서 먼저 물어볼
+거리이므로 질문은 반드시 적으세요.
 """
 
 

@@ -70,6 +70,7 @@ agreed payload      source
 ``requestedAt``     the job's ``requestedAt``, returned as received
 ``overview``        ``ReportResult.overview``
 ``competencies``    ``ReportResult.competencies``; ``{text, findingId}`` items
+``model``           ``ReportResult.model``; served model and prompt version
 ==================  ==========================================================
 """
 
@@ -236,6 +237,7 @@ class ReportPayload(CamelModel):
     requested_at: str
     overview: str = ""
     competencies: list[CompetencyReport] = Field(default_factory=list)
+    model: str = ""
 
 
 def report_payload(result: ReportResult, *, requested_at: str) -> ReportPayload:
@@ -247,4 +249,5 @@ def report_payload(result: ReportResult, *, requested_at: str) -> ReportPayload:
         requested_at=requested_at,
         overview=result.overview if usable else "",
         competencies=list(result.competencies) if usable else [],
+        model=result.model,
     )

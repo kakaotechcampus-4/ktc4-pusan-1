@@ -42,6 +42,11 @@ CONFIRMING_TYPES = frozenset(
 )
 
 
+#: Backend's ``REPORT_TIMEOUT_SECONDS`` default (#238). The poller passes
+#: the configured value; the agent only needs a sane one when run alone.
+DEFAULT_TIMEOUT_SECONDS = 180
+
+
 class ReportError(Exception):
     """Safe provider failure; no response body or interview text."""
 
@@ -61,9 +66,12 @@ def build_report(
     """Keep the sentences that stand on an adopted finding; say why the rest fell.
 
     Every competency in the context comes back, in the context's order, with
-    empty lists when the draft had nothing for it: Backend shows those as
-    "not covered in this interview". Rejection notes name ids and positions,
-    never a sentence or a finding's text.
+    empty lists when the draft had nothing for it. A competency without an
+    adopted finding still keeps its questions: Backend blanks the sentence
+    lists of a MISSING competency but shows ``nextQuestions``, since an
+    uncovered competency is what the next interviewer should ask about.
+    Rejection notes name ids and positions, never a sentence or a finding's
+    text.
     """
 
     if max_sentences < 1 or max_questions < 0:
@@ -242,7 +250,7 @@ class ReportAgent:
         generator: ReportGenerator,
         *,
         model: str = "",
-        timeout_seconds: float = 60,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout must be positive")

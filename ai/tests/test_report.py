@@ -238,6 +238,27 @@ def test_questions_are_trimmed_deduplicated_and_capped():
     ]
 
 
+def test_a_competency_without_findings_keeps_its_questions():
+    # cmp_db has no adopted finding; the next interviewer still gets the
+    # questions, only the sentence lists stay empty (#239, 10/29 rule).
+    _, reports, rejected = build_report(
+        context(),
+        draft(
+            block(),
+            block(
+                competency_id="cmp_db",
+                confirmed=[],
+                unconfirmed=[],
+                next_questions=["느린 쿼리를 어떻게 찾았는지 물어본다"],
+            ),
+        ),
+    )
+    assert rejected == []
+    db = reports[1]
+    assert db.sentence_count == 0
+    assert db.next_questions == ["느린 쿼리를 어떻게 찾았는지 물어본다"]
+
+
 def test_sentence_limit_per_list():
     items = [sentence(finding_id=f"fnd_{i}") for i in range(5)]
     findings = [
@@ -375,8 +396,10 @@ def test_payload_carries_sentences_ids_and_requested_at_only():
                 "nextQuestions": ["질문"],
             }
         ],
+        "model": "fake",
     }
     failed = report_payload(
         result.model_copy(update={"status": "failed"}), requested_at="t"
     )
     assert failed.overview == "" and failed.competencies == []
+    assert failed.model == "fake"
