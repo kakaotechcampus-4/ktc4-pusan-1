@@ -27,7 +27,10 @@ OWNER_ONLY = [
     ("get", "/interviews/{interview}"),
     ("post", "/interviews/{interview}/sessions"),
     ("get", "/interviews/{interview}/review"),
+    ("post", "/interviews/{interview}/report"),
+    ("get", "/interviews/{interview}/report"),
     ("patch", "/interviews/{interview}"),
+    ("delete", "/interviews/{interview}"),
     ("put", "/interviews/{interview}/review/marks/fnd_x"),
     ("post", "/sessions/{session}/start"),
     ("post", "/sessions/{session}/end"),
@@ -66,7 +69,10 @@ def test_owner_only_routes_need_login(
         ("get", "/interviews/{interview}", ErrorCode.INTERVIEW_NOT_FOUND),
         ("post", "/interviews/{interview}/sessions", ErrorCode.INTERVIEW_NOT_FOUND),
         ("get", "/interviews/{interview}/review", ErrorCode.INTERVIEW_NOT_FOUND),
+        ("post", "/interviews/{interview}/report", ErrorCode.INTERVIEW_NOT_FOUND),
+        ("get", "/interviews/{interview}/report", ErrorCode.INTERVIEW_NOT_FOUND),
         ("patch", "/interviews/{interview}", ErrorCode.INTERVIEW_NOT_FOUND),
+        ("delete", "/interviews/{interview}", ErrorCode.INTERVIEW_NOT_FOUND),
         (
             "put",
             "/interviews/{interview}/review/marks/fnd_x",
@@ -145,7 +151,9 @@ def _join(client: TestClient, session_id: str, role: str, headers: dict[str, str
 )
 def test_join_role_matrix(
     client: TestClient,
+    # 동의는 역할과 무관하다. 지원자 입장이 막히지 않게 받아 두고 역할만 본다 (#245).
     session_id: str,
+    consented: str,
     other: dict[str, str],
     who: str,
     role: str,
@@ -162,7 +170,7 @@ def test_join_role_matrix(
 
 @pytest.mark.parametrize("token", ["Bearer garbage", "Bearer "])
 def test_bad_token_still_joins_as_candidate(
-    client: TestClient, session_id: str, token: str
+    client: TestClient, session_id: str, consented: str, token: str
 ) -> None:
     """만료 · 위조 토큰을 쥐고 초대 링크를 연 사람도 지원자로는 들어온다."""
     headers = {"Authorization": token}

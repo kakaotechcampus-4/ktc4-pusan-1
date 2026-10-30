@@ -4,15 +4,20 @@ AI 폴러가 N초마다 할 일을 묻고, 받은 작업의 컨텍스트를 읽�
 넣는다. 한 번에 하나라 따로 큐를 두지 않는다 — 「할 일이 있다」는 사실이 DB 의
 PROCESSING 행이다.
 
-    GET /jobs/pending                  → {kind, sessionId, interviewId, requestedAt}
-                                         또는 null
-    GET /sessions/{sessionId}/context  → AI InterviewContext + 이력서 본문 + 전사
-    PUT /interviews/{interviewId}/prep → 204
+    GET  /jobs/pending                    → {kind, sessionId, interviewId,
+                                            requestedAt} 또는 null
+    GET  /sessions/{sessionId}/context    → InterviewContext + 이력서 본문 + 전사
+    PUT  /interviews/{interviewId}/prep   → 204
+    GET  /interviews/{interviewId}/report/context
+                                          → 요약 + 역량(상태 포함) + 채택한 근거
+    PUT  /interviews/{interviewId}/report → 204
 
-면접 전 분석(PREP)을 먼저 내주고, 없으면 면접 후 분석(REVIEW, #164)을 내준다.
-REVIEW 는 면접이 끝나고 전사가 다 들어온 뒤에 나간다 — Agent 가 전사 WebSocket 을
-1000 으로 닫았거나, 그 신호 없이 `TRANSCRIPT_GRACE` 가 지난 것이다. 결과는
-`PUT /sessions/{sessionId}/review` (`reviews.py`) 로 온다.
+내주는 순서는 **PREP → REVIEW → REPORT** 다. 면접 전 분석이 먼저다 — 다음 면접의
+꼬리질문이 그걸 기다린다. 면접 후 분석(REVIEW, #164)은 면접이 끝나고 전사가 다
+들어온 뒤에 나간다 — Agent 가 전사 WebSocket 을 1000 으로 닫았거나, 그 신호 없이
+`TRANSCRIPT_GRACE` 가 지난 것이다. 결과는 `PUT /sessions/{sessionId}/review`
+(`reviews.py`) 로 온다. 리포트(REPORT, #238)가 마지막이다 — 면접관이 버튼을 누르고
+기다리는 일이지만, 앞의 둘은 **다음 면접**과 **검토 화면 전체**가 막혀 있다.
 
 **재시도는 따로 없다.** 폴러가 죽으면 행이 PROCESSING 으로 남아 다음 조회에서 다시
 나가고, 한도를 넘기면 FAILED 로 빠진다. FAILED 는 그 면접의 세션을 다시 만들거나
@@ -21,6 +26,7 @@ REVIEW 는 면접이 끝나고 전사가 다 들어온 뒤에 나간다 — Agen
 """
 
 import logging
+from dataclasses import replace
 from datetime import timedelta
 from typing import Annotated, Any, Final
 
@@ -28,7 +34,7 @@ from fastapi import APIRouter, Depends, Path, status
 
 from app.api.deps import StoreDep
 from app.api.internal.deps import require_internal_auth
-from app.api.internal.schemas import PendingJob, PrepUpsert
+from app.api.internal.schemas import PendingJob, PrepUpsert, ReportUpsert
 from app.core.config import settings
 from app.core.errors import ApiError, ErrorCode
 from app.domain.models import (
@@ -36,9 +42,11 @@ from app.domain.models import (
     DocCategory,
     InterviewPrep,
     Job,
+    SessionSummary,
     SummaryStatus,
     utcnow,
 )
+from app.services.report import adopted_findings, context_competencies
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +61,12 @@ InterviewIdPath = Annotated[str, Path(alias="interviewId")]
 #: 면접 종료 뒤 전사 종료 신호를 기다리는 시간. Agent 가 1000 으로 닫지 못하고
 #: 죽었어도 이만큼 지나면 받은 전사로 REVIEW 를 내준다.
 TRANSCRIPT_GRACE: Final = timedelta(seconds=60)
+
+#: 리포트를 보여 줄 수 있는 Agent 상태 (#238). `reviews.SHOWABLE` 과 지금은 같은 두
+#: 값이지만 상수를 공유하지 않는다 — 검토 화면은 AI 가 낸 근거 전부를 보이고 리포트는
+#: 면접관이 채택한 것만 본다. 보여 줄 기준이 갈라질 때 공용 상수를 건드리게 하면
+#: 양쪽이 같이 바뀐다.
+REPORT_SHOWABLE: Final = frozenset({"completed", "partial"})
 
 
 @router.get("/jobs/pending", response_model=PendingJob | None)
@@ -71,7 +85,12 @@ def pending_job(store: StoreDep) -> Job | None:
     )
     if prep is not None:
         return prep
-    return store.next_review(settings.summary_timeout, TRANSCRIPT_GRACE)
+    review = store.next_review(settings.summary_timeout, TRANSCRIPT_GRACE)
+    if review is not None:
+        return review
+    # 리포트가 마지막이다 (#238). 면접관이 버튼을 누르고 기다리는 일이지만, 앞의
+    # 둘은 다음 면접과 검토 화면 전체가 막혀 있다.
+    return store.next_report(settings.report_timeout)
 
 
 @router.get("/sessions/{sessionId}/context")
@@ -142,6 +161,108 @@ def get_context(session_id: SessionIdPath, store: StoreDep) -> dict[str, Any]:
             for u in store.list_utterances(session.id)
         ],
     }
+
+
+@router.get("/interviews/{interviewId}/report/context")
+def get_report_context(
+    interview_id: InterviewIdPath, store: StoreDep
+) -> dict[str, Any]:
+    """리포트를 쓰는 데 필요한 것만 (#238). 요약 · 역량 · **채택한** 근거.
+
+    세션 컨텍스트(`/sessions/{sessionId}/context`)를 쓰지 않는다. 저쪽은 전사와
+    이력서 본문까지 통째로 주는데, 리포트는 **면접관이 채택한 근거**만으로 쓰는
+    문서라 그걸 넘기면 채택하지 않은 것까지 글에 섞인다.
+
+    **면접관 메모는 넣지 않는다.** 메모는 사람의 판단이고 리포트 맨 위 칸에 그대로
+    나간다 — AI 가 그걸 읽고 다시 쓰면 누구의 말인지가 섞인다.
+
+    기준 세션은 리포트에 박혀 있는 것을 쓴다. 그 사이 세션이 하나 더 끝나도 이미
+    요청된 리포트의 근거는 흔들리지 않는다.
+    """
+    report = store.get_report(interview_id)
+    if report is None:
+        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "리포트 자리가 없습니다.")
+
+    # 요약 자리가 비어 있어도(옛 세션) 역량 목록은 나가야 한다. 채택한 근거가
+    # 없으면 상태가 전부 MISSING 이고, AI 는 쓸 게 없다고 답하면 된다.
+    summary = store.get_summary(report.session_id) or SessionSummary(
+        session_id=report.session_id
+    )
+    adopted = adopted_findings(summary, store.list_marks(report.session_id))
+    prep = store.get_prep(interview_id)
+    return {
+        "interviewId": interview_id,
+        "sessionId": report.session_id,
+        "requestedAt": report.requested_at,
+        "summary": {"overview": summary.overview, "keyPoints": summary.key_points},
+        # JD 역량 전부와 그 순서. AI 는 이 id 로만 카드를 돌려준다. `state` 는
+        # 채택한 근거만 센 것이라 검토 화면의 coverage 와 다를 수 있다.
+        "competencies": context_competencies(prep, adopted),
+        # AI 가 보낸 모양 그대로다. 반려 · 미채택은 애초에 없다.
+        "findings": adopted,
+    }
+
+
+@router.put("/interviews/{interviewId}/report", status_code=status.HTTP_204_NO_CONTENT)
+def put_report(
+    interview_id: InterviewIdPath, body: ReportUpsert, store: StoreDep
+) -> None:
+    """리포트 본문을 받는다 (#238). Agent 의 네 값을 화면의 두 값으로 줄이는 곳이다.
+
+        completed · partial → READY
+        empty               → FAILED + NO_EVIDENCE  (채택한 근거로 쓸 게 없었다)
+        failed              → FAILED + null         (그 밖의 실패)
+
+    `empty` 와 `failed` 를 가르는 이유는 면접관에게 다르게 말해야 하기 때문이다 —
+    앞은 「채택한 근거로 만들 수 없었다」, 뒤는 「다시 만들어 보세요」다.
+
+    기준 세션은 건드리지 않는다. 이미 열려 있는 자리에 본문만 채운다 — 그래서 먼저
+    읽고 `replace` 로 덮는다. 자리가 없으면 404 다 (면접관이 누른 적이 없다).
+    """
+    stored = store.get_report(interview_id)
+    if stored is None:
+        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "리포트 자리가 없습니다.")
+
+    showable = body.status in REPORT_SHOWABLE
+    report = replace(
+        stored,
+        status=SummaryStatus.READY if showable else SummaryStatus.FAILED,
+        overview=body.overview if showable else "",
+        competencies=[c.model_dump(by_alias=True) for c in body.competencies]
+        if showable
+        else [],
+        failure_reason="NO_EVIDENCE" if body.status == "empty" else None,
+        model=body.model if showable else "",
+        requested_at=body.requested_at,
+        completed_at=utcnow(),
+    )
+    # 판정은 저장소가 한 문장으로 한다. 못 썼을 때만 다시 읽어 이유를 가린다
+    # (`put_prep` 과 같은 결).
+    written = store.finish_report(report)
+    if not written:
+        fresh = store.get_report(interview_id)
+        if fresh is None:
+            raise ApiError(
+                ErrorCode.INTERVIEW_NOT_FOUND, 404, "리포트 자리가 없습니다."
+            )
+        if fresh.requested_at != body.requested_at:
+            # 면접관이 그 사이 다시 누른 것이다. 폴러는 다음 조회에서 새 작업을
+            # 받는다. 공개 API 가 아니라 공개 명세의 ErrorCode 에 넣지 않는다.
+            raise ApiError("REPORT_OUTDATED", 409, "더 새로운 요청이 있습니다.")
+        # 같은 요청의 실패 보고가 READY 를 덮지 않은 것이다.
+
+    # 본문은 남기지 않는다. 지원자 발화와 지원서 문장이 들어 있다.
+    logger.info(
+        "리포트 수신 interview_id=%s agent_status=%s → %s 역량=%d개 문장=%d개",
+        interview_id,
+        body.status,
+        report.status.value if written else "그대로",
+        len(report.competencies),
+        sum(
+            len(c.confirmed) + len(c.unconfirmed) + len(c.next_questions)
+            for c in body.competencies
+        ),
+    )
 
 
 @router.put("/interviews/{interviewId}/prep", status_code=status.HTTP_204_NO_CONTENT)

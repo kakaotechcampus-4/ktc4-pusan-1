@@ -21,6 +21,10 @@ import type { JoinFailure, JoinSessionResponse, Role } from '../types/interview'
 
 const FAILURE_MESSAGE: Record<JoinFailure, string> = {
   'not-found': '유효하지 않은 링크입니다. 면접관에게 링크를 다시 요청해주세요.',
+  // 동의 화면을 지나야 여기까지 오므로 거의 닿지 않는다. 닿았다면 동의가 저장되지
+  // 않은 것이라 다시 받아야 한다 — 서버가 동의 없이는 들여보내지 않는다 (#245).
+  'consent-required':
+    '녹화 · 전사 · 분석 동의가 저장되지 않았습니다. 받으신 링크를 다시 열어 동의해주세요.',
   // 다시 눌러도 같다 — 계정을 바꾸거나 지원자로 들어와야 한다.
   'not-allowed':
     '이 면접의 면접관만 면접관으로 입장할 수 있습니다. 로그인한 계정을 확인해주세요. 지원자라면 받으신 초대 링크로 들어와주세요.',

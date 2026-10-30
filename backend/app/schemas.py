@@ -13,6 +13,7 @@ from app.domain.models import (
     DocCategory,
     DocKind,
     DocStatus,
+    FindingsStatus,
     FindingState,
     FindingType,
     ReviewStatus,
@@ -129,6 +130,37 @@ class SessionStateResponse(Schema):
             "단위만 다르고 원점은 이 값을 쓴다. startedAt 과는 다른 값이다."
         ),
     )
+    consent: "ConsentResponse | None" = Field(
+        default=None,
+        description=(
+            "지원자가 녹화 · 전사 · 분석에 동의한 기록. 아직 안 받았으면 null 이고, "
+            "그 상태에서는 지원자가 입장하지 못한다 (CONSENT_REQUIRED). 면접관 화면이 "
+            "동의 여부를 이 값으로 표시한다."
+        ),
+    )
+
+
+class ConsentRequest(Schema):
+    """`POST /sessions/{sessionId}/consent` — 지원자 동의 (#245).
+
+    지원자에게 **실제로 보여 준** 문구의 판을 같이 받는다. 시각만 남기면 나중에
+    무엇에 동의받았는지 답할 수 없다. 값은 화면이 쓴 문자열 그대로 보관한다 —
+    서버가 판을 정해 버리면 FE 보다 먼저 배포됐을 때 멀쩡한 지원자가 막힌다.
+    """
+
+    version: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[\w.\-]+$",
+        description="보여 준 동의 문구의 판. 예: `2026-10-30`",
+    )
+
+
+class ConsentResponse(Schema):
+    agreed_at: datetime = Field(
+        serialization_alias="agreedAt", description="먼저 받은 동의의 시각"
+    )
+    version: str
 
 
 class StartSessionResponse(Schema):
@@ -289,6 +321,14 @@ class ReviewResponse(Schema):
     coverage: list[ReviewCoverage]
     moments: list[ReviewMoment]
     findings: list[ReviewFinding]
+    findings_status: FindingsStatus = Field(
+        serialization_alias="findingsStatus",
+        description=(
+            "검토 항목을 만든 결과. EMPTY 는 찾아봤는데 없다, "
+            "FAILED 는 만들지 못했다 — FAILED 면 `findings` 가 비고 "
+            "coverage 의 MISSING 은 「없음」이 아니라 「확인 불가」다 (#244)."
+        ),
+    )
     failure_reason: Literal["NO_TRANSCRIPT"] | None = Field(
         default=None,
         serialization_alias="failureReason",
@@ -379,6 +419,90 @@ class SummaryResponse(Schema):
             "요약이 FAILED 인 까닭 중 면접관에게 다르게 말해야 하는 것. 저장된 발화가 "
             "하나도 없으면 NO_TRANSCRIPT 다 — 요약할 대화가 없었다. 그 밖의 실패(시간 "
             "초과 · 분석 실패)는 null 이고, 늦게 도착한 결과로 READY 가 될 수 있다."
+        ),
+    )
+
+
+# ── 면접 리포트 (#238) ───────────────────────────────────
+
+
+class ReportStatement(Schema):
+    """리포트 문장 하나. 근거 없는 문장은 리포트에 넣지 않는다.
+
+    `text` 는 AI 가 쓴 한 줄이고 나머지는 BE 가 `findingId` 로 붙인 근거다 (#163).
+    `quote` 는 지원서 문장, `transcript` 는 면접 발화 — 둘은 다른 것이고 둘 다
+    없을 수 있다. `alias` 로 적는다 — 계산 결과(camelCase dict)를 그대로 받아
+    그대로 낸다.
+    """
+
+    text: str = Field(description="AI 가 쓴 한 줄. 판단·추천이 아니라 정리다.")
+    finding_id: str = Field(alias="findingId", description="면접관이 채택한 검토 항목")
+    finding_type: FindingType = Field(alias="findingType")
+    source: str | None = Field(description="「지원서 · 단락」 또는 「면접 답변」")
+    quote: str | None = Field(description="지원서의 문장")
+    transcript: str | None = Field(description="근거가 된 면접 발화")
+    at_sec: float | None = Field(
+        alias="atSec", description="전사 원점 기준 경과 초. 기록 화면 이동에 쓴다."
+    )
+
+
+class ReportCompetency(Schema):
+    """역량 하나의 카드. JD 역량 수만큼 나가고 순서도 JD 순서다.
+
+    `state` 가 MISSING 이면 `confirmed` · `unconfirmed` 가 빈 배열이다 — 이번
+    면접에서 다루지 않은 역량이라 적을 근거가 없다. `nextQuestions` 는 남는다.
+    """
+
+    name: str = Field(description="역량 이름")
+    required: bool = Field(description="필수 역량인가. JD 에 없으면 true 로 본다.")
+    state: CoverageState = Field(description="채택한 근거만으로 센 상태")
+    confirmed: list[ReportStatement] = Field(description="확인된 점")
+    unconfirmed: list[ReportStatement] = Field(description="확인되지 않은 점")
+    next_questions: list[str] = Field(
+        alias="nextQuestions",
+        description="다음에 물어볼 것. 이 카드의 결론이고 근거가 붙지 않는다.",
+    )
+
+
+class ReportResponse(Schema):
+    """면접 리포트 (#238) — 면접에 없던 사람에게 넘기는 인계 문서.
+
+    점수 · 합격 여부 · 집계는 없다. 판단은 면접관이 하고 리포트는 근거 정리다.
+
+    `status` 가 FAILED 면 `overview` 는 빈 문자열, `competencies` 는 빈 배열이고
+    `failureReason` 만 찬다. 머리(지원자 · 면접관 · 메모)는 그대로 나간다 —
+    실패 화면에서도 「누구의 어떤 면접인가」는 읽혀야 한다.
+    """
+
+    # 기본값을 두지 않는다 — 두면 OpenAPI 에서 판별 필드가 선택으로 보인다.
+    status: Literal["READY", "FAILED"]
+    interview_id: str = Field(serialization_alias="interviewId")
+    session_id: str = Field(
+        serialization_alias="sessionId",
+        description="리포트를 만든 기준 세션. 근거 시각의 원점이다.",
+    )
+    generated_at: datetime | None = Field(
+        serialization_alias="generatedAt", description="리포트가 끝난 시각"
+    )
+    review_status: ReviewStatus = Field(
+        serialization_alias="reviewStatus",
+        description="항상 CONFIRMED — 확정 전에는 만들지 않는다.",
+    )
+    candidate: ReviewCandidate
+    interviewer: InterviewerSummary = Field(description="누구의 판단인지 (인계의 핵심)")
+    interviewed_at: datetime | None = Field(serialization_alias="interviewedAt")
+    memo: str = Field(
+        description="면접관 메모. 리포트 맨 위 칸이라 AI 입력에서만 빼고 응답엔 넣는다."
+    )
+    overview: str = Field(description="한 문단 개요. FAILED 면 빈 문자열.")
+    competencies: list[ReportCompetency] = Field(description="JD 역량 순서")
+    failure_reason: Literal["NO_EVIDENCE"] | None = Field(
+        default=None,
+        serialization_alias="failureReason",
+        description=(
+            "리포트를 못 만든 까닭 중 면접관에게 다르게 말해야 하는 것. 채택한 "
+            "근거로 쓸 게 없었으면 NO_EVIDENCE 다. 그 밖의 실패(시간 초과 · 분석 "
+            "실패)는 null 이고, 면접관이 다시 누르면 다시 만든다."
         ),
     )
 

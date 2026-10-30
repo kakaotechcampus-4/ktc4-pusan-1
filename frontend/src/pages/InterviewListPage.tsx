@@ -15,6 +15,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listInterviews } from '../api/interview';
 import emptyInterviews from '../assets/illustrations/empty-interviews.webp';
+import { DeleteInterviewButton } from '../components/interview/DeleteInterviewButton';
 import { Badge } from '../components/ui/Badge';
 import { buttonClass } from '../components/ui/buttonClass';
 import { Card } from '../components/ui/Card';
@@ -309,7 +310,7 @@ export default function InterviewListPage() {
         title="지원자 미리보기"
         side={sheetSide}
       >
-        {preview && <Preview item={preview} />}
+        {preview && <Preview item={preview} onDeleted={() => setPreviewId(null)} />}
       </Sheet>
     </div>
   );
@@ -320,7 +321,7 @@ const FIELD =
   'h-11 rounded-xl border border-border-input bg-surface-input px-3.5 text-[14px] text-ink placeholder:text-ink-dim outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/20';
 
 /** 시트 안 — 한 사람의 요약과 면접 기록으로 가는 길 */
-function Preview({ item }: { item: InterviewListItem }) {
+function Preview({ item, onDeleted }: { item: InterviewListItem; onDeleted: () => void }) {
   const reason = pendingReason(item);
   const duration = durationLabel(item.durationSec);
   const name = item.candidateName ?? UNNAMED;
@@ -376,6 +377,15 @@ function Preview({ item }: { item: InterviewListItem }) {
           arrow_forward
         </span>
       </Link>
+
+      <DeleteInterviewButton
+        interviewId={item.interviewId}
+        candidateName={name}
+        size="lg"
+        className="mt-2 w-full"
+        // 지운 면접의 미리보기는 닫는다. 목록을 다시 받으면 그 줄이 없다.
+        onDeleted={onDeleted}
+      />
     </>
   );
 }

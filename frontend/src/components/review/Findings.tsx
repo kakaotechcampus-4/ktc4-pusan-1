@@ -9,8 +9,9 @@
  * 건, 무엇을 할 수 있었는지와 왜 지금 못 하는지를 같은 자리에서 보여 주기 위해서다.
  */
 
+import { coverageLabel, progressNote } from '../../lib/findingsState';
 import { fmt } from '../../lib/format';
-import type { Coverage, Finding } from '../../types/interview';
+import type { Coverage, Finding, FindingsStatus } from '../../types/interview';
 
 const TYPE_LABEL: Record<Finding['type'], string> = {
   COMPETENCY_EVIDENCE: '역량 근거',
@@ -18,12 +19,6 @@ const TYPE_LABEL: Record<Finding['type'], string> = {
   CLAIM_CONTRADICTED: '지원서와 다름',
   CLAIM_UNVERIFIED: '확인 안 됨',
   GAP: '질문 안 됨',
-};
-
-const COVERAGE_LABEL: Record<Coverage['state'], string> = {
-  CONFIRMED: '확인',
-  PARTIAL: '일부',
-  MISSING: '없음',
 };
 
 const COVERAGE_STYLE: Record<Coverage['state'], string> = {
@@ -37,14 +32,23 @@ const OFF = 'disabled:cursor-not-allowed disabled:opacity-50';
 export interface FindingsProps {
   coverage: Coverage[];
   findings: Finding[];
+  findingsStatus: FindingsStatus;
   onMark: (findingId: string, state: Finding['state']) => void;
   onSeek: (sec: number) => void;
   /** 검토를 확정했다 — 채택 · 반려 · 되돌리기를 받지 않는다 (#247). */
   locked?: boolean;
 }
 
-export function Findings({ coverage, findings, onMark, onSeek, locked }: FindingsProps) {
+export function Findings({
+  coverage,
+  findings,
+  findingsStatus,
+  onMark,
+  onSeek,
+  locked,
+}: FindingsProps) {
   const open = findings.filter((f) => f.state === 'PROPOSED').length;
+  const note = progressNote(open, findingsStatus);
 
   return (
     <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-4 sm:p-5">
@@ -53,9 +57,7 @@ export function Findings({ coverage, findings, onMark, onSeek, locked }: Finding
         <span className="bg-surface-bright text-ink-muted rounded-full px-2 py-0.5 font-mono text-[12px]">
           {findings.length}
         </span>
-        <span className="text-ink-dim text-[13px]">
-          {open > 0 ? `${open}건이 아직 판단 전입니다` : '모두 판단했습니다'}
-        </span>
+        {note && <span className="text-ink-dim text-[13px]">{note}</span>}
       </div>
 
       {locked && (
@@ -71,13 +73,18 @@ export function Findings({ coverage, findings, onMark, onSeek, locked }: Finding
               key={c.name}
               className={`rounded-full border px-3 py-1 text-[13px] ${COVERAGE_STYLE[c.state]}`}
             >
-              {c.name} · {COVERAGE_LABEL[c.state]}
+              {c.name} · {coverageLabel(c.state, findingsStatus)}
             </li>
           ))}
         </ul>
       )}
 
-      {findings.length === 0 ? (
+      {findingsStatus === 'FAILED' ? (
+        <p role="status" className="text-warning mt-4 text-[15px]">
+          AI 가 검토 항목을 만들지 못했습니다. 역량 근거가 없다는 뜻이 아니니 녹화와 문답으로 확인해
+          주세요.
+        </p>
+      ) : findings.length === 0 ? (
         <p className="text-ink-muted mt-4 text-[15px]">AI 가 짚은 항목이 없습니다.</p>
       ) : (
         <ul className="mt-4 flex flex-col gap-3">
