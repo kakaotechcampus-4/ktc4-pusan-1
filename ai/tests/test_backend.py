@@ -255,6 +255,7 @@ async def test_a_suggestion_goes_to_the_agreed_route_with_the_agreed_body() -> N
         "suggestionId": "sug_001",
         "content": "말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
         "evidenceUtteranceIds": ["utt_001", "utt_002"],
+        "reason": None,
     }
 
 
