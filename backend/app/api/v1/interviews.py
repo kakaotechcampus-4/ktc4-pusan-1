@@ -394,7 +394,9 @@ def get_review(
     response_model=MarkResponse,
     summary="검토 항목 채택 · 문답 북마크",
     responses=responses(
-        LOGIN_REQUIRED, (404, "면접이 없거나 지금 상세에 그 항목이 없음")
+        LOGIN_REQUIRED,
+        (404, "면접이 없거나 지금 상세에 그 항목이 없음"),
+        (409, "확정한 검토는 채택을 바꿀 수 없음"),
     ),
 )
 def put_mark(
@@ -409,7 +411,7 @@ def put_mark(
     404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 끝나기 전에는 표시할 것도 없다
     (#163 결정). 요약만 FAILED 여도 Agent 가 보낸 항목은 표시할 수 있다 (#164).
     문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중 하나」). 표시는 기준
-    세션에 남는다.
+    세션에 남는다. 검토를 확정한 뒤 채택 · 반려 · 되돌리기는 409 다 (#247).
     """
     session = store.last_ended_session(interview.id)
     summary = None if session is None else store.get_summary(session.id)
@@ -428,6 +430,13 @@ def put_mark(
             ErrorCode.VALIDATION_ERROR,
             422,
             "문답은 bookmarked 만, 검토 항목은 state 만 받습니다.",
+        )
+    if kind == "finding" and interview.review_status is ReviewStatus.CONFIRMED:
+        # 확정 뒤에는 채택이 움직이지 않는다 (#247). 확정 시각이 검토 시간 지표이고,
+        # 리포트 근거가 그 시각의 채택을 전제한다. 되돌리기도 같이 막힌다. 북마크는
+        # 근거도 지표도 아니라서 그대로 둔다.
+        raise ApiError(
+            "REVIEW_CONFIRMED", 409, "확정한 검토는 채택을 바꿀 수 없습니다."
         )
 
     # 보낸 것만 한 문장으로 바꾼다.
