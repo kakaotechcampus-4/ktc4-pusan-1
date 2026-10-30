@@ -238,3 +238,13 @@ body {
     gap: 1rem;
   }
 }
+
+.interview-panels[data-expanded='true'] {
+  grid-template-rows: 64px minmax(0, 1fr) 80px;
+}
+@media (min-width: 768px) {
+  .interview-panels[data-expanded='true'] {
+    grid-template-columns: minmax(0, 1fr) min(55vw, 680px);
+    grid-template-rows: minmax(96px, 1fr) minmax(0, 1fr);
+  }
+}

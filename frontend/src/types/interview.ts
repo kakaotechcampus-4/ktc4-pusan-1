@@ -454,6 +454,7 @@ export interface Suggestion {
   /** 명세의 `suggestionId`. 실시간 패킷과 조회 응답을 이 값으로 합친다 */
   id: string;
   content: string;
+  reason?: string | null;
   /** 서버가 받은 시각(ISO) */
   createdAt: string;
   /**

@@ -65,6 +65,7 @@ export function InterviewRoomView({
   media,
 }: InterviewRoomViewProps) {
   const connection = useInterviewStore((s) => s.connection);
+  const questionsExpanded = useInterviewStore((s) => s.questionsExpanded);
   const remoteJoined = useInterviewStore((s) => s.remoteJoined);
   const [elapsed, setElapsed] = useState(0);
 
@@ -200,7 +201,7 @@ export function InterviewRoomView({
       )}
 
       {isInterviewer ? (
-        <div className="interview-panels">
+        <div className="interview-panels" data-expanded={questionsExpanded}>
           <div className="pointer-events-auto min-h-0 [grid-area:questions]">
             <SuggestionPanel />
           </div>

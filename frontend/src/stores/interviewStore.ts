@@ -33,6 +33,8 @@ interface InterviewState {
 
   /** AI 꼬리질문. 면접관에게만 온다 (#212) */
   suggestions: Suggestion[];
+  questionsExpanded: boolean;
+  toggleQuestionsExpanded: () => void;
   hiddenSuggestionIds: string[];
   lastHiddenSuggestionId: string | null;
   dismissSuggestion: (id: string) => void;
@@ -59,6 +61,8 @@ export const useInterviewStore = create<InterviewState>((set) => ({
   transcriptDegraded: false,
   transcriptOpen: true,
   suggestions: [],
+  questionsExpanded: false,
+  toggleQuestionsExpanded: () => set((s) => ({ questionsExpanded: !s.questionsExpanded })),
   hiddenSuggestionIds: [],
   lastHiddenSuggestionId: null,
 
@@ -165,6 +169,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
       utterances: [],
       transcriptDegraded: false,
       suggestions: [],
+      questionsExpanded: false,
       hiddenSuggestionIds: [],
       lastHiddenSuggestionId: null,
     }),

@@ -13,7 +13,7 @@
  * DOM 에 있어야 읽힌다 — 상자째 나타나면 스크린리더가 놓친다.
  */
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { visibleSuggestions } from '../../lib/visibleSuggestions';
 
@@ -21,6 +21,9 @@ export function SuggestionPanel() {
   const suggestions = useInterviewStore((s) => s.suggestions);
   const togglePin = useInterviewStore((s) => s.toggleSuggestionPin);
 
+  const [showQuestions, setShowQuestions] = useState(false);
+  const expanded = useInterviewStore((s) => s.questionsExpanded);
+  const toggleExpanded = useInterviewStore((s) => s.toggleQuestionsExpanded);
   const hidden = useInterviewStore((s) => s.hiddenSuggestionIds);
   const dismiss = useInterviewStore((s) => s.dismissSuggestion);
   const undo = useInterviewStore((s) => s.undoDismissSuggestion);
@@ -34,13 +37,18 @@ export function SuggestionPanel() {
     // 영상 위 오른쪽에 뜬 유리판이다 (#236). 평소에는 흐리고 마우스를 올리면 또렷해진다.
     <section className="glass interview-readable flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl">
       <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
-        <span aria-hidden className="material-symbols-outlined text-brand text-[20px]">
-          auto_awesome
-        </span>
         <h2 className="text-ink text-[15px] font-semibold">꼬리질문</h2>
         {/* 누를 수 있다는 것을 글로 밝힌다. 아이콘만으로는 눈으로도 소리로도 모른다 */}
         <span className="text-ink-dim text-[12px]">누르면 고정</span>
         <span className="flex-1" />
+        <button
+          type="button"
+          onClick={toggleExpanded}
+          aria-expanded={expanded}
+          className="rounded-lg px-2 py-1 text-xs underline"
+        >
+          {expanded ? '줄이기' : '확대'}
+        </button>
         {ordered.length > 0 && (
           <span className="bg-brand-tint text-brand-strong rounded-full px-2 py-0.5 text-[12px] font-semibold tabular-nums">
             {ordered.length}
@@ -48,6 +56,14 @@ export function SuggestionPanel() {
         )}
       </div>
 
+      <label className="flex shrink-0 items-center gap-2 px-4 py-2 text-xs">
+        <input
+          type="checkbox"
+          checked={showQuestions}
+          onChange={(event) => setShowQuestions(event.target.checked)}
+        />
+        질문 문장 보기
+      </label>
       {lastHidden && (
         <div role="status" className="flex items-center justify-between gap-2 px-4 py-2 text-xs">
           <span>질문을 지웠습니다.</span>
@@ -115,7 +131,12 @@ export function SuggestionPanel() {
                     s.pinned ? 'font-semibold' : ''
                   }`}
                 >
-                  {s.content}
+                  {s.reason || s.content}
+                  {s.reason && showQuestions && (
+                    <span className="text-ink-muted mt-1 block text-sm font-normal">
+                      {s.content}
+                    </span>
+                  )}
                 </span>
               </button>
               <button
