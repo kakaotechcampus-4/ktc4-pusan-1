@@ -2,6 +2,14 @@ import { FINDING_LABEL } from '../../lib/reviewLabels';
 import type { ReportDocument, ReportStatement } from '../../types/report';
 import { RecordExcerpt } from './RecordExcerpt';
 
+const FINDING_ICON: Record<ReportStatement['findingType'], string> = {
+  COMPETENCY_EVIDENCE: 'record_voice_over',
+  CLAIM_VERIFIED: 'check_circle',
+  CLAIM_CONTRADICTED: 'compare_arrows',
+  CLAIM_UNVERIFIED: 'help',
+  GAP: 'question_mark',
+};
+
 function Statements({ title, items }: { title: string; items: ReportStatement[] }) {
   if (!items.length) return null;
   return (
@@ -13,7 +21,10 @@ function Statements({ title, items }: { title: string; items: ReportStatement[] 
             key={`${statement.findingId}-${index}`}
             className="border-border-base rounded-xl border p-3"
           >
-            <span className="bg-surface-bright text-ink-muted rounded px-2 py-1 text-xs">
+            <span className="bg-brand-tint text-brand-strong inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[12px]">
+              <span aria-hidden className="material-symbols-outlined text-[16px]">
+                {FINDING_ICON[statement.findingType]}
+              </span>
               {FINDING_LABEL[statement.findingType]}
             </span>
             <p className="text-ink mt-2 text-sm leading-relaxed">{statement.text}</p>
@@ -67,7 +78,12 @@ export function ReportContent({ report }: { report: ReportDocument }) {
               </span>
             </h3>
             {competency.state === 'MISSING' ? (
-              <p className="text-ink-muted mt-3 text-sm">이번 면접에서 다루지 않음</p>
+              <p className="text-ink-muted mt-3 flex items-center gap-1 text-sm">
+                <span aria-hidden className="material-symbols-outlined text-[16px]">
+                  question_mark
+                </span>
+                이번 면접에서 다루지 않음
+              </p>
             ) : (
               <>
                 <Statements title="확인된 점" items={competency.confirmed} />

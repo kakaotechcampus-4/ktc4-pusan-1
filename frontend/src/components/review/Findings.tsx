@@ -49,7 +49,7 @@ export function Findings({
       </div>
 
       {locked && (
-        <p className="text-ink-muted mt-3 text-xs">
+        <p className="text-ink-muted mt-3 text-[13px]">
           검토가 완료된 상태에서는 포함 여부를 바꿀 수 없습니다.
         </p>
       )}
@@ -92,7 +92,7 @@ export function Findings({
                 {f.competency && <span className="text-ink-muted text-[13px]">{f.competency}</span>}
                 <span className="flex-1" />
               </div>
-              <p className="text-ink mt-3 text-[15px] leading-relaxed">{f.rationale}</p>
+              <p className="text-ink/85 mt-3 text-[15px] leading-relaxed">{f.rationale}</p>
               <RecordExcerpt
                 source={f.source}
                 quote={f.quote}
@@ -108,7 +108,7 @@ export function Findings({
                       type="button"
                       disabled={locked || pendingIds?.has(f.id)}
                       onClick={() => onMark(f.id, 'ADOPTED')}
-                      className="bg-brand hover:bg-brand-strong rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white"
+                      className="bg-brand hover:bg-brand-strong rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       리포트에 포함
                     </button>
@@ -116,7 +116,7 @@ export function Findings({
                       type="button"
                       disabled={locked || pendingIds?.has(f.id)}
                       onClick={() => onMark(f.id, 'REJECTED')}
-                      className="border-border-base bg-surface-panel text-ink hover:bg-surface-bright rounded-lg border px-3 py-1.5 text-[13px] font-medium"
+                      className="border-border-base bg-surface-panel text-ink hover:bg-surface-bright rounded-lg border px-3 py-1.5 text-[13px] font-medium disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       제외
                     </button>
@@ -130,7 +130,7 @@ export function Findings({
                       type="button"
                       disabled={locked || pendingIds?.has(f.id)}
                       onClick={() => onMark(f.id, 'PROPOSED')}
-                      className="text-ink-muted hover:text-ink -my-1 py-1 text-[13px] underline"
+                      className="text-ink-muted hover:text-ink -my-1 py-1 text-[13px] underline disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       선택 취소
                     </button>

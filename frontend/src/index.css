@@ -212,11 +212,21 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* 자막과 질문은 영상 밝기나 포인터 위치와 관계없이 읽을 수 있어야 한다. */
-.interview-readable,
-.interview-readable:hover,
-.interview-readable:focus-within {
-  background: rgb(18 23 43 / 0.88);
+/* 원래 유리판 배경을 유지하고 밝은 영상에서도 글자 윤곽을 구분한다. */
+.interview-readable {
+  --color-ink-muted: rgb(255 255 255 / 0.96);
+  --color-ink-dim: rgb(255 255 255 / 0.9);
+  text-shadow:
+    0 1px 1px rgb(3 7 18 / 0.95),
+    0 0 3px rgb(3 7 18 / 0.95),
+    0 2px 6px rgb(3 7 18 / 0.8);
+}
+
+/* 기본 폼 스타일이 유리판의 글자 그림자를 지우지 않게 한다. */
+.interview-readable button,
+.interview-readable input,
+.interview-readable textarea {
+  text-shadow: inherit;
 }
 
 .interview-panels {

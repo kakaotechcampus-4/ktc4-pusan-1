@@ -36,17 +36,20 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
       input.current?.focus({ preventScroll: true });
   }, [interviewId, ready, open]);
   return (
-    <section className="glass interview-readable flex max-h-[45%] min-h-11 shrink-0 flex-col overflow-hidden rounded-2xl">
-      <header className="flex min-h-11 shrink-0 items-center gap-2 px-3">
+    <section className="glass interview-readable flex max-h-[45%] min-h-11 shrink-0 flex-col overflow-hidden rounded-3xl">
+      <header className="flex min-h-11 shrink-0 items-center gap-2 px-4">
         <button
           type="button"
           onClick={() => setOpen((old) => !old)}
           aria-expanded={open}
-          className="text-ink flex-1 py-2 text-left text-sm font-semibold"
+          className="text-ink flex-1 py-2 text-left text-[15px] font-semibold"
         >
           메모 · {open ? '접기' : '펼치기'}
         </button>
-        <span role="status" className="text-ink-muted text-xs">
+        <span
+          role="status"
+          className={`text-[12px] ${state === 'failed' ? 'text-danger' : 'text-ink-dim'}`}
+        >
           {state === 'saving'
             ? '저장 중'
             : state === 'saved'
@@ -59,7 +62,7 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
         </span>
       </header>
       {open && (
-        <div className="flex min-h-0 flex-col px-3 pb-3">
+        <div className="flex min-h-0 flex-col px-4 pb-3">
           <textarea
             ref={input}
             data-live-memo="true"
@@ -75,7 +78,7 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
             }}
             onBlur={() => void flush()}
             placeholder="면접 중 메모"
-            className="text-ink border-border-base min-h-10 w-full flex-1 resize-none rounded-xl border bg-white/5 p-2 text-[15px] leading-relaxed disabled:opacity-50"
+            className="text-ink placeholder:text-ink-dim min-h-10 w-full flex-1 resize-none bg-transparent text-[15px] leading-relaxed disabled:opacity-50"
           />
           {(owner.isError || (owner.data && owner.data.memo === undefined)) && (
             <p role="alert" className="text-warning mt-1 text-xs">

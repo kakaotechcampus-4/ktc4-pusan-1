@@ -12,14 +12,14 @@ export function ReviewNotes({ interviewId, memo: initial, onSaved }: ReviewNotes
   const id = useId();
   const { memo, setMemo, state, flush } = useMemoAutosave({ interviewId, initial, onSaved });
   return (
-    <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-4">
+    <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-5">
       <div className="flex items-center justify-between gap-3">
-        <label htmlFor={id} className="text-ink text-sm font-semibold">
+        <label htmlFor={id} className="text-ink text-[16px] font-semibold">
           면접관 메모
         </label>
         <span
           role="status"
-          className={`text-xs ${state === 'failed' ? 'text-danger' : 'text-ink-muted'}`}
+          className={`text-xs ${state === 'failed' ? 'text-danger' : 'text-ink-dim'}`}
         >
           {state === 'saving'
             ? '저장 중'
@@ -38,7 +38,7 @@ export function ReviewNotes({ interviewId, memo: initial, onSaved }: ReviewNotes
         onChange={(event) => setMemo(event.target.value)}
         onBlur={() => void flush()}
         placeholder="확인한 내용과 다음에 물어볼 것을 적어 두세요."
-        className="border-border-input bg-surface-input text-ink focus:ring-brand mt-3 w-full rounded-xl border p-3 text-[15px] leading-relaxed focus:ring-2"
+        className="border-border-input bg-surface-input text-ink placeholder:text-ink-dim focus:border-brand focus:ring-brand/20 mt-3 w-full resize-y rounded-xl border p-3.5 text-[15px] leading-relaxed transition outline-none focus:ring-4"
       />
       <div className="text-ink-dim mt-1 flex justify-between text-xs">
         <span>

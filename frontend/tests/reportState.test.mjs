@@ -28,3 +28,14 @@ test('생성 후 메모를 수정한 리포트를 현재 메모와 같은 결과
     true,
   );
 });
+
+test('검토 항목 분석 실패와 실제 빈 목록을 구분하고 요약 실패만으로 생성을 막지 않는다', () => {
+  const empty = reportBlockReason({ ...review, findingsStatus: 'EMPTY', findings: [] });
+  const failed = reportBlockReason({ ...review, findingsStatus: 'FAILED', findings: [] });
+  assert.notEqual(failed, empty);
+  assert.match(failed, /실패/);
+  assert.equal(
+    reportBlockReason({ ...review, summaryStatus: 'FAILED', findingsStatus: 'COMPLETED' }),
+    null,
+  );
+});

@@ -7,5 +7,13 @@
   "providers": "fixed prep/transcript/review/question inputs; extractive report",
   "prepFixtureNote": "empty PREP output first produced NO_EVIDENCE; fixed PREP input then actual API generation request reached READY",
   "media": "synthetic tracks over actual LiveKit",
-  "services": "actual HTTP/WS/PostgreSQL/RTC"
+  "services": "actual HTTP/WS/PostgreSQL/RTC",
+  "verificationUpdate": {
+    "date": "2026-10-31",
+    "iconsWithLabels": true,
+    "missingCardIcon": true,
+    "findingsFailureDistinctFromEmpty": true,
+    "photos": "retaken",
+    "printPdf": "explicitly excluded; native print has omissions"
+  }
 }
