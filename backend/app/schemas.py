@@ -129,6 +129,37 @@ class SessionStateResponse(Schema):
             "단위만 다르고 원점은 이 값을 쓴다. startedAt 과는 다른 값이다."
         ),
     )
+    consent: "ConsentResponse | None" = Field(
+        default=None,
+        description=(
+            "지원자가 녹화 · 전사 · 분석에 동의한 기록. 아직 안 받았으면 null 이고, "
+            "그 상태에서는 지원자가 입장하지 못한다 (CONSENT_REQUIRED). 면접관 화면이 "
+            "동의 여부를 이 값으로 표시한다."
+        ),
+    )
+
+
+class ConsentRequest(Schema):
+    """`POST /sessions/{sessionId}/consent` — 지원자 동의 (#245).
+
+    지원자에게 **실제로 보여 준** 문구의 판을 같이 받는다. 시각만 남기면 나중에
+    무엇에 동의받았는지 답할 수 없다. 값은 화면이 쓴 문자열 그대로 보관한다 —
+    서버가 판을 정해 버리면 FE 보다 먼저 배포됐을 때 멀쩡한 지원자가 막힌다.
+    """
+
+    version: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[\w.\-]+$",
+        description="보여 준 동의 문구의 판. 예: `2026-10-30`",
+    )
+
+
+class ConsentResponse(Schema):
+    agreed_at: datetime = Field(
+        serialization_alias="agreedAt", description="먼저 받은 동의의 시각"
+    )
+    version: str
 
 
 class StartSessionResponse(Schema):
