@@ -18,6 +18,8 @@ export interface ReviewStatusBarProps {
   reviewedAt: string | null;
   /** 아직 채택도 반려도 안 한 검토 항목 수 */
   openFindings: number;
+  /** 검토 항목을 만들지 못했으면 「모두 판단했습니다」가 거짓이라 숨긴다 (#244) */
+  findingsFailed: boolean;
   onSaved: (saved: Pick<ReviewUpdateResponse, 'reviewStatus' | 'reviewedAt'>) => void;
 }
 
@@ -26,6 +28,7 @@ export function ReviewStatusBar({
   reviewStatus,
   reviewedAt,
   openFindings,
+  findingsFailed,
   onSaved,
 }: ReviewStatusBarProps) {
   const [saving, setSaving] = useState(false);
@@ -70,7 +73,9 @@ export function ReviewStatusBar({
               <span className="text-warning font-semibold">{openFindings}건</span>
             </span>
           ) : (
-            <span className="text-ink-muted">검토 항목을 모두 판단했습니다.</span>
+            !findingsFailed && (
+              <span className="text-ink-muted">검토 항목을 모두 판단했습니다.</span>
+            )
           )}
         </p>
 

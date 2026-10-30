@@ -323,6 +323,7 @@ export default function ReviewTimelinePage() {
             <Findings
               coverage={review.coverage}
               findings={review.findings}
+              findingsStatus={review.findingsStatus}
               onMark={(id, state) => mark(id, { state })}
               onSeek={seekTo}
             />
@@ -343,6 +344,7 @@ export default function ReviewTimelinePage() {
         reviewStatus={review.reviewStatus}
         reviewedAt={review.reviewedAt}
         openFindings={openFindings}
+        findingsFailed={review.findingsStatus === 'FAILED'}
         onSaved={patchReview}
       />
     </div>
