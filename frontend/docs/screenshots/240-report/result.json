@@ -1,0 +1,11 @@
+{
+  "sessionStatus": "ENDED",
+  "consentStored": true,
+  "reviewStatus": "CONFIRMED",
+  "reportStatus": "READY",
+  "memoMatches": true,
+  "providers": "fixed prep/transcript/review/question inputs; extractive report",
+  "prepFixtureNote": "empty PREP output first produced NO_EVIDENCE; fixed PREP input then actual API generation request reached READY",
+  "media": "synthetic tracks over actual LiveKit",
+  "services": "actual HTTP/WS/PostgreSQL/RTC"
+}
