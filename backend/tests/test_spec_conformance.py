@@ -109,6 +109,9 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
             "startedAt",
             "endedAt",
             "transcriptOriginAt",
+            # ⚠️ Notion 명세에 없다 (#245). 면접관 화면이 지원자 동의 여부를 이 값으로
+            # 표시한다. 아직 안 받았으면 null 이다.
+            "consent",
         },
         "statuses": {"200", "404"},
     },
@@ -116,7 +119,18 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
         "path_params": ["sessionId"],
         "request": {"role"},
         "response": {"sessionId", "candidateName", "livekitUrl", "token", "roomName"},
+        # 403 은 둘이다 — 남의 면접에 면접관으로 들어오려 할 때(ROLE_NOT_ALLOWED)와
+        # 지원자가 아직 동의하지 않았을 때(CONSENT_REQUIRED, #245).
         "statuses": {"200", "401", "403", "404", "409"},
+    },
+    # ⚠️ Notion 명세에 없다 (#245). 지원자가 녹화 · 전사 · 분석에 동의했음을 남긴다.
+    # 지원자는 로그인하지 않으므로 입장과 같이 열어 둔다 — 초대 링크를 아는 사람만
+    # 부를 수 있다. 여러 번 불러도 먼저 받은 동의가 그대로 남는다.
+    ("post", "/api/v1/sessions/{sessionId}/consent"): {
+        "path_params": ["sessionId"],
+        "request": {"version"},
+        "response": {"agreedAt", "version"},
+        "statuses": {"200", "404", "409", "422"},
     },
     ("post", "/api/v1/sessions/{sessionId}/start"): {
         "path_params": ["sessionId"],
@@ -206,6 +220,8 @@ ERROR_CODE = {
     "SESSION_ENDED",
     "INVALID_SESSION_STATE",
     "ROOM_FULL",
+    # ⚠️ Notion 명세에 없다 (#245). 지원자가 아직 동의하지 않아 입장을 막았다.
+    "CONSENT_REQUIRED",
     "UNAUTHORIZED",
     "ROLE_NOT_ALLOWED",
     "KAKAO_AUTH_FAILED",
