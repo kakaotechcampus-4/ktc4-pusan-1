@@ -64,6 +64,19 @@ class Store(Protocol):
         """
         ...
 
+    def delete_interview(self, interview_id: str) -> list[str] | None:
+        """면접과 딸린 것 전부를 지우고 **지운 세션 id** 를 돌려준다 (#246).
+
+        세션 · 전사 · 분석 · 요약 · 채택 기록 · 이력서 · 녹화 행이 같이 간다.
+        되돌리기는 없다. 세션 id 를 주는 것은 녹화 파일만 DB 밖(S3)에 있어서다 —
+        라우터가 이것으로 `rec/{session_id}/` 를 지운다.
+
+        지우지 않았으면 None 이다. 없는 면접, 진행 중(INTERVIEWING)인 세션이 있는
+        면접, 녹화를 아직 합치는 중(PROCESSING)인 면접이 그렇다. 뒤 둘은 지운
+        뒤에도 S3 에 파일이 더 올라와, 주인 없는 녹화가 남는다.
+        """
+        ...
+
     def last_ended_session(self, interview_id: str) -> Session | None:
         """그 면접에서 가장 나중에 끝난 세션. 검토 화면의 기준 세션이다 (#163).
 
@@ -432,6 +445,37 @@ class InMemoryStore:
             return None
         stored.update_review(status, memo)
         return deepcopy(stored)
+
+    def delete_interview(self, interview_id: str) -> list[str] | None:
+        """`Store.delete_interview`. DB 의 ON DELETE CASCADE 를 손으로 흉내 낸다."""
+        if interview_id not in self._interviews:
+            return None
+
+        sessions = [
+            s.id for s in self._sessions.values() if s.interview_id == interview_id
+        ]
+        for session_id in sessions:
+            if self._sessions[session_id].status is SessionStatus.INTERVIEWING:
+                return None
+            recording = self._recordings.get(session_id)
+            if recording is not None and recording.status is SummaryStatus.PROCESSING:
+                return None
+
+        del self._interviews[interview_id]
+        self._resumes.pop(interview_id, None)
+        self._texts.pop(interview_id, None)
+        self._preps.pop(interview_id, None)
+        for session_id in sessions:
+            del self._sessions[session_id]
+            self._summaries.pop(session_id, None)
+            self._recordings.pop(session_id, None)
+            for mark_key in [k for k in self._marks if k[0] == session_id]:
+                del self._marks[mark_key]
+            for utterance_key in [k for k in self._utterances if k[0] == session_id]:
+                del self._utterances[utterance_key]
+            for suggestion_key in [k for k in self._suggestions if k[0] == session_id]:
+                del self._suggestions[suggestion_key]
+        return sessions
 
     def last_ended_session(self, interview_id: str) -> Session | None:
         ended = [
