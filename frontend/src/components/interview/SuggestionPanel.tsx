@@ -55,6 +55,10 @@ export function SuggestionPanel() {
               key={s.id}
               type="button"
               onClick={() => togglePin(s.id)}
+              // 고정하려고 눌렀을 때 메모에서 커서가 빠지지 않게 한다 (#219). 포커스는
+              // mousedown 에서 넘어가므로 그 기본 동작만 막으면 클릭은 그대로 일어나고
+              // 캐럿 위치와 선택도 남는다. 마우스에만 적용되어 Tab 으로는 여전히 온다.
+              onMouseDown={(e) => e.preventDefault()}
               aria-pressed={s.pinned}
               className={`flex animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition ${
                 s.pinned

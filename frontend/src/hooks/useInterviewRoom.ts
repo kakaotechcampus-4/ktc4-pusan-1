@@ -61,6 +61,9 @@ export function useInterviewRoom({
 }: UseInterviewRoomOptions) {
   const roomRef = useRef<LiveKitRoom | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 초대 링크에는 sessionId 만 있다. 면접 단위 API(메모 저장 등)를 부르려면 상태 조회로
+  // 받은 interviewId 가 필요하다 — 그래서 접속한 뒤에야 알 수 있다.
+  const [interviewId, setInterviewId] = useState<string | null>(null);
   // 지원자 동의 기록 (#245). 면접관 화면이 이것으로 동의 여부를 표시한다.
   // 면접관이 먼저 들어와 있으면 그 시점엔 비어 있다 — 지원자가 들어올 때 다시 본다.
   const [consent, setConsent] = useState<Consent | null>(null);
@@ -215,6 +218,7 @@ export function useInterviewRoom({
         // 새 면접만 시작한다. 재입장은 INTERVIEWING을 유지하며 시작 시각을 덮지 않는다.
         const state = await getSessionState(sessionId);
         if (cancelled) return;
+        setInterviewId(state.interviewId);
         if (role === 'INTERVIEWER') setConsent(state.consent);
         // join 토큰을 받은 뒤 종료된 방에 늦게 붙었으면 다시 트랙을 발행하지 않는다.
         if (state.status === 'ENDED') throw new ApiError('SESSION_ENDED', 409);
@@ -318,5 +322,5 @@ export function useInterviewRoom({
 
   // roomRef.current 를 렌더 중에 읽으면 연결 이후 값이 갱신되지 않는다.
   // ref 자체를 넘겨 이벤트 핸들러·이펙트 안에서 읽게 한다.
-  return { roomRef, error, leave, consent };
+  return { roomRef, error, leave, interviewId, consent };
 }
