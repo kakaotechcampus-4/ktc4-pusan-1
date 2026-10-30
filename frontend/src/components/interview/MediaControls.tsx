@@ -18,7 +18,7 @@ export function MediaControls({
   return (
     <div className="group absolute inset-x-0 bottom-0 z-20 flex justify-center px-3 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div
-        className="glass interview-readable flex max-w-full flex-wrap justify-center gap-2 rounded-2xl p-2 transition-opacity md:opacity-70 md:group-hover:opacity-100 md:focus-within:opacity-100"
+        className="glass interview-readable flex max-w-full flex-wrap justify-center gap-2 rounded-2xl p-2"
         role="group"
         aria-label="통화 조작"
       >

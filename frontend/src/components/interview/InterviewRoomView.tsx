@@ -223,7 +223,7 @@ export function InterviewRoomView({
               <LocalPreview
                 videoTrack={localVideoTrack ?? null}
                 audioTrack={localAudioTrack ?? null}
-                className="aspect-video w-full rounded-2xl ring-1 ring-white/40"
+                className="aspect-video w-full rounded-2xl shadow-[0_12px_32px_rgba(6,8,20,.35)] ring-1 ring-white/40"
               />
             </div>
           )}
@@ -233,7 +233,7 @@ export function InterviewRoomView({
           <LocalPreview
             videoTrack={localVideoTrack ?? null}
             audioTrack={localAudioTrack ?? null}
-            className="aspect-video w-full rounded-2xl ring-1 ring-white/40"
+            className="aspect-video w-full rounded-2xl shadow-[0_12px_32px_rgba(6,8,20,.35)] ring-1 ring-white/40"
           />
         </div>
       ) : null}
