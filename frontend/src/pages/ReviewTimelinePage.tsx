@@ -30,6 +30,7 @@ import { ReviewNotes } from '../components/review/ReviewNotes';
 import { ReviewPlayer } from '../components/review/ReviewPlayer';
 import { ReviewStatusBar } from '../components/review/ReviewStatusBar';
 import { Timeline } from '../components/review/Timeline';
+import { ReportPanel } from '../components/review/ReportPanel';
 import { useRecordingPlayer } from '../hooks/useRecordingPlayer';
 import { FALLBACK_CANDIDATE } from '../lib/candidateName';
 import { Badge } from '../components/ui/Badge';
@@ -241,6 +242,10 @@ export default function ReviewTimelinePage() {
         </div>
         <Badge tone={STATUS_TONE[review.reviewStatus]}>{STATUS_LABEL[review.reviewStatus]}</Badge>
       </header>
+
+      <div className="mt-4">
+        <ReportPanel interviewId={interviewId!} compact />
+      </div>
 
       {/* 이 화면이 무엇을 하는 곳인지 먼저 적는다 — 시안의 첫 줄이다. */}
       <p className="text-ink-muted mt-3 text-[13px] leading-relaxed">
