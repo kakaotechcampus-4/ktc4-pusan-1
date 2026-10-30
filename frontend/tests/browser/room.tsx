@@ -93,9 +93,11 @@ export default function Fixture() {
     canvas.height = 540;
     const ctx = canvas.getContext('2d')!;
     const draw = () => {
-      ctx.fillStyle = role === 'CANDIDATE' ? '#f7f8fb' : '#25315c';
+      ctx.fillStyle =
+        role === 'CANDIDATE' ? (params.get('scene') === 'dark' ? '#0b0e1c' : '#f7f8fb') : '#25315c';
       ctx.fillRect(0, 0, 960, 540);
-      ctx.fillStyle = role === 'CANDIDATE' ? '#141826' : '#ffffff';
+      ctx.fillStyle =
+        role === 'CANDIDATE' && params.get('scene') !== 'dark' ? '#141826' : '#ffffff';
       ctx.font = '32px sans-serif';
       ctx.fillText(`${role} · local integration`, 45, 100);
       ctx.fillText(new Date().toISOString(), 45, 160);

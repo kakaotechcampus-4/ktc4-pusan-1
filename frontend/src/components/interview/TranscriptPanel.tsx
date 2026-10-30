@@ -34,7 +34,7 @@ export function TranscriptPanel() {
         onClick={toggleTranscript}
         onMouseDown={preserveMemoFocus}
         aria-expanded={transcriptOpen}
-        className="flex w-full shrink-0 items-center gap-2 px-4 py-2.5 text-left"
+        className="glass-dim flex w-full shrink-0 items-center gap-2 px-4 py-2.5 text-left"
       >
         <span className="h-2 w-2 animate-pulse rounded-full bg-[#ff5a63]" />
         <span className="text-ink text-[14px] font-semibold">실시간 자막</span>
@@ -60,7 +60,7 @@ export function TranscriptPanel() {
           )}
 
           {utterances.length === 0 && !transcriptDegraded && (
-            <p className="text-ink-dim px-1.5 text-[14px]">
+            <p className="glass-dim text-ink-dim px-1.5 text-[14px]">
               대화가 시작되면 여기에 자막이 올라옵니다.
             </p>
           )}
@@ -76,7 +76,7 @@ export function TranscriptPanel() {
               // 길어지는 것(중간 결과 → 확정)은 다시 떠오르지 않는다.
               <div
                 key={u.id}
-                className={`flex animate-[caption-in_.35s_ease-out] items-baseline gap-2 rounded-xl border-l-2 py-1.5 pr-2 pl-2.5 ${
+                className={`${latest ? '' : 'glass-dim'} flex animate-[caption-in_.35s_ease-out] items-baseline gap-2 rounded-xl border-l-2 py-1.5 pr-2 pl-2.5 ${
                   latest ? `bg-surface-container ${st.border}` : 'border-transparent'
                 }`}
               >
