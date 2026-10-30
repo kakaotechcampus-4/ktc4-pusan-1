@@ -111,6 +111,17 @@ export interface StartSessionResponse {
   startedAt: string;
 }
 
+/**
+ * 지원자가 녹화 · 전사 · 분석에 동의한 기록 (#245).
+ *
+ * `version` 은 그때 **실제로 보여 준** 문구의 판이다(`lib/consent.ts`). 시각만
+ * 남기면 나중에 무엇에 동의받았는지 답할 수 없다.
+ */
+export interface Consent {
+  agreedAt: string;
+  version: string;
+}
+
 /** GET /api/v1/sessions/{sessionId} — 새로고침·재접속 시 상태 복구용 */
 export interface SessionState {
   sessionId: string;
@@ -119,6 +130,8 @@ export interface SessionState {
   status: SessionStatus;
   startedAt: string | null;
   endedAt: string | null;
+  /** 아직 동의를 안 받았으면 null. 그 상태에서는 지원자가 입장하지 못한다 */
+  consent: Consent | null;
 }
 
 /**
@@ -383,6 +396,13 @@ export interface JoinSessionResponse {
 export type JoinFailure =
   /** 존재하지 않는 세션 */
   | 'not-found'
+  /**
+   * 지원자가 아직 녹화 · 전사 · 분석에 동의하지 않았다 (#245).
+   *
+   * 화면 순서상 닿기 어렵다 — 동의 화면을 지나야 입장을 부른다. 동의 기록이
+   * 저장되지 않았는데 다음 화면으로 넘어간 경우라 다시 동의를 받아야 한다.
+   */
+  | 'consent-required'
   /** 로그인은 했지만 이 면접의 주인이 아니다 — 다시 시도해도 같다 (#150) */
   | 'not-allowed'
   /**

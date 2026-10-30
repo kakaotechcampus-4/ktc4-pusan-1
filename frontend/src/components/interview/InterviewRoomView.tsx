@@ -18,7 +18,7 @@
 import { ConnectionState } from 'livekit-client';
 import { useEffect, useState, type RefObject } from 'react';
 import { fmt } from '../../lib/format';
-import type { Role } from '../../types/interview';
+import type { Consent, Role } from '../../types/interview';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { Logo } from '../ui/Logo';
 import { LocalPreview } from './LocalPreview';
@@ -29,6 +29,13 @@ import { TranscriptPanel } from './TranscriptPanel';
 export interface InterviewRoomViewProps {
   /** 내 역할. 화면에 무엇을 얹을지 결정한다 */
   role: Role;
+  /**
+   * 지원자 동의 기록 (#245). 면접관에게만 쓴다.
+   *
+   * 지원자가 들어오기 전에는 비어 있다 — 동의해야 들어올 수 있으므로 들어온 뒤에는
+   * 반드시 찬다. 비어 있는 것을 「거부했다」로 읽으면 안 된다.
+   */
+  consent?: Consent | null;
   /** 상대 이름. 면접관에겐 지원자 이름, 지원자에겐 면접관 이름이다 */
   remoteName: string;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -51,6 +58,7 @@ export interface InterviewRoomViewProps {
 
 export function InterviewRoomView({
   role,
+  consent,
   remoteName,
   videoRef,
   audioRef,
@@ -161,6 +169,10 @@ export function InterviewRoomView({
           </span>
         </div>
 
+        {/* 지원자가 녹화 · 전사에 동의했는지. 면접관만 본다 (#245).
+            흐리지 않는다 — 녹화 중인 면접에서 이건 늘 보여야 하는 사실이다. */}
+        {isInterviewer && <ConsentBadge consent={consent ?? null} />}
+
         {/* 진행 중 표시는 흐리지 않는다 — 녹화 · 통화 중인지는 늘 보여야 한다 */}
         {live && (
           <span className="bg-danger-tint text-danger inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold">
@@ -244,5 +256,33 @@ export function InterviewRoomView({
         </div>
       )}
     </div>
+  );
+}
+
+/** 동의 여부 한 칸. 받기 전에는 「기다리는 중」이지 「거부」가 아니다. */
+function ConsentBadge({ consent }: { consent: Consent | null }) {
+  if (!consent) {
+    return (
+      <span className="bg-surface-bright text-ink-muted inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold">
+        <span aria-hidden className="material-symbols-outlined text-[16px]">
+          hourglass_empty
+        </span>
+        <span className="hidden sm:inline">동의 대기</span>
+      </span>
+    );
+  }
+  // 언제 · 어떤 문구에 동의했는지는 막대를 좁히지 않도록 툴팁에 둔다.
+  const at = new Date(consent.agreedAt);
+  const when = Number.isNaN(at.getTime()) ? consent.agreedAt : at.toLocaleString('ko-KR');
+  return (
+    <span
+      title={`${when} · 문구 ${consent.version}`}
+      className="bg-accent-tint text-accent-strong inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold"
+    >
+      <span aria-hidden className="material-symbols-outlined text-[16px]">
+        verified_user
+      </span>
+      <span className="hidden sm:inline">동의 받음</span>
+    </span>
   );
 }

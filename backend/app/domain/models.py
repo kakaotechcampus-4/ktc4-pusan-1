@@ -162,6 +162,14 @@ class Session:
     #: 뜻이라 면접 후 분석을 이때 내준다. 새 연결이 붙으면 비운다 — 1012(교체) ·
     #: 네트워크 끊김은 아직 보낼 발화가 남았을 수 있어 채우지 않는다.
     transcript_closed_at: datetime | None = None
+    #: 지원자가 녹화 · 전사 · 분석에 동의한 시각 (#245). 비어 있으면 아직 안 받았다.
+    #:
+    #: 세션에 둔다 — 동의는 「이 면접을 녹화해도 되는가」라서 면접 한 번이 단위다.
+    #: 다시 들어와도 묻지 않고, 면접을 새로 만들면 다시 묻는다.
+    consent_at: datetime | None = None
+    #: 동의받은 문구의 판 (`CONSENT_VERSION`). 문구가 바뀌면 값이 달라지므로
+    #: 나중에 **무엇에 동의했는지**를 답할 수 있다. 시각만 남기면 그걸 못 한다.
+    consent_version: str = ""
 
     @property
     def room_name(self) -> str:

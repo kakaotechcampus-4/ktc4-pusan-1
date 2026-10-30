@@ -33,6 +33,44 @@
         "title": "Body_upload_resume_api_v1_interviews__interviewId__resume_post",
         "type": "object"
       },
+      "ConsentRequest": {
+        "description": "`POST /sessions/{sessionId}/consent` — 지원자 동의 (#245).\n\n지원자에게 **실제로 보여 준** 문구의 판을 같이 받는다. 시각만 남기면 나중에\n무엇에 동의받았는지 답할 수 없다. 값은 화면이 쓴 문자열 그대로 보관한다 —\n서버가 판을 정해 버리면 FE 보다 먼저 배포됐을 때 멀쩡한 지원자가 막힌다.",
+        "properties": {
+          "version": {
+            "description": "보여 준 동의 문구의 판. 예: `2026-10-30`",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[\\w.\\-]+$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "ConsentRequest",
+        "type": "object"
+      },
+      "ConsentResponse": {
+        "properties": {
+          "agreedAt": {
+            "description": "먼저 받은 동의의 시각",
+            "format": "date-time",
+            "title": "Agreedat",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agreedAt",
+          "version"
+        ],
+        "title": "ConsentResponse",
+        "type": "object"
+      },
       "ContextDocResponse": {
         "description": "FE 의 `ContextDoc` 과 같은 모양.\n\n`progress` 는 내보내지 않는다 — 업로드 진행률은 클라이언트만 아는 값이다.",
         "properties": {
@@ -259,6 +297,7 @@
           "SESSION_ENDED",
           "INVALID_SESSION_STATE",
           "ROOM_FULL",
+          "CONSENT_REQUIRED",
           "UNAUTHORIZED",
           "ROLE_NOT_ALLOWED",
           "KAKAO_AUTH_FAILED",
@@ -1167,6 +1206,17 @@
               }
             ],
             "title": "Candidatename"
+          },
+          "consent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsentResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "지원자가 녹화 · 전사 · 분석에 동의한 기록. 아직 안 받았으면 null 이고, 그 상태에서는 지원자가 입장하지 못한다 (CONSENT_REQUIRED). 면접관 화면이 동의 여부를 이 값으로 표시한다."
           },
           "endedAt": {
             "anyOf": [
@@ -2714,6 +2764,79 @@
         ]
       }
     },
+    "/api/v1/sessions/{sessionId}/consent": {
+      "post": {
+        "description": "지원자가 녹화 · 전사 · 분석에 동의했음을 기록한다 (#245).\n\n지원자는 로그인하지 않는다. 그래서 입장(`join`)과 같이 열어 둔다 — 초대 링크의\nsessionId 를 아는 사람만 부를 수 있다.\n\n**여러 번 불러도 된다.** 먼저 받은 동의가 그대로 남고 그 기록을 돌려준다.\n재입장 때도 동의 화면을 지나가므로 실제로 여러 번 온다. 덮어쓰면 「언제 무엇에\n동의받았는가」가 뒤에 온 요청으로 바뀐다.",
+        "operationId": "agree_consent_api_v1_sessions__sessionId__consent_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "title": "Sessionid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Session을 찾을 수 없음"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "이미 종료된 Session"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "지원자 동의 기록",
+        "tags": [
+          "세션"
+        ]
+      }
+    },
     "/api/v1/sessions/{sessionId}/end": {
       "post": {
         "description": "Session 을 종료 상태로 변경하고 종료 시각을 기록한다.\n\n참가자 disconnect 와 면접 종료는 별개다 — 참가자가 나가도 Session 은 살아 있고\n이 API 를 불러야 종료된다. 반대로 여기서는 LiveKit Room 을 닫아\n남아 있는 참가자를 끊는다.",
@@ -2861,7 +2984,7 @@
                 }
               }
             },
-            "description": "면접관으로 입장하는데 이 면접의 주인이 아님"
+            "description": "지원자가 아직 녹화 · 전사 · 분석에 동의하지 않음"
           },
           "404": {
             "content": {
