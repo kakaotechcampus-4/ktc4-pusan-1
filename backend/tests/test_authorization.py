@@ -27,6 +27,8 @@ OWNER_ONLY = [
     ("get", "/interviews/{interview}"),
     ("post", "/interviews/{interview}/sessions"),
     ("get", "/interviews/{interview}/review"),
+    ("post", "/interviews/{interview}/report"),
+    ("get", "/interviews/{interview}/report"),
     ("patch", "/interviews/{interview}"),
     ("delete", "/interviews/{interview}"),
     ("put", "/interviews/{interview}/review/marks/fnd_x"),
@@ -67,6 +69,8 @@ def test_owner_only_routes_need_login(
         ("get", "/interviews/{interview}", ErrorCode.INTERVIEW_NOT_FOUND),
         ("post", "/interviews/{interview}/sessions", ErrorCode.INTERVIEW_NOT_FOUND),
         ("get", "/interviews/{interview}/review", ErrorCode.INTERVIEW_NOT_FOUND),
+        ("post", "/interviews/{interview}/report", ErrorCode.INTERVIEW_NOT_FOUND),
+        ("get", "/interviews/{interview}/report", ErrorCode.INTERVIEW_NOT_FOUND),
         ("patch", "/interviews/{interview}", ErrorCode.INTERVIEW_NOT_FOUND),
         ("delete", "/interviews/{interview}", ErrorCode.INTERVIEW_NOT_FOUND),
         (

@@ -61,12 +61,13 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-4 이다. 경로 변수 순서가 뒤집혀 보이는
     # 건 FastAPI 가 라우트 자신의 것(itemId)을 의존성의 것(interviewId)보다 먼저
-    # 싣기 때문이다 — 문서 순서일 뿐 호출에는 상관없다.
+    # 싣기 때문이다 — 문서 순서일 뿐 호출에는 상관없다. 409 는 확정한 검토의
+    # 채택을 막는 것이다 (#247).
     ("put", "/api/v1/interviews/{interviewId}/review/marks/{itemId}"): {
         "path_params": ["itemId", "interviewId"],
         "request": {"state", "bookmarked"},
         "response": {"itemId", "state", "bookmarked"},
-        "statuses": {"200", "401", "404"},
+        "statuses": {"200", "401", "404", "409"},
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-2 이고, 녹화 대신 sessionId 를 싣는다
     # (#163). 준비 전에는 202 { status, etaSec } 다.
@@ -91,6 +92,34 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
             # 검토 항목 생성 결과 — 실패와 빈 목록을 가른다 (#244).
             "findingsStatus",
             # FAILED 의 까닭 — 요약할 대화가 없었으면 NO_TRANSCRIPT.
+            "failureReason",
+        },
+        "statuses": {"200", "202", "401", "404"},
+    },
+    # ⚠️ Notion 명세에 없다. #238 이슈 본문이 계약이다. 만드는 중에는 검토와 같은
+    # 202 { status, etaSec } 를 쓴다.
+    ("post", "/api/v1/interviews/{interviewId}/report"): {
+        "path_params": ["interviewId"],
+        "response": {"status", "etaSec"},
+        # 409 셋: 검토 미확정 · 채택한 근거 0개 · 이미 만들고 있음.
+        "statuses": {"202", "401", "404", "409"},
+    },
+    ("get", "/api/v1/interviews/{interviewId}/report"): {
+        "path_params": ["interviewId"],
+        "response": {
+            "status",
+            "interviewId",
+            "sessionId",
+            "generatedAt",
+            "reviewStatus",
+            "candidate",
+            "interviewer",
+            "interviewedAt",
+            # 면접관 메모는 AI 입력에서만 빠지고 응답에는 들어간다.
+            "memo",
+            "overview",
+            "competencies",
+            # FAILED 의 까닭 — 채택한 근거로 쓸 문장이 없었으면 NO_EVIDENCE.
             "failureReason",
         },
         "statuses": {"200", "202", "401", "404"},
@@ -225,6 +254,7 @@ ERROR_CODE = {
     "INTERNAL_ERROR",
     "INTERVIEW_NOT_FOUND",
     "SESSION_NOT_FOUND",
+    "REPORT_NOT_FOUND",
     "SESSION_ENDED",
     "INVALID_SESSION_STATE",
     "ROOM_FULL",

@@ -294,6 +294,7 @@
           "INTERNAL_ERROR",
           "INTERVIEW_NOT_FOUND",
           "SESSION_NOT_FOUND",
+          "REPORT_NOT_FOUND",
           "SESSION_ENDED",
           "INVALID_SESSION_STATE",
           "ROOM_FULL",
@@ -721,6 +722,240 @@
           "durationSec"
         ],
         "title": "RecordingResponse",
+        "type": "object"
+      },
+      "ReportCompetency": {
+        "description": "역량 하나의 카드. JD 역량 수만큼 나가고 순서도 JD 순서다.\n\n`state` 가 MISSING 이면 `confirmed` · `unconfirmed` 가 빈 배열이다 — 이번\n면접에서 다루지 않은 역량이라 적을 근거가 없다. `nextQuestions` 는 남는다.",
+        "properties": {
+          "confirmed": {
+            "description": "확인된 점",
+            "items": {
+              "$ref": "#/components/schemas/ReportStatement"
+            },
+            "title": "Confirmed",
+            "type": "array"
+          },
+          "name": {
+            "description": "역량 이름",
+            "title": "Name",
+            "type": "string"
+          },
+          "nextQuestions": {
+            "description": "다음에 물어볼 것. 이 카드의 결론이고 근거가 붙지 않는다.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Nextquestions",
+            "type": "array"
+          },
+          "required": {
+            "description": "필수 역량인가. JD 에 없으면 true 로 본다.",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CoverageState",
+            "description": "채택한 근거만으로 센 상태"
+          },
+          "unconfirmed": {
+            "description": "확인되지 않은 점",
+            "items": {
+              "$ref": "#/components/schemas/ReportStatement"
+            },
+            "title": "Unconfirmed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "required",
+          "state",
+          "confirmed",
+          "unconfirmed",
+          "nextQuestions"
+        ],
+        "title": "ReportCompetency",
+        "type": "object"
+      },
+      "ReportResponse": {
+        "description": "면접 리포트 (#238) — 면접에 없던 사람에게 넘기는 인계 문서.\n\n점수 · 합격 여부 · 집계는 없다. 판단은 면접관이 하고 리포트는 근거 정리다.\n\n`status` 가 FAILED 면 `overview` 는 빈 문자열, `competencies` 는 빈 배열이고\n`failureReason` 만 찬다. 머리(지원자 · 면접관 · 메모)는 그대로 나간다 —\n실패 화면에서도 「누구의 어떤 면접인가」는 읽혀야 한다.",
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/ReviewCandidate"
+          },
+          "competencies": {
+            "description": "JD 역량 순서",
+            "items": {
+              "$ref": "#/components/schemas/ReportCompetency"
+            },
+            "title": "Competencies",
+            "type": "array"
+          },
+          "failureReason": {
+            "anyOf": [
+              {
+                "const": "NO_EVIDENCE",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "리포트를 못 만든 까닭 중 면접관에게 다르게 말해야 하는 것. 채택한 근거로 쓸 게 없었으면 NO_EVIDENCE 다. 그 밖의 실패(시간 초과 · 분석 실패)는 null 이고, 면접관이 다시 누르면 다시 만든다.",
+            "title": "Failurereason"
+          },
+          "generatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "리포트가 끝난 시각",
+            "title": "Generatedat"
+          },
+          "interviewId": {
+            "title": "Interviewid",
+            "type": "string"
+          },
+          "interviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interviewedat"
+          },
+          "interviewer": {
+            "$ref": "#/components/schemas/InterviewerSummary",
+            "description": "누구의 판단인지 (인계의 핵심)"
+          },
+          "memo": {
+            "description": "면접관 메모. 리포트 맨 위 칸이라 AI 입력에서만 빼고 응답엔 넣는다.",
+            "title": "Memo",
+            "type": "string"
+          },
+          "overview": {
+            "description": "한 문단 개요. FAILED 면 빈 문자열.",
+            "title": "Overview",
+            "type": "string"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus",
+            "description": "항상 CONFIRMED — 확정 전에는 만들지 않는다."
+          },
+          "sessionId": {
+            "description": "리포트를 만든 기준 세션. 근거 시각의 원점이다.",
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "interviewId",
+          "sessionId",
+          "generatedAt",
+          "reviewStatus",
+          "candidate",
+          "interviewer",
+          "interviewedAt",
+          "memo",
+          "overview",
+          "competencies"
+        ],
+        "title": "ReportResponse",
+        "type": "object"
+      },
+      "ReportStatement": {
+        "description": "리포트 문장 하나. 근거 없는 문장은 리포트에 넣지 않는다.\n\n`text` 는 AI 가 쓴 한 줄이고 나머지는 BE 가 `findingId` 로 붙인 근거다 (#163).\n`quote` 는 지원서 문장, `transcript` 는 면접 발화 — 둘은 다른 것이고 둘 다\n없을 수 있다. `alias` 로 적는다 — 계산 결과(camelCase dict)를 그대로 받아\n그대로 낸다.",
+        "properties": {
+          "atSec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "전사 원점 기준 경과 초. 기록 화면 이동에 쓴다.",
+            "title": "Atsec"
+          },
+          "findingId": {
+            "description": "면접관이 채택한 검토 항목",
+            "title": "Findingid",
+            "type": "string"
+          },
+          "findingType": {
+            "$ref": "#/components/schemas/FindingType"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "지원서의 문장",
+            "title": "Quote"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "「지원서 · 단락」 또는 「면접 답변」",
+            "title": "Source"
+          },
+          "text": {
+            "description": "AI 가 쓴 한 줄. 판단·추천이 아니라 정리다.",
+            "title": "Text",
+            "type": "string"
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "근거가 된 면접 발화",
+            "title": "Transcript"
+          }
+        },
+        "required": [
+          "text",
+          "findingId",
+          "findingType",
+          "source",
+          "quote",
+          "transcript",
+          "atSec"
+        ],
+        "title": "ReportStatement",
         "type": "object"
       },
       "ReviewCandidate": {
@@ -2434,6 +2669,170 @@
         ]
       }
     },
+    "/api/v1/interviews/{interviewId}/report": {
+      "get": {
+        "description": "면접 리포트 (#238) — 면접에 없던 사람에게 넘기는 인계 문서.\n\n아직 만든 적이 없으면 404 다(`REPORT_NOT_FOUND`). 없는 면접 · 남의 면접도 404\n이지만 코드가 다르다 — FE 가 「리포트 만들기」를 보일지 「면접이 없습니다」를\n보일지 가른다.\n\n만드는 중이면 202 다. 한도를 넘겼으면 그 자리에서 FAILED 로 접는다 — 아무도\n기다려 주지 않아도 화면은 끝나야 한다(요약 · 면접 전 분석과 같은 판정).\n\n**실패해도 200 이다.** 머리(지원자 · 면접관 · 메모)는 그대로 내보낸다. 실패\n화면에서도 「누구의 어떤 면접인가」는 읽혀야 하고, 거기서 다시 만들 수 있다.\n\n역량 카드는 BE 가 붙인다. AI 는 문장과 `findingId` 만 보냈고(#163) 이름 · 필수\n여부 · 상태 · 지원서 문장 · 면접 발화 · 시각은 검토 화면과 같은 함수를 지난다.",
+        "operationId": "get_report_api_v1_interviews__interviewId__report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewProcessingResponse"
+                }
+              }
+            },
+            "description": "만드는 중"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접이 없거나(남의 면접 포함) 리포트가 아직 없음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "면접 리포트 조회",
+        "tags": [
+          "면접"
+        ]
+      },
+      "post": {
+        "description": "면접 리포트를 만들기 시작한다 (#238). 만드는 일은 AI 가 한다.\n\n**면접 하나에 리포트 하나다.** 다시 누르면 앞의 것을 덮는다 — 검토를 확정하면\n채택이 더 바뀌지 않으니(#247) 버전을 남길 이유가 없다.\n\n세 가지를 미리 막는다. 셋 다 409 이고 `ErrorCode` 에는 넣지 않는다 — 리포트\n화면 하나에서만 뜻이 있는 상태다(`PREP_OUTDATED` 와 같은 결).\n\n1. 검토가 확정되지 않았다 — 리포트는 확정된 판단을 넘기는 문서다\n2. 채택한 근거가 0개다 — 쓸 근거가 없으면 리포트도 없다\n3. 이미 만들고 있다 — 한도(`report_timeout`)를 넘기면 다시 누를 수 있다",
+        "operationId": "post_report_api_v1_interviews__interviewId__report_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interviewId",
+            "required": true,
+            "schema": {
+              "title": "Interviewid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewProcessingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "로그인이 필요함"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "면접을 찾을 수 없음 (남의 면접 포함)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "검토 미확정 · 채택한 근거 0개 · 이미 만들고 있음"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "면접 리포트 생성 요청",
+        "tags": [
+          "면접"
+        ]
+      }
+    },
     "/api/v1/interviews/{interviewId}/resume": {
       "post": {
         "description": "지원자 이력서를 올린다. **PDF 만 받는다.**\n\n**면접 한 건에 한 장이고 다시 올리면 덮어쓴다.** FE 가 목록도 삭제도 두지 않은\n것이 그 전제다(#81) — 새 이력서를 올리면 앞의 것은 쓸 일이 없다.\n\n응답은 기업 컨텍스트 문서와 같은 모양(`ContextDoc`)이다. FE 가 같은 카드\n컴포넌트로 그린다.\n\n본문은 기업 컨텍스트 문서와 같이 응답 뒤에 따로 뽑는다(#143). 응답은 `parsing`\n이다. 꼬리질문과 리포트가 이 본문을 쓴다(#70).",
@@ -2622,7 +3021,7 @@
     },
     "/api/v1/interviews/{interviewId}/review/marks/{itemId}": {
       "put": {
-        "description": "검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).\n\n`itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면\n404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 끝나기 전에는 표시할 것도 없다\n(#163 결정). 요약만 FAILED 여도 Agent 가 보낸 항목은 표시할 수 있다 (#164).\n문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중 하나」). 표시는 기준\n세션에 남는다.",
+        "description": "검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).\n\n`itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면\n404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 끝나기 전에는 표시할 것도 없다\n(#163 결정). 요약만 FAILED 여도 Agent 가 보낸 항목은 표시할 수 있다 (#164).\n문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중 하나」). 표시는 기준\n세션에 남는다. 검토를 확정한 뒤 채택 · 반려 · 되돌리기는 409 다 (#247).",
         "operationId": "put_mark_api_v1_interviews__interviewId__review_marks__itemId__put",
         "parameters": [
           {
@@ -2694,6 +3093,16 @@
               }
             },
             "description": "면접이 없거나 지금 상세에 그 항목이 없음"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "확정한 검토는 채택을 바꿀 수 없음"
           },
           "422": {
             "content": {

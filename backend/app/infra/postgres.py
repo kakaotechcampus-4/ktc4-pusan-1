@@ -28,6 +28,7 @@ from app.domain.models import (
     FindingState,
     Interview,
     InterviewPrep,
+    InterviewReport,
     Job,
     JobKind,
     Recording,
@@ -760,6 +761,194 @@ class PostgresStore:
             session_id=row["session_id"],
             interview_id=row["interview_id"],
             requested_at=row["requested_at"],
+        )
+
+    # ── 면접 리포트 (#238) ───────────────────────────────
+
+    def start_report(self, report: InterviewReport, limit: timedelta) -> bool:
+        """「이미 만들고 있는가」와 쓰기가 한 문장이다.
+
+        `ON CONFLICT` 의 `WHERE` 가 「PROCESSING 이고 한도 안」을 막는다. 거기 걸리면
+        0행이고, 그 밖에는 EXCLUDED 로 전부 덮는다 — 한 면접에 리포트는 하나다.
+
+        시각은 `expire_summary` 와 같은 이유로 앱이 찍는다.
+        """
+        moment = utcnow()
+        row = self._one(
+            """
+            INSERT INTO interview_report (
+                interview_id, session_id, status, overview, competencies,
+                failure_reason, model, requested_at, completed_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (interview_id) DO UPDATE SET
+                session_id = EXCLUDED.session_id,
+                status = EXCLUDED.status,
+                overview = EXCLUDED.overview,
+                competencies = EXCLUDED.competencies,
+                failure_reason = EXCLUDED.failure_reason,
+                model = EXCLUDED.model,
+                requested_at = EXCLUDED.requested_at,
+                completed_at = EXCLUDED.completed_at
+            WHERE NOT (
+                interview_report.status = %s
+                AND interview_report.requested_at >= %s
+            )
+         RETURNING interview_id
+            """,
+            (
+                report.interview_id,
+                report.session_id,
+                report.status.value,
+                report.overview,
+                Jsonb(report.competencies),
+                report.failure_reason,
+                report.model,
+                report.requested_at,
+                report.completed_at,
+                SummaryStatus.PROCESSING.value,
+                moment - limit,
+            ),
+        )
+        return row is not None
+
+    def get_report(self, interview_id: str) -> InterviewReport | None:
+        row = self._one(
+            """
+            SELECT interview_id, session_id, status, overview, competencies,
+                   failure_reason, model, requested_at, completed_at
+            FROM interview_report WHERE interview_id = %s
+            """,
+            (interview_id,),
+        )
+        if row is None:
+            return None
+        return self._to_report(row)
+
+    def finish_report(self, report: InterviewReport) -> bool:
+        """`finish_prep` 과 같다 — 요청 시각 대조와 「FAILED 는 READY 를 덮지
+        않는다」가 `WHERE` 안에 있다. session_id 는 건드리지 않는다: 리포트를 연
+        세션이 기준이고, 결과가 그 세션 것인지는 요청 시각이 가린다."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE interview_report
+                   SET status = %s,
+                       overview = %s,
+                       competencies = %s,
+                       failure_reason = %s,
+                       model = %s,
+                       completed_at = %s
+                 WHERE interview_id = %s
+                   AND requested_at = %s
+                   AND NOT (%s = %s AND status = %s)
+                """,
+                (
+                    report.status.value,
+                    report.overview,
+                    Jsonb(report.competencies),
+                    report.failure_reason,
+                    report.model,
+                    report.completed_at,
+                    report.interview_id,
+                    report.requested_at,
+                    report.status.value,
+                    SummaryStatus.FAILED.value,
+                    SummaryStatus.READY.value,
+                ),
+            )
+            return cursor.rowcount == 1
+
+    def expire_report(
+        self, interview_id: str, limit: timedelta
+    ) -> InterviewReport | None:
+        """`expire_summary` 와 같은 한 문장이다. 0행이면 지금 값을 읽어 돌려준다.
+
+        `failure_reason` 을 비운다 — 기다리다 못 만든 것은 근거가 없어서 못 만든 것과
+        다르다. `model` 은 건드리지 않는다: 아직 아무도 쓰지 않았다.
+        """
+        moment = utcnow()
+        row = self._one(
+            """
+            UPDATE interview_report
+               SET status = %s,
+                   overview = '',
+                   competencies = '[]'::jsonb,
+                   failure_reason = NULL,
+                   completed_at = %s
+             WHERE interview_id = %s
+               AND status = %s
+               AND requested_at < %s
+         RETURNING interview_id, session_id, status, overview, competencies,
+                   failure_reason, model, requested_at, completed_at
+            """,
+            (
+                SummaryStatus.FAILED.value,
+                moment,
+                interview_id,
+                SummaryStatus.PROCESSING.value,
+                moment - limit,
+            ),
+        )
+        if row is not None:
+            return self._to_report(row)
+        return self.get_report(interview_id)
+
+    def next_report(self, limit: timedelta) -> Job | None:
+        """만료 UPDATE 한 번, 고르는 SELECT 한 번이다. 시각은 앱이 찍는다.
+
+        세션은 행에 박힌 것을 그대로 싣는다 — 가장 최근 세션을 다시 고르지 않는다.
+        """
+        moment = utcnow()
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE interview_report
+                   SET status = %s,
+                       overview = '',
+                       competencies = '[]'::jsonb,
+                       failure_reason = NULL,
+                       completed_at = %s
+                 WHERE status = %s AND requested_at < %s
+                """,
+                (
+                    SummaryStatus.FAILED.value,
+                    moment,
+                    SummaryStatus.PROCESSING.value,
+                    moment - limit,
+                ),
+            )
+        row = self._one(
+            """
+            SELECT interview_id, session_id, requested_at
+            FROM interview_report
+            WHERE status = %s
+            ORDER BY requested_at
+            LIMIT 1
+            """,
+            (SummaryStatus.PROCESSING.value,),
+        )
+        if row is None:
+            return None
+        return Job(
+            kind=JobKind.REPORT,
+            session_id=row["session_id"],
+            interview_id=row["interview_id"],
+            requested_at=row["requested_at"],
+        )
+
+    @staticmethod
+    def _to_report(row: dict[str, Any]) -> InterviewReport:
+        return InterviewReport(
+            interview_id=row["interview_id"],
+            session_id=row["session_id"],
+            status=SummaryStatus(row["status"]),
+            overview=row["overview"],
+            competencies=list(row["competencies"]),
+            failure_reason=row["failure_reason"],
+            model=row["model"],
+            requested_at=row["requested_at"],
+            completed_at=row["completed_at"],
         )
 
     # ── 내부 ────────────────────────────────────────────────

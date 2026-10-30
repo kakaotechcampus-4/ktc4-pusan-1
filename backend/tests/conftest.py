@@ -263,3 +263,12 @@ def age(store: InMemoryStore, session_id: str, delta: timedelta) -> None:
     stored = store._summaries.get(session_id)  # pyright: ignore[reportPrivateUsage]
     assert stored is not None
     stored.requested_at -= delta
+
+
+def age_report(store: InMemoryStore, interview_id: str, delta: timedelta) -> None:
+    """리포트도 같은 이유로 기다린 것처럼 만든다 (#238)."""
+    # `finish_report` 가 `requested_at` 으로 요청을 대조하므로 저장소가 든 것을
+    # 직접 옮긴다. `age` 와 같은 테스트 전용 조작이라 나란히 둔다.
+    stored = store._reports.get(interview_id)  # pyright: ignore[reportPrivateUsage]
+    assert stored is not None
+    stored.requested_at -= delta
