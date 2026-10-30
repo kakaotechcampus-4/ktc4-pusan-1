@@ -153,7 +153,7 @@ class PostgresStore:
             """
             SELECT id, interview_id, status, created_at,
                    started_at, ended_at, transcript_origin_at,
-                   transcript_closed_at
+                   transcript_closed_at, consent_at, consent_version
             FROM session
             WHERE interview_id = %s AND ended_at IS NOT NULL
             ORDER BY ended_at DESC, id DESC
@@ -162,6 +162,46 @@ class PostgresStore:
             (interview_id,),
         )
         return None if row is None else self._to_session(row)
+
+    def delete_interview(self, interview_id: str) -> list[str] | None:
+        """한 트랜잭션에서 지운다. 딸린 행은 `schema.sql` 의 CASCADE 가 같이 지운다.
+
+        면접 행을 먼저 잠근다. 세션을 새로 넣을 때 FK 가 이 행의 KEY SHARE 를 잡으니,
+        `FOR UPDATE` 로 잠그면 확인과 삭제 사이에 세션이 새로 생길 수 없다.
+
+        세션 행도 같이 잠근다. 잠그지 않으면 「진행 중이 아니다」를 확인하고 지우는
+        사이에 면접이 시작돼, 녹화가 더 올라올 세션을 지울 수 있다. `OF s` 로
+        세션만 잠근다 — OUTER JOIN 의 바깥쪽(recording)은 잠글 수 없다.
+        """
+        conn: Connection[dict[str, Any]]
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT id FROM interview WHERE id = %s FOR UPDATE",
+                    (interview_id,),
+                )
+                if cur.fetchone() is None:  # 없는 면접
+                    return None
+
+                cur.execute(
+                    """
+                    SELECT s.id, s.status, r.status AS recording_status
+                    FROM session s
+                    LEFT JOIN recording r ON r.session_id = s.id
+                    WHERE s.interview_id = %s
+                    FOR NO KEY UPDATE OF s
+                    """,
+                    (interview_id,),
+                )
+                rows = cur.fetchall()
+                for row in rows:
+                    if row["status"] == SessionStatus.INTERVIEWING:
+                        return None
+                    if row["recording_status"] == SummaryStatus.PROCESSING:
+                        return None
+
+                cur.execute("DELETE FROM interview WHERE id = %s", (interview_id,))
+        return [row["id"] for row in rows]
 
     def list_interviews(
         self, interviewer_id: str
@@ -175,6 +215,8 @@ class PostgresStore:
                    s.started_at AS s_started_at, s.ended_at AS s_ended_at,
                    s.transcript_origin_at AS s_transcript_origin_at,
                    s.transcript_closed_at AS s_transcript_closed_at,
+                   s.consent_at AS s_consent_at,
+                   s.consent_version AS s_consent_version,
                    ss.status AS summary_status
             FROM interview i
             LEFT JOIN LATERAL (
@@ -203,6 +245,8 @@ class PostgresStore:
                     ended_at=row["s_ended_at"],
                     transcript_origin_at=row["s_transcript_origin_at"],
                     transcript_closed_at=row["s_transcript_closed_at"],
+                    consent_at=row["s_consent_at"],
+                    consent_version=row["s_consent_version"],
                 ),
                 None
                 if row["summary_status"] is None
@@ -220,9 +264,9 @@ class PostgresStore:
                 INSERT INTO session (
                     id, interview_id, status, created_at,
                     started_at, ended_at, transcript_origin_at,
-                    transcript_closed_at
+                    transcript_closed_at, consent_at, consent_version
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 self._session_values(session),
             )
@@ -232,7 +276,7 @@ class PostgresStore:
             """
             SELECT id, interview_id, status, created_at,
                    started_at, ended_at, transcript_origin_at,
-                   transcript_closed_at
+                   transcript_closed_at, consent_at, consent_version
             FROM session WHERE id = %s
             """,
             (session_id,),
@@ -250,6 +294,8 @@ class PostgresStore:
             ended_at=row["ended_at"],
             transcript_origin_at=row["transcript_origin_at"],
             transcript_closed_at=row["transcript_closed_at"],
+            consent_at=row["consent_at"],
+            consent_version=row["consent_version"],
         )
 
     @staticmethod
@@ -319,6 +365,19 @@ class PostgresStore:
                 "UPDATE session SET transcript_closed_at = %s WHERE id = %s",
                 (closed_at, session_id),
             )
+
+    def record_consent(self, session_id: str, at: datetime, version: str) -> bool:
+        """먼저 받은 동의만 남는다. 조건과 갱신이 한 문장이다 (#245)."""
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE session
+                   SET consent_at = %s, consent_version = %s
+                 WHERE id = %s AND consent_at IS NULL
+                """,
+                (at, version, session_id),
+            )
+            return cursor.rowcount == 1
 
     # ── 요약 ────────────────────────────────────────────────
 
@@ -920,6 +979,8 @@ class PostgresStore:
             session.ended_at,
             session.transcript_origin_at,
             session.transcript_closed_at,
+            session.consent_at,
+            session.consent_version,
         )
 
     # ── 녹화 ────────────────────────────────────────────

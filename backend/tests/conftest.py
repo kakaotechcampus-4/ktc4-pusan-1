@@ -213,6 +213,17 @@ def session_id(client: TestClient) -> str:
     return created.json()["sessionId"]
 
 
+@pytest.fixture
+def consented(client: TestClient, session_id: str) -> str:
+    """지원자 동의까지 받아 둔 세션 (#245).
+
+    동의가 없으면 지원자는 입장하지 못한다. 입장을 전제로 하는 시험은 이 픽스처를
+    쓴다 — `session_id` 는 일부러 동의 없이 둔다. 그래야 막히는 것도 시험할 수 있다.
+    """
+    client.post(f"/api/v1/sessions/{session_id}/consent", json={"version": "test"})
+    return session_id
+
+
 # ── 검토 화면 (#163) ─────────────────────────────────────
 
 #: 데모 시드와 같은 파일이다. 계산 규칙 · API · 시드 테스트가 같은 것을 읽는다.

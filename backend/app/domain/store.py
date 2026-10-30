@@ -66,6 +66,19 @@ class Store(Protocol):
         """
         ...
 
+    def delete_interview(self, interview_id: str) -> list[str] | None:
+        """면접과 딸린 것 전부를 지우고 **지운 세션 id** 를 돌려준다 (#246).
+
+        세션 · 전사 · 분석 · 요약 · 채택 기록 · 이력서 · 녹화 행이 같이 간다.
+        되돌리기는 없다. 세션 id 를 주는 것은 녹화 파일만 DB 밖(S3)에 있어서다 —
+        라우터가 이것으로 `rec/{session_id}/` 를 지운다.
+
+        지우지 않았으면 None 이다. 없는 면접, 진행 중(INTERVIEWING)인 세션이 있는
+        면접, 녹화를 아직 합치는 중(PROCESSING)인 면접이 그렇다. 뒤 둘은 지운
+        뒤에도 S3 에 파일이 더 올라와, 주인 없는 녹화가 남는다.
+        """
+        ...
+
     def last_ended_session(self, interview_id: str) -> Session | None:
         """그 면접에서 가장 나중에 끝난 세션. 검토 화면의 기준 세션이다 (#163).
 
@@ -90,6 +103,19 @@ class Store(Protocol):
 
         전사 원점(`transcript_origin_at`)은 쓰지 않는다 — `mark_origin` 만 쓴다.
         전사 종료(`transcript_closed_at`)도 쓰지 않는다 — `mark_transcript` 만 쓴다.
+        동의(`consent_at` · `consent_version`)도 쓰지 않는다 — `record_consent` 만 쓴다.
+        """
+        ...
+
+    def record_consent(self, session_id: str, at: datetime, version: str) -> bool:
+        """지원자 동의를 기록한다. **이미 있으면 덮지 않는다** (#245).
+
+        먼저 받은 동의가 남아야 한다 — 뒤에 온 요청으로 시각과 문구 판이 바뀌면
+        「언제 무엇에 동의받았는가」가 달라진다. 동의 화면은 재입장 때도 지나갈 수
+        있어 실제로 여러 번 온다.
+
+        `mark_origin` 과 같이 저장소가 한 문장으로 판단한다. 기록했으면 True,
+        세션이 없거나 이미 동의가 있으면 False — 둘 다 부른 쪽에서는 성공이다.
         """
         ...
 
@@ -491,6 +517,37 @@ class InMemoryStore:
         stored.update_review(status, memo)
         return deepcopy(stored)
 
+    def delete_interview(self, interview_id: str) -> list[str] | None:
+        """`Store.delete_interview`. DB 의 ON DELETE CASCADE 를 손으로 흉내 낸다."""
+        if interview_id not in self._interviews:
+            return None
+
+        sessions = [
+            s.id for s in self._sessions.values() if s.interview_id == interview_id
+        ]
+        for session_id in sessions:
+            if self._sessions[session_id].status is SessionStatus.INTERVIEWING:
+                return None
+            recording = self._recordings.get(session_id)
+            if recording is not None and recording.status is SummaryStatus.PROCESSING:
+                return None
+
+        del self._interviews[interview_id]
+        self._resumes.pop(interview_id, None)
+        self._texts.pop(interview_id, None)
+        self._preps.pop(interview_id, None)
+        for session_id in sessions:
+            del self._sessions[session_id]
+            self._summaries.pop(session_id, None)
+            self._recordings.pop(session_id, None)
+            for mark_key in [k for k in self._marks if k[0] == session_id]:
+                del self._marks[mark_key]
+            for utterance_key in [k for k in self._utterances if k[0] == session_id]:
+                del self._utterances[utterance_key]
+            for suggestion_key in [k for k in self._suggestions if k[0] == session_id]:
+                del self._suggestions[suggestion_key]
+        return sessions
+
     def last_ended_session(self, interview_id: str) -> Session | None:
         ended = [
             s
@@ -521,10 +578,12 @@ class InMemoryStore:
         if expected_status is not None and stored.status is not expected_status:
             return False
         saved = deepcopy(session)
-        # 원점은 mark_origin 만, 종료는 mark_transcript 만 쓴다. 들고 온 객체의
-        # 값이 낡았어도 덮어쓰지 않는다.
+        # 원점은 mark_origin 만, 종료는 mark_transcript 만, 동의는 record_consent 만
+        # 쓴다. 들고 온 객체의 값이 낡았어도 덮어쓰지 않는다.
         saved.transcript_origin_at = stored.transcript_origin_at
         saved.transcript_closed_at = stored.transcript_closed_at
+        saved.consent_at = stored.consent_at
+        saved.consent_version = stored.consent_version
         self._sessions[session.id] = saved
         return True
 
@@ -541,6 +600,14 @@ class InMemoryStore:
         if origin is not None and origin <= at:
             return False
         stored.transcript_origin_at = at
+        return True
+
+    def record_consent(self, session_id: str, at: datetime, version: str) -> bool:
+        stored = self._sessions.get(session_id)
+        if stored is None or stored.consent_at is not None:
+            return False
+        stored.consent_at = at
+        stored.consent_version = version
         return True
 
     # ── 기업 컨텍스트 ───────────────────────────────────
