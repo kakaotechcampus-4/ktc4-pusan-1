@@ -1,3 +1,4 @@
+import { preserveMemoFocus } from '../../lib/memoFocus';
 /**
  * 실시간 전사 — 시안의 LIVE SCRIPT 패널.
  *
@@ -31,6 +32,7 @@ export function TranscriptPanel() {
       <button
         type="button"
         onClick={toggleTranscript}
+        onMouseDown={preserveMemoFocus}
         aria-expanded={transcriptOpen}
         className="flex w-full shrink-0 items-center gap-2 px-4 py-2.5 text-left"
       >

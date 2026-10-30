@@ -40,17 +40,18 @@ export default function InterviewRoom({
 }: InterviewRoomProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { error, leave, media, mediaNotice, previewVideo, toggleMedia } = useInterviewRoom({
-    sessionId,
-    role,
-    videoRef,
-    audioRef,
-    // DeviceGate 를 통과한 뒤에만 그려지므로 사실상 항상 참이다. 그래도 트랙에서
-    // 끌어낸다 — 트랙 없이 접속하면 아무것도 발행하지 못한 채 정원 한 자리를 차지한다.
-    ready: videoTrack !== null || audioTrack !== null,
-    videoTrack,
-    audioTrack,
-  });
+  const { error, leave, media, mediaNotice, previewVideo, toggleMedia, interviewId } =
+    useInterviewRoom({
+      sessionId,
+      role,
+      videoRef,
+      audioRef,
+      // DeviceGate 를 통과한 뒤에만 그려지므로 사실상 항상 참이다. 그래도 트랙에서
+      // 끌어낸다 — 트랙 없이 접속하면 아무것도 발행하지 못한 채 정원 한 자리를 차지한다.
+      ready: videoTrack !== null || audioTrack !== null,
+      videoTrack,
+      audioTrack,
+    });
   const [endError, setEndError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
 
@@ -69,6 +70,7 @@ export default function InterviewRoom({
   return (
     <InterviewRoomView
       role={role}
+      interviewId={interviewId}
       remoteName={remoteName}
       videoRef={videoRef}
       audioRef={audioRef}

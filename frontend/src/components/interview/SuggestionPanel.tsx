@@ -1,3 +1,4 @@
+import { preserveMemoFocus } from '../../lib/memoFocus';
 /**
  * AI 꼬리질문 — 면접관 전용 (#212).
  *
@@ -35,7 +36,10 @@ export function SuggestionPanel() {
 
   return (
     // 영상 위 오른쪽에 뜬 유리판이다 (#236). 평소에는 흐리고 마우스를 올리면 또렷해진다.
-    <section className="glass interview-readable flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl">
+    <section
+      onMouseDown={preserveMemoFocus}
+      className="glass interview-readable flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl"
+    >
       <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
         <h2 className="text-ink text-[15px] font-semibold">꼬리질문</h2>
         {/* 누를 수 있다는 것을 글로 밝힌다. 아이콘만으로는 눈으로도 소리로도 모른다 */}

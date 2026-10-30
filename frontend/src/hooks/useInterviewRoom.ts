@@ -60,6 +60,7 @@ export function useInterviewRoom({
   onTracksPublished,
 }: UseInterviewRoomOptions) {
   const roomRef = useRef<LiveKitRoom | null>(null);
+  const [interviewId, setInterviewId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [media, setMedia] = useState({
     microphone: true,
@@ -204,6 +205,7 @@ export function useInterviewRoom({
 
         // 새 면접만 시작한다. 재입장은 INTERVIEWING을 유지하며 시작 시각을 덮지 않는다.
         const state = await getSessionState(sessionId);
+        if (!cancelled) setInterviewId(state.interviewId);
         if (cancelled) return;
         // join 토큰을 받은 뒤 종료된 방에 늦게 붙었으면 다시 트랙을 발행하지 않는다.
         if (state.status === 'ENDED') throw new ApiError('SESSION_ENDED', 409);
@@ -353,5 +355,5 @@ export function useInterviewRoom({
       mediaBusy.current = false;
     }
   };
-  return { roomRef, error, leave, media, mediaNotice, previewVideo, toggleMedia };
+  return { roomRef, error, leave, media, mediaNotice, previewVideo, toggleMedia, interviewId };
 }

@@ -48,3 +48,23 @@ test('다른 면접과 실패한 입력을 섞지 않고 재조회가 미저장 
   assert.deepEqual(calls, [['a', '남길 입력']]);
   queue.clear();
 });
+
+test('로그아웃 뒤 늦은 응답이 새 계정의 메모를 덮지 않는다', async () => {
+  const finish = [];
+  const queue = createMemoQueue(
+    (id, value) => new Promise((resolve) => finish.push(() => resolve({ id, value }))),
+  );
+  queue.edit('a', '이전 계정');
+  const old = queue.flush('a');
+  queue.clear();
+  queue.edit('a', '새 계정');
+  const current = queue.flush('a');
+  finish[0]();
+  await old;
+  assert.equal(queue.read('a').memo, '새 계정');
+  assert.notEqual(queue.read('a').state, 'saved');
+  finish[1]();
+  await current;
+  assert.equal(queue.read('a').result.value, '새 계정');
+  queue.clear();
+});

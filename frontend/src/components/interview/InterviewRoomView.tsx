@@ -24,12 +24,14 @@ import { Logo } from '../ui/Logo';
 import { LocalPreview } from './LocalPreview';
 import { SpeakerBadge } from './SpeakerBadge';
 import { SuggestionPanel } from './SuggestionPanel';
+import { LiveMemoPanel } from './LiveMemoPanel';
 import { TranscriptPanel } from './TranscriptPanel';
 import { MediaControls, type MediaControlsProps } from './MediaControls';
 
 export interface InterviewRoomViewProps {
   /** 내 역할. 화면에 무엇을 얹을지 결정한다 */
   role: Role;
+  interviewId?: string | null;
   /** 상대 이름. 면접관에겐 지원자 이름, 지원자에겐 면접관 이름이다 */
   remoteName: string;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -53,6 +55,7 @@ export interface InterviewRoomViewProps {
 
 export function InterviewRoomView({
   role,
+  interviewId,
   remoteName,
   videoRef,
   audioRef,
@@ -202,8 +205,11 @@ export function InterviewRoomView({
 
       {isInterviewer ? (
         <div className="interview-panels" data-expanded={questionsExpanded}>
-          <div className="pointer-events-auto min-h-0 [grid-area:questions]">
-            <SuggestionPanel />
+          <div className="pointer-events-auto flex min-h-0 flex-col gap-2 [grid-area:questions]">
+            <div className="min-h-0 flex-1">
+              <SuggestionPanel />
+            </div>
+            <LiveMemoPanel interviewId={interviewId ?? null} />
           </div>
           <div className="pointer-events-auto min-h-0 w-full max-w-2xl [grid-area:transcript]">
             <TranscriptPanel />
