@@ -35,7 +35,7 @@ export function SuggestionPanel() {
   );
 
   return (
-    // 영상 위 오른쪽에 뜬 유리판이다 (#236). 평소에는 흐리고 마우스를 올리면 또렷해진다.
+    // 영상 위에서도 기본 상태부터 글자를 읽을 수 있게 한다.
     <section
       onMouseDown={preserveMemoFocus}
       className="glass interview-readable flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl"

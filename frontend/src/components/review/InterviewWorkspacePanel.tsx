@@ -110,7 +110,21 @@ export function InterviewWorkspacePanel({
           </p>
         ) : (
           <>
-            {tab === 'review' && <ReviewTimelinePage interviewId={interviewId} embedded />}
+            {tab === 'review' &&
+              (item.reviewSessionId === null ? (
+                <div role="status" className="text-ink-muted p-4 text-sm">
+                  <p>
+                    {item.latestSession?.status === 'INTERVIEWING'
+                      ? '면접이 진행 중입니다.'
+                      : '아직 종료된 면접 기록이 없습니다.'}
+                  </p>
+                  <p className="mt-2">
+                    초대 링크와 메모 탭에서 면접을 준비하거나 기록할 수 있습니다.
+                  </p>
+                </div>
+              ) : (
+                <ReviewTimelinePage interviewId={interviewId} embedded />
+              ))}
             {tab === 'memo' && (
               <div className="p-4">
                 {owner.data.memo === undefined ? (

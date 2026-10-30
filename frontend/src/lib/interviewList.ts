@@ -36,6 +36,8 @@ export function pendingReason(item: InterviewListItem): string | null {
   if (item.counts) return null;
   if (item.summaryStatus === 'FAILED') return '정리 실패';
   if (item.summaryStatus === 'PROCESSING') return '정리 중';
+  if (item.latestSession?.status === 'INTERVIEWING') return '진행 중';
+  if (item.latestSession?.status === 'WAITING') return '면접 전';
   // 시각이 없으면 아직 아무도 들어오지 않았다.
   if (item.interviewedAt === null) return '면접 전';
   // 시작은 했는데 길이가 없다 = 아직 끝나지 않았다 (서버가 ended_at 없으면 null 을 준다).

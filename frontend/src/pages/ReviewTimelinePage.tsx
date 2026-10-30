@@ -268,9 +268,11 @@ export default function ReviewTimelinePage({
         <Badge tone={STATUS_TONE[review.reviewStatus]}>{STATUS_LABEL[review.reviewStatus]}</Badge>
       </header>
 
-      <div className="mt-4">
-        <ReportPanel interviewId={interviewId!} compact />
-      </div>
+      {!embedded && (
+        <div className="mt-4">
+          <ReportPanel interviewId={interviewId!} compact />
+        </div>
+      )}
 
       {/* 이 화면이 무엇을 하는 곳인지 먼저 적는다 — 시안의 첫 줄이다. */}
       <p className="text-ink-muted mt-3 text-[13px] leading-relaxed">
