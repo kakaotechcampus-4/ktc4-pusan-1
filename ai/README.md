@@ -225,7 +225,7 @@ uv run irya-ai-poller        # BACKEND_BASE_URL·BACKEND_API_KEY, LLM_* 필요
   수 있어서입니다(#242). 실패한 부분만 빠집니다(findings는 키 없음, 타임라인은
   빈 목록, 요약이면 작업 전체 실패)(#234).
 - **REPORT도 같은 폴러에서 처리합니다(#249).** 검토 완료 후 리포트 생성을 요청하면
-  `GET /internal/v1/interviews/{interviewId}/report-context`를 읽고 ReportAgent를 실행해
+  `GET /internal/v1/interviews/{interviewId}/report/context`를 읽고 ReportAgent를 실행해
   `PUT /internal/v1/interviews/{interviewId}/report`에 저장합니다. `requestedAt`은 원문 그대로
   보내며, 세션 불일치·시간 초과·409인 오래된 결과를 최신 결과로 저장하지 않습니다.
   `REPORT_TIMEOUT_SECONDS`(기본 180초)를 BE와 맞춥니다. LLM 설정이 없으면 추출형 생성기를
