@@ -73,7 +73,7 @@ export function ReviewStatusBar({
                 hour: '2-digit',
                 minute: '2-digit',
               })}{' '}
-              확정
+              완료
             </span>
           ) : openFindings > 0 ? (
             <span className="text-ink-muted">

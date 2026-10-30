@@ -23,7 +23,12 @@ export function RecordExcerpt({ source, quote, transcript, atSec, onSeek }: Reco
             {fmt(atSec)}
           </button>
         ) : transcript ? (
-          <details className="group inline-block max-w-full">
+          <details
+            className="group inline-block max-w-full"
+            onMouseEnter={(event) => {
+              event.currentTarget.open = true;
+            }}
+          >
             <summary
               className="border-border-base text-brand cursor-pointer rounded-full border px-2.5 py-1 font-mono"
               aria-label={`${fmt(atSec)} 면접 답변 보기`}

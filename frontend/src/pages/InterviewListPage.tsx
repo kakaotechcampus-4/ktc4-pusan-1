@@ -55,6 +55,7 @@ export default function InterviewListPage() {
         (item) =>
           item.summaryStatus === 'PROCESSING' ||
           item.reportStatus === 'PROCESSING' ||
+          item.recordingStatus === 'PROCESSING' ||
           item.latestSession?.status === 'INTERVIEWING',
       )
         ? 3000
@@ -75,6 +76,7 @@ export default function InterviewListPage() {
   const [copyText, setCopyText] = useState<string | null>(null);
   const [exportRange, setExportRange] = useState('filtered');
   const [exportProgress, setExportProgress] = useState<string | null>(null);
+  const scrollContainer = useRef<HTMLDivElement>(null);
   const anchor = useRef<string | null>(null);
   const resizeCleanup = useRef<(() => void) | null>(null);
   useEffect(() => () => resizeCleanup.current?.(), []);
@@ -160,6 +162,7 @@ export default function InterviewListPage() {
     const next = new URLSearchParams(params);
     if (id) {
       next.set('interview', id);
+      scrollContainer.current?.scrollTo({ left: 0 });
       const index = filtered.findIndex((item) => item.interviewId === id);
       if (index >= 0) setPage(Math.floor(index / PAGE_SIZE));
     } else next.delete('interview');
@@ -365,7 +368,7 @@ export default function InterviewListPage() {
                 <>
                   <button
                     type="button"
-                    aria-label={`${key} 열 왼쪽으로`}
+                    aria-label={`${COLUMNS.find((column) => column.key === key)!.title} 열 왼쪽으로`}
                     onClick={() => moveColumn(key, -1)}
                     className="text-brand p-2"
                   >
@@ -373,7 +376,7 @@ export default function InterviewListPage() {
                   </button>
                   <button
                     type="button"
-                    aria-label={`${key} 열 오른쪽으로`}
+                    aria-label={`${COLUMNS.find((column) => column.key === key)!.title} 열 오른쪽으로`}
                     onClick={() => moveColumn(key, 1)}
                     className="text-brand p-2"
                   >
@@ -511,7 +514,7 @@ export default function InterviewListPage() {
       {comparing && <InterviewComparison ids={comparing} onBack={() => setComparing(null)} />}
       {query.data && !query.isError && !comparing && (
         <div className="border-border-base bg-surface-panel shadow-card mt-4 overflow-hidden rounded-2xl border">
-          <div className="max-h-[70dvh] overflow-auto">
+          <div ref={scrollContainer} className="max-h-[70dvh] overflow-auto">
             <table
               className="w-full table-fixed border-separate border-spacing-0 text-left text-sm"
               style={{
@@ -642,7 +645,7 @@ export default function InterviewListPage() {
                         <td colSpan={visibleColumns.length + 1}>
                           <InterviewWorkspacePanel
                             key={item.interviewId}
-                            interviewId={item.interviewId}
+                            item={item}
                             onClose={() => openId(null)}
                             onPrevious={
                               filtered.findIndex(

@@ -1,3 +1,5 @@
+import type { InterviewListItem } from '../../types/interview';
+import { ProcessingStatus } from './ProcessingStatus';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { getInterview } from '../../api/interview';
@@ -10,16 +12,17 @@ import { InvitationActions } from '../interview/InvitationActions';
 type Tab = 'review' | 'memo' | 'report' | 'invitation';
 
 export function InterviewWorkspacePanel({
-  interviewId,
+  item,
   onClose,
   onPrevious,
   onNext,
 }: {
-  interviewId: string;
+  item: InterviewListItem;
   onClose: () => void;
   onPrevious?: () => void;
   onNext?: () => void;
 }) {
+  const interviewId = item.interviewId;
   const [tab, setTab] = useState<Tab>('review');
   const owner = useQuery({
     queryKey: ['interview', interviewId],
@@ -66,6 +69,7 @@ export function InterviewWorkspacePanel({
           </button>
         </div>
       </header>
+      <ProcessingStatus item={item} />
       <div
         role="tablist"
         aria-label="면접 작업"

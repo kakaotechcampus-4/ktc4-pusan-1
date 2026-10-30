@@ -145,6 +145,7 @@ export default function ReviewTimelinePage({
       .finally(() => {
         pendingMarks.current.delete(itemId);
         setPendingMarkIds(new Set(pendingMarks.current));
+        void queryClient.invalidateQueries({ queryKey: ['interviews'] });
       });
   };
 
@@ -377,7 +378,12 @@ export default function ReviewTimelinePage({
         reviewedAt={review.reviewedAt}
         openFindings={openFindings}
         findingsFailed={review.findingsStatus === 'FAILED'}
-        onSaved={patchReview}
+        onSaved={(next) => {
+          patchReview(next);
+          void queryClient.invalidateQueries({ queryKey: ['interviews'] });
+          void queryClient.invalidateQueries({ queryKey: ['report', interviewId] });
+          void refetchInterview();
+        }}
       />
     </div>
   );

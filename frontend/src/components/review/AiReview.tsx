@@ -22,7 +22,7 @@ export function AiReview({ summary, status, failureReason, waiting }: AiReviewPr
       <div className="border-border-base flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b pb-4">
         <span aria-hidden className="bg-brand-soft h-1.5 w-1.5 rounded-full" />
         <h2 className="text-ink text-[15px] font-semibold">면접 요약</h2>
-        <span className="text-ink-dim text-[13px]">전사 · 지원서 · JD 를 근거로 작성</span>
+        <span className="text-ink-dim text-[13px]">면접 기록과 지원서 요약</span>
       </div>
 
       {summary ? (
