@@ -85,8 +85,8 @@ export const useInterviewStore = create<InterviewState>((set) => ({
               final: e.final,
             });
           }
-          // 화면에는 최근 6줄만 남긴다.
-          return { utterances: next.slice(-6), transcriptDegraded: false };
+          // 큰 화면에서도 여러 발화를 읽을 수 있게 하되 화면 캐시는 한정한다.
+          return { utterances: next.slice(-50), transcriptDegraded: false };
         }
 
         case 'stream.degraded':

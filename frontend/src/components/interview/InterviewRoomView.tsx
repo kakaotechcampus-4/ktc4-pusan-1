@@ -79,7 +79,7 @@ export function InterviewRoomView({
   return (
     // 상대 영상이 화면 전체를 채우고, 상태 막대 · 꼬리질문 · 자동 기록 · 내 화면은 그 위에
     // 유리판으로 뜬다 (#236). 유리판은 평소 거의 투명하고 마우스를 올리면 또렷해진다.
-    <div className="relative h-screen w-screen overflow-hidden bg-[radial-gradient(120%_90%_at_20%_0%,#2b2f7a_0%,#141836_45%,#0b0e1c_100%)] text-white">
+    <div className="relative h-dvh w-screen overflow-hidden bg-[radial-gradient(120%_90%_at_20%_0%,#2b2f7a_0%,#141836_45%,#0b0e1c_100%)] text-white">
       <video
         ref={videoRef}
         autoPlay
@@ -196,41 +196,33 @@ export function InterviewRoomView({
         </span>
       )}
 
-      {/* 오른쪽 위 — AI 꼬리질문. 면접관 전용이다 */}
-      {isInterviewer && (
-        <div className="absolute top-[72px] right-3 flex max-h-[38vh] w-[min(380px,calc(100%-24px))] sm:top-[80px] sm:right-4 md:max-h-[calc(100%-26rem)] lg:max-h-[calc(100%-22rem)]">
-          <SuggestionPanel />
+      {isInterviewer ? (
+        <div className="interview-panels">
+          <div className="pointer-events-auto min-h-0 [grid-area:questions]">
+            <SuggestionPanel />
+          </div>
+          <div className="pointer-events-auto min-h-0 w-full max-w-2xl [grid-area:transcript]">
+            <TranscriptPanel />
+          </div>
+          {(localVideoTrack || localAudioTrack) && (
+            <div className="pointer-events-none w-28 self-start justify-self-end [grid-area:preview] md:w-48">
+              <LocalPreview
+                videoTrack={localVideoTrack ?? null}
+                audioTrack={localAudioTrack ?? null}
+                className="aspect-video w-full rounded-2xl ring-1 ring-white/40"
+              />
+            </div>
+          )}
         </div>
-      )}
-
-      {/* 왼쪽 아래 — 실시간 자막. 면접관 전용이다 */}
-      {isInterviewer && (
-        <div className="absolute inset-x-3 bottom-3 sm:inset-x-auto sm:bottom-4 sm:left-4 sm:w-[min(560px,calc(100%-19rem))]">
-          <TranscriptPanel />
-        </div>
-      )}
-
-      {/* 오른쪽 아래 — 내 화면. 대기 화면 위에 그려져 기다리는 동안 카메라를 볼 수 있다.
-          클릭을 가로채지 않도록 pointer-events 를 끈다. 좁은 화면의 면접관은 자막이
-          바닥을 쓰므로 그 위로 올린다. */}
-      {(localVideoTrack || localAudioTrack) && (
-        // 위치는 래퍼가 잡는다. LocalPreview 는 자기 루트에 relative 를 두므로
-        // 여기서 absolute 를 같이 넘기면 두 position 유틸리티가 충돌한다.
-        <div
-          className={`pointer-events-none absolute right-3 w-36 sm:right-4 sm:bottom-4 sm:w-60 ${
-            isInterviewer ? 'bottom-[13.5rem]' : 'bottom-3'
-          }`}
-        >
+      ) : localVideoTrack || localAudioTrack ? (
+        <div className="pointer-events-none absolute right-4 bottom-24 w-36 sm:w-60">
           <LocalPreview
             videoTrack={localVideoTrack ?? null}
             audioTrack={localAudioTrack ?? null}
-            className="aspect-video w-full rounded-2xl shadow-[0_12px_32px_rgba(6,8,20,.35)] ring-1 ring-white/40"
+            className="aspect-video w-full rounded-2xl ring-1 ring-white/40"
           />
-          <span className="glass absolute bottom-3 left-2 rounded-md px-2 py-0.5 text-[11px] font-medium">
-            나
-          </span>
         </div>
-      )}
+      ) : null}
 
       {/* 종료 실패 등 안내 — 가운데 아래 */}
       {notice && (

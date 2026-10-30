@@ -14,17 +14,17 @@
  */
 
 import { useInterviewStore } from '../../stores/interviewStore';
+import { visibleSuggestions } from '../../lib/visibleSuggestions';
 
 export function SuggestionPanel() {
   const suggestions = useInterviewStore((s) => s.suggestions);
   const togglePin = useInterviewStore((s) => s.toggleSuggestionPin);
 
-  // 고정한 것을 위로 올린다. sort 가 안정적이라 그 안에서는 도착 순서가 유지된다.
-  const ordered = [...suggestions].sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  const ordered = visibleSuggestions(suggestions);
 
   return (
     // 영상 위 오른쪽에 뜬 유리판이다 (#236). 평소에는 흐리고 마우스를 올리면 또렷해진다.
-    <section className="glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl">
+    <section className="glass interview-readable flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl">
       <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
         <span aria-hidden className="material-symbols-outlined text-brand text-[20px]">
           auto_awesome
@@ -33,9 +33,9 @@ export function SuggestionPanel() {
         {/* 누를 수 있다는 것을 글로 밝힌다. 아이콘만으로는 눈으로도 소리로도 모른다 */}
         <span className="text-ink-dim text-[12px]">누르면 고정</span>
         <span className="flex-1" />
-        {suggestions.length > 0 && (
+        {ordered.length > 0 && (
           <span className="bg-brand-tint text-brand-strong rounded-full px-2 py-0.5 text-[12px] font-semibold tabular-nums">
-            {suggestions.length}
+            {ordered.length}
           </span>
         )}
       </div>
@@ -43,7 +43,7 @@ export function SuggestionPanel() {
       {/* 꼬리질문은 소리로는 오지 않고 화면에만 있다. 그래서 읽어 주는 것이 맞다 */}
       <div
         aria-live="polite"
-        className="glass-dim flex min-h-0 flex-1 [scrollbar-width:none] flex-col gap-2 overflow-y-auto px-3 pb-3 [&::-webkit-scrollbar]:hidden"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pb-3"
       >
         {ordered.length === 0 ? (
           <p className="text-ink-muted px-1.5 py-1 text-[14px]">
