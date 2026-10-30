@@ -6,6 +6,7 @@ import { getReview } from '../../api/review';
 import { reportBlockReason, reportIsStale } from '../../lib/reportState';
 import { buttonClass } from '../ui/buttonClass';
 import { ReportContent } from './ReportContent';
+import { flushMemosForRead } from '../../hooks/useMemoAutosave';
 
 export function ReportPanel({
   interviewId,
@@ -28,7 +29,10 @@ export function ReportPanel({
   const review = reviewQuery.data?.status === 'READY' ? reviewQuery.data : undefined;
   const reason = reportBlockReason(review);
   const create = useMutation({
-    mutationFn: () => createReport(interviewId),
+    mutationFn: async () => {
+      await flushMemosForRead([interviewId]);
+      return createReport(interviewId);
+    },
     onSuccess: async (processing) => {
       client.setQueryData(['report', interviewId], processing);
       await client.invalidateQueries({ queryKey: ['interviews'] });
@@ -46,7 +50,7 @@ export function ReportPanel({
           REPORT_IN_PROGRESS: '이미 리포트를 만들고 있습니다.',
         }[create.error.code] ?? '생성을 요청하지 못했습니다. 현재 상태를 다시 확인해 주세요.')
       : create.error
-        ? '연결을 확인한 뒤 다시 시도해 주세요.'
+        ? create.error.message
         : null;
   if (report.isError)
     return (

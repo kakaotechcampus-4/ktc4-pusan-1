@@ -65,10 +65,10 @@ export function exportSheets(records: readonly ExportRecord[]): Record<string, C
       item.role,
       item.interviewedAt,
       item.durationSec,
-      states[item.reviewStatus],
+      states[review.status === 'READY' ? review.reviewStatus : item.reviewStatus],
       item.summaryStatus,
       report.status === 'NOT_CREATED' ? '미생성' : report.status,
-      item.memo ?? (review.status === 'READY' ? review.memo : null),
+      review.status === 'READY' ? review.memo : (item.memo ?? null),
     ]);
     if (review.status === 'READY') {
       for (const finding of review.findings)

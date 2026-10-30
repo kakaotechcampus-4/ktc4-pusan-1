@@ -4,6 +4,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { InterviewComparison } from '../components/review/InterviewComparison';
 import { InterviewWorkspacePanel } from '../components/review/InterviewWorkspacePanel';
 import { listInterviews } from '../api/interview';
+import { flushMemosForRead } from '../hooks/useMemoAutosave';
+import { readAccessToken } from '../lib/authToken';
 import { Badge } from '../components/ui/Badge';
 import { buttonClass } from '../components/ui/buttonClass';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -175,8 +177,14 @@ export default function InterviewListPage() {
     const counts = item.counts;
     if (key === 'name') return item.candidateName || '이름 없는 지원자';
     if (key === 'review') return STATUS_LABEL[item.reviewStatus];
-    if (key === 'date')
-      return `${dateLabel(item.interviewedAt)}${item.durationSec === null ? '' : ` · ${durationLabel(item.durationSec)}`}`;
+    if (key === 'date') {
+      const timing = `${item.reviewSessionId ? '검토 기준 ' : ''}${dateLabel(item.interviewedAt)}${item.durationSec === null ? '' : ` · ${durationLabel(item.durationSec)}`}`;
+      const latest = item.latestSession?.status;
+      const progress = latest
+        ? { WAITING: '입장 대기', INTERVIEWING: '진행 중', ENDED: '종료' }[latest]
+        : null;
+      return progress ? `${timing} · 최근 세션 ${progress}` : timing;
+    }
     if (key === 'coverage')
       return item.findingsStatus === 'FAILED'
         ? '확인 불가'
@@ -212,8 +220,27 @@ export default function InterviewListPage() {
           .join(delimiter),
       ),
     ].join('\r\n');
+  const readSavedRows = async (rows: InterviewListItem[]) => {
+    const token = readAccessToken();
+    const ids = rows.map((item) => item.interviewId);
+    await flushMemosForRead(ids);
+    const latest = await listInterviews();
+    if (readAccessToken() !== token) throw new Error('로그인 상태가 바뀌었습니다.');
+    const byId = new Map(latest.items.map((item) => [item.interviewId, item]));
+    return ids.map((id) => {
+      const item = byId.get(id);
+      if (!item) throw new Error('면접 목록이 바뀌었습니다. 목록을 확인한 뒤 다시 시도해 주세요.');
+      return item;
+    });
+  };
   const copy = async () => {
-    const text = textTable(selected, '\t');
+    let text: string;
+    try {
+      text = textTable(await readSavedRows(selected), '\t');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '자료를 확인하지 못했습니다.');
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
       setNotice(`${selected.length}건을 복사했습니다.`);
@@ -223,12 +250,28 @@ export default function InterviewListPage() {
   };
   const exportRows =
     exportRange === 'all' ? items : exportRange === 'selected' ? selected : filtered;
+  const exportCsv = async () => {
+    setExportProgress('자료 확인 중');
+    try {
+      const rows = await readSavedRows(exportRows);
+      saveDownload(
+        new Blob(['\uFEFF', textTable(rows, ',')], { type: 'text/csv;charset=utf-8' }),
+        'IRYA_면접목록.csv',
+      );
+      setNotice(`${rows.length}건을 내보냈습니다.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '내보내기에 실패했습니다.');
+    } finally {
+      setExportProgress(null);
+    }
+  };
   const exportXlsx = async () => {
     setExportProgress('자료 확인 중');
     setNotice(null);
     try {
       const { candidateExport } = await import('../lib/candidateExport');
-      const blob = await candidateExport(exportRows, (done, total) =>
+      const rows = await readSavedRows(exportRows);
+      const blob = await candidateExport(rows, (done, total) =>
         setExportProgress(`${done}/${total}건 확인`),
       );
       saveDownload(blob, 'IRYA_면접기록.xlsx');
@@ -318,15 +361,8 @@ export default function InterviewListPage() {
           </select>
           <button
             type="button"
-            disabled={!exportRows.length}
-            onClick={() =>
-              saveDownload(
-                new Blob(['\uFEFF', textTable(exportRows, ',')], {
-                  type: 'text/csv;charset=utf-8',
-                }),
-                'IRYA_면접목록.csv',
-              )
-            }
+            disabled={!exportRows.length || exportProgress !== null}
+            onClick={() => void exportCsv()}
             className={buttonClass('secondary')}
           >
             CSV 내보내기

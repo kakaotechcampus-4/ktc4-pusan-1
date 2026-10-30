@@ -34,7 +34,7 @@ export function ReportContent({ report }: { report: ReportDocument }) {
         </h2>
         <p className="text-ink-muted mt-2 text-sm">
           {[
-            report.candidate.role,
+            `현재 설정 직무: ${report.candidate.role}`,
             report.interviewer.nickname,
             report.interviewedAt && new Date(report.interviewedAt).toLocaleString('ko-KR'),
           ]

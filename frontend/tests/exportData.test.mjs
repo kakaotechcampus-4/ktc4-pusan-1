@@ -56,3 +56,20 @@ test('XLSX에서 한글·줄바꿈·수식처럼 보이는 메모가 문자열�
   assert.ok(xml.includes('김지원'));
   assert.equal(/<f(?:\s|>)/.test(xml), false);
 });
+
+test('목록 캐시보다 새로 조회한 검토 메모를 파일에 기록한다', () => {
+  const sheets = exportSheets([
+    {
+      item: { ...item, memo: '이전 메모' },
+      review: {
+        status: 'READY',
+        reviewStatus: 'IN_REVIEW',
+        memo: '최신 메모',
+        findings: [],
+        moments: [],
+      },
+      report: { status: 'NOT_CREATED' },
+    },
+  ]);
+  assert.equal(sheets['면접 목록'][1][8], '최신 메모');
+});

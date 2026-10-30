@@ -84,6 +84,16 @@ export function createMemoQueue<T>(write: (id: string, memo: string) => Promise<
       emit();
     },
     flush,
+    async flushForRead(ids: readonly string[]) {
+      const started = epoch;
+      for (const id of ids) {
+        await flush(id);
+        if (started !== epoch) throw new Error('로그인 상태가 바뀌었습니다.');
+        const draft = drafts.get(id);
+        if (draft && draft.version !== draft.saved)
+          throw new Error('메모를 저장하지 못했습니다. 저장 후 다시 시도해 주세요.');
+      }
+    },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => {

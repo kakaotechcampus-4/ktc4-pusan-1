@@ -68,3 +68,30 @@ test('로그아웃 뒤 늦은 응답이 새 계정의 메모를 덮지 않는다
   assert.equal(queue.read('a').result.value, '새 계정');
   queue.clear();
 });
+
+test('파일 조회 전 저장을 기다리고 실패한 메모가 있으면 중단한다', async () => {
+  let finish;
+  const queue = createMemoQueue(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  queue.edit('a', '파일에 담을 메모');
+  let done = false;
+  const reading = queue.flushForRead(['a']).then(() => {
+    done = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(done, false);
+  finish();
+  await reading;
+  assert.equal(queue.read('a').state, 'saved');
+  queue.clear();
+  const failed = createMemoQueue(async () => {
+    throw Error('offline');
+  });
+  failed.edit('b', '잃으면 안 되는 메모');
+  await assert.rejects(failed.flushForRead(['b']), /메모를 저장하지 못했습니다/);
+  failed.clear();
+});

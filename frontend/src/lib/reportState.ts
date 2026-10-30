@@ -12,6 +12,7 @@ export function reportIsStale(report: ReportDocument, review: Review | undefined
   if (!review || report.status !== 'READY') return false;
   return (
     review.reviewStatus !== 'CONFIRMED' ||
+    report.memo !== review.memo ||
     report.sessionId !== review.sessionId ||
     Boolean(
       review.reviewedAt &&

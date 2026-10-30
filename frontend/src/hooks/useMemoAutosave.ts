@@ -22,6 +22,7 @@ const queue = createMemoQueue(async (id, memo) => {
   void queryClient.invalidateQueries({ queryKey: ['interviews'] });
   return saved;
 });
+export const flushMemosForRead = (ids: readonly string[]) => queue.flushForRead(ids);
 const EMPTY = {
   memo: '',
   state: 'idle' as const,
