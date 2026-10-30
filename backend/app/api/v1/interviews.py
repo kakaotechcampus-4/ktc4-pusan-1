@@ -22,6 +22,7 @@ from app.core.errors import LOGIN_REQUIRED, ApiError, ErrorCode, responses
 from app.core.uploads import read_upload
 from app.domain.models import (
     Context,
+    FindingsStatus,
     Interview,
     InterviewPrep,
     InterviewReport,
@@ -329,6 +330,9 @@ def get_review(
         coverage=[ReviewCoverage.model_validate(c) for c in review.coverage],
         moments=[ReviewMoment.model_validate(m) for m in review.moments],
         findings=[ReviewFinding.model_validate(f) for f in review.findings],
+        # 보고가 없으면(이 필드 전에 끝난 면접) 목록으로 가른다 — 예전 화면과 같다.
+        findings_status=summary.findings_status
+        or (FindingsStatus.COMPLETED if summary.findings else FindingsStatus.EMPTY),
         failure_reason=failure_reason(store, session.id, shown),
     )
 

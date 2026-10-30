@@ -82,6 +82,8 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
             "coverage",
             "moments",
             "findings",
+            # 검토 항목 생성 결과 — 실패와 빈 목록을 가른다 (#244).
+            "findingsStatus",
             # FAILED 의 까닭 — 요약할 대화가 없었으면 NO_TRANSCRIPT.
             "failureReason",
         },

@@ -24,6 +24,7 @@ from app.domain.models import (
     DocCategory,
     DocKind,
     DocStatus,
+    FindingsStatus,
     FindingState,
     Interview,
     InterviewPrep,
@@ -332,10 +333,10 @@ class PostgresStore:
             conn.execute(
                 """
                 INSERT INTO session_summary (
-                    session_id, status, overview, key_points,
-                    requested_at, completed_at, moments, findings, model
+                    session_id, status, overview, key_points, requested_at,
+                    completed_at, moments, findings, findings_status, model
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (session_id) DO NOTHING
                 """,
                 self._summary_values(summary),
@@ -348,7 +349,7 @@ class PostgresStore:
         row = self._one(
             """
             SELECT session_id, status, overview, key_points,
-                   requested_at, completed_at, moments, findings, model
+                   requested_at, completed_at, moments, findings, findings_status, model
             FROM session_summary WHERE session_id = %s
             """,
             (session_id,),
@@ -368,6 +369,7 @@ class PostgresStore:
                        completed_at = %s,
                        moments = %s,
                        findings = %s,
+                       findings_status = %s,
                        model = %s
                  WHERE session_id = %s
                 """,
@@ -378,6 +380,7 @@ class PostgresStore:
                     summary.completed_at,
                     Jsonb(summary.moments),
                     Jsonb(summary.findings),
+                    summary.findings_status,
                     summary.model,
                     summary.session_id,
                 ),
@@ -389,12 +392,18 @@ class PostgresStore:
         *,
         moments: list[dict[str, Any]] | None = None,
         findings: list[dict[str, Any]] | None = None,
+        findings_failed: bool = False,
         model: str = "",
     ) -> bool:
         """READY 가 아닐 때만 FAILED 로. 조건이 `WHERE` 안에 있어 판정과 갱신
         사이가 열리지 않는다 (#132). 시각은 `expire_summary` 처럼 앱이 찍는다.
 
-        `findings` 가 `None` 이면 `COALESCE` 로 있던 값을 둔다 (#164)."""
+        `findings` 가 `None` 이면 `COALESCE` 로 있던 값을 둔다 (#164). 상태도
+        같다 — 새 값, 있던 값, 실패 보고 순이다 (`SessionSummary.take_findings`)."""
+        if findings is None:
+            fresh = None
+        else:
+            fresh = FindingsStatus.COMPLETED if findings else FindingsStatus.EMPTY
         with self._pool.connection() as conn:
             cursor = conn.execute(
                 """
@@ -404,6 +413,7 @@ class PostgresStore:
                        key_points = '[]'::jsonb,
                        moments = %s,
                        findings = COALESCE(%s, findings),
+                       findings_status = COALESCE(%s, findings_status, %s),
                        model = %s,
                        completed_at = %s
                  WHERE session_id = %s
@@ -413,6 +423,8 @@ class PostgresStore:
                     SummaryStatus.FAILED.value,
                     Jsonb(moments or []),
                     None if findings is None else Jsonb(findings),
+                    fresh,
+                    FindingsStatus.FAILED if findings_failed else None,
                     model,
                     utcnow(),
                     session_id,
@@ -448,13 +460,14 @@ class PostgresStore:
                    key_points = '[]'::jsonb,
                    moments = '[]'::jsonb,
                    findings = '[]'::jsonb,
+                   findings_status = 'FAILED',
                    model = '',
                    completed_at = %s
              WHERE session_id = %s
                AND status = %s
                AND requested_at < %s
          RETURNING session_id, status, overview, key_points,
-                   requested_at, completed_at, moments, findings, model
+                   requested_at, completed_at, moments, findings, findings_status, model
             """,
             (
                 SummaryStatus.FAILED.value,
@@ -653,6 +666,7 @@ class PostgresStore:
                        key_points = '[]'::jsonb,
                        moments = '[]'::jsonb,
                        findings = '[]'::jsonb,
+                       findings_status = 'FAILED',
                        model = '',
                        completed_at = %s
                  WHERE status = %s AND requested_at < %s
@@ -891,6 +905,7 @@ class PostgresStore:
             summary.completed_at,
             Jsonb(summary.moments),
             Jsonb(summary.findings),
+            summary.findings_status,
             summary.model,
         )
 
@@ -989,6 +1004,9 @@ class PostgresStore:
             completed_at=row["completed_at"],
             moments=list(row["moments"]),
             findings=list(row["findings"]),
+            findings_status=None
+            if row["findings_status"] is None
+            else FindingsStatus(row["findings_status"]),
             model=row["model"],
         )
 

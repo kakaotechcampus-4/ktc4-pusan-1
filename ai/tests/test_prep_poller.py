@@ -1205,6 +1205,8 @@ async def test_findings_that_failed_for_good_are_left_out_not_sent_empty() -> No
 
     assert done.outcome == "stored"
     assert "findings" not in backend.put_bodies[0]
+    # Left out, but reported: Backend tells this from "never ran" (#244).
+    assert backend.put_bodies[0]["findingsStatus"] == "failed"
 
 
 async def test_the_wired_findings_agent_puts_the_claims_it_finds_in_the_body() -> None:
@@ -1268,6 +1270,7 @@ async def test_a_findings_agent_that_fails_for_good_costs_the_others_nothing() -
     assert body["summary"]
     assert [m["qaId"] for m in body["moments"]] == ["qa_utt_q1"]
     assert "findings" not in body
+    assert body["findingsStatus"] == "failed"
     assert poller.holds == {}
 
 

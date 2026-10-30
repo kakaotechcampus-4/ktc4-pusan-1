@@ -13,6 +13,7 @@ from app.domain.models import (
     DocCategory,
     DocKind,
     DocStatus,
+    FindingsStatus,
     FindingState,
     FindingType,
     ReviewStatus,
@@ -289,6 +290,14 @@ class ReviewResponse(Schema):
     coverage: list[ReviewCoverage]
     moments: list[ReviewMoment]
     findings: list[ReviewFinding]
+    findings_status: FindingsStatus = Field(
+        serialization_alias="findingsStatus",
+        description=(
+            "검토 항목을 만든 결과. EMPTY 는 찾아봤는데 없다, "
+            "FAILED 는 만들지 못했다 — FAILED 면 `findings` 가 비고 "
+            "coverage 의 MISSING 은 「없음」이 아니라 「확인 불가」다 (#244)."
+        ),
+    )
     failure_reason: Literal["NO_TRANSCRIPT"] | None = Field(
         default=None,
         serialization_alias="failureReason",

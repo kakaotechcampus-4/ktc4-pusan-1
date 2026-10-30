@@ -153,6 +153,9 @@ CREATE TABLE IF NOT EXISTS recording (
 -- 시간 한도를 넘겨 FAILED 가 되면 비운다.
 ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS moments JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS findings JSONB NOT NULL DEFAULT '[]'::jsonb;
+-- FindingsStatus (#244). findings 를 만들지 못한 것과 찾았는데 없는 것을 가른다.
+-- NULL 은 아직 보고가 없다 — 이 컬럼 전에 끝난 면접도 NULL 이다.
+ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS findings_status TEXT;
 -- 결과를 만든 모델 (#164). `interview_prep.model` 과 같다. 결과가 없으면 비어 있다.
 ALTER TABLE session_summary ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT '';
 
