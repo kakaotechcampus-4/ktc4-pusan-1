@@ -3,6 +3,10 @@
  *
  * AI 가 근거와 함께 짚은 것을 면접관이 채택하거나 반려한다. 판정이 아니므로 AI 의
  * 말투로 결론을 적지 않고, 근거(지원서 문장 · 면접 발화)를 그대로 보여 준다.
+ *
+ * 검토를 확정하면(`locked`) 채택 · 반려 · 되돌리기가 멈춘다 — 확정 시각이 검토 시간
+ * 지표이고 리포트 근거가 그 시각의 채택을 전제한다 (#247). 버튼을 지우지 않고 끄는
+ * 건, 무엇을 할 수 있었는지와 왜 지금 못 하는지를 같은 자리에서 보여 주기 위해서다.
  */
 
 import { coverageLabel, progressNote } from '../../lib/findingsState';
@@ -23,15 +27,19 @@ const COVERAGE_STYLE: Record<Coverage['state'], string> = {
   MISSING: 'border-border-base bg-surface-bright text-ink-dim',
 };
 
+const OFF = 'disabled:cursor-not-allowed disabled:opacity-50';
+
 export interface FindingsProps {
   coverage: Coverage[];
   findings: Finding[];
   findingsStatus: FindingsStatus;
   onMark: (findingId: string, state: Finding['state']) => void;
   onSeek: (sec: number) => void;
+  /** 검토를 확정했다 — 채택 · 반려 · 되돌리기를 받지 않는다 (#247). */
+  locked?: boolean;
 }
 
-export function Findings({ coverage, findings, findingsStatus, onMark, onSeek }: FindingsProps) {
+export function Findings({ coverage, findings, findingsStatus, onMark, onSeek, locked }: FindingsProps) {
   const open = findings.filter((f) => f.state === 'PROPOSED').length;
   const note = progressNote(open, findingsStatus);
 
@@ -44,6 +52,12 @@ export function Findings({ coverage, findings, findingsStatus, onMark, onSeek }:
         </span>
         {note && <span className="text-ink-dim text-[13px]">{note}</span>}
       </div>
+
+      {locked && (
+        <p className="text-ink-muted mt-3 text-[13px]">
+          검토를 확정해서 채택을 바꿀 수 없습니다. 아래에서 「검토 중」으로 돌리면 다시 바꿉니다.
+        </p>
+      )}
 
       {coverage.length > 0 && (
         <ul aria-label="역량 커버리지" className="mt-4 flex flex-wrap gap-2">
@@ -115,14 +129,16 @@ export function Findings({ coverage, findings, findingsStatus, onMark, onSeek }:
                     <button
                       type="button"
                       onClick={() => onMark(f.id, 'ADOPTED')}
-                      className="bg-brand hover:bg-brand-strong rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white"
+                      disabled={locked}
+                      className={`bg-brand hover:bg-brand-strong rounded-lg px-3 py-1.5 text-[13px] font-semibold text-white ${OFF}`}
                     >
                       근거로 채택
                     </button>
                     <button
                       type="button"
                       onClick={() => onMark(f.id, 'REJECTED')}
-                      className="border-border-base bg-surface-panel text-ink hover:bg-surface-bright rounded-lg border px-3 py-1.5 text-[13px] font-medium"
+                      disabled={locked}
+                      className={`border-border-base bg-surface-panel text-ink hover:bg-surface-bright rounded-lg border px-3 py-1.5 text-[13px] font-medium ${OFF}`}
                     >
                       반려
                     </button>
@@ -135,7 +151,8 @@ export function Findings({ coverage, findings, findingsStatus, onMark, onSeek }:
                     <button
                       type="button"
                       onClick={() => onMark(f.id, 'PROPOSED')}
-                      className="text-ink-muted hover:text-ink -my-1 py-1 text-[13px] underline"
+                      disabled={locked}
+                      className={`text-ink-muted hover:text-ink -my-1 py-1 text-[13px] underline ${OFF}`}
                     >
                       되돌리기
                     </button>

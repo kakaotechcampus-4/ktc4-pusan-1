@@ -55,12 +55,13 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-4 이다. 경로 변수 순서가 뒤집혀 보이는
     # 건 FastAPI 가 라우트 자신의 것(itemId)을 의존성의 것(interviewId)보다 먼저
-    # 싣기 때문이다 — 문서 순서일 뿐 호출에는 상관없다.
+    # 싣기 때문이다 — 문서 순서일 뿐 호출에는 상관없다. 409 는 확정한 검토의
+    # 채택을 막는 것이다 (#247).
     ("put", "/api/v1/interviews/{interviewId}/review/marks/{itemId}"): {
         "path_params": ["itemId", "interviewId"],
         "request": {"state", "bookmarked"},
         "response": {"itemId", "state", "bookmarked"},
-        "statuses": {"200", "401", "404"},
+        "statuses": {"200", "401", "404", "409"},
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-2 이고, 녹화 대신 sessionId 를 싣는다
     # (#163). 준비 전에는 202 { status, etaSec } 다.
