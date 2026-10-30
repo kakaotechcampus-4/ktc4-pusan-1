@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-31",
+  "frontendTests": 53,
+  "apiChecks": [
+    {
+      "pr": 255,
+      "head": "10adbff5c0ea43d55964840a4270986725386a68",
+      "request": {
+        "policyVersion": "2026-10-30"
+      },
+      "stateField": "consentedAt",
+      "postFields": ["consentedAt", "policyVersion"],
+      "testedAgainst": "original FastAPI app and InMemoryStore via TestClient + actual FE consentContract.ts via Node",
+      "beforeConsentJoin": 403,
+      "afterConsentJoin": 200,
+      "firstConsentUnchangedOnRepeat": true,
+      "result": "passed"
+    },
+    {
+      "pr": 256,
+      "head": "f430bb75180ad5d8e34352d421cad7dde59609ec",
+      "request": {
+        "version": "2026-10-30"
+      },
+      "stateField": "consent",
+      "postFields": ["agreedAt", "version"],
+      "testedAgainst": "original FastAPI app and InMemoryStore via TestClient + actual FE consentContract.ts via Node",
+      "beforeConsentJoin": 403,
+      "afterConsentJoin": 200,
+      "firstConsentUnchangedOnRepeat": true,
+      "result": "passed"
+    }
+  ],
+  "boundary": "LiveKit join uses upstream FakeMedia in these contract tests. No claim of real consent UI/RTC integrated run on both servers. No BE consent contracts merged/changed by this compatibility patch."
+}
