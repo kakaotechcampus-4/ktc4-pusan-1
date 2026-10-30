@@ -12,13 +12,14 @@
 import type { RemoteTrack, RemoteTrackPublication } from 'livekit-client';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
+import { readConsent } from '../lib/consentContract';
 import { endSession, getSessionState, joinSession, startSession } from '../api/interview';
 import { listSuggestions } from '../api/suggestions';
 import { loadLiveKit } from '../lib/livekit';
 import { readSuggestionPacket } from '../lib/suggestionStream';
 import { createTranscriptStreamHandler, TRANSCRIPT_TOPIC } from '../lib/transcriptStream';
 import { useInterviewStore } from '../stores/interviewStore';
-import type { Role, RoomConnectionState, Speaker } from '../types/interview';
+import type { Consent, Role, RoomConnectionState, Speaker } from '../types/interview';
 
 type LiveKitModule = typeof import('livekit-client');
 type LiveKitRoom = InstanceType<LiveKitModule['Room']>;
@@ -64,6 +65,7 @@ export function useInterviewRoom({
   const roomRef = useRef<LiveKitRoom | null>(null);
   const [interviewId, setInterviewId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [consent, setConsent] = useState<Consent | null>();
   const [media, setMedia] = useState({
     microphone: true,
     camera: true,
@@ -158,6 +160,17 @@ export function useInterviewRoom({
           }
         };
 
+        const loadConsent = async () => {
+          if (role !== 'INTERVIEWER') return;
+          try {
+            const state = await getSessionState(sessionId);
+            if (!cancelled && ('consent' in state || 'consentedAt' in state))
+              setConsent(readConsent(state));
+          } catch {
+            /* 조회 실패만으로 동의 여부를 단정하지 않는다. */
+          }
+        };
+
         room
           .on(RoomEvent.ConnectionStateChanged, (state) =>
             setConnection(String(state) as RoomConnectionState),
@@ -168,7 +181,10 @@ export function useInterviewRoom({
           .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => track.detach())
           .on(RoomEvent.ParticipantConnected, (participant) => {
             // 같은 방의 AI 워커는 통화 상대가 아니다. BE가 역할을 identity로 발급한다.
-            if (participant.identity === remoteSpeaker) setRemoteJoined(true);
+            if (participant.identity === remoteSpeaker) {
+              setRemoteJoined(true);
+              void loadConsent();
+            }
           })
           .on(RoomEvent.ParticipantDisconnected, (participant) => {
             if (participant.identity !== remoteSpeaker) return;
@@ -200,7 +216,10 @@ export function useInterviewRoom({
             if (suggestion && !cancelled) addSuggestion(suggestion);
           })
           // 끊긴 사이에 온 꼬리질문은 BE 가 다시 보내지 않는다. 붙을 때마다 조회한다.
-          .on(RoomEvent.Reconnected, () => void loadSuggestions());
+          .on(RoomEvent.Reconnected, () => {
+            void loadSuggestions();
+            void loadConsent();
+          });
 
         // 워커가 접속 직후 보낼 수 있어 connect 전에 등록한다. 역할 분기는 하지 않는다 —
         // AI가 destination_identities로 면접관만 지정하므로 지원자에게는 전달되지 않는다.
@@ -226,7 +245,11 @@ export function useInterviewRoom({
 
         // 새 면접만 시작한다. 재입장은 INTERVIEWING을 유지하며 시작 시각을 덮지 않는다.
         const state = await getSessionState(sessionId);
-        if (!cancelled) setInterviewId(state.interviewId);
+        if (!cancelled) {
+          setInterviewId(state.interviewId);
+          if (role === 'INTERVIEWER' && ('consent' in state || 'consentedAt' in state))
+            setConsent(readConsent(state));
+        }
         if (cancelled) return;
         // join 토큰을 받은 뒤 종료된 방에 늦게 붙었으면 다시 트랙을 발행하지 않는다.
         if (state.status === 'ENDED') throw new ApiError('SESSION_ENDED', 409);
@@ -379,5 +402,15 @@ export function useInterviewRoom({
       mediaBusy.current = false;
     }
   };
-  return { roomRef, error, leave, media, mediaNotice, previewVideo, toggleMedia, interviewId };
+  return {
+    roomRef,
+    error,
+    leave,
+    media,
+    mediaNotice,
+    previewVideo,
+    toggleMedia,
+    interviewId,
+    consent,
+  };
 }

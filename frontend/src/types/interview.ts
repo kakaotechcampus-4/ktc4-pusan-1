@@ -125,6 +125,12 @@ export interface StartSessionResponse {
   startedAt: string;
 }
 
+/** 두 동의 PR의 응답을 화면에서 같은 형태로 읽는다. #255 상태 조회에는 버전이 없다. */
+export interface Consent {
+  agreedAt: string;
+  version: string | null;
+}
+
 /** GET /api/v1/sessions/{sessionId} — 새로고침·재접속 시 상태 복구용 */
 export interface SessionState {
   sessionId: string;
@@ -133,6 +139,8 @@ export interface SessionState {
   status: SessionStatus;
   startedAt: string | null;
   endedAt: string | null;
+  consent?: Consent | null;
+  consentedAt?: string | null;
 }
 
 /**
@@ -397,6 +405,7 @@ export interface JoinSessionResponse {
 export type JoinFailure =
   /** 존재하지 않는 세션 */
   | 'not-found'
+  | 'consent-required'
   /** 로그인은 했지만 이 면접의 주인이 아니다 — 다시 시도해도 같다 (#150) */
   | 'not-allowed'
   /**

@@ -20,6 +20,8 @@ import { Logo } from '../components/ui/Logo';
 import type { JoinFailure, JoinSessionResponse, Role } from '../types/interview';
 
 const FAILURE_MESSAGE: Record<JoinFailure, string> = {
+  'consent-required':
+    '녹화 · 전사 · 분석 동의가 저장되지 않았습니다. 받으신 링크를 다시 열어 동의해주세요.',
   'not-found': '유효하지 않은 링크입니다. 면접관에게 링크를 다시 요청해주세요.',
   // 다시 눌러도 같다 — 계정을 바꾸거나 지원자로 들어와야 한다.
   'not-allowed':

@@ -18,7 +18,7 @@
 import { ConnectionState } from 'livekit-client';
 import { useEffect, useState, type RefObject } from 'react';
 import { fmt } from '../../lib/format';
-import type { Role } from '../../types/interview';
+import type { Consent, Role } from '../../types/interview';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { Logo } from '../ui/Logo';
 import { LocalPreview } from './LocalPreview';
@@ -32,6 +32,7 @@ export interface InterviewRoomViewProps {
   /** 내 역할. 화면에 무엇을 얹을지 결정한다 */
   role: Role;
   interviewId?: string | null;
+  consent?: Consent | null;
   /** 상대 이름. 면접관에겐 지원자 이름, 지원자에겐 면접관 이름이다 */
   remoteName: string;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -56,6 +57,7 @@ export interface InterviewRoomViewProps {
 export function InterviewRoomView({
   role,
   interviewId,
+  consent,
   remoteName,
   videoRef,
   audioRef,
@@ -168,6 +170,8 @@ export function InterviewRoomView({
           </span>
         </div>
 
+        {isInterviewer && consent !== undefined && <ConsentBadge consent={consent} />}
+
         {/* 진행 중 표시는 흐리지 않는다 — 녹화 · 통화 중인지는 늘 보여야 한다 */}
         {live && (
           <span className="bg-danger-tint text-danger inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold">
@@ -248,5 +252,33 @@ export function InterviewRoomView({
         </div>
       )}
     </div>
+  );
+}
+
+/** 동의 여부 한 칸. 받기 전에는 「기다리는 중」이지 「거부」가 아니다. */
+function ConsentBadge({ consent }: { consent: Consent | null }) {
+  if (!consent) {
+    return (
+      <span className="bg-surface-bright text-ink-muted inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold">
+        <span aria-hidden className="material-symbols-outlined text-[16px]">
+          hourglass_empty
+        </span>
+        <span className="hidden sm:inline">동의 대기</span>
+      </span>
+    );
+  }
+  // 언제 · 어떤 문구에 동의했는지는 막대를 좁히지 않도록 툴팁에 둔다.
+  const at = new Date(consent.agreedAt);
+  const when = Number.isNaN(at.getTime()) ? consent.agreedAt : at.toLocaleString('ko-KR');
+  return (
+    <span
+      title={consent.version ? `${when} · 문구 ${consent.version}` : when}
+      className="bg-accent-tint text-accent-strong inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold"
+    >
+      <span aria-hidden className="material-symbols-outlined text-[16px]">
+        verified_user
+      </span>
+      <span className="hidden sm:inline">동의 받음</span>
+    </span>
   );
 }

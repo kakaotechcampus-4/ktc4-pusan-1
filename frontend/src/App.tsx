@@ -30,6 +30,7 @@ import ContextSettingsPage from './pages/ContextSettingsPage';
 import InterviewCreatePage from './pages/InterviewCreatePage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
+import ConsentPage from './pages/ConsentPage';
 import KakaoCallbackPage from './pages/KakaoCallbackPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -120,6 +121,7 @@ function InterviewFlow() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const [session, setSession] = useState<JoinSessionResponse | null>(null);
+  const [agreedSession, setAgreedSession] = useState<string | null>(null);
 
   // 명세상 role 은 클라이언트가 선언한다 (인증 도입 전 임시 구조).
   // 초대 링크로 들어오면 지원자, `?role=interviewer` 면 면접관이다.
@@ -133,7 +135,16 @@ function InterviewFlow() {
 
   if (!sessionId) return <Navigate to="/" replace />;
 
-  if (!session) {
+  if (role === 'CANDIDATE' && agreedSession !== sessionId) {
+    return (
+      <ConsentPage
+        key={sessionId}
+        sessionId={sessionId}
+        onAgreed={() => setAgreedSession(sessionId)}
+      />
+    );
+  }
+  if (!session || session.sessionId !== sessionId) {
     return <JoinPage role={role} onJoined={setSession} />;
   }
 

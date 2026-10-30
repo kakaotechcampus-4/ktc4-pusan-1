@@ -40,7 +40,7 @@ export default function InterviewRoom({
 }: InterviewRoomProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { error, leave, media, mediaNotice, previewVideo, toggleMedia, interviewId } =
+  const { error, leave, media, mediaNotice, previewVideo, toggleMedia, interviewId, consent } =
     useInterviewRoom({
       sessionId,
       role,
@@ -72,6 +72,7 @@ export default function InterviewRoom({
     <InterviewRoomView
       role={role}
       interviewId={interviewId}
+      consent={consent}
       remoteName={remoteName}
       videoRef={videoRef}
       audioRef={audioRef}

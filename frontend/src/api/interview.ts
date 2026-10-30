@@ -17,6 +17,7 @@ import type {
   StartSessionResponse,
 } from '../types/interview';
 import { ApiError, request } from './client';
+import { consentRequest, readConsent } from '../lib/consentContract';
 
 const V1 = '/api/v1';
 
@@ -91,6 +92,19 @@ export const joinSession = (sessionId: string, role: Role) =>
     body: JSON.stringify({ role }),
   });
 
+/** #255·#256의 실제 상태 조회 필드에 맞춰 요청한다. BE 계약은 변경하지 않는다. */
+export async function agreeConsent(sessionId: string, version: string) {
+  const state = await getSessionState(sessionId);
+  const body = consentRequest(state, version);
+  const result = await request<Parameters<typeof readConsent>[0]>(
+    `${V1}/sessions/${sessionId}/consent`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+  const consent = readConsent(result);
+  if (!consent) throw new Error('서버의 동의 기록을 확인하지 못했습니다.');
+  return consent;
+}
+
 /**
  * 서버 에러를 화면이 구분할 수 있는 사유로 바꾼다.
  *
@@ -104,6 +118,7 @@ const FAILURE_BY_CODE: Record<string, JoinFailure> = {
   INTERVIEW_NOT_FOUND: 'not-found',
   NOT_FOUND: 'not-found',
   SESSION_ENDED: 'ended',
+  CONSENT_REQUIRED: 'consent-required',
   ROOM_FULL: 'room-full',
   // 로그인은 됐는데 이 면접의 주인이 아니다 (#141). 다시 시도해도 같은 결과다.
   ROLE_NOT_ALLOWED: 'not-allowed',
