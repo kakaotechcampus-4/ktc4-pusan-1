@@ -211,3 +211,50 @@ body {
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
+
+/* 원래 유리판 배경을 유지하고 밝은 영상에서도 글자 윤곽을 구분한다. */
+.interview-readable {
+  --color-ink-muted: rgb(255 255 255 / 0.96);
+  --color-ink-dim: rgb(255 255 255 / 0.9);
+  text-shadow:
+    0 1px 1px rgb(3 7 18 / 0.95),
+    0 0 3px rgb(3 7 18 / 0.95),
+    0 2px 6px rgb(3 7 18 / 0.8);
+}
+
+/* 기본 폼 스타일이 유리판의 글자 그림자를 지우지 않게 한다. */
+.interview-readable button,
+.interview-readable input,
+.interview-readable textarea {
+  text-shadow: inherit;
+}
+
+.interview-panels {
+  position: absolute;
+  inset: 5rem 0.75rem 5.5rem;
+  display: grid;
+  grid-template-areas: 'preview' 'questions' 'transcript';
+  grid-template-rows: minmax(64px, 0.55fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  pointer-events: none;
+}
+
+@media (min-width: 768px) {
+  .interview-panels {
+    inset: 5.5rem 1rem 6rem;
+    grid-template-areas: 'preview questions' 'transcript questions';
+    grid-template-columns: minmax(0, 1fr) clamp(280px, 28vw, 400px);
+    grid-template-rows: minmax(96px, 1fr) minmax(0, 1fr);
+    gap: 1rem;
+  }
+}
+
+.interview-panels[data-expanded='true'] {
+  grid-template-rows: 64px minmax(0, 1fr) 80px;
+}
+@media (min-width: 768px) {
+  .interview-panels[data-expanded='true'] {
+    grid-template-columns: minmax(0, 1fr) min(55vw, 680px);
+    grid-template-rows: minmax(96px, 1fr) minmax(0, 1fr);
+  }
+}

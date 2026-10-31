@@ -12,6 +12,7 @@
 import type { RemoteTrack, RemoteTrackPublication } from 'livekit-client';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
+import { readConsent } from '../lib/consentContract';
 import { endSession, getSessionState, joinSession, startSession } from '../api/interview';
 import { listSuggestions } from '../api/suggestions';
 import { loadLiveKit } from '../lib/livekit';
@@ -47,6 +48,7 @@ interface UseInterviewRoomOptions {
    * 소유권을 호출자가 계속 들고 있으면(App.tsx 의 DeviceGate) 넘기지 않아도 된다.
    */
   onTracksPublished?: () => void;
+  onSessionEnded?: () => void;
 }
 
 export function useInterviewRoom({
@@ -58,21 +60,27 @@ export function useInterviewRoom({
   videoTrack,
   audioTrack,
   onTracksPublished,
+  onSessionEnded,
 }: UseInterviewRoomOptions) {
   const roomRef = useRef<LiveKitRoom | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // 초대 링크에는 sessionId 만 있다. 면접 단위 API(메모 저장 등)를 부르려면 상태 조회로
-  // 받은 interviewId 가 필요하다 — 그래서 접속한 뒤에야 알 수 있다.
   const [interviewId, setInterviewId] = useState<string | null>(null);
-  // 지원자 동의 기록 (#245). 면접관 화면이 이것으로 동의 여부를 표시한다.
-  // 면접관이 먼저 들어와 있으면 그 시점엔 비어 있다 — 지원자가 들어올 때 다시 본다.
-  const [consent, setConsent] = useState<Consent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [consent, setConsent] = useState<Consent | null>();
+  const [media, setMedia] = useState({
+    microphone: true,
+    camera: true,
+    speaker: true,
+    busy: true,
+  });
+  const [mediaNotice, setMediaNotice] = useState<string | null>(null);
+  const [previewVideo, setPreviewVideo] = useState<MediaStreamTrack | null>(videoTrack);
+  const mediaBusy = useRef(false);
 
   // 트랙과 콜백을 deps 에 넣으면 트랙 도착이나 콜백 교체마다 재접속이 일어난다.
   // 최신 값을 ref 로 넘겨 이펙트 안에서만 읽는다.
-  const latestRef = useRef({ videoTrack, audioTrack, onTracksPublished });
+  const latestRef = useRef({ videoTrack, audioTrack, onTracksPublished, onSessionEnded });
   useEffect(() => {
-    latestRef.current = { videoTrack, audioTrack, onTracksPublished };
+    latestRef.current = { videoTrack, audioTrack, onTracksPublished, onSessionEnded };
   });
 
   useEffect(() => {
@@ -99,6 +107,21 @@ export function useInterviewRoom({
 
     let cancelled = false;
     let room: LiveKitRoom | null = null;
+    let notifiedEnded = false;
+    // 상대의 일시 이탈과 실제 종료를 구분한다. 종료된 세션에서만 기기 점검 화면을 닫는다.
+    const checkEnded = async () => {
+      if (role !== 'CANDIDATE' || cancelled || notifiedEnded) return;
+      try {
+        const state = await getSessionState(sessionId);
+        if (!cancelled && !notifiedEnded && state.status === 'ENDED') {
+          notifiedEnded = true;
+          await room?.disconnect(true);
+          latestRef.current.onSessionEnded?.();
+        }
+      } catch {
+        // 통신 실패만으로 면접 종료를 단정하지 않는다.
+      }
+    };
 
     void (async () => {
       try {
@@ -126,18 +149,6 @@ export function useInterviewRoom({
 
         /* 이미 와 있던 꼬리질문을 채운다. 면접 주인만 볼 수 있어 지원자는 부르지 않는다 —
            부르면 401 이고, 지원자에게는 패킷도 가지 않는다. */
-        /* 지원자 동의 기록. 면접관 화면에만 쓴다 — 지원자는 자기가 방금 동의했다. */
-        const loadConsent = async () => {
-          if (role !== 'INTERVIEWER') return;
-          try {
-            const state = await getSessionState(sessionId);
-            if (!cancelled) setConsent(state.consent);
-          } catch (e) {
-            // 못 읽어도 통화는 계속한다. 표시가 비는 것과 면접이 끊기는 것은 다르다.
-            console.warn('동의 기록을 불러오지 못했습니다', e);
-          }
-        };
-
         const loadSuggestions = async () => {
           if (role !== 'INTERVIEWER') return;
           try {
@@ -146,6 +157,17 @@ export function useInterviewRoom({
           } catch (e) {
             // 못 불러도 통화와 실시간 수신은 계속한다. 화면 전체를 실패로 덮을 일이 아니다.
             console.warn('꼬리질문을 불러오지 못했습니다', e);
+          }
+        };
+
+        const loadConsent = async () => {
+          if (role !== 'INTERVIEWER') return;
+          try {
+            const state = await getSessionState(sessionId);
+            if (!cancelled && ('consent' in state || 'consentedAt' in state))
+              setConsent(readConsent(state));
+          } catch {
+            /* 조회 실패만으로 동의 여부를 단정하지 않는다. */
           }
         };
 
@@ -159,16 +181,16 @@ export function useInterviewRoom({
           .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => track.detach())
           .on(RoomEvent.ParticipantConnected, (participant) => {
             // 같은 방의 AI 워커는 통화 상대가 아니다. BE가 역할을 identity로 발급한다.
-            if (participant.identity !== remoteSpeaker) return;
-            setRemoteJoined(true);
-            // 지원자는 동의해야 들어올 수 있다(BE 가 막는다). 들어온 순간 기록이
-            // 생겼으므로 그때 다시 읽는다 — 면접관 화면의 표시가 이 값이다.
-            void loadConsent();
+            if (participant.identity === remoteSpeaker) {
+              setRemoteJoined(true);
+              void loadConsent();
+            }
           })
           .on(RoomEvent.ParticipantDisconnected, (participant) => {
             if (participant.identity !== remoteSpeaker) return;
             setRemoteJoined(false);
             setSpeaking(null);
+            void checkEnded();
           })
           // 발화 중 화자 표시. 서버 speech.start와 별개로 즉시 반응한다.
           //
@@ -183,7 +205,10 @@ export function useInterviewRoom({
             const isLocal = speakers.some((p) => p === room?.localParticipant);
             setSpeaking(isRemote ? remoteSpeaker : isLocal ? localSpeaker : null);
           })
-          .on(RoomEvent.Disconnected, () => setRemoteJoined(false))
+          .on(RoomEvent.Disconnected, () => {
+            setRemoteJoined(false);
+            void checkEnded();
+          })
           // 꼬리질문. 서버가 RoomService 로 보내므로 participant 가 비어서 온다 —
           // 보낸 사람으로 거르면 하나도 받지 못한다. 토픽만 본다.
           .on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
@@ -191,7 +216,10 @@ export function useInterviewRoom({
             if (suggestion && !cancelled) addSuggestion(suggestion);
           })
           // 끊긴 사이에 온 꼬리질문은 BE 가 다시 보내지 않는다. 붙을 때마다 조회한다.
-          .on(RoomEvent.Reconnected, () => void loadSuggestions());
+          .on(RoomEvent.Reconnected, () => {
+            void loadSuggestions();
+            void loadConsent();
+          });
 
         // 워커가 접속 직후 보낼 수 있어 connect 전에 등록한다. 역할 분기는 하지 않는다 —
         // AI가 destination_identities로 면접관만 지정하므로 지원자에게는 전달되지 않는다.
@@ -217,9 +245,12 @@ export function useInterviewRoom({
 
         // 새 면접만 시작한다. 재입장은 INTERVIEWING을 유지하며 시작 시각을 덮지 않는다.
         const state = await getSessionState(sessionId);
+        if (!cancelled) {
+          setInterviewId(state.interviewId);
+          if (role === 'INTERVIEWER' && ('consent' in state || 'consentedAt' in state))
+            setConsent(readConsent(state));
+        }
         if (cancelled) return;
-        setInterviewId(state.interviewId);
-        if (role === 'INTERVIEWER') setConsent(state.consent);
         // join 토큰을 받은 뒤 종료된 방에 늦게 붙었으면 다시 트랙을 발행하지 않는다.
         if (state.status === 'ENDED') throw new ApiError('SESSION_ENDED', 409);
         if (role === 'INTERVIEWER') {
@@ -262,10 +293,18 @@ export function useInterviewRoom({
 
           // 발행 성공을 알린다. DeviceGate가 원본 트랙을 소유한 경로에서는 계속 그쪽이 정리한다.
           onTracksPublished?.();
+          setMedia((previous) => ({
+            ...previous,
+            microphone: room!.localParticipant.isMicrophoneEnabled,
+            camera: room!.localParticipant.isCameraEnabled,
+            busy: false,
+          }));
         } catch (e) {
           // 발행 실패가 통화를 막지는 않는다 — 지원자 영상과 전사는 계속 본다.
           // setError 를 세우면 화면 전체가 실패 오버레이로 덮인다.
           console.warn('로컬 트랙 발행 실패', e);
+          setMedia((previous) => ({ ...previous, busy: false }));
+          setMediaNotice('기기 전송을 시작하지 못했습니다. 장치와 권한을 확인해 주세요.');
         }
 
         /* 이미 들어와 있는 지원자 트랙 구독 */
@@ -290,6 +329,12 @@ export function useInterviewRoom({
       room?.removeAllListeners();
       // 원본 트랙은 DeviceGate 소유다. StrictMode 재접속 때 먼저 stop하면
       // 다음 Room에 끝난 트랙이 전달되므로 최종 이탈 때만 DeviceGate가 회수한다.
+      // SDK가 카메라 재시작 때 만든 트랙은 DeviceGate의 원본과 별도로 회수한다.
+      room?.localParticipant.trackPublications.forEach((publication) => {
+        const raw = publication.track?.mediaStreamTrack;
+        if (raw && raw !== latestRef.current.videoTrack && raw !== latestRef.current.audioTrack)
+          publication.track?.stop();
+      });
       void room?.disconnect(false);
       if (roomRef.current === room) roomRef.current = null;
       reset();
@@ -316,11 +361,57 @@ export function useInterviewRoom({
         result = { sessionId, status: state.status, endedAt: state.endedAt };
       }
     }
-    await roomRef.current?.disconnect(false);
+    await roomRef.current?.disconnect(true);
     return result;
   };
 
   // roomRef.current 를 렌더 중에 읽으면 연결 이후 값이 갱신되지 않는다.
   // ref 자체를 넘겨 이벤트 핸들러·이펙트 안에서 읽게 한다.
-  return { roomRef, error, leave, interviewId, consent };
+  const toggleMedia = async (kind: 'microphone' | 'camera' | 'speaker') => {
+    if (kind === 'speaker' && role !== 'INTERVIEWER') return;
+    const room = roomRef.current;
+    if (!room || mediaBusy.current) return;
+    mediaBusy.current = true;
+    setMedia((previous) => ({ ...previous, busy: true }));
+    setMediaNotice(null);
+    try {
+      if (kind === 'microphone')
+        await room.localParticipant.setMicrophoneEnabled(
+          !room.localParticipant.isMicrophoneEnabled,
+        );
+      if (kind === 'camera')
+        await room.localParticipant.setCameraEnabled(!room.localParticipant.isCameraEnabled);
+      if (kind === 'speaker' && audioRef.current) {
+        audioRef.current.muted = !audioRef.current.muted;
+        if (!audioRef.current.muted) await room.startAudio();
+      }
+      const video = [...room.localParticipant.videoTrackPublications.values()].find(
+        (publication) => publication.source === 'camera',
+      );
+      setPreviewVideo(
+        room.localParticipant.isCameraEnabled ? (video?.track?.mediaStreamTrack ?? null) : null,
+      );
+    } catch {
+      setMediaNotice('기기 상태를 바꾸지 못했습니다. 장치와 권한을 확인해 주세요.');
+    } finally {
+      setMedia({
+        microphone: room.localParticipant.isMicrophoneEnabled,
+        camera: room.localParticipant.isCameraEnabled,
+        speaker: !audioRef.current?.muted,
+        busy: false,
+      });
+      mediaBusy.current = false;
+    }
+  };
+  return {
+    roomRef,
+    error,
+    leave,
+    media,
+    mediaNotice,
+    previewVideo,
+    toggleMedia,
+    interviewId,
+    consent,
+  };
 }
