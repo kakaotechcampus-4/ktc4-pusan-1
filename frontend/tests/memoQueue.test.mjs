@@ -171,3 +171,22 @@ test('새로고침한 충돌 초안도 서버 확인 없이 자동 저장하지 
   assert.equal(calls, 1);
   queue.clear();
 });
+
+test('같은 면접으로 돌아와도 저장 중인 새 입력을 옛 탭 초안으로 덮지 않는다', async () => {
+  let finish;
+  const queue = createMemoQueue(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  queue.hydrate('a', '서버 원문');
+  queue.edit('a', '저장 중인 입력');
+  const pending = queue.flush('a');
+  queue.edit('a', '더 최근에 입력한 메모');
+  queue.restoreDraft('a', '옛 탭 초안');
+  assert.equal(queue.read('a').memo, '더 최근에 입력한 메모');
+  queue.clear();
+  finish();
+  await pending;
+});
