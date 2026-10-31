@@ -57,6 +57,7 @@ from app.schemas import (
     ReviewUpdateResponse,
     SummaryContent,
 )
+from app.services import recording
 from app.services.report import adopted_findings, build_competencies
 from app.services.review import build_review, failure_reason, item_kinds
 
@@ -260,7 +261,7 @@ def get_interview(interview: OwnedInterviewDep, store: StoreDep) -> InterviewRes
     "/{interviewId}",
     response_model=ReviewUpdateResponse,
     summary="검토 상태 · 메모 수정",
-    responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
+    responses=responses(LOGIN_REQUIRED, _NOT_FOUND, (409, "메모가 다른 창에서 변경됨")),
 )
 def update_review(
     body: ReviewUpdateRequest, interview: OwnedInterviewDep, store: StoreDep
@@ -272,14 +273,57 @@ def update_review(
     """
     # 저장소가 한 문장으로 바꾼다. 읽어 둔 객체를 덮어쓰면 메모 자동 저장과 확정
     # 버튼이 겹칠 때 보내지 않은 값이 옛 값으로 돌아간다.
-    updated = store.update_review(interview.id, body.review_status, body.memo)
-    if updated is None:  # 주인 검사 뒤에 지워졌다
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
+    updated = store.update_review(
+        interview.id,
+        body.review_status,
+        body.memo,
+        expected_memo=body.expected_memo if body.memo is not None else None,
+    )
+    if updated is None:
+        if store.get_interview(interview.id) is None:
+            raise ApiError(
+                ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다."
+            )
+        raise ApiError("MEMO_CONFLICT", 409, "다른 창에서 메모가 바뀌었습니다.")
     return ReviewUpdateResponse(
         review_status=updated.review_status,
         reviewed_at=updated.reviewed_at,
         memo=updated.memo,
     )
+
+
+@router.delete(
+    "/{interviewId}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="면접 삭제",
+    responses=responses(
+        LOGIN_REQUIRED, _NOT_FOUND, (409, "진행 중이거나 녹화를 합치는 중")
+    ),
+)
+async def delete_interview(interview: OwnedInterviewDep, store: StoreDep) -> None:
+    """면접과 딸린 기록을 전부 지운다 (기획 F12, #246). 되돌릴 수 없다.
+
+    세션 · 전사 · 분석 · 요약 · 채택 기록 · 메모 · 이력서 · 리포트 · 녹화가 같이
+    간다. 진행 중인 세션이나 아직 합치는 중인 녹화가 있으면 409 다 — 지운 뒤에도
+    S3 에 파일이 더 올라와 주인 없는 녹화가 남는다.
+    """
+    sessions = await run_in_threadpool(store.delete_interview, interview.id)
+    if sessions is None:
+        if await run_in_threadpool(store.get_interview, interview.id) is None:
+            # 주인 검사 뒤에 지워졌다
+            raise ApiError(
+                ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다."
+            )
+        raise ApiError(
+            ErrorCode.INVALID_SESSION_STATE,
+            409,
+            "진행 중인 면접은 지울 수 없습니다. 면접을 끝낸 뒤 다시 시도해 주세요.",
+        )
+
+    # DB 를 먼저 지우고 파일을 지운다. 거꾸로면 파일을 지운 뒤 409 로 거절하는 경우가
+    # 생겨, 남아 있는 면접의 녹화가 사라진다. 이 순서에서는 파일 삭제가 실패하면
+    # 500 이 나가고 주인 없는 파일이 남지만, 그건 로그에 남고 다시 지울 수 있다.
+    await run_in_threadpool(recording.purge, sessions)
 
 
 @router.post(

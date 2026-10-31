@@ -67,9 +67,15 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-3 이다.
     ("patch", "/api/v1/interviews/{interviewId}"): {
         "path_params": ["interviewId"],
-        "request": {"reviewStatus", "memo"},
+        "request": {"reviewStatus", "memo", "expectedMemo"},
         "response": {"reviewStatus", "reviewedAt", "memo"},
-        "statuses": {"200", "401", "404"},
+        "statuses": {"200", "401", "404", "409"},
+    },
+    # ⚠️ Notion 명세에 없다. 기획 F12 (#246). 204 라 "response" 를 적지 않는다 —
+    # 본문이 없다는 사실 자체를 잠근다.
+    ("delete", "/api/v1/interviews/{interviewId}"): {
+        "path_params": ["interviewId"],
+        "statuses": {"204", "401", "404", "409"},
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-4 이다. 경로 변수 순서가 뒤집혀 보이는
     # 건 FastAPI 가 라우트 자신의 것(itemId)을 의존성의 것(interviewId)보다 먼저

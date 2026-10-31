@@ -51,7 +51,7 @@ export interface InterviewRoomViewProps {
    * 시연 중 질문을 받기 전에 화면이 먼저 답하도록 한다.
    */
   notice?: string;
-  media?: Omit<MediaControlsProps, 'enabled'>;
+  media?: Omit<MediaControlsProps, 'enabled' | 'allowSpeakerControl'>;
 }
 
 export function InterviewRoomView({
@@ -238,7 +238,13 @@ export function InterviewRoomView({
         </div>
       ) : null}
 
-      {media && <MediaControls {...media} enabled={connection === 'connected'} />}
+      {media && (
+        <MediaControls
+          {...media}
+          allowSpeakerControl={isInterviewer}
+          enabled={connection === 'connected'}
+        />
+      )}
 
       {/* 종료 실패 등 안내 — 가운데 아래 */}
       {notice && (

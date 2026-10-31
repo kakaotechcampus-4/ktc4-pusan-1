@@ -209,8 +209,9 @@ def test_cloudfront_url_is_signed_with_our_key_for_three_hours(cdn):
     before = utcnow()
     url, expires = recording.presign("rec/ses_1/merged.webm")
 
-    # 초 단위로 내린 값이라 3시간보다 1초 미만 짧을 수 있다.
-    assert timedelta(hours=3, seconds=-1) < expires - before <= timedelta(hours=3)
+    # 초 단위로 내린 값이라 3시간에서 1초 미만 어긋날 수 있다 — 양쪽 다.
+    ttl = expires - before
+    assert timedelta(hours=3, seconds=-1) < ttl < timedelta(hours=3, seconds=1)
     base, _, query = url.partition("?")
     assert base == "https://d123.cloudfront.net/rec/ses_1/merged.webm"
     params = dict(p.split("=", 1) for p in query.split("&"))
@@ -413,3 +414,105 @@ def test_merges_tracks_aligned_by_their_start(
     assert min(t for t in frames if t > 3.0) == pytest.approx(4.0, abs=0.02)
     # 소리는 지원자의 두 번째 조각(4~6초)에서 끝난다. 밀지 않으면 3초에 끝난다.
     assert packets("a")[-1] == pytest.approx(6.0, abs=0.05)
+
+
+# ── 면접을 지울 때 파일도 지운다 (#246) ──────────────────
+
+
+class FakeDeleteS3:
+    """목록과 삭제만 흉내 낸다. 목록은 두 개씩 끊어 여러 장으로 준다."""
+
+    def __init__(self, keys: list[str], errors: list[dict] | None = None):
+        self.keys = keys
+        self.errors = errors or []
+        self.deleted: list[list[str]] = []
+
+    def get_paginator(self, name: str) -> "FakeDeleteS3":
+        assert name == "list_objects_v2"
+        return self
+
+    def paginate(self, Bucket: str, Prefix: str):
+        assert Bucket == "test-bucket"
+        hit = [k for k in self.keys if k.startswith(Prefix)]
+        if not hit:
+            yield {}  # S3 는 빈 목록에 Contents 를 주지 않는다
+            return
+        for i in range(0, len(hit), 2):
+            yield {"Contents": [{"Key": k} for k in hit[i : i + 2]]}
+
+    def delete_objects(self, Bucket: str, Delete: dict) -> dict:
+        self.deleted.append([o["Key"] for o in Delete["Objects"]])
+        return {"Errors": self.errors}
+
+
+def _never():
+    raise AssertionError("S3 를 부르지 않아야 한다")
+
+
+def test_purge_takes_the_tracks_too_not_just_the_merged_file(bucket, monkeypatch):
+    """합본만 지우면 Egress 가 올린 원본이 남는다. 목록이 여러 장이어도 다 지운다.
+
+    `ses_1` 로 지울 때 `ses_10` 이 걸리지 않는 것도 같이 본다 — 접두사가 `/` 로
+    끝나야 하는 이유다.
+    """
+    s3 = FakeDeleteS3(
+        [
+            "rec/ses_1/merged.webm",
+            "rec/ses_1/CANDIDATE-TR_a.webm",
+            "rec/ses_1/INTERVIEWER-TR_b.ogg",
+            "rec/ses_10/merged.webm",
+            "rec/ses_2/merged.webm",
+        ]
+    )
+    monkeypatch.setattr(recording, "_s3", lambda: s3)
+
+    recording.purge(["ses_1"])
+
+    assert sorted(key for page in s3.deleted for key in page) == [
+        "rec/ses_1/CANDIDATE-TR_a.webm",
+        "rec/ses_1/INTERVIEWER-TR_b.ogg",
+        "rec/ses_1/merged.webm",
+    ]
+    assert len(s3.deleted) == 2  # 페이지마다 한 번씩 부른다
+
+
+def test_purge_goes_session_by_session(bucket, monkeypatch):
+    s3 = FakeDeleteS3(["rec/ses_1/merged.webm", "rec/ses_2/merged.webm"])
+    monkeypatch.setattr(recording, "_s3", lambda: s3)
+
+    recording.purge(["ses_1", "ses_2"])
+
+    assert s3.deleted == [["rec/ses_1/merged.webm"], ["rec/ses_2/merged.webm"]]
+
+
+def test_purge_of_a_session_without_files_is_quiet(bucket, monkeypatch):
+    """녹화가 없는 면접도 지울 수 있다 — 시작만 하고 끝낸 세션이 그렇다."""
+    s3 = FakeDeleteS3([])
+    monkeypatch.setattr(recording, "_s3", lambda: s3)
+
+    recording.purge(["ses_1"])
+
+    assert s3.deleted == []
+
+
+def test_purge_without_a_bucket_touches_nothing(monkeypatch):
+    """녹화를 안 걸었다 — 로컬 · 테스트."""
+    monkeypatch.setattr(settings, "recording_bucket", "")
+    monkeypatch.setattr(recording, "_s3", _never)
+
+    recording.purge(["ses_1"])
+
+
+def test_purge_of_nothing_touches_nothing(bucket, monkeypatch):
+    monkeypatch.setattr(recording, "_s3", _never)
+
+    recording.purge([])
+
+
+def test_purge_raises_when_s3_refuses(bucket, monkeypatch):
+    """조용히 넘기면 지웠다고 응답한 면접의 녹화가 S3 에 남는다."""
+    s3 = FakeDeleteS3(["rec/ses_1/merged.webm"], errors=[{"Code": "AccessDenied"}])
+    monkeypatch.setattr(recording, "_s3", lambda: s3)
+
+    with pytest.raises(RuntimeError, match="AccessDenied"):
+        recording.purge(["ses_1"])

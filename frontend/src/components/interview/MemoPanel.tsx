@@ -1,3 +1,4 @@
+import { MemoConflictNotice } from '../review/MemoConflictNotice';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { getInterview } from '../../api/interview';
@@ -10,10 +11,11 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
     queryFn: () => getInterview(interviewId!),
     enabled: Boolean(interviewId),
   });
-  const { memo, setMemo, state, flush, hydrated } = useMemoAutosave({
-    interviewId,
-    initial: owner.data?.memo,
-  });
+  const { memo, setMemo, state, flush, hydrated, serverMemo, readConflict, reapply } =
+    useMemoAutosave({
+      interviewId,
+      initial: owner.data?.memo,
+    });
   const [open, setOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const input = useRef<HTMLTextAreaElement>(null);
   const restored = useRef<string | null>(null);
@@ -48,17 +50,19 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
         </button>
         <span
           role="status"
-          className={`text-[12px] ${state === 'failed' ? 'text-danger' : 'text-ink-dim'}`}
+          className={`text-[12px] ${state === 'failed' || state === 'conflict' ? 'text-danger' : 'text-ink-dim'}`}
         >
           {state === 'saving'
             ? '저장 중'
             : state === 'saved'
               ? '저장됨'
-              : state === 'failed'
-                ? '저장 실패'
-                : ready
-                  ? ''
-                  : '불러오는 중'}
+              : state === 'conflict'
+                ? '다른 창에서 변경됨'
+                : state === 'failed'
+                  ? '저장 실패'
+                  : ready
+                    ? ''
+                    : '불러오는 중'}
         </span>
       </header>
       {open && (
@@ -87,6 +91,13 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
                 다시 확인
               </button>
             </p>
+          )}
+          {state === 'conflict' && (
+            <MemoConflictNotice
+              serverMemo={serverMemo}
+              readConflict={readConflict}
+              reapply={reapply}
+            />
           )}
           {state === 'failed' && (
             <button

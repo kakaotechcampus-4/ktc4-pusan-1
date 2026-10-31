@@ -403,3 +403,37 @@ def test_payload_carries_sentences_ids_and_requested_at_only():
     )
     assert failed.overview == "" and failed.competencies == []
     assert failed.model == "fake"
+
+
+@pytest.mark.parametrize("status", ["completed", "partial"])
+@pytest.mark.parametrize("overview", ["", "  ", "가" * 601])
+def test_report_payload_uses_summary_when_generated_overview_is_unusable(
+    status, overview
+):
+    result = ReportResult(interview_id="int_test", status=status, overview=overview)
+    payload = report_payload(
+        result, requested_at="original", fallback_overview="면접 요약"
+    )
+    assert payload.status == "partial"
+    assert payload.overview == "면접 요약"
+    assert payload.requested_at == "original"
+
+
+@pytest.mark.parametrize("fallback", ["", "  ", "가" * 601])
+def test_missing_report_overview_is_failed_instead_of_no_evidence(fallback):
+    result = ReportResult(interview_id="int_test", status="completed", model="test")
+    payload = report_payload(
+        result, requested_at="original", fallback_overview=fallback
+    )
+    assert payload.status == "failed"
+    assert payload.overview == "" and payload.competencies == []
+    assert payload.model == "test"
+
+
+def test_empty_report_does_not_become_success_just_because_summary_exists():
+    payload = report_payload(
+        ReportResult(interview_id="int_test", status="empty"),
+        requested_at="original",
+        fallback_overview="면접 요약",
+    )
+    assert payload.status == "empty"
