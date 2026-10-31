@@ -1,0 +1,42 @@
+{
+  "interviewId": "int_sample",
+  "sessionId": "ses_sample",
+  "summary": {
+    "overview": "주문·결제 API 경험과 캐시 성능 개선을 중심으로 답했고, 결제 정합성은 다루지 않았다.",
+    "keyPoints": [
+      "상품 조회 API를 APM으로 측정한 뒤 쿼리를 줄이고 Redis 캐시를 걸었다",
+      "멱등키 설계는 팀 선배가 했고 본인은 구현과 동시성 테스트를 맡았다"
+    ]
+  },
+  "competencies": [
+    {"competencyId": "cmp_order_api", "name": "주문·결제 API", "required": true, "state": "PARTIAL"},
+    {"competencyId": "cmp_cache", "name": "캐시 성능 개선", "required": false, "state": "CONFIRMED"},
+    {"competencyId": "cmp_consistency", "name": "결제 정합성", "required": true, "state": "MISSING"}
+  ],
+  "findings": [
+    {
+      "findingId": "fnd_sample_cache",
+      "competencyId": "cmp_cache",
+      "findingType": "COMPETENCY_EVIDENCE",
+      "text": "상품 조회 API를 APM으로 측정한 뒤 쿼리를 줄이고 Redis 5분 캐시를 걸었다고 설명함",
+      "quote": null,
+      "transcript": "APM으로 먼저 어디가 느린지 봤고, 쿼리 수를 줄인 다음에 캐시를 5분으로 걸었습니다"
+    },
+    {
+      "findingId": "fnd_sample_idem",
+      "competencyId": "cmp_order_api",
+      "findingType": "CLAIM_CONTRADICTED",
+      "text": "멱등키 중복 방지는 이력서에 설계·구현으로 적혀 있으나 설계는 선배가 했다고 답함",
+      "quote": "결제 멱등키 중복 방지를 설계·구현",
+      "transcript": "설계는 선배가 잡아 주셨고 저는 구현과 동시성 테스트를 했습니다"
+    },
+    {
+      "findingId": "fnd_sample_ops",
+      "competencyId": "cmp_order_api",
+      "findingType": "CLAIM_VERIFIED",
+      "text": "주문 결제 API를 4년 넘게 개발하고 운영했다고 답함",
+      "quote": "주문·결제 API 4년 개발·운영",
+      "transcript": "팀에서 사 년 넘게 주문 결제 API를 개발하고 운영했습니다"
+    }
+  ]
+}
