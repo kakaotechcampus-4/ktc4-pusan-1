@@ -163,6 +163,46 @@ class PostgresStore:
         )
         return None if row is None else self._to_session(row)
 
+    def delete_interview(self, interview_id: str) -> list[str] | None:
+        """한 트랜잭션에서 지운다. 딸린 행은 `schema.sql` 의 CASCADE 가 같이 지운다.
+
+        면접 행을 먼저 잠근다. 세션을 새로 넣을 때 FK 가 이 행의 KEY SHARE 를 잡으니,
+        `FOR UPDATE` 로 잠그면 확인과 삭제 사이에 세션이 새로 생길 수 없다.
+
+        세션 행도 같이 잠근다. 잠그지 않으면 「진행 중이 아니다」를 확인하고 지우는
+        사이에 면접이 시작돼, 녹화가 더 올라올 세션을 지울 수 있다. `OF s` 로
+        세션만 잠근다 — OUTER JOIN 의 바깥쪽(recording)은 잠글 수 없다.
+        """
+        conn: Connection[dict[str, Any]]
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT id FROM interview WHERE id = %s FOR UPDATE",
+                    (interview_id,),
+                )
+                if cur.fetchone() is None:  # 없는 면접
+                    return None
+
+                cur.execute(
+                    """
+                    SELECT s.id, s.status, r.status AS recording_status
+                    FROM session s
+                    LEFT JOIN recording r ON r.session_id = s.id
+                    WHERE s.interview_id = %s
+                    FOR NO KEY UPDATE OF s
+                    """,
+                    (interview_id,),
+                )
+                rows = cur.fetchall()
+                for row in rows:
+                    if row["status"] == SessionStatus.INTERVIEWING:
+                        return None
+                    if row["recording_status"] == SummaryStatus.PROCESSING:
+                        return None
+
+                cur.execute("DELETE FROM interview WHERE id = %s", (interview_id,))
+        return [row["id"] for row in rows]
+
     def list_interviews(
         self, interviewer_id: str
     ) -> list[tuple[Interview, Session | None, SummaryStatus | None]]:

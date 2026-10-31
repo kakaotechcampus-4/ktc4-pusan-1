@@ -13,7 +13,7 @@
  * 보여 주는 문구의 판. 날짜로 둔다 — 「언제 쓴 문구에 동의받았나」가 곧 답이다.
  * 문구를 한 글자라도 고치면 올린다.
  */
-export const CONSENT_VERSION = '2026-10-30';
+export const CONSENT_VERSION = '2026-10-31';
 
 export interface ConsentSection {
   title: string;
@@ -33,7 +33,7 @@ export const CONSENT_SECTIONS: ConsentSection[] = [
     items: [
       '지원자님의 영상과, 두 사람의 목소리를 녹화합니다. 면접관의 영상은 녹화하지 않습니다.',
       '면접에서 오간 말을 글로 옮겨 저장합니다.',
-      '미리 제출하신 이력서의 내용을 함께 씁니다.',
+      '면접관이 등록한 이력서의 내용을 함께 씁니다.',
     ],
   },
   {
@@ -42,6 +42,7 @@ export const CONSENT_SECTIONS: ConsentSection[] = [
       '면접 중에 면접관이 이어서 물어볼 질문을 AI 가 제안합니다.',
       '면접이 끝난 뒤 요약과 검토 자료를 AI 가 만듭니다.',
       '채용 검토 말고 다른 목적으로는 쓰지 않습니다.',
+      'AI 는 합격 · 불합격을 정하지 않습니다. 판단은 면접관이 합니다.',
     ],
   },
   {
@@ -66,6 +67,6 @@ export const CONSENT_AGREE_LABEL = '위 내용을 확인했고, 녹화 · 전사
 /** 거부했을 때 보여 줄 안내 */
 export const CONSENT_DECLINED = {
   title: '동의하지 않으면 면접을 시작할 수 없습니다',
-  body: '녹화 없이 면접을 보고 싶으시면 면접관에게 말씀해주세요. 이 화면은 닫으셔도 됩니다.',
+  body: '동의하지 않으시면 이 면접을 진행할 수 없습니다. 면접관에게 문의해주세요. 이 화면은 닫으셔도 됩니다.',
   back: '다시 보기',
 } as const;
