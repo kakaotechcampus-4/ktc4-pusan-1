@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getInterview, getSessionState } from '../../api/interview';
 import { ApiError } from '../../api/client';
+import { buttonClass } from '../ui/buttonClass';
 import type { Role } from '../../types/interview';
 
 export function InterviewNavigationDialog({
@@ -79,7 +80,7 @@ export function InterviewNavigationDialog({
       ref={dialog}
       onCancel={onClose}
       aria-labelledby="interview-navigation-title"
-      className="border-border-base bg-surface-panel text-ink m-auto w-[min(440px,calc(100%-32px))] rounded-xl border p-6 backdrop:bg-black/70"
+      className="border-border-base bg-surface-panel text-ink shadow-pop backdrop:bg-ink/30 m-auto w-[min(440px,calc(100%-32px))] rounded-2xl border p-6"
     >
       <form
         onSubmit={(e) => {
@@ -91,7 +92,7 @@ export function InterviewNavigationDialog({
         <h2 id="interview-navigation-title" className="text-lg font-semibold">
           {title}
         </h2>
-        <label className="flex flex-col gap-2 text-sm">
+        <label className="text-ink-muted flex flex-col gap-2 text-[14px] font-medium">
           {mode === 'review' ? '초대 링크·기록 링크 또는 면접 ID' : '초대 링크 또는 세션 ID'}
           <input
             autoFocus
@@ -101,38 +102,30 @@ export function InterviewNavigationDialog({
               setValue(e.target.value);
               setError('');
             }}
-            className="border-border-base bg-surface-input rounded-lg border px-3 py-2.5"
+            className="border-border-input bg-surface-input focus:border-brand focus:ring-brand/20 h-11 rounded-xl border px-3.5 text-[15px] transition outline-none focus:ring-4"
           />
         </label>
         {mode === 'room' && (
-          <label className="flex flex-col gap-2 text-sm">
+          <label className="text-ink-muted flex flex-col gap-2 text-[14px] font-medium">
             입장 역할
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as Role)}
-              className="border-border-base bg-surface-input rounded-lg border px-3 py-2.5"
+              className="border-border-input bg-surface-input focus:border-brand focus:ring-brand/20 h-11 rounded-xl border px-3.5 text-[15px] transition outline-none focus:ring-4"
             >
               <option value="INTERVIEWER">면접관</option>
               <option value="CANDIDATE">지원자</option>
             </select>
           </label>
         )}
-        <p role="status" className="text-sm text-[#FFC46B]">
+        <p role="status" className="text-warning text-sm">
           {error}
         </p>
         <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="border-border-base rounded-lg border px-4 py-2"
-          >
+          <button type="button" onClick={onClose} className={buttonClass('secondary', 'sm')}>
             취소
           </button>
-          <button
-            type="submit"
-            disabled={busy}
-            className="bg-brand rounded-lg px-4 py-2 text-white disabled:opacity-50"
-          >
+          <button type="submit" disabled={busy} className={buttonClass('primary', 'sm')}>
             {busy ? '확인 중…' : '열기'}
           </button>
         </div>

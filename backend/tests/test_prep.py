@@ -366,6 +366,8 @@ def test_unstorable_text_is_refused(
         ("GET", "/jobs/pending"),
         ("GET", "/sessions/ses_x/context"),
         ("PUT", "/interviews/int_x/prep"),
+        ("GET", "/interviews/int_x/report/context"),
+        ("PUT", "/interviews/int_x/report"),
     ],
 )
 def test_the_key_is_required(
@@ -410,3 +412,37 @@ def test_a_new_resume_after_the_interview_does_not_ask_again(
     assert found is not None
     assert found.status is SummaryStatus.READY
     assert found.competencies == PREP_RESULT["competencies"]
+
+
+# ── 면접 후 분석(REVIEW, #164) ──────────────────────────
+
+
+def test_prep_goes_out_before_a_review(
+    client: TestClient, key: str, interview_id: str, store: InMemoryStore
+) -> None:
+    """다음 면접의 꼬리질문이 PREP 을 기다린다. 끝난 면접의 리뷰는 그 뒤다."""
+    session_id = open_session(client, interview_id)
+    client.post(f"{V1}/sessions/{session_id}/start")
+    client.post(f"{V1}/sessions/{session_id}/end")
+    store.mark_transcript(session_id, datetime.now().astimezone())
+
+    job = pending(client, key)
+    assert job["kind"] == "PREP"
+    put_prep(client, key, interview_id, result_for(job))
+
+    review = pending(client, key)
+    assert review["kind"] == "REVIEW"
+    assert review["sessionId"] == session_id
+    assert review["interviewId"] == interview_id
+
+
+def test_a_review_waits_for_the_transcript(
+    client: TestClient, key: str, interview_id: str
+) -> None:
+    """종료 직후에는 Agent 가 아직 전사를 보내는 중일 수 있다."""
+    session_id = open_session(client, interview_id)
+    put_prep(client, key, interview_id, result_for(pending(client, key)))
+    client.post(f"{V1}/sessions/{session_id}/start")
+    client.post(f"{V1}/sessions/{session_id}/end")
+
+    assert pending(client, key) is None

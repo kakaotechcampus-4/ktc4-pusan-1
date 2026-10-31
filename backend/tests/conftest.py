@@ -35,6 +35,10 @@ class FakeMedia:
         #: (room, track_sid, filepath)
         self.egress_started: list[tuple[str, str, str]] = []
         self.egress_infos: list[object] = []
+        #: (room, data, topic, to)
+        self.sent: list[tuple[str, bytes, str, list[str]]] = []
+        #: 채우면 `send_data` 가 이걸 던진다.
+        self.send_error: Exception | None = None
 
     async def ensure_room(self, room: str) -> None:
         self.rooms.append(room)
@@ -60,6 +64,13 @@ class FakeMedia:
 
     async def list_egress(self, room: str):
         return self.egress_infos
+
+    async def send_data(
+        self, room: str, data: bytes, *, topic: str, to: list[str]
+    ) -> None:
+        if self.send_error is not None:
+            raise self.send_error
+        self.sent.append((room, data, topic, to))
 
     def issue_token(self, room: str, role: Role) -> IssuedToken:
         return IssuedToken(
@@ -202,6 +213,17 @@ def session_id(client: TestClient) -> str:
     return created.json()["sessionId"]
 
 
+@pytest.fixture
+def consented(client: TestClient, session_id: str) -> str:
+    """지원자 동의까지 받아 둔 세션 (#245).
+
+    동의가 없으면 지원자는 입장하지 못한다. 입장을 전제로 하는 시험은 이 픽스처를
+    쓴다 — `session_id` 는 일부러 동의 없이 둔다. 그래야 막히는 것도 시험할 수 있다.
+    """
+    client.post(f"/api/v1/sessions/{session_id}/consent", json={"version": "test"})
+    return session_id
+
+
 # ── 검토 화면 (#163) ─────────────────────────────────────
 
 #: 데모 시드와 같은 파일이다. 계산 규칙 · API · 시드 테스트가 같은 것을 읽는다.
@@ -239,5 +261,14 @@ def age(store: InMemoryStore, session_id: str, delta: timedelta) -> None:
     # `save_summary` 는 `requested_at` 을 지키므로(한도의 기준점) 저장소가 든
     # 것을 직접 옮긴다. 인메모리 구현을 아는 테스트 전용 조작이라 여기 한 곳에 둔다.
     stored = store._summaries.get(session_id)  # pyright: ignore[reportPrivateUsage]
+    assert stored is not None
+    stored.requested_at -= delta
+
+
+def age_report(store: InMemoryStore, interview_id: str, delta: timedelta) -> None:
+    """리포트도 같은 이유로 기다린 것처럼 만든다 (#238)."""
+    # `finish_report` 가 `requested_at` 으로 요청을 대조하므로 저장소가 든 것을
+    # 직접 옮긴다. `age` 와 같은 테스트 전용 조작이라 나란히 둔다.
+    stored = store._reports.get(interview_id)  # pyright: ignore[reportPrivateUsage]
     assert stored is not None
     stored.requested_at -= delta

@@ -2,6 +2,7 @@
 
 import asyncio
 import pickle
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import httpx
@@ -143,6 +144,77 @@ async def test_a_room_job_wires_one_transcriber_and_connects_audio_only(
     for callback in ctx.shutdown_callbacks:
         await callback()
     await asyncio.sleep(0)
+
+
+async def test_deepgram_without_a_key_leaves_the_room_like_elice(
+    monkeypatch,
+) -> None:
+    ctx = FakeJobContext("interview_ses_123")
+    monkeypatch.setattr(
+        worker, "build_client", lambda settings: pytest.fail("no Elice client")
+    )
+    monkeypatch.setattr(
+        worker, "get_settings", lambda: settings_for(stt_provider="deepgram")
+    )
+
+    await transcribe_room(ctx)  # type: ignore[arg-type]
+
+    assert ctx.shutdown_reasons == ["stt not configured"]
+    assert ctx.connected_with == []
+
+
+async def test_deepgram_opens_its_own_stream_per_track_and_never_touches_elice(
+    monkeypatch,
+) -> None:
+    ctx = FakeJobContext("interview_ses_123")
+    monkeypatch.setattr(
+        worker, "build_client", lambda settings: pytest.fail("no Elice client")
+    )
+    monkeypatch.setattr(
+        worker, "_warm_up", lambda client: pytest.fail("no Elice warm-up")
+    )
+    monkeypatch.setattr(
+        worker,
+        "get_settings",
+        lambda: settings_for(stt_provider="deepgram", deepgram_api_key="dg-test"),
+    )
+    closed: list[bool] = []
+
+    class FakeStt:
+        async def aclose(self) -> None:
+            closed.append(True)
+
+    fake_stt = FakeStt()
+    monkeypatch.setattr(worker.deepgram, "build_stt", lambda settings: fake_stt)
+    opened: list[tuple] = []
+
+    class FakeDeepgramStream:
+        def __init__(self, stt, **kwargs) -> None:
+            opened.append((stt, kwargs))
+
+    monkeypatch.setattr(
+        worker.deepgram, "DeepgramTranscriptionStream", FakeDeepgramStream
+    )
+    built = captured_transcribers(monkeypatch)
+
+    await transcribe_room(ctx)  # type: ignore[arg-type]
+
+    assert ctx.shutdown_reasons == []
+    assert built[0].client is None
+    built[0].initialize_origin(
+        [SimpleNamespace(identity="CANDIDATE", joined_at=datetime.now(UTC))]
+    )
+    built[0].stream_for("trk_1", worker.SpeakerRole.CANDIDATE)
+    ((stt, kwargs),) = opened
+    assert stt is fake_stt
+    assert kwargs["session_id"] == "ses_123"
+    assert kwargs["track_id"] == "trk_1"
+    assert kwargs["speaker"] is worker.SpeakerRole.CANDIDATE
+    assert kwargs["ordering"] is built[0].ordering.tracks[0]
+    # Only the Deepgram client goes with the job: there is no warm-up.
+    assert len(ctx.shutdown_callbacks) == 1
+    await ctx.shutdown_callbacks[0]()
+    assert closed == [True]
 
 
 async def test_without_a_backend_the_caption_is_the_only_consumer(

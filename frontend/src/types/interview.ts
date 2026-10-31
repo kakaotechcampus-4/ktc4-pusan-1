@@ -111,6 +111,17 @@ export interface StartSessionResponse {
   startedAt: string;
 }
 
+/**
+ * 지원자가 녹화 · 전사 · 분석에 동의한 기록 (#245).
+ *
+ * `version` 은 그때 **실제로 보여 준** 문구의 판이다(`lib/consent.ts`). 시각만
+ * 남기면 나중에 무엇에 동의받았는지 답할 수 없다.
+ */
+export interface Consent {
+  agreedAt: string;
+  version: string;
+}
+
 /** GET /api/v1/sessions/{sessionId} — 새로고침·재접속 시 상태 복구용 */
 export interface SessionState {
   sessionId: string;
@@ -119,6 +130,8 @@ export interface SessionState {
   status: SessionStatus;
   startedAt: string | null;
   endedAt: string | null;
+  /** 아직 동의를 안 받았으면 null. 그 상태에서는 지원자가 입장하지 못한다 */
+  consent: Consent | null;
 }
 
 /**
@@ -132,9 +145,16 @@ export interface SessionState {
  */
 export type SummaryStatus = 'PROCESSING' | 'READY' | 'FAILED';
 
+/**
+ * 요약이 FAILED 인 까닭 중 화면이 따로 말할 것. 저장된 발화가 없으면 NO_TRANSCRIPT.
+ * 그 밖의 실패는 null — 늦게 온 결과로 READY 가 될 수 있다.
+ */
+export type SummaryFailureReason = 'NO_TRANSCRIPT';
+
 export interface InterviewSummary {
   sessionId: string;
   status: SummaryStatus;
+  failureReason: SummaryFailureReason | null;
   /** status 가 READY 일 때만 채워진다 */
   content: {
     /** 면접 전체를 한 문단으로 */
@@ -210,34 +230,84 @@ export type UploadRejection = 'unsupported-type' | 'too-large' | 'empty-file';
 /* ---------------------------------------------------------------- *
  * 면접 기록 (S3)
  *
- * 실제 BE는 현재 PROCESSING을 반환한다. READY는 기존 시연 모델이며
- * 녹화·타임라인 산출물의 서버 계약은 별도 확정이 필요하다.
+ * 서버가 주는 모양 그대로다 (#137 1-2 · #163). 녹화는 이 응답에 실리지 않고
+ * `sessionId` 로 녹화 API 를 따로 부른다 — 서명 URL 이 10분 만에 만료돼서,
+ * 상세와 같이 캐시해 두면 다시 열 때 이미 죽은 주소가 된다.
  * ---------------------------------------------------------------- */
 
 /** 질문 하나가 시작된 시점과 그 문답 */
 export interface Moment {
   id: string;
-  /** 질문 시작 시점(초) */
+  /** 전사 원점(t=0) 기준 경과 초. 녹화 재생 위치와는 `offsetMs` 만큼 다르다 */
   atSec: number;
   /** 타임라인 아래 짧은 라벨 */
   label: string;
+  /** 면접관 발화 원문 */
   question: string;
   /** 답변 요약 (한두 줄) */
   answer: string;
+  /** 근거 시각이 이 문답 구간에 드는 검토 항목의 역량 */
+  competencies: string[];
+  bookmarked: boolean;
+}
+
+/** 역량 하나가 면접에서 얼마나 확인됐는가 */
+/**
+ * 검토 항목을 만든 결과 (#244). EMPTY 는 찾아봤는데 없다, FAILED 는 만들지 못했다.
+ * FAILED 면 `findings` 는 비고 coverage 의 MISSING 은 「없음」이 아니라 「확인 불가」다.
+ */
+export type FindingsStatus = 'COMPLETED' | 'EMPTY' | 'FAILED';
+
+export interface Coverage {
+  name: string;
+  state: 'CONFIRMED' | 'PARTIAL' | 'MISSING';
+}
+
+/** 검토 항목 하나 — AI 가 근거와 함께 낸 관찰. 판정이 아니다 */
+export interface Finding {
+  id: string;
+  type:
+    'COMPETENCY_EVIDENCE' | 'CLAIM_VERIFIED' | 'CLAIM_CONTRADICTED' | 'CLAIM_UNVERIFIED' | 'GAP';
+  state: 'PROPOSED' | 'ADOPTED' | 'REJECTED';
+  rationale: string;
+  competency: string | null;
+  /** 지원서의 문장 */
+  quote: string | null;
+  /** 근거가 된 면접 발화 */
+  transcript: string | null;
+  /** 「지원서 · 단락」 또는 「면접 답변」 */
+  source: string | null;
+  atSec: number | null;
+}
+
+/** 요약 본문. `summaryStatus` 가 READY 일 때만 찬다 */
+export interface SummaryContent {
+  /** 면접 전체를 한 문단으로 */
+  overview: string;
+  /** 지원자 답변에서 뽑은 핵심 */
+  keyPoints: string[];
 }
 
 export interface Review {
   interviewId: string;
-  candidate: { name: string; role: string };
-  durationSec: number;
-  /**
-   * ⚠️ 서명된 master.m3u8 을 받는다고 가정했다. 만료 시간 · 보관 기간 · 열람 권한은 미정이다.
-   * 실제 BE 는 녹화를 상세에 싣지 않아 null 이다(#163) — 녹화 API 전환 전까지.
-   */
-  recording: { hlsUrl: string } | null;
+  /** 기준 세션. 녹화는 이 id 로 `GET /sessions/{sessionId}/recording` */
+  sessionId: string;
+  candidate: { name: string | null; role: string };
+  interviewer: { nickname: string };
+  interviewedAt: string | null;
+  durationSec: number | null;
+  reviewStatus: ReviewStatus;
+  reviewedAt: string | null;
+  memo: string;
+  summaryStatus: SummaryStatus;
+  /** 요약이 READY 가 아니면 null */
+  summary: SummaryContent | null;
+  coverage: Coverage[];
   moments: Moment[];
-  /** 전사 · 지원서 · JD 를 근거로 쓴 서술. 합격 여부는 없다. */
-  aiReview: { paragraphs: string[] };
+  findings: Finding[];
+  findingsStatus: FindingsStatus;
+  /** summaryStatus 가 FAILED 일 때의 까닭 */
+  failureReason: SummaryFailureReason | null;
 }
 
 /**
@@ -247,6 +317,58 @@ export interface Review {
  */
 export type ReviewResponse =
   { status: 'PROCESSING'; etaSec?: number } | ({ status: 'READY' } & Review);
+
+/** PATCH /api/v1/interviews/{interviewId} — 보낸 것만 바뀐다 (#137 1-3) */
+export interface ReviewUpdate {
+  reviewStatus?: ReviewStatus;
+  /** 최대 4000자. 비우려면 빈 문자열 */
+  memo?: string;
+}
+
+export interface ReviewUpdateResponse {
+  reviewStatus: ReviewStatus;
+  /** CONFIRMED 가 된 시각. 다른 상태로 돌아가면 null */
+  reviewedAt: string | null;
+  memo: string;
+}
+
+/**
+ * PUT /api/v1/interviews/{interviewId}/review/marks/{itemId} (#137 1-4).
+ *
+ * 검토 항목은 `state` 만, 문답은 `bookmarked` 만 받는다 — 반대로 보내면 422 다.
+ */
+export type MarkUpdate = { state: Finding['state'] } | { bookmarked: boolean };
+
+export interface MarkResponse {
+  itemId: string;
+  state: Finding['state'];
+  bookmarked: boolean;
+}
+
+/**
+ * GET /api/v1/sessions/{sessionId}/recording
+ *
+ * 합친 파일 하나의 서명 URL 이다 (#112). 10분 뒤 만료된다.
+ */
+export interface Recording {
+  url: string;
+  durationSec: number;
+  /**
+   * 녹화의 0초가 전사 원점(t=0)보다 얼마나 뒤인가.
+   * 전사 시각 t(ms) 의 장면은 녹화의 `t − offsetMs` 에 있다.
+   */
+  offsetMs: number;
+  expiresAt: string;
+}
+
+/**
+ * 녹화 조회 결과.
+ *
+ * 합치는 중이면 202 PROCESSING 이고, 녹화가 없거나 합치지 못했으면 404 다.
+ * 404 는 오류가 아니다 — 녹화 없이 전사로 검토하는 정상 경로다.
+ */
+export type RecordingResponse =
+  { status: 'PROCESSING' } | ({ status: 'READY' } & Recording) | { status: 'NONE' };
 
 /* ---------------------------------------------------------------- *
  * 진입
@@ -274,6 +396,13 @@ export interface JoinSessionResponse {
 export type JoinFailure =
   /** 존재하지 않는 세션 */
   | 'not-found'
+  /**
+   * 지원자가 아직 녹화 · 전사 · 분석에 동의하지 않았다 (#245).
+   *
+   * 화면 순서상 닿기 어렵다 — 동의 화면을 지나야 입장을 부른다. 동의 기록이
+   * 저장되지 않았는데 다음 화면으로 넘어간 경우라 다시 동의를 받아야 한다.
+   */
+  | 'consent-required'
   /** 로그인은 했지만 이 면접의 주인이 아니다 — 다시 시도해도 같다 (#150) */
   | 'not-allowed'
   /**
@@ -295,7 +424,7 @@ export type JoinFailure =
 /* ---------------------------------------------------------------- *
  * 통화 중 (전사·추천 질문)
  *
- * LiveKit text stream irya.transcript.v1로 받는다. 기존 목 대본도 같은 타입을 쓴다.
+ * LiveKit text stream irya.transcript.v1로 받는다.
  * ---------------------------------------------------------------- */
 
 export interface Utterance {
@@ -318,3 +447,26 @@ export type StreamEvent =
       final: boolean;
     }
   | { type: 'stream.degraded'; reason: string };
+
+/* ---------------------------------------------------------------- *
+ * 꼬리질문 (#212)
+ *
+ * 전사와 같은 방에서 오지만 통로가 다르다 — 전사는 text stream 이고
+ * 꼬리질문은 BE 가 RoomService SendData 로 보내는 데이터 패킷이다.
+ * 토픽 이름만 짝이고 받는 쪽 API 는 갈라진다 (lib/suggestionStream.ts).
+ * ---------------------------------------------------------------- */
+
+export interface Suggestion {
+  /** 명세의 `suggestionId`. 실시간 패킷과 조회 응답을 이 값으로 합친다 */
+  id: string;
+  content: string;
+  /** 서버가 받은 시각(ISO) */
+  createdAt: string;
+  /**
+   * 면접관이 「이걸 묻겠다」고 눌러 둔 것. 누르면 새 꼬리질문이 와도 자리가 밀리지 않는다.
+   *
+   * 서버에는 없는 값이다 — 상태를 바꾸는 API 가 없어 화면 안에서만 산다.
+   * 그래서 면접 중에 새로고침하면 풀린다.
+   */
+  pinned: boolean;
+}

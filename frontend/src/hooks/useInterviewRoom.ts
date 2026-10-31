@@ -13,10 +13,12 @@ import type { RemoteTrack, RemoteTrackPublication } from 'livekit-client';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../api/client';
 import { endSession, getSessionState, joinSession, startSession } from '../api/interview';
+import { listSuggestions } from '../api/suggestions';
 import { loadLiveKit } from '../lib/livekit';
+import { readSuggestionPacket } from '../lib/suggestionStream';
 import { createTranscriptStreamHandler, TRANSCRIPT_TOPIC } from '../lib/transcriptStream';
 import { useInterviewStore } from '../stores/interviewStore';
-import type { Role, RoomConnectionState, Speaker } from '../types/interview';
+import type { Consent, Role, RoomConnectionState, Speaker } from '../types/interview';
 
 type LiveKitModule = typeof import('livekit-client');
 type LiveKitRoom = InstanceType<LiveKitModule['Room']>;
@@ -59,6 +61,12 @@ export function useInterviewRoom({
 }: UseInterviewRoomOptions) {
   const roomRef = useRef<LiveKitRoom | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 초대 링크에는 sessionId 만 있다. 면접 단위 API(메모 저장 등)를 부르려면 상태 조회로
+  // 받은 interviewId 가 필요하다 — 그래서 접속한 뒤에야 알 수 있다.
+  const [interviewId, setInterviewId] = useState<string | null>(null);
+  // 지원자 동의 기록 (#245). 면접관 화면이 이것으로 동의 여부를 표시한다.
+  // 면접관이 먼저 들어와 있으면 그 시점엔 비어 있다 — 지원자가 들어올 때 다시 본다.
+  const [consent, setConsent] = useState<Consent | null>(null);
 
   // 트랙과 콜백을 deps 에 넣으면 트랙 도착이나 콜백 교체마다 재접속이 일어난다.
   // 최신 값을 ref 로 넘겨 이펙트 안에서만 읽는다.
@@ -73,8 +81,16 @@ export function useInterviewRoom({
 
     // 액션은 참조가 고정되어 있다. 구독하면 전사 델타마다 화면 전체가 리렌더되므로
     // 훅에서는 getState() 로 꺼내 쓰고 스토어를 구독하지 않는다.
-    const { setSession, setConnection, setRemoteJoined, setSpeaking, applyStreamEvent, reset } =
-      useInterviewStore.getState();
+    const {
+      setSession,
+      setConnection,
+      setRemoteJoined,
+      setSpeaking,
+      applyStreamEvent,
+      addSuggestion,
+      mergeSuggestions,
+      reset,
+    } = useInterviewStore.getState();
 
     // 1:1 이므로 참가자는 둘뿐이다. 내 역할이 정해지면 상대 역할도 정해진다.
     // Role 과 Speaker 는 표기가 같아 내 화자는 역할 그대로다. 상대만 뒤집는다.
@@ -108,6 +124,31 @@ export function useInterviewRoom({
           }
         };
 
+        /* 이미 와 있던 꼬리질문을 채운다. 면접 주인만 볼 수 있어 지원자는 부르지 않는다 —
+           부르면 401 이고, 지원자에게는 패킷도 가지 않는다. */
+        /* 지원자 동의 기록. 면접관 화면에만 쓴다 — 지원자는 자기가 방금 동의했다. */
+        const loadConsent = async () => {
+          if (role !== 'INTERVIEWER') return;
+          try {
+            const state = await getSessionState(sessionId);
+            if (!cancelled) setConsent(state.consent);
+          } catch (e) {
+            // 못 읽어도 통화는 계속한다. 표시가 비는 것과 면접이 끊기는 것은 다르다.
+            console.warn('동의 기록을 불러오지 못했습니다', e);
+          }
+        };
+
+        const loadSuggestions = async () => {
+          if (role !== 'INTERVIEWER') return;
+          try {
+            const list = await listSuggestions(sessionId);
+            if (!cancelled) mergeSuggestions(list);
+          } catch (e) {
+            // 못 불러도 통화와 실시간 수신은 계속한다. 화면 전체를 실패로 덮을 일이 아니다.
+            console.warn('꼬리질문을 불러오지 못했습니다', e);
+          }
+        };
+
         room
           .on(RoomEvent.ConnectionStateChanged, (state) =>
             setConnection(String(state) as RoomConnectionState),
@@ -118,7 +159,11 @@ export function useInterviewRoom({
           .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => track.detach())
           .on(RoomEvent.ParticipantConnected, (participant) => {
             // 같은 방의 AI 워커는 통화 상대가 아니다. BE가 역할을 identity로 발급한다.
-            if (participant.identity === remoteSpeaker) setRemoteJoined(true);
+            if (participant.identity !== remoteSpeaker) return;
+            setRemoteJoined(true);
+            // 지원자는 동의해야 들어올 수 있다(BE 가 막는다). 들어온 순간 기록이
+            // 생겼으므로 그때 다시 읽는다 — 면접관 화면의 표시가 이 값이다.
+            void loadConsent();
           })
           .on(RoomEvent.ParticipantDisconnected, (participant) => {
             if (participant.identity !== remoteSpeaker) return;
@@ -138,7 +183,15 @@ export function useInterviewRoom({
             const isLocal = speakers.some((p) => p === room?.localParticipant);
             setSpeaking(isRemote ? remoteSpeaker : isLocal ? localSpeaker : null);
           })
-          .on(RoomEvent.Disconnected, () => setRemoteJoined(false));
+          .on(RoomEvent.Disconnected, () => setRemoteJoined(false))
+          // 꼬리질문. 서버가 RoomService 로 보내므로 participant 가 비어서 온다 —
+          // 보낸 사람으로 거르면 하나도 받지 못한다. 토픽만 본다.
+          .on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
+            const suggestion = readSuggestionPacket(payload, topic);
+            if (suggestion && !cancelled) addSuggestion(suggestion);
+          })
+          // 끊긴 사이에 온 꼬리질문은 BE 가 다시 보내지 않는다. 붙을 때마다 조회한다.
+          .on(RoomEvent.Reconnected, () => void loadSuggestions());
 
         // 워커가 접속 직후 보낼 수 있어 connect 전에 등록한다. 역할 분기는 하지 않는다 —
         // AI가 destination_identities로 면접관만 지정하므로 지원자에게는 전달되지 않는다.
@@ -160,9 +213,13 @@ export function useInterviewRoom({
           return;
         }
 
+        void loadSuggestions();
+
         // 새 면접만 시작한다. 재입장은 INTERVIEWING을 유지하며 시작 시각을 덮지 않는다.
         const state = await getSessionState(sessionId);
         if (cancelled) return;
+        setInterviewId(state.interviewId);
+        if (role === 'INTERVIEWER') setConsent(state.consent);
         // join 토큰을 받은 뒤 종료된 방에 늦게 붙었으면 다시 트랙을 발행하지 않는다.
         if (state.status === 'ENDED') throw new ApiError('SESSION_ENDED', 409);
         if (role === 'INTERVIEWER') {
@@ -265,5 +322,5 @@ export function useInterviewRoom({
 
   // roomRef.current 를 렌더 중에 읽으면 연결 이후 값이 갱신되지 않는다.
   // ref 자체를 넘겨 이벤트 핸들러·이펙트 안에서 읽게 한다.
-  return { roomRef, error, leave };
+  return { roomRef, error, leave, interviewId, consent };
 }

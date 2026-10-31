@@ -15,6 +15,10 @@ consumers: a bounded sender that stores FINAL utterances
 (:mod:`irya_ai.transcript_runner`) and the follow-up question loop
 (:mod:`irya_ai.suggestion_runner`), whose kept suggestions are posted to
 ``/internal/v1``. Captions never wait for either.
+
+``STT_PROVIDER=deepgram`` swaps the Elice client for one Deepgram WebSocket
+per microphone (:mod:`irya_ai.stt.deepgram`); everything after the stream is
+the same. Elice remains the default.
 """
 
 import asyncio
@@ -35,9 +39,12 @@ from irya_ai.backend import BackendError
 from irya_ai.backend import build_client as build_backend_client
 from irya_ai.config import Settings, get_settings
 from irya_ai.openai_suggestions import OpenAISuggestionGenerator
+from irya_ai.schemas.transcript import SpeakerRole
 from irya_ai.sinks import FanOutSink
+from irya_ai.stt import deepgram
 from irya_ai.stt.elice import EliceSttClient, SttError, build_client
 from irya_ai.stt.rtc_bridge import RoomTranscriber, session_id_from_room
+from irya_ai.stt.session import TrackOrdering
 from irya_ai.stt.stream import silent_probe
 from irya_ai.suggestion_runner import SuggestionRunner
 from irya_ai.suggestions import (
@@ -160,6 +167,37 @@ async def _warm_up(client: EliceSttClient) -> None:
         logger.exception("STT warm-up raised; continuing without it")
 
 
+def _deepgram_transcriber(
+    ctx: JobContext, settings: Settings, session_id: str
+) -> RoomTranscriber | None:
+    """A transcriber on Deepgram, or ``None`` when there is no key."""
+
+    try:
+        stt = deepgram.build_stt(settings)
+    except deepgram.DeepgramNotConfigured:
+        logger.error(
+            "STT is not configured (DEEPGRAM_API_KEY); leaving room=%s",
+            ctx.room.name,
+        )
+        return None
+    ctx.add_shutdown_callback(stt.aclose)
+
+    def open_stream(
+        track_id: str, speaker: SpeakerRole, ordering: TrackOrdering
+    ) -> deepgram.DeepgramTranscriptionStream:
+        return deepgram.DeepgramTranscriptionStream(
+            stt,
+            session_id=session_id,
+            track_id=track_id,
+            speaker=speaker,
+            ordering=ordering,
+        )
+
+    return RoomTranscriber(
+        room=ctx.room, session_id=session_id, stream_builder=open_stream
+    )
+
+
 async def transcribe_room(ctx: JobContext) -> None:
     """Run one isolated STT job for one IRYA room."""
 
@@ -171,23 +209,32 @@ async def transcribe_room(ctx: JobContext) -> None:
 
     settings = get_settings()
     ctx.log_context_fields = {"room": ctx.room.name, "session_id": session_id}
-    try:
-        client = build_client(settings)
-    except SttError as exc:
-        # No deployment to send audio to. Leaving the room is the honest
-        # outcome; staying would look like a transcriber that hears nothing.
-        logger.error(
-            "STT is not configured (%s); leaving room=%s", exc.code, ctx.room.name
-        )
-        ctx.shutdown("stt not configured")
-        return
-    ctx.add_shutdown_callback(client.client.aclose)
+    client: EliceSttClient | None = None
+    if settings.stt_provider == "deepgram":
+        deepgram_transcriber = _deepgram_transcriber(ctx, settings, session_id)
+        if deepgram_transcriber is None:
+            ctx.shutdown("stt not configured")
+            return
+        transcriber = deepgram_transcriber
+    else:
+        try:
+            client = build_client(settings)
+        except SttError as exc:
+            # No deployment to send audio to. Leaving the room is the honest
+            # outcome; staying would look like a transcriber that hears nothing.
+            logger.error(
+                "STT is not configured (%s); leaving room=%s", exc.code, ctx.room.name
+            )
+            ctx.shutdown("stt not configured")
+            return
+        ctx.add_shutdown_callback(client.client.aclose)
 
-    transcriber = RoomTranscriber(
-        room=ctx.room,
-        session_id=session_id,
-        client=client,
-    )
+        transcriber = RoomTranscriber(
+            room=ctx.room,
+            session_id=session_id,
+            client=client,
+            request_deadline_seconds=settings.stt_request_deadline_seconds,
+        )
     # One list, in this order. The caption stays first so the interviewer sees
     # the words before any consumer that stores or reasons about them; storage
     # comes before the follow-up loop so a suggestion never cites an utterance
@@ -210,8 +257,10 @@ async def transcribe_room(ctx: JobContext) -> None:
     # Register before connect so existing and later participants both get one
     # long-lived callback. The callbacks wait until t=0 is initialized.
     ctx.add_participant_entrypoint(transcribe_participant)
-    warm_up = asyncio.create_task(_warm_up(client), name="stt-warm-up")
-    ctx.add_shutdown_callback(lambda: _cancel(warm_up))
+    if client is not None:
+        # Deepgram has no cold start to take: the socket opens per track.
+        warm_up = asyncio.create_task(_warm_up(client), name="stt-warm-up")
+        ctx.add_shutdown_callback(lambda: _cancel(warm_up))
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
     if transcripts is not None:
         transcripts.start()
@@ -245,6 +294,11 @@ def create_server(settings: Settings | None = None) -> AgentServer:
         api_key=settings.livekit_api_key.get_secret_value(),
         api_secret=settings.livekit_api_secret.get_secret_value(),
         num_idle_processes=1,
+        # CLI drains active jobs before asking their processes to shut down.
+        # Leave 5s for that, then 45s for the sender queue (5s), transcript
+        # delivery (30s), and cleanup. Compose gives the whole process 60s.
+        drain_timeout=5,
+        shutdown_process_timeout=45.0,
         permissions=WorkerPermissions(
             can_publish=False,
             can_subscribe=True,

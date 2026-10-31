@@ -22,7 +22,9 @@ from app.domain.models import (
     InterviewPrep,
     ReviewMark,
     SessionSummary,
+    SummaryStatus,
 )
+from app.domain.store import Store
 
 JsonList = list[dict[str, Any]]
 
@@ -59,8 +61,9 @@ def build_review(
 ) -> Review:
     """면접 전 분석 · 요약 · 표시를 상세의 계산된 부분으로.
 
-    요약이 READY 가 아니면 moments · findings 가 비어 있다(FAILED 로 갈 때 비운다).
-    그때도 coverage 는 면접 전 분석의 역량 전부를 MISSING 으로 보인다.
+    요약이 FAILED 여도 Agent 가 보낸 moments · findings 는 남아 있을 수 있다 (#164).
+    시간 초과로 FAILED 가 되면 비어 있고, 그때 coverage 는 면접 전 분석의 역량
+    전부를 MISSING 으로 보인다.
     """
     competencies = [] if prep is None else prep.competencies
     claims = [] if prep is None else prep.resume_claims
@@ -71,7 +74,7 @@ def build_review(
 
     return Review(
         coverage=[
-            {"name": c["name"], "state": _coverage(c["competencyId"], findings)}
+            {"name": c["name"], "state": coverage_state(c["competencyId"], findings)}
             for c in competencies
         ],
         moments=[
@@ -108,8 +111,11 @@ def build_review(
     )
 
 
-def _coverage(competency_id: str, findings: JsonList) -> CoverageState:
-    """역량 하나의 상태 (#137 1-2 「coverage 규칙」). 모순이 근거를 덮는다."""
+def coverage_state(competency_id: str, findings: JsonList) -> CoverageState:
+    """역량 하나의 상태 (#137 1-2 「coverage 규칙」). 모순이 근거를 덮는다.
+
+    리포트(#238)도 이것을 부른다 — 거기서는 채택한 findings 만 넣는다.
+    """
     types = {f["type"] for f in findings if f.get("competencyId") == competency_id}
     if FindingType.CLAIM_CONTRADICTED in types:
         return CoverageState.PARTIAL
@@ -158,3 +164,18 @@ def item_kinds(summary: SessionSummary) -> dict[str, ItemKind]:
     kinds: dict[str, ItemKind] = {m["momentId"]: "moment" for m in summary.moments}
     kinds.update((f["findingId"], "finding") for f in summary.findings)
     return kinds
+
+
+def failure_reason(
+    store: Store, session_id: str, status: SummaryStatus
+) -> Literal["NO_TRANSCRIPT"] | None:
+    """요약이 FAILED 인 까닭 중 화면이 따로 말해야 하는 것.
+
+    저장된 발화가 하나도 없으면 Agent 는 `empty` 를 보내고 BE 는 FAILED 로 둔다.
+    면접관에게 그것은 「AI 가 실패했다」가 아니라 「요약할 대화가 없었다」다 —
+    마이크를 확인할 일이지 기다릴 일이 아니다. 그 밖의 실패는 늦게 온 결과로
+    READY 가 될 수 있어 따로 이름을 붙이지 않는다.
+    """
+    if status is not SummaryStatus.FAILED:
+        return None
+    return None if store.list_utterances(session_id) else "NO_TRANSCRIPT"

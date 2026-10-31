@@ -22,26 +22,36 @@ export interface DocCardProps {
 
 export function DocCard({ doc, onDelete }: DocCardProps) {
   return (
-    <div className="border-border-base bg-surface-container flex min-w-0 items-center gap-4 rounded-xl border px-5 py-4">
+    <div className="border-border-base bg-surface-panel flex min-w-0 items-center gap-4 rounded-xl border px-4 py-3.5">
       <span
         aria-hidden
-        className="bg-surface-bright text-ink-muted flex h-10 w-10 shrink-0 items-center justify-center rounded-lg font-mono text-[11px] font-semibold"
+        className="bg-danger-tint text-danger flex h-10 w-10 shrink-0 items-center justify-center rounded-lg font-mono text-[11px] font-bold"
       >
         {doc.kind.toUpperCase()}
       </span>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-ink truncate text-[15px]">{doc.name}</span>
+        <span className="text-ink truncate text-[15px] font-medium">{doc.name}</span>
         <span
-          className={`font-mono text-[12px] ${
-            doc.status === 'failed' ? 'text-[#FF8A8A]' : 'text-ink-dim'
+          className={`inline-flex items-center gap-1.5 text-[12px] ${
+            doc.status === 'failed'
+              ? 'text-danger'
+              : doc.status === 'ready'
+                ? 'text-ink-dim'
+                : 'text-brand'
           }`}
         >
+          {doc.status === 'parsing' && (
+            <span
+              aria-hidden
+              className="border-brand-tint border-t-brand h-3 w-3 animate-spin rounded-full border-2"
+            />
+          )}
           {STATUS_TEXT(doc)}
         </span>
 
         {doc.status === 'uploading' && (
-          <span className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/10">
+          <span className="bg-surface-bright mt-1 h-1 w-full overflow-hidden rounded-full">
             <span
               className="bg-brand block h-full rounded-full transition-[width] duration-200"
               style={{ width: `${(doc.progress ?? 0) * 100}%` }}
@@ -55,9 +65,11 @@ export function DocCard({ doc, onDelete }: DocCardProps) {
           type="button"
           onClick={onDelete}
           aria-label={`${doc.name} 삭제`}
-          className="text-ink-dim hover:bg-surface-bright hover:text-ink shrink-0 rounded-md px-2 py-1 text-[13px] transition"
+          className="text-ink-dim hover:bg-danger-tint hover:text-danger shrink-0 rounded-lg p-2 transition"
         >
-          삭제
+          <span aria-hidden className="material-symbols-outlined text-[20px]">
+            delete
+          </span>
         </button>
       )}
     </div>

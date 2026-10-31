@@ -19,7 +19,7 @@ ACK 대기 한도를 줍니다. 이는 마지막 STT 꼬리 발화 완료나 REV
 
 현재 BE develop은 text·화자·상대 시각을 저장하고 ACK하지만 `seq`·`trackId`는
 무시합니다. #137의 BE 보존·조회 확장, #125의 공통 원점, #151의 재시작 ID 유일성은
-후속입니다. 워커 재배정·findings 생성은 여기에 없습니다. 꼬리질문 배선(#83)은 같은
+후속입니다. 워커 재배정은 여기에 없습니다. 꼬리질문 배선(#83)은 같은
 fan-out에 붙어 있고 아래 워커 절에서 설명합니다.
 
 ## Requirements
@@ -59,9 +59,15 @@ chmod 600 .env
 | `ELICE_STT_MODEL` | STT 모델 이름 | `whisper-large-v3` |
 | `ELICE_STT_LANGUAGE` | 전사 언어. ISO 639-1 코드입니다 (2026-10-06 배포 교체 전에는 단어 `korean`) | `ko` |
 | `ELICE_STT_TIMEOUT_SECONDS` | STT 요청 제한 시간(초), 0 초과 300 이하 | `60` |
+| `STT_REQUEST_DEADLINE_SECONDS` | 실시간 Elice 구간 하나의 재시도 포함 제한 시간(초), 0 초과 120 이하. 넘으면 그 자막은 포기합니다 | `15` |
+| `STT_PROVIDER` | 실시간 STT: `elice` 또는 `deepgram`. 키만 넣어서는 바뀌지 않습니다 | `elice` |
+| `DEEPGRAM_API_KEY` | `STT_PROVIDER=deepgram`일 때 쓰는 Deepgram 키 | 없음 |
 | `BACKEND_BASE_URL` | 백엔드 `/internal/v1` 주소. 비공개 값이라 커밋하지 않습니다 | 없음 |
 | `BACKEND_API_KEY` | 백엔드 내부 API 인증 키. `Authorization: Bearer`로 전달하며, compose에서는 `INTERNAL_API_KEY`와 공유합니다. 비워 두면 인증 헤더를 보내지 않습니다 | 없음 |
 | `BACKEND_TIMEOUT_SECONDS` | 백엔드 HTTP 요청 제한 시간(초), 0 초과 60 이하. 전사 WebSocket의 접속 제한 시간으로도 씁니다 | `10` |
+| `PREP_POLL_INTERVAL_SECONDS` | 폴러가 빈 큐를 다시 묻기까지 기다리는 시간(초), 0 초과 300 이하 | `5` |
+| `PREP_RETRY_AFTER_SECONDS` | 다시 될 수 있는 실패 뒤 그 작업을 쉬는 시간(초), 0 이상 3600 이하 | `30` |
+| `REVIEW_DEADLINE_SECONDS` | REVIEW 재시도가 요청 시각 기준 이 시간(초) 안에 끝날 수 있을 때만 쉬었다가 다시 돌립니다. 백엔드 `SUMMARY_TIMEOUT_SECONDS`와 같게 둡니다 | `180` |
 | `TRANSCRIPT_ACK_TIMEOUT_SECONDS` | 전사 프레임 ACK 대기 시간(초), 0 초과 120 이하. **백엔드와 미합의한 잠정값** | `5` |
 | `TRANSCRIPT_MAX_PENDING` | ACK를 못 받은 발화를 몇 개까지 들고 있을지, 0 초과 10000 이하. **백엔드와 미합의한 잠정값** | `200` |
 | `TRANSCRIPT_RECONNECT_BACKOFF_SECONDS` | 전사 WebSocket 재연결 대기(초), 0 이상 30 이하. **백엔드와 미합의한 잠정값** | `0.5` |
@@ -129,6 +135,11 @@ BE에는 이 잠정 원점을 기준으로 한 상대 시각을 전달합니다.
 BE는 `1000`을 전사 송신 종료 신호로 사용합니다(#164). 워커의 실제 종료는
 ACK 대기 후 `1000`으로 닫고, ACK 지연·정정·연결 교체에 따른 재접속은
 `4001`로 닫습니다. 재접속을 면접 후 분석 시작 신호로 해석하지 않습니다.
+
+종료 시 송신 큐에 최대 5초, 미ACK 전사의 재접속·전달에 최대 30초를 줍니다.
+배포 SIGTERM에서는 LiveKit의 방 drain을 5초로 제한한 뒤 작업 프로세스 종료에
+45초를 주며, compose의 `ai.stop_grace_period`는 전체 60초입니다.
+NACK는 해당 발화만 제거하며 저장 복구의 증거로 세지 않습니다.
 
 ## 면접 컨텍스트 분석 MVP
 
@@ -204,7 +215,15 @@ uv run irya-ai-poller        # BACKEND_BASE_URL·BACKEND_API_KEY, LLM_* 필요
   이유입니다. 결과를 넣을 수 없는 작업(모르는 `kind`, BE가 거부한 PUT)만 10분 쉬며,
   이때는 큐가 막혔다는 뜻이라 ERROR 로그를 남깁니다.
 - 컨텍스트 응답의 `utterances`는 떼고 `InterviewContext`로 읽습니다. `REVIEW` 작업은
-  이 폴러가 처리하지 못하므로 #164에서 BE 조회에 `kind`를 나누어 받지 않게 합니다.
+  요약·타임라인·findings를 동시에 돌려 세션 review로 저장합니다(#224, #226).
+- **REVIEW 재시도는 BE 한도 안에 끝날 때만 합니다.** 셋 중 하나가 다시 될 수 있는 이유로
+  실패하면 작업 전체를 쉬었다가 다시 돌리는데, BE는 요청 시각부터 `SUMMARY_TIMEOUT_SECONDS`
+  (기본 180초)가 지나면 요약을 FAILED로 돌리고 그 뒤의 결과를 받지 않습니다. 그래서
+  "지금까지 지난 시간 + 쉬는 시간 + 다음 시도 시간"이 `REVIEW_DEADLINE_SECONDS`를
+  넘기면 쉬지 않고 바로 저장합니다. 다음 시도 시간은 에이전트 타임아웃과 이번 시도에
+  걸린 시간 중 긴 쪽입니다. 레이트리밋처럼 바로 난 실패 뒤의 재시도도 타임아웃까지 갈
+  수 있어서입니다(#242). 실패한 부분만 빠집니다(findings는 키 없음, 타임라인은
+  빈 목록, 요약이면 작업 전체 실패)(#234).
 - 작업마다 `agent=`(모델 호출)와 `total=`(조회부터 저장까지) 소요를 INFO로 남깁니다.
   이력서 본문과 지원자 이름은 로그에 없습니다. LLM이 없으면 추출형 기준선으로 돌되
   경고를 남깁니다.
@@ -221,7 +240,7 @@ STT가 청크마다 쌓아 둔 `Utterance` JSON을 면접 종료 후 한꺼번�
 # 모델 없이 파이프라인 확인 (답변 첫 문장을 그대로 인용)
 uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --backend extractive
 
-# .env의 LLM_BASE_URL / LLM_API_KEY 설정 후 프로젝트 LLM(gpt-5.6-luna) 호출
+# .env의 LLM_BASE_URL / LLM_API_KEY 설정 후 프로젝트 LLM(gpt-6-luna) 호출
 uv run irya-ai timeline data/samples/chunks_backend_junior_01.json
 
 # FE `Moment` 형태(atSec)로만 출력
@@ -237,6 +256,20 @@ Moment는 기본 최대 8개이며 `--max-moments`는 1~8 범위만 허용합니
 
 프로젝트 LLM은 OpenAI 호환 게이트웨이(Elice ML API)이며 **지원 목록 밖 파라미터를 400으로
 거절**합니다. 실호출 절차와 결과는 [타임라인 검증 기록](docs/timeline-eval.md)에 적습니다.
+
+## 면접 후 findings
+
+사전 가공 컨텍스트와 저장된 FINAL 전사로 기존 Finding 목록을 만듭니다.
+모델은 초안만 만들고 참조 ID·지원자 원문 인용·시각·PROPOSED 상태를 코드가 검증합니다.
+
+```bash
+uv run irya-ai findings data/samples/findings_context.json --backend extractive
+uv run irya-ai findings context.json stored-finals.json
+```
+
+외부 호출 없는 baseline은 정확히 같은 이력서 문장의 면접 답변 내 언급만 찾습니다.
+REVIEW 폴러가 요약·타임라인과 함께 돌려 `findings`로 보냅니다(#226). LLM 설정이 없으면
+이 baseline이 들어갑니다. 실제 LLM 품질 측정은 후속입니다. [계약과 검증 범위](docs/findings.md).
 
 ## Verify
 

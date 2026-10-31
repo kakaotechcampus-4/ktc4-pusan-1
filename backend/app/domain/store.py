@@ -9,8 +9,9 @@
 """
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.domain.models import (
     Context,
@@ -20,6 +21,7 @@ from app.domain.models import (
     FindingState,
     Interview,
     InterviewPrep,
+    InterviewReport,
     Job,
     JobKind,
     Recording,
@@ -64,6 +66,19 @@ class Store(Protocol):
         """
         ...
 
+    def delete_interview(self, interview_id: str) -> list[str] | None:
+        """면접과 딸린 것 전부를 지우고 **지운 세션 id** 를 돌려준다 (#246).
+
+        세션 · 전사 · 분석 · 요약 · 채택 기록 · 이력서 · 녹화 행이 같이 간다.
+        되돌리기는 없다. 세션 id 를 주는 것은 녹화 파일만 DB 밖(S3)에 있어서다 —
+        라우터가 이것으로 `rec/{session_id}/` 를 지운다.
+
+        지우지 않았으면 None 이다. 없는 면접, 진행 중(INTERVIEWING)인 세션이 있는
+        면접, 녹화를 아직 합치는 중(PROCESSING)인 면접이 그렇다. 뒤 둘은 지운
+        뒤에도 S3 에 파일이 더 올라와, 주인 없는 녹화가 남는다.
+        """
+        ...
+
     def last_ended_session(self, interview_id: str) -> Session | None:
         """그 면접에서 가장 나중에 끝난 세션. 검토 화면의 기준 세션이다 (#163).
 
@@ -87,6 +102,28 @@ class Store(Protocol):
         `None` 이면 조건 없이 쓴다. 경쟁이 없는 자리에만 쓴다.
 
         전사 원점(`transcript_origin_at`)은 쓰지 않는다 — `mark_origin` 만 쓴다.
+        전사 종료(`transcript_closed_at`)도 쓰지 않는다 — `mark_transcript` 만 쓴다.
+        동의(`consent_at` · `consent_version`)도 쓰지 않는다 — `record_consent` 만 쓴다.
+        """
+        ...
+
+    def record_consent(self, session_id: str, at: datetime, version: str) -> bool:
+        """지원자 동의를 기록한다. **이미 있으면 덮지 않는다** (#245).
+
+        먼저 받은 동의가 남아야 한다 — 뒤에 온 요청으로 시각과 문구 판이 바뀌면
+        「언제 무엇에 동의받았는가」가 달라진다. 동의 화면은 재입장 때도 지나갈 수
+        있어 실제로 여러 번 온다.
+
+        `mark_origin` 과 같이 저장소가 한 문장으로 판단한다. 기록했으면 True,
+        세션이 없거나 이미 동의가 있으면 False — 둘 다 부른 쪽에서는 성공이다.
+        """
+        ...
+
+    def mark_transcript(self, session_id: str, closed_at: datetime | None) -> None:
+        """전사 WebSocket 이 정상 종료(1000)한 시각을 쓴다. `None` 이면 비운다 (#164).
+
+        연결이 붙을 때 비우고, 1000 으로 닫힐 때 채운다. 조건 없이 쓴다 — 어느
+        소켓이 주인인지는 라우터가 가린다.
         """
         ...
 
@@ -170,8 +207,20 @@ class Store(Protocol):
         """Agent 가 만든 결과를 받아 둔다. 조건 없이 덮어쓴다."""
         ...
 
-    def fail_summary(self, session_id: str) -> bool:
+    def fail_summary(
+        self,
+        session_id: str,
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+        findings_failed: bool = False,
+        model: str = "",
+    ) -> bool:
         """Agent 의 실패 보고. READY 가 아니면 FAILED 로 넘기고 본문을 비운다.
+
+        요약만 실패했으면 같이 온 타임라인 · findings 는 받아 둔다 (#164). `findings`
+        가 `None` 이면 Agent 가 findings 를 안 돌린 것이라 있던 값을 그대로 둔다.
+        `findings_failed` 는 `SessionSummary.take_findings` 의 규칙대로 남는다 (#244).
 
         READY 면 아무것도 바꾸지 않고 False 다. Agent 의 재시도 · 재실행에서 실패
         한 번이 이미 성공한 요약을 지우면 안 된다 (#132). 판정과 갱신은 한 문장이다
@@ -261,6 +310,72 @@ class Store(Protocol):
         """
         ...
 
+    def next_review(self, limit: timedelta, grace: timedelta) -> Job | None:
+        """AI 폴러에게 내줄 REVIEW 하나. 요청이 오래된 것부터, 없으면 None (#164).
+
+        먼저 한도(`limit`)를 넘긴 PROCESSING 요약을 FAILED 로 넘긴다 — `next_prep` 과
+        같은 이유다. 그 다음 끝난 세션의 PROCESSING 요약 중 전사가 다 들어온 것을
+        고른다. 「다 들어왔다」는 Agent 가 전사 WebSocket 을 1000 으로 닫았거나, 그
+        신호 없이 종료 뒤 `grace` 가 지난 것이다.
+
+        요청 시각은 요약 자리의 것이다. 면접 종료 때 한 번 찍히고 바뀌지 않는다.
+        """
+        ...
+
+    # ── 면접 리포트 (#238) ───────────────────────────────
+
+    def start_report(self, report: InterviewReport, limit: timedelta) -> bool:
+        """리포트 자리를 PROCESSING 으로 연다. 열었으면 True.
+
+        이미 만들고 있으면(PROCESSING 이고 한도 안이면) 아무것도 바꾸지 않고 False —
+        라우터가 그걸 409 로 바꾼다. 그 밖에는 **덮는다**. 한 면접에 리포트는 하나고,
+        다시 누르면 그 자리를 새로 만든다 — 버전을 남기지 않는다.
+
+        판정과 쓰기가 한 문장이다. 읽고 판정하고 쓰면 그 사이에 들어온 요청과 둘 다
+        PROCESSING 을 열고, 둘 중 하나의 결과는 요청 시각이 안 맞아 버려진다.
+
+        한도를 넘긴 PROCESSING 은 만들고 있는 게 아니다 — 폴러가 죽은 자리라서 다시
+        열어 준다.
+        """
+        ...
+
+    def get_report(self, interview_id: str) -> InterviewReport | None: ...
+
+    def finish_report(self, report: InterviewReport) -> bool:
+        """AI 의 결과를 받는다. 썼으면 True.
+
+        `finish_prep` 과 같다. 저장된 요청 시각이 `report.requested_at` 과 같을 때만
+        쓴다 — 다르면 면접관이 그 사이에 다시 눌렀고, 늦게 온 것은 옛 요청의 결과다.
+        FAILED 는 READY 를 덮지 않는다 (#132). 판정과 갱신은 한 문장이다.
+
+        **기준 세션은 바꾸지 않는다.** `report.session_id` 는 무시하고 열어 둘 때 박은
+        것을 지킨다 — 근거의 발화와 시각이 그 세션에 매여 있다.
+        """
+        ...
+
+    def expire_report(
+        self, interview_id: str, limit: timedelta
+    ) -> InterviewReport | None:
+        """한도를 넘긴 리포트를 FAILED 로 넘기고 **최종 상태**를 돌려준다.
+
+        `expire_summary` 와 같다 — 조회가 이것만 부르면 판정 · 전이 · 저장이 한 군데서
+        끝난다. 한도를 안 넘겼으면 지금 값 그대로, 자리가 없으면 None.
+
+        한도 초과는 `failure_reason` 을 비운다. 기다리다 못 만든 것과 채택한 근거로
+        쓸 문장이 없던 것은 면접관이 할 일이 다르다.
+        """
+        ...
+
+    def next_report(self, limit: timedelta) -> Job | None:
+        """AI 폴러에게 내줄 REPORT 하나. 요청이 오래된 것부터, 없으면 None (#238).
+
+        먼저 한도를 넘긴 PROCESSING 을 FAILED 로 넘긴다 — `next_prep` 과 같은 이유다.
+
+        세션은 리포트가 박아 둔 것을 싣는다. 채택한 근거가 그 세션의 findings 라서,
+        여기서 가장 최근 세션을 다시 고르면 다른 면접의 발화가 붙는다.
+        """
+        ...
+
     # ── 검토 표시 (#163) ─────────────────────────────────
 
     def update_mark(
@@ -314,10 +429,10 @@ class Store(Protocol):
         """
         ...
 
-    def add_suggestion(self, suggestion: Suggestion) -> None:
-        """이미 같은 id 가 있으면 **처음 것을 남긴다.**
+    def add_suggestion(self, suggestion: Suggestion) -> bool:
+        """이미 같은 id 가 있으면 **처음 것을 남긴다.** 새로 넣었으면 True.
 
-        Agent 의 재시도가 이 길로 온다.
+        Agent 의 재시도가 이 길로 온다. 재시도는 면접관에게 다시 보내지 않는다.
         """
         ...
 
@@ -349,6 +464,8 @@ class InMemoryStore:
         self._summaries: dict[str, SessionSummary] = {}
         #: interview_id -> 면접 전 분석
         self._preps: dict[str, InterviewPrep] = {}
+        #: interview_id -> 면접 리포트 (면접 하나에 하나)
+        self._reports: dict[str, InterviewReport] = {}
         #: (session_id, item_id) -> 채택 · 북마크
         self._marks: dict[tuple[str, str], ReviewMark] = {}
         self._recordings: dict[str, Recording] = {}
@@ -400,6 +517,37 @@ class InMemoryStore:
         stored.update_review(status, memo)
         return deepcopy(stored)
 
+    def delete_interview(self, interview_id: str) -> list[str] | None:
+        """`Store.delete_interview`. DB 의 ON DELETE CASCADE 를 손으로 흉내 낸다."""
+        if interview_id not in self._interviews:
+            return None
+
+        sessions = [
+            s.id for s in self._sessions.values() if s.interview_id == interview_id
+        ]
+        for session_id in sessions:
+            if self._sessions[session_id].status is SessionStatus.INTERVIEWING:
+                return None
+            recording = self._recordings.get(session_id)
+            if recording is not None and recording.status is SummaryStatus.PROCESSING:
+                return None
+
+        del self._interviews[interview_id]
+        self._resumes.pop(interview_id, None)
+        self._texts.pop(interview_id, None)
+        self._preps.pop(interview_id, None)
+        for session_id in sessions:
+            del self._sessions[session_id]
+            self._summaries.pop(session_id, None)
+            self._recordings.pop(session_id, None)
+            for mark_key in [k for k in self._marks if k[0] == session_id]:
+                del self._marks[mark_key]
+            for utterance_key in [k for k in self._utterances if k[0] == session_id]:
+                del self._utterances[utterance_key]
+            for suggestion_key in [k for k in self._suggestions if k[0] == session_id]:
+                del self._suggestions[suggestion_key]
+        return sessions
+
     def last_ended_session(self, interview_id: str) -> Session | None:
         ended = [
             s
@@ -430,10 +578,19 @@ class InMemoryStore:
         if expected_status is not None and stored.status is not expected_status:
             return False
         saved = deepcopy(session)
-        # 원점은 mark_origin 만 쓴다. 들고 온 객체의 값이 낡았어도 덮어쓰지 않는다.
+        # 원점은 mark_origin 만, 종료는 mark_transcript 만, 동의는 record_consent 만
+        # 쓴다. 들고 온 객체의 값이 낡았어도 덮어쓰지 않는다.
         saved.transcript_origin_at = stored.transcript_origin_at
+        saved.transcript_closed_at = stored.transcript_closed_at
+        saved.consent_at = stored.consent_at
+        saved.consent_version = stored.consent_version
         self._sessions[session.id] = saved
         return True
+
+    def mark_transcript(self, session_id: str, closed_at: datetime | None) -> None:
+        stored = self._sessions.get(session_id)
+        if stored is not None:
+            stored.transcript_closed_at = closed_at
 
     def mark_origin(self, session_id: str, at: datetime) -> bool:
         stored = self._sessions.get(session_id)
@@ -443,6 +600,14 @@ class InMemoryStore:
         if origin is not None and origin <= at:
             return False
         stored.transcript_origin_at = at
+        return True
+
+    def record_consent(self, session_id: str, at: datetime, version: str) -> bool:
+        stored = self._sessions.get(session_id)
+        if stored is None or stored.consent_at is not None:
+            return False
+        stored.consent_at = at
+        stored.consent_version = version
         return True
 
     # ── 기업 컨텍스트 ───────────────────────────────────
@@ -535,11 +700,24 @@ class InMemoryStore:
         fresh.requested_at = stored.requested_at
         self._summaries[summary.session_id] = fresh
 
-    def fail_summary(self, session_id: str) -> bool:
+    def fail_summary(
+        self,
+        session_id: str,
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+        findings_failed: bool = False,
+        model: str = "",
+    ) -> bool:
         stored = self._summaries.get(session_id)
         if stored is None or stored.status is SummaryStatus.READY:
             return False
-        stored.give_up()
+        stored.give_up(
+            moments=deepcopy(moments),
+            findings=deepcopy(findings),
+            findings_failed=findings_failed,
+            model=model,
+        )
         return True
 
     def expire_summary(
@@ -549,7 +727,7 @@ class InMemoryStore:
         if stored is None:
             return None
         if stored.overdue(limit):
-            stored.give_up()
+            stored.expire()
         return deepcopy(stored)
 
     # ── 녹화 ────────────────────────────────────────────
@@ -621,6 +799,96 @@ class InMemoryStore:
                 jobs.append(
                     Job(JobKind.PREP, session.id, prep.interview_id, prep.requested_at)
                 )
+        return min(jobs, key=lambda j: j.requested_at, default=None)
+
+    def next_review(self, limit: timedelta, grace: timedelta) -> Job | None:
+        now = utcnow()
+        for summary in self._summaries.values():
+            if summary.overdue(limit, now):
+                summary.expire()
+
+        jobs: list[Job] = []
+        for summary in self._summaries.values():
+            session = self._sessions.get(summary.session_id)
+            if (
+                summary.status is SummaryStatus.PROCESSING
+                and session is not None
+                and session.status is SessionStatus.ENDED
+                and (
+                    session.transcript_closed_at is not None
+                    or (session.ended_at is not None and now - session.ended_at > grace)
+                )
+            ):
+                jobs.append(
+                    Job(
+                        JobKind.REVIEW,
+                        session.id,
+                        session.interview_id,
+                        summary.requested_at,
+                    )
+                )
+        return min(jobs, key=lambda j: j.requested_at, default=None)
+
+    # ── 면접 리포트 (#238) ───────────────────────────────
+
+    def start_report(self, report: InterviewReport, limit: timedelta) -> bool:
+        stored = self._reports.get(report.interview_id)
+        if (
+            stored is not None
+            and stored.status is SummaryStatus.PROCESSING
+            and not stored.overdue(limit)
+        ):
+            return False
+        self._reports[report.interview_id] = deepcopy(report)
+        return True
+
+    def get_report(self, interview_id: str) -> InterviewReport | None:
+        found = self._reports.get(interview_id)
+        return None if found is None else deepcopy(found)
+
+    def finish_report(self, report: InterviewReport) -> bool:
+        stored = self._reports.get(report.interview_id)
+        if stored is None or stored.requested_at != report.requested_at:
+            return False
+        if (
+            report.status is SummaryStatus.FAILED
+            and stored.status is SummaryStatus.READY
+        ):
+            return False
+        # 기준 세션은 열어 둘 때 박은 것을 지킨다. Postgres 쪽 UPDATE 는 이 열을
+        # 아예 건드리지 않으니, 여기서도 받은 값을 쓰면 두 저장소가 갈라진다.
+        self._reports[report.interview_id] = replace(
+            deepcopy(report), session_id=stored.session_id
+        )
+        return True
+
+    def expire_report(
+        self, interview_id: str, limit: timedelta
+    ) -> InterviewReport | None:
+        stored = self._reports.get(interview_id)
+        if stored is None:
+            return None
+        if stored.overdue(limit):
+            stored.give_up()
+        return deepcopy(stored)
+
+    def next_report(self, limit: timedelta) -> Job | None:
+        now = utcnow()
+        for report in self._reports.values():
+            if report.overdue(limit, now):
+                report.give_up()
+
+        jobs = [
+            Job(
+                JobKind.REPORT,
+                report.session_id,
+                report.interview_id,
+                report.requested_at,
+            )
+            for report in self._reports.values()
+            if report.status is SummaryStatus.PROCESSING
+            and report.session_id in self._sessions
+        ]
         return min(jobs, key=lambda j: j.requested_at, default=None)
 
     def _latest_session(self, interview_id: str) -> Session | None:
@@ -698,9 +966,10 @@ class InMemoryStore:
         )
         return deepcopy(found)
 
-    def add_suggestion(self, suggestion: Suggestion) -> None:
+    def add_suggestion(self, suggestion: Suggestion) -> bool:
         key = (suggestion.session_id, suggestion.suggestion_id)
-        self._suggestions.setdefault(key, deepcopy(suggestion))
+        candidate = deepcopy(suggestion)
+        return self._suggestions.setdefault(key, candidate) is candidate
 
     def list_suggestions(self, session_id: str) -> list[Suggestion]:
         found = [s for (sid, _), s in self._suggestions.items() if sid == session_id]
@@ -719,6 +988,7 @@ class InMemoryStore:
 
         self._summaries.clear()
         self._preps.clear()
+        self._reports.clear()
         self._marks.clear()
         self._recordings.clear()
         self._users.clear()

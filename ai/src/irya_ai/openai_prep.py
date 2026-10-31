@@ -144,7 +144,7 @@ class OpenAIPrepGenerator:
         self,
         client: AsyncOpenAI,
         *,
-        model: str = "gpt-5.6-luna",
+        model: str = "gpt-6-luna",
         max_completion_tokens: int = MAX_COMPLETION_TOKENS,
         max_competencies: int = DEFAULT_MAX_COMPETENCIES,
         max_claims: int = DEFAULT_MAX_CLAIMS,

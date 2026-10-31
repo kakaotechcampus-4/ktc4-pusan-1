@@ -4,7 +4,8 @@
 
     끝난 세션 없음 · 요약 PROCESSING  → 202 PROCESSING
     요약 READY                       → 200, 계산된 coverage · moments · findings
-    요약 FAILED                      → 200, 분석만 빈다 (#163 결정)
+    요약 FAILED                      → 200, 요약은 빈다. Agent 가 보낸 타임라인 ·
+                                       findings 는 보인다 (#164 B안)
 
 계산 규칙 자체는 `test_review_rules.py` 가 본다. 여기서는 경로가 저장된 값을 제대로
 모아 그 규칙에 넘기는지, 갈래가 맞는지를 본다.
@@ -79,6 +80,35 @@ def test_a_summary_past_its_limit_is_judged_here_too(
 
     assert response.status_code == 200
     assert response.json()["summaryStatus"] == "FAILED"
+    # 분석이 오지 않았다. 「찾았는데 없다」로 보이면 안 된다 (#244).
+    assert response.json()["findingsStatus"] == "FAILED"
+
+
+@pytest.mark.parametrize(
+    ("findings", "failed", "expected"),
+    [
+        (None, True, "FAILED"),
+        ([], False, "EMPTY"),
+        (DEMO["review"]["findings"], False, "COMPLETED"),
+        # 이 필드 전에 끝난 면접 — 목록으로 가른다.
+        (None, False, "EMPTY"),
+    ],
+)
+def test_the_findings_status_tells_failure_from_nothing_found(
+    client: TestClient,
+    store: InMemoryStore,
+    findings: list[dict[str, Any]] | None,
+    failed: bool,
+    expected: str,
+):
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    summary = store.get_summary(session_id)
+    assert summary is not None
+    summary.complete("요약", [], findings=findings, findings_failed=failed)
+    store.save_summary(summary)
+
+    assert get_review(client, interview_id).json()["findingsStatus"] == expected
 
 
 # ── READY ───────────────────────────────────────────────
@@ -405,3 +435,145 @@ def test_a_mark_without_a_usable_field_is_refused(
     interview_id, _ = _ready(client, store)
 
     assert put_mark(client, interview_id, FINDING_ID, body).status_code == 422
+
+
+# ── 확정 뒤 잠금 (#247) ─────────────────────────────────
+
+
+def _confirmed(client: TestClient, store: InMemoryStore) -> tuple[str, str]:
+    interview_id, session_id = _ready(client, store)
+    patch(client, interview_id, {"reviewStatus": "CONFIRMED"})
+    return interview_id, session_id
+
+
+def test_a_confirmed_review_refuses_a_new_adoption(
+    client: TestClient, store: InMemoryStore
+):
+    """확정 시각이 검토 시간 지표이고 리포트 근거가 그 시각의 채택을 전제한다
+    (멘토님 리뷰 pull/241#discussion_r4400489994)."""
+    interview_id, session_id = _confirmed(client, store)
+
+    response = put_mark(client, interview_id, FINDING_ID, {"state": "ADOPTED"})
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "REVIEW_CONFIRMED"
+    assert store.list_marks(session_id) == []
+
+
+@pytest.mark.parametrize("state", ["ADOPTED", "REJECTED", "PROPOSED"])
+def test_a_confirmed_review_keeps_the_mark_it_had(
+    client: TestClient, store: InMemoryStore, state: str
+):
+    """바꾸기도 되돌리기도 막힌다. 막힌 요청이 이미 있던 표시를 건드리지도 않는다."""
+    interview_id, _ = _ready(client, store)
+    put_mark(client, interview_id, FINDING_ID, {"state": "ADOPTED"})
+    patch(client, interview_id, {"reviewStatus": "CONFIRMED"})
+
+    blocked = put_mark(client, interview_id, FINDING_ID, {"state": state})
+
+    assert blocked.status_code == 409
+    findings = get_review(client, interview_id).json()["findings"]
+    assert {f["id"]: f["state"] for f in findings}[FINDING_ID] == "ADOPTED"
+
+
+def test_a_confirmed_review_still_takes_bookmarks(
+    client: TestClient, store: InMemoryStore
+):
+    """북마크는 리포트 근거도 지표도 아니다 — 확정한 기록을 다시 볼 때도 접어둔다."""
+    interview_id, _ = _confirmed(client, store)
+
+    response = put_mark(client, interview_id, MOMENT_ID, {"bookmarked": True})
+
+    assert response.status_code == 200
+    assert response.json()["bookmarked"] is True
+
+
+def test_the_item_is_checked_before_the_lock(client: TestClient, store: InMemoryStore):
+    """확정이어도 없는 항목은 404 다 — 404 → 422 → 409 순서."""
+    interview_id, _ = _confirmed(client, store)
+
+    missing = put_mark(client, interview_id, "fnd_nope", {"state": "ADOPTED"})
+    wrong_field = put_mark(client, interview_id, FINDING_ID, {"bookmarked": True})
+
+    assert (missing.status_code, wrong_field.status_code) == (404, 422)
+
+
+def test_going_back_to_review_opens_the_marks_again(
+    client: TestClient, store: InMemoryStore
+):
+    """확정 해제는 만들지 않았지만(#247 범위 밖), 검토 중으로 돌리면 확정 시각이
+    비워지므로 채택을 다시 받는다."""
+    interview_id, _ = _confirmed(client, store)
+
+    patch(client, interview_id, {"reviewStatus": "IN_REVIEW"})
+
+    assert (
+        put_mark(client, interview_id, FINDING_ID, {"state": "ADOPTED"}).status_code
+        == 200
+    )
+
+
+def test_a_failed_summary_still_shows_the_timeline_the_agent_sent(
+    client: TestClient, store: InMemoryStore
+):
+    """요약만 실패한 경우다 (#164 B안). 타임라인 · findings 는 그대로 보인다."""
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    prepared(store, interview_id)
+    store.fail_summary(
+        session_id,
+        moments=DEMO["review"]["moments"],
+        findings=DEMO["review"]["findings"],
+    )
+
+    body = get_review(client, interview_id).json()
+
+    assert body["summaryStatus"] == "FAILED"
+    assert body["summary"] is None
+    assert len(body["moments"]) == len(DEMO["review"]["moments"])
+    assert len(body["findings"]) > 0
+
+
+def test_a_failed_summary_with_items_takes_marks(
+    client: TestClient, store: InMemoryStore
+):
+    """보이는 항목이면 요약이 FAILED 여도 채택 · 북마크할 수 있어야 한다."""
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    store.fail_summary(
+        session_id,
+        moments=DEMO["review"]["moments"],
+        findings=DEMO["review"]["findings"],
+    )
+    moment_id = DEMO["review"]["moments"][0]["momentId"]
+
+    assert (
+        put_mark(client, interview_id, FINDING_ID, {"state": "ADOPTED"}).status_code
+        == 200
+    )
+    assert (
+        put_mark(client, interview_id, moment_id, {"bookmarked": True}).status_code
+        == 200
+    )
+
+    body = get_review(client, interview_id).json()
+    assert {f["id"]: f["state"] for f in body["findings"]}[FINDING_ID] == "ADOPTED"
+    assert body["moments"][0]["bookmarked"] is True
+
+
+def test_a_finding_state_from_the_agent_does_not_break_the_detail(
+    client: TestClient, store: InMemoryStore
+):
+    """AI 쪽 상태(EDITED)는 저장만 한다. 상세의 상태는 면접관의 표시가 정한다."""
+    interview_id = _interview(client)
+    session_id = _ended_session(client, interview_id)
+    summary = store.get_summary(session_id)
+    assert summary is not None
+    findings = [f | {"state": "EDITED"} for f in DEMO["review"]["findings"]]
+    summary.complete("요약", [], moments=DEMO["review"]["moments"], findings=findings)
+    store.save_summary(summary)
+
+    response = get_review(client, interview_id)
+
+    assert response.status_code == 200
+    assert {f["state"] for f in response.json()["findings"]} == {"PROPOSED"}

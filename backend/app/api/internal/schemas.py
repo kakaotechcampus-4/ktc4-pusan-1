@@ -18,7 +18,7 @@
 """
 
 from datetime import datetime
-from typing import Annotated, Final, Literal
+from typing import Annotated, Any, Final, Literal
 
 from pydantic import (
     AfterValidator,
@@ -30,7 +30,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
-from app.domain.models import JobKind, Role
+from app.domain.models import FindingType, JobKind, Role
 
 FRAME_UPSERT: Final = "transcript.upsert"
 FRAME_ACK: Final = "transcript.ack"
@@ -130,7 +130,53 @@ class SuggestionCreate(InternalSchema):
     )
 
 
-class ReviewUpsert(InternalSchema):
+class AiShape(InternalSchema):
+    """AI 의 `CamelModel` 과 같은 모양 — 파이썬은 snake_case, JSON 은 camelCase.
+
+    필드가 많아 하나하나 alias 를 달지 않고 규칙으로 맞춘다.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel)
+
+
+class Moment(AiShape):
+    """AI `Moment` (`schemas/timeline.py`) — 질문 하나의 타임라인 항목 (#164).
+
+    AI 쪽보다 세게 막지 않는다. 여기서 422 가 나면 그 면접의 결과가 통째로
+    버려진다. 저장할 수 없는 값(NUL · 음수 시각)만 거른다.
+    """
+
+    moment_id: PgText
+    qa_id: PgAnyText
+    at_ms: int = Field(ge=0, le=BIGINT_MAX)
+    end_ms: int = Field(ge=0, le=BIGINT_MAX)
+    label: PgAnyText
+    question: PgAnyText
+    answer: PgAnyText
+    #: 인용 · 발화 id · 시작 ms. BE 는 읽지 않고 그대로 들고 있는다.
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class Finding(AiShape):
+    """AI `Finding` (`schemas/analysis.py`) — 근거가 붙은 검토 항목 (#164).
+
+    `state` 는 문자열로 받는다. AI 쪽에는 우리에게 없는 `EDITED` 가 있다 —
+    면접관의 판단은 `review_mark` 가 따로 든다(#163).
+    """
+
+    finding_id: PgText
+    session_id: PgAnyText
+    type: FindingType
+    competency_id: PgAnyText | None = None
+    claim_id: PgAnyText | None = None
+    evidence_utterance_id: PgAnyText | None = None
+    evidence_quote: PgAnyText | None = None
+    evidence_t_ms: int | None = Field(default=None, ge=0, le=BIGINT_MAX)
+    summary: PgAnyText
+    state: PgAnyText = "PROPOSED"
+
+
+class ReviewUpsert(AiShape):
     """`PUT /internal/v1/sessions/{sessionId}/review` 의 본문 — 최종 리뷰 결과.
 
     `status` 는 AI 쪽 `AnalysisResult.status` 를 그대로 받는다. 네 값을 화면의 두
@@ -138,15 +184,26 @@ class ReviewUpsert(InternalSchema):
     일이 있었는지를 말하고, 사용자에게 무엇을 보일지는 우리가 정한다.** Agent 쪽에
     번역을 시키면 같은 판단이 두 군데로 갈라진다.
 
-    본문은 `AnalysisResult.summary_result` 의 `summary` · `keyPoints` 다. 근거
-    인용(`points[]`)은 `Finding` 쪽이라 여기 범위가 아니다. 면접이 끝난 뒤의
-    분석 결과라 최종 리뷰(#70)에서 다룬다 — 면접 중에 들어오는 전사·꼬리질문
-    (#85)과 다르다.
+    본문은 AI `ReviewPayload` (`schemas/wire.py`) 다. 요약(`summary` ·
+    `keyPoints`)과 타임라인(`moments`) · 검토 항목(`findings`)이 한 번에 온다.
+    `status` 는 요약의 것이다 — 요약만 실패해도 나머지는 받는다 (#164).
     """
 
     status: Literal["completed", "partial", "empty", "failed"]
-    summary: str = ""
-    key_points: list[str] = Field(default_factory=list, alias="keyPoints")
+    summary: PgAnyText = ""
+    key_points: list[PgAnyText] = Field(default_factory=list)
+    #: 요약이 실패해도 타임라인 · findings 는 따로 나올 수 있다 (#164).
+    moments: list[Moment] = Field(default_factory=list)
+    #: `None` 은 findings 를 안 돌렸다는 뜻이다 — 키 자체가 없다. 빈 목록
+    #: (「찾아봤는데 없다」)과 달라서, 이때는 있던 값을 그대로 둔다.
+    findings: list[Finding] | None = None
+    #: AI `FindingsResult.status`. `findings` 가 없을 때 그것이 「안 돌림」인지
+    #: 「돌렸는데 실패」인지를 가른다 (#244). 목록이 오면 BE 는 목록만 본다.
+    findings_status: Literal["completed", "partial", "empty", "failed"] | None = None
+    model: PgAnyText = ""
+    #: 작업을 받을 때의 `requestedAt` 을 돌려준다. 요약 자리의 요청 시각은 면접
+    #: 종료 때 한 번 찍히고 바뀌지 않아 맞춰 볼 일이 없다. 받기만 한다.
+    requested_at: str | None = None
 
     @model_validator(mode="after")
     def _done_means_there_is_something_to_show(self) -> "ReviewUpsert":
@@ -158,15 +215,6 @@ class ReviewUpsert(InternalSchema):
 
 
 # ── AI 분석 작업 (#162) ─────────────────────────────────────
-
-
-class AiShape(InternalSchema):
-    """AI 의 `CamelModel` 과 같은 모양 — 파이썬은 snake_case, JSON 은 camelCase.
-
-    필드가 많아 하나하나 alias 를 달지 않고 규칙으로 맞춘다.
-    """
-
-    model_config = ConfigDict(alias_generator=to_camel)
 
 
 class PendingJob(AiShape):
@@ -199,6 +247,57 @@ class ResumeClaim(AiShape):
     resume_id: PgText
     quote: PgText
     section: PgAnyText | None = None
+
+
+class ReportStatementUpsert(AiShape):
+    """리포트 문장 하나 — AI 가 쓴 한 줄과 그 근거의 id (#238).
+
+    근거 본문(역량 이름 · 지원서 문장 · 면접 발화 · 시각)은 보내지 않는다. BE 가
+    `findingId` 로 붙인다 (#163) — 같은 근거가 검토 화면과 리포트에서 다르게 보이면
+    안 된다.
+    """
+
+    text: PgAnyText
+    finding_id: PgText
+
+
+class ReportCompetencyUpsert(AiShape):
+    """역량 하나의 카드. `competencyId` 는 받은 컨텍스트에 있던 것이어야 한다.
+
+    `nextQuestions` 만 근거 없이 온다 — 다음에 물어볼 것은 이 카드의 결론이라
+    「근거 없는 문장은 버린다」의 예외다 (#239 와 맞춘 규칙).
+    """
+
+    competency_id: PgText
+    confirmed: list[ReportStatementUpsert] = Field(default_factory=list)
+    unconfirmed: list[ReportStatementUpsert] = Field(default_factory=list)
+    next_questions: list[PgAnyText] = Field(default_factory=list)
+
+
+class ReportUpsert(AiShape):
+    """`PUT /internal/v1/interviews/{interviewId}/report` — 리포트 본문 (#238).
+
+    `status` 는 AI 쪽 네 값 그대로다. 화면의 두 값(READY · FAILED)으로 줄이는 매핑은
+    라우터 한 곳에만 둔다 — `ReviewUpsert` 와 같은 이유다.
+
+    `requestedAt` 은 받은 작업의 것을 그대로 돌려받는다. 그 사이 면접관이 다시
+    눌렀으면 결과를 409 로 거절한다. 시간대가 없으면 저장된 값과 비교할 수 없어
+    422 다.
+    """
+
+    status: Literal["completed", "partial", "empty", "failed"]
+    requested_at: AwareDatetime
+    overview: PgAnyText = ""
+    model: PgAnyText = ""
+    competencies: list[ReportCompetencyUpsert] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _done_means_there_is_something_to_show(self) -> "ReportUpsert":
+        # 개요 없이 READY 로 넘어가면 FE 는 빈 리포트를 그린다. 「채택한 근거로 쓸
+        # 게 없었다」는 `empty` 로 말해야 한다 — 그쪽은 실패 화면이 따로 있다.
+        if self.status in ("completed", "partial") and not self.overview.strip():
+            raise ValueError("completed/partial 이면 overview 가 비어 있을 수 없다")
+        return self
 
 
 class PrepUpsert(AiShape):

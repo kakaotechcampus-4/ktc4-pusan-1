@@ -107,7 +107,6 @@ jobs:
           # 번들에 실려 브라우저로 가는 공개값이라 Secret 이 아니라 Variable 이다.
           # API 주소와 Redirect URI 는 비워 같은 오리진 기본값을 탄다.
           VITE_KAKAO_CLIENT_ID: ${{ vars.KAKAO_CLIENT_ID }}
-          VITE_USE_MOCK_API: "false"
         run: |
           npm ci
           npm run build

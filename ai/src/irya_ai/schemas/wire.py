@@ -37,12 +37,36 @@ agreed payload            ``SuggestedQuestion``
 
 ``reason`` and ``status`` are not losses: the rationale is for the interviewer
 and the status is Backend's to keep once the question is theirs.
+
+The review payload (#220) is assembled rather than renamed: one interview's
+summary, timeline and findings come from three agents, and Backend stores
+them as one row.
+
+==============  ==============================================================
+agreed payload  source
+==============  ==============================================================
+``status``      ``AnalysisResult.status`` - the summary's, as it stands
+``summary``     ``SummaryResult.summary``
+``keyPoints``   ``SummaryResult.key_points``
+``moments``     ``TimelineResult.moments``
+``findings``    ``FindingsResult.findings``; *absent* while findings is not wired
+``model``       the model the poller runs
+==============  ==============================================================
+
+``status`` is the summary's alone. Backend reads it as the state of the
+summary (a ``completed`` or ``partial`` row must carry text, an ``empty`` or
+``failed`` one marks the summary failed), so a timeline that failed does not
+fail a summary that worked; it arrives as an empty ``moments`` list.
 """
+
+from typing import Literal
 
 from pydantic import Field, model_validator
 
-from irya_ai.schemas.analysis import SuggestedQuestion
+from irya_ai.schemas.analysis import Finding, SuggestedQuestion
 from irya_ai.schemas.base import CamelModel
+from irya_ai.schemas.summary import AnalysisResult
+from irya_ai.schemas.timeline import Moment, TimelineResult
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
 
 
@@ -133,4 +157,56 @@ def suggestion_payload(question: SuggestedQuestion) -> SuggestionPayload:
         suggestion_id=question.question_id,
         content=question.content,
         evidence_utterance_ids=question.evidence_utterance_ids,
+    )
+
+
+class ReviewPayload(CamelModel):
+    """One interview's analysis as ``PUT /internal/v1/sessions/{sessionId}/review``.
+
+    ``findings`` is ``None`` when no findings agent ran, and the key is left
+    out of the body then (:meth:`BackendClient.put_review`): an empty list
+    would read as "looked and found nothing". ``findings_status`` is the
+    findings agent's own status, so a run that failed (``findings`` left out)
+    reads apart from one that never ran (#244).
+    """
+
+    status: Literal["completed", "partial", "empty", "failed"]
+    summary: str = ""
+    key_points: list[str] = Field(default_factory=list)
+    moments: list[Moment] = Field(default_factory=list)
+    findings: list[Finding] | None = None
+    findings_status: Literal["completed", "partial", "empty", "failed"] | None = None
+    model: str = ""
+
+
+def review_payload(
+    summary: AnalysisResult,
+    timeline: TimelineResult | None,
+    *,
+    findings: list[Finding] | None = None,
+    findings_status: Literal["completed", "partial", "empty", "failed"] | None = None,
+    model: str,
+) -> ReviewPayload:
+    """Fold the three agents' results into the one row Backend stores.
+
+    Backend refuses (422) a ``completed`` or ``partial`` row with no summary
+    text, and a refused row is a job stuck at the head of the queue. The
+    summary agent does not produce one, but if it ever did the row is sent as
+    ``failed`` instead: the summary is missing either way, and this way the
+    job leaves the queue.
+    """
+
+    result = summary.summary_result
+    text = result.summary.strip() if result else ""
+    status = summary.status
+    if status in ("completed", "partial") and not text:
+        status = "failed"
+    return ReviewPayload(
+        status=status,
+        summary=text,
+        key_points=list(result.key_points) if result and text else [],
+        moments=list(timeline.moments) if timeline else [],
+        findings=findings,
+        findings_status=findings_status,
+        model=model,
     )
