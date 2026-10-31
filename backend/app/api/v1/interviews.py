@@ -261,7 +261,7 @@ def get_interview(interview: OwnedInterviewDep, store: StoreDep) -> InterviewRes
     "/{interviewId}",
     response_model=ReviewUpdateResponse,
     summary="검토 상태 · 메모 수정",
-    responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
+    responses=responses(LOGIN_REQUIRED, _NOT_FOUND, (409, "메모가 다른 창에서 변경됨")),
 )
 def update_review(
     body: ReviewUpdateRequest, interview: OwnedInterviewDep, store: StoreDep
@@ -273,9 +273,18 @@ def update_review(
     """
     # 저장소가 한 문장으로 바꾼다. 읽어 둔 객체를 덮어쓰면 메모 자동 저장과 확정
     # 버튼이 겹칠 때 보내지 않은 값이 옛 값으로 돌아간다.
-    updated = store.update_review(interview.id, body.review_status, body.memo)
-    if updated is None:  # 주인 검사 뒤에 지워졌다
-        raise ApiError(ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다.")
+    updated = store.update_review(
+        interview.id,
+        body.review_status,
+        body.memo,
+        expected_memo=body.expected_memo if body.memo is not None else None,
+    )
+    if updated is None:
+        if store.get_interview(interview.id) is None:
+            raise ApiError(
+                ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다."
+            )
+        raise ApiError("MEMO_CONFLICT", 409, "다른 창에서 메모가 바뀌었습니다.")
     return ReviewUpdateResponse(
         review_status=updated.review_status,
         reviewed_at=updated.reviewed_at,

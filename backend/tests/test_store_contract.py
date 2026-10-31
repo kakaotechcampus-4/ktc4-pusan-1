@@ -2325,6 +2325,38 @@ def test_delete_interview_leaves_the_other_interviews(subject: Store):
     assert subject.get_session(other.id) is not None
 
 
+def test_review_memo_compare_and_write_keeps_newer_data(subject: Store):
+    session = _seed(subject)
+    first = subject.update_review(
+        session.interview_id, None, "새 메모", expected_memo=""
+    )
+    assert first is not None
+    stale = subject.update_review(
+        session.interview_id, ReviewStatus.CONFIRMED, "오래된 메모", expected_memo=""
+    )
+    assert stale is None
+    kept = subject.get_interview(session.interview_id)
+    assert kept is not None
+    assert (kept.memo, kept.review_status) == ("새 메모", ReviewStatus.PENDING)
+
+
+def test_two_memo_writers_using_same_baseline_only_store_one(subject: Store):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    session = _seed(subject)
+    ready = Barrier(2)
+
+    def write(value):
+        ready.wait(timeout=5)
+        return subject.update_review(
+            session.interview_id, None, value, expected_memo=""
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        saved = list(executor.map(write, ["첫 탭", "둘째 탭"]))
+    assert sum(result is not None for result in saved) == 1
+
 
 @pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL 이 없다")
 def test_startup_adds_reason_to_existing_schema_without_losing_rows():
