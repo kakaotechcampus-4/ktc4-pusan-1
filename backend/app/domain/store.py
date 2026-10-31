@@ -11,7 +11,6 @@
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta
-from threading import Lock
 from typing import Any, Protocol
 
 from app.domain.models import (
@@ -58,12 +57,7 @@ class Store(Protocol):
         ...
 
     def update_review(
-        self,
-        interview_id: str,
-        status: ReviewStatus | None,
-        memo: str | None,
-        *,
-        expected_memo: str | None = None,
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
     ) -> Interview | None:
         """면접관의 검토를 받고 **저장된 면접**을 돌려준다. None 은 그대로 둔다.
 
@@ -464,7 +458,6 @@ class InMemoryStore:
     """
 
     def __init__(self) -> None:
-        self._review_lock = Lock()
         self._interviews: dict[str, Interview] = {}
         self._sessions: dict[str, Session] = {}
         self._contexts: dict[str, Context] = {}
@@ -523,21 +516,13 @@ class InMemoryStore:
         return listed
 
     def update_review(
-        self,
-        interview_id: str,
-        status: ReviewStatus | None,
-        memo: str | None,
-        *,
-        expected_memo: str | None = None,
+        self, interview_id: str, status: ReviewStatus | None, memo: str | None
     ) -> Interview | None:
-        with self._review_lock:
-            stored = self._interviews.get(interview_id)
-            if stored is None or (
-                expected_memo is not None and stored.memo != expected_memo
-            ):
-                return None
-            stored.update_review(status, memo)
-            return deepcopy(stored)
+        stored = self._interviews.get(interview_id)
+        if stored is None:
+            return None
+        stored.update_review(status, memo)
+        return deepcopy(stored)
 
     def delete_interview(self, interview_id: str) -> list[str] | None:
         """`Store.delete_interview`. DB 의 ON DELETE CASCADE 를 손으로 흉내 낸다."""

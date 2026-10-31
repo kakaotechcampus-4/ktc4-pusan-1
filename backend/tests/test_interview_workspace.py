@@ -12,10 +12,7 @@ from tests.conftest import age
 def test_saved_memo_and_existing_invitation_before_analysis(client: TestClient, other):
     interview_id = client.post("/api/v1/interviews", json={}).json()["interviewId"]
     session = client.post(f"/api/v1/interviews/{interview_id}/sessions").json()
-    client.patch(
-        f"/api/v1/interviews/{interview_id}",
-        json={"memo": "면접 중 메모", "expectedMemo": ""},
-    )
+    client.patch(f"/api/v1/interviews/{interview_id}", json={"memo": "면접 중 메모"})
     detail = client.get(f"/api/v1/interviews/{interview_id}").json()
     for _ in range(2):
         detail = client.get(f"/api/v1/interviews/{interview_id}").json()

@@ -244,9 +244,6 @@ def test_the_ready_shape_is_published(client: TestClient):
 
 
 def patch(client: TestClient, interview_id: str, body: dict[str, Any]):
-    if body.get("memo") is not None:
-        current = client.get(f"{V1}/interviews/{interview_id}").json()
-        body = {**body, "expectedMemo": current.get("memo", "")}
     return client.patch(f"{V1}/interviews/{interview_id}", json=body)
 
 
@@ -580,30 +577,3 @@ def test_a_finding_state_from_the_agent_does_not_break_the_detail(
 
     assert response.status_code == 200
     assert {f["state"] for f in response.json()["findings"]} == {"PROPOSED"}
-
-
-def test_stale_memo_cannot_change_memo_or_review_status(client: TestClient):
-    interview_id = _interview(client)
-    route = f"{V1}/interviews/{interview_id}"
-    assert (
-        client.patch(route, json={"memo": "새 메모", "expectedMemo": ""}).status_code
-        == 200
-    )
-    stale = client.patch(
-        route, json={"memo": "옛 탭", "expectedMemo": "", "reviewStatus": "CONFIRMED"}
-    )
-    assert stale.status_code == 409
-    assert stale.json()["error"]["code"] == "MEMO_CONFLICT"
-    current = client.get(route).json()
-    assert (current["memo"], current["reviewStatus"]) == ("새 메모", "PENDING")
-    assert (
-        client.patch(
-            route, json={"memo": "확인 후 재적용", "expectedMemo": "새 메모"}
-        ).status_code
-        == 200
-    )
-
-
-def test_memo_without_precondition_is_rejected(client: TestClient):
-    route = f"{V1}/interviews/{_interview(client)}"
-    assert client.patch(route, json={"memo": "조건 없는 입력"}).status_code == 422
