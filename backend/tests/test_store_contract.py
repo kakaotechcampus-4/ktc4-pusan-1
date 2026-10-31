@@ -2325,7 +2325,6 @@ def test_delete_interview_leaves_the_other_interviews(subject: Store):
     assert subject.get_session(other.id) is not None
 
 
-
 @pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL 이 없다")
 def test_startup_adds_reason_to_existing_schema_without_losing_rows():
     from uuid import uuid4
