@@ -67,9 +67,9 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-3 이다.
     ("patch", "/api/v1/interviews/{interviewId}"): {
         "path_params": ["interviewId"],
-        "request": {"reviewStatus", "memo"},
+        "request": {"reviewStatus", "memo", "expectedMemo"},
         "response": {"reviewStatus", "reviewedAt", "memo"},
-        "statuses": {"200", "401", "404"},
+        "statuses": {"200", "401", "404", "409"},
     },
     # ⚠️ Notion 명세에 없다. 기획 F12 (#246). 204 라 "response" 를 적지 않는다 —
     # 본문이 없다는 사실 자체를 잠근다.
