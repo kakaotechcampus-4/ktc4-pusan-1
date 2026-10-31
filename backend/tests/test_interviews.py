@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
@@ -12,6 +13,7 @@ from app.domain.models import (
     User,
 )
 from app.domain.store import InMemoryStore
+from app.services import recording
 from tests.conftest import DEMO, FakeMedia, age, analysed, prepared
 
 
@@ -238,3 +240,65 @@ def test_a_summary_past_its_limit_shows_failed_without_counts(
     stored_after = store.get_summary(session_id)
     assert stored_after is not None
     assert stored_after.status is SummaryStatus.PROCESSING
+
+
+# ── 면접 삭제 (기획 F12, #246) ───────────────────────────
+
+
+def test_delete_interview_is_204_and_takes_the_recordings_with_it(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """지운 세션 id 가 S3 삭제로 넘어간다 — 녹화 파일만 DB 밖에 있다."""
+    interview_id = client.post("/api/v1/interviews", json={}).json()["interviewId"]
+    session_id = _ended(client, interview_id)
+    purged: list[list[str]] = []
+    monkeypatch.setattr(recording, "purge", purged.append)
+
+    response = client.delete(f"/api/v1/interviews/{interview_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert purged == [[session_id]]
+    assert client.get(f"/api/v1/interviews/{interview_id}").status_code == 404
+    assert client.get(f"/api/v1/sessions/{session_id}").status_code == 404
+
+
+def test_delete_interview_refuses_while_it_is_running(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """진행 중이면 409 다. 지운 뒤에도 녹화가 더 올라와 주인 없는 파일이 남는다."""
+    interview_id = client.post("/api/v1/interviews", json={}).json()["interviewId"]
+    created = client.post(f"/api/v1/interviews/{interview_id}/sessions").json()
+    client.post(f"/api/v1/sessions/{created['sessionId']}/start")
+    purged: list[list[str]] = []
+    monkeypatch.setattr(recording, "purge", purged.append)
+
+    response = client.delete(f"/api/v1/interviews/{interview_id}")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "INVALID_SESSION_STATE"
+    assert purged == []  # 거절했으면 파일도 그대로다
+    assert client.get(f"/api/v1/interviews/{interview_id}").status_code == 200
+
+
+def test_delete_interview_refuses_while_a_recording_is_merging(
+    client: TestClient, store: InMemoryStore, monkeypatch: pytest.MonkeyPatch
+):
+    """합치는 중이면 409 다 — 합본이 나중에 올라와 주인 없이 남는다."""
+    interview_id = client.post("/api/v1/interviews", json={}).json()["interviewId"]
+    session_id = _ended(client, interview_id)
+    store.ensure_recording(session_id)
+    purged: list[list[str]] = []
+    monkeypatch.setattr(recording, "purge", purged.append)
+
+    response = client.delete(f"/api/v1/interviews/{interview_id}")
+
+    assert response.status_code == 409
+    assert purged == []
+
+
+def test_delete_unknown_interview_is_404(client: TestClient):
+    response = client.delete("/api/v1/interviews/int_없다")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "INTERVIEW_NOT_FOUND"
