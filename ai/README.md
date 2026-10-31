@@ -224,6 +224,14 @@ uv run irya-ai-poller        # BACKEND_BASE_URL·BACKEND_API_KEY, LLM_* 필요
   걸린 시간 중 긴 쪽입니다. 레이트리밋처럼 바로 난 실패 뒤의 재시도도 타임아웃까지 갈
   수 있어서입니다(#242). 실패한 부분만 빠집니다(findings는 키 없음, 타임라인은
   빈 목록, 요약이면 작업 전체 실패)(#234).
+- **REPORT도 같은 폴러에서 처리합니다(#249).** 검토 완료 후 리포트 생성을 요청하면
+  `GET /internal/v1/interviews/{interviewId}/report/context`를 읽고 ReportAgent를 실행해
+  `PUT /internal/v1/interviews/{interviewId}/report`에 저장합니다. `requestedAt`은 원문 그대로
+  보내며, 세션 불일치·시간 초과·409인 오래된 결과를 최신 결과로 저장하지 않습니다.
+  `REPORT_TIMEOUT_SECONDS`(기본 180초)를 BE와 맞춥니다. LLM 설정이 없으면 추출형 생성기를
+  사용하므로 이 실행만으로 실제 모델의 질문·요약 품질을 검증했다고 보고하면 안 됩니다.
+- 꼬리질문은 짧은 존댓말 `content`와 확인 포인트 `reason`을 한 번에 생성·전송합니다.
+  `reason`이 없는 과거 요청도 허용합니다. BE의 선택적 reason 계약을 먼저 반영합니다.
 - 작업마다 `agent=`(모델 호출)와 `total=`(조회부터 저장까지) 소요를 INFO로 남깁니다.
   이력서 본문과 지원자 이름은 로그에 없습니다. LLM이 없으면 추출형 기준선으로 돌되
   경고를 남깁니다.

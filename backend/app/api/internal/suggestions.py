@@ -55,6 +55,7 @@ async def create_suggestion(
         session_id=session_id,
         suggestion_id=body.suggestion_id,
         content=body.content,
+        reason=body.reason,
         evidence_utterance_ids=body.evidence_utterance_ids,
     )
     added = await run_in_threadpool(store.add_suggestion, suggestion)

@@ -129,6 +129,8 @@ class SuggestionCreate(InternalSchema):
         alias="evidenceUtteranceIds", min_length=1
     )
 
+    reason: PgText | None = Field(default=None, max_length=80)
+
 
 class AiShape(InternalSchema):
     """AI 의 `CamelModel` 과 같은 모양 — 파이썬은 snake_case, JSON 은 camelCase.

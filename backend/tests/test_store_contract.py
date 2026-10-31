@@ -2221,6 +2221,35 @@ def test_next_report_expires_an_overdue_report_instead_of_handing_it_out(
     assert stored.failure_reason is None
 
 
+def test_workspace_reads_latest_and_review_sessions_in_one_owner_scope(store):
+    from app.domain.models import InterviewReport
+
+    interview = Interview(interviewer_id="workspace_owner")
+    store.add_interview(interview)
+    ended = Session(
+        interview_id=interview.id, status=SessionStatus.ENDED, ended_at=utcnow()
+    )
+    store.add_session(ended)
+    latest = Session(interview_id=interview.id)
+    store.add_session(latest)
+    store.ensure_summary(
+        SessionSummary(
+            session_id=ended.id, status=SummaryStatus.READY, overview="면접 요약"
+        )
+    )
+    store.start_report(
+        InterviewReport(interview_id=interview.id, session_id=ended.id),
+        timedelta(seconds=180),
+    )
+    [row] = store.list_interview_workspaces("workspace_owner")
+    assert row.interview.id == interview.id
+    assert row.latest_session.id == latest.id
+    assert row.session.id == ended.id
+    assert row.summary.overview == "면접 요약"
+    assert row.report.session_id == ended.id
+    assert store.list_interview_workspaces("another_owner") == []
+
+
 # ── 면접 삭제 (#246) ────────────────────────────────────
 
 
@@ -2294,3 +2323,39 @@ def test_delete_interview_leaves_the_other_interviews(subject: Store):
 
     assert subject.get_interview(other.interview_id) is not None
     assert subject.get_session(other.id) is not None
+
+
+@pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL 이 없다")
+def test_startup_adds_reason_to_existing_schema_without_losing_rows():
+    from uuid import uuid4
+
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+
+    from app.infra.postgres import PostgresStore
+
+    schema = "reason_upgrade_" + uuid4().hex
+    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        subject = PostgresStore(
+            make_conninfo(TEST_DATABASE_URL, options=f"-c search_path={schema}")
+        )
+        subject.open()
+        try:
+            subject.create_schema()
+            session = _seed(subject)
+            subject.add_suggestion(_suggestion(session))
+            with subject._pool.connection() as conn:
+                conn.execute("ALTER TABLE suggestion DROP COLUMN reason")
+            subject.create_schema()
+            subject.create_schema()
+            [restored] = subject.list_suggestions(session.id)
+            assert restored.reason is None
+            assert subject.get_interview(session.interview_id) is not None
+            assert subject.get_session(session.id) is not None
+        finally:
+            subject.close()
+            admin.execute(
+                sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))
+            )
