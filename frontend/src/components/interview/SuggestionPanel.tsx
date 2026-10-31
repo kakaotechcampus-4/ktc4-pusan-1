@@ -14,11 +14,13 @@ import { preserveMemoFocus } from '../../lib/memoFocus';
  * DOM 에 있어야 읽힌다 — 상자째 나타나면 스크린리더가 놓친다.
  */
 
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { visibleSuggestions } from '../../lib/visibleSuggestions';
 
 export function SuggestionPanel() {
+  const root = useRef<HTMLElement>(null);
+  const nextFocus = useRef<string | null>(null);
   const suggestions = useInterviewStore((s) => s.suggestions);
   const togglePin = useInterviewStore((s) => s.toggleSuggestionPin);
 
@@ -34,9 +36,27 @@ export function SuggestionPanel() {
     (suggestion) => !hidden.includes(suggestion.id),
   );
 
+  useLayoutEffect(() => {
+    if (!nextFocus.current) return;
+    const target = root.current?.querySelector<HTMLElement>(nextFocus.current);
+    target?.focus({ preventScroll: true });
+    nextFocus.current = null;
+  }, [hidden, suggestions]);
+  const hide = (id: string) => {
+    nextFocus.current = '[data-suggestion-undo]';
+    dismiss(id);
+  };
+  const restore = () => {
+    nextFocus.current = lastHidden
+      ? `[data-suggestion-id="${CSS.escape(lastHidden)}"] button`
+      : null;
+    undo();
+  };
+
   return (
     // 영상 위에서도 기본 상태부터 글자를 읽을 수 있게 한다.
     <section
+      ref={root}
       onMouseDown={preserveMemoFocus}
       className="glass interview-readable flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl"
     >
@@ -49,7 +69,7 @@ export function SuggestionPanel() {
           type="button"
           onClick={toggleExpanded}
           aria-expanded={expanded}
-          className="rounded-lg px-2 py-1 text-xs underline"
+          className="min-h-11 rounded-lg px-2 py-1 text-xs underline focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           {expanded ? '줄이기' : '확대'}
         </button>
@@ -71,7 +91,7 @@ export function SuggestionPanel() {
       {lastHidden && (
         <div role="status" className="flex items-center justify-between gap-2 px-4 py-2 text-xs">
           <span>질문을 지웠습니다.</span>
-          <button type="button" onClick={undo} className="underline">
+          <button type="button" data-suggestion-undo onClick={restore} className="underline">
             취소
           </button>
         </div>
@@ -79,7 +99,7 @@ export function SuggestionPanel() {
       {/* 꼬리질문은 소리로는 오지 않고 화면에만 있다. 그래서 읽어 주는 것이 맞다 */}
       <div
         aria-live="polite"
-        className="glass-dim flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pb-3"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pb-3"
       >
         {ordered.length === 0 ? (
           <p className="text-ink-muted px-1.5 py-1 text-[14px]">
@@ -89,6 +109,7 @@ export function SuggestionPanel() {
           ordered.map((s) => (
             <div
               key={s.id}
+              data-suggestion-id={s.id}
               className="flex shrink-0 gap-1"
               style={{ touchAction: 'pan-y' }}
               onPointerDown={(event) => {
@@ -106,7 +127,7 @@ export function SuggestionPanel() {
                   Math.abs(event.clientX - start.x) > Math.abs(event.clientY - start.y) * 1.5
                 ) {
                   event.preventDefault();
-                  dismiss(s.id);
+                  hide(s.id);
                 }
               }}
             >
@@ -114,7 +135,7 @@ export function SuggestionPanel() {
                 type="button"
                 onClick={() => togglePin(s.id)}
                 aria-pressed={s.pinned}
-                className={`flex min-w-0 flex-1 animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition ${
+                className={`flex min-w-0 flex-1 animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 ${
                   s.pinned
                     ? 'border-brand/40 bg-brand-tint'
                     : 'border-border-base bg-surface-panel hover:bg-surface-container'
@@ -145,9 +166,9 @@ export function SuggestionPanel() {
               </button>
               <button
                 type="button"
-                onClick={() => dismiss(s.id)}
+                onClick={() => hide(s.id)}
                 aria-label={`${s.content} 지우기`}
-                className="text-ink-muted shrink-0 self-center rounded-lg px-2 py-3 text-xs hover:bg-white/10"
+                className="text-ink-muted shrink-0 self-center rounded-lg px-2 py-3 text-xs hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 지우기
               </button>
