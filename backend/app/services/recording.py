@@ -123,6 +123,44 @@ def presign(key: str) -> tuple[str, datetime]:
     return url, expires
 
 
+def purge(session_ids: list[str]) -> None:
+    """세션들의 녹화 파일을 S3 에서 지운다 (#246). 면접 삭제가 부른다.
+
+    `rec/{session_id}/` 아래를 통째로 지운다 — 합친 `merged.webm` 말고도 Egress
+    가 올린 트랙별 원본이 같이 있어서, 합친 파일만 지우면 원본이 남는다.
+
+    동기 함수다. 라우터가 스레드풀에서 부른다. 실패하면 올린다 — 조용히 넘기면
+    지웠다고 응답한 면접의 녹화가 S3 에 남는다.
+
+    ⚠️ CloudFront 를 켠 경우, 이미 내준 서명 URL 과 엣지 캐시는 `CDN_URL_TTL`
+    (3시간) 동안 지운 파일을 계속 내줄 수 있다. 무효화는 배포 id 와 권한이
+    따로 필요해 여기서 하지 않는다.
+    """
+    bucket = settings.recording_bucket
+    if not session_ids or not bucket:  # 녹화를 안 걸었다 — 로컬 · 테스트
+        return
+
+    s3 = _s3()
+    for session_id in session_ids:
+        deleted = 0
+        pages = s3.get_paginator("list_objects_v2").paginate(
+            Bucket=bucket, Prefix=f"rec/{session_id}/"
+        )
+        for page in pages:
+            keys = [{"Key": o["Key"]} for o in page.get("Contents", [])]
+            if not keys:
+                continue
+            resp = s3.delete_objects(Bucket=bucket, Delete={"Objects": keys})
+            errors = resp.get("Errors") or []
+            if errors:
+                raise RuntimeError(
+                    f"녹화 {len(errors)}개를 못 지웠다 session_id={session_id}: "
+                    f"{errors[0].get('Code')}"
+                )
+            deleted += len(keys)
+        logger.info("녹화 지움 session_id=%s files=%d", session_id, deleted)
+
+
 def kick() -> None:
     """합칠 차례인지 지금 보게 한다."""
     _wake.set()

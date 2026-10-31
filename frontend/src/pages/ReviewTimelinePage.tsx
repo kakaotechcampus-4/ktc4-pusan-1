@@ -18,11 +18,12 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getReview, putMark } from '../api/review';
 import { ApiError } from '../api/client';
 import { getInterview } from '../api/interview';
 import { getRecording } from '../api/recording';
+import { DeleteInterviewButton } from '../components/interview/DeleteInterviewButton';
 import { AiReview } from '../components/review/AiReview';
 import { Findings } from '../components/review/Findings';
 import { QaList } from '../components/review/QaList';
@@ -52,6 +53,7 @@ const POLL_INTERVAL_MS = 3000;
 
 export default function ReviewTimelinePage() {
   const { interviewId } = useParams<{ interviewId: string }>();
+  const navigate = useNavigate();
   const { data, isError, error, isFetching, refetch } = useQuery({
     queryKey: ['review', interviewId],
     queryFn: () => getReview(interviewId!),
@@ -249,6 +251,12 @@ export default function ReviewTimelinePage() {
           </p>
         </div>
         <Badge tone={STATUS_TONE[review.reviewStatus]}>{STATUS_LABEL[review.reviewStatus]}</Badge>
+        <DeleteInterviewButton
+          interviewId={interviewId!}
+          candidateName={candidateName}
+          // 지운 면접의 기록 화면에 남아 있을 수 없다. 목록으로 내보낸다.
+          onDeleted={() => void navigate('/candidates')}
+        />
       </header>
 
       {/* 이 화면이 무엇을 하는 곳인지 먼저 적는다 — 시안의 첫 줄이다. */}
