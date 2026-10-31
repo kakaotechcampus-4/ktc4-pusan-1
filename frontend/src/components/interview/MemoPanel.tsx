@@ -11,7 +11,7 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
     queryFn: () => getInterview(interviewId!),
     enabled: Boolean(interviewId),
   });
-  const { memo, setMemo, state, flush, hydrated, serverMemo, readConflict, reapply } =
+  const { memo, setMemo, state, flush, hydrated, serverMemo, readConflict, reapply, restoreDraft } =
     useMemoAutosave({
       interviewId,
       initial: owner.data?.memo,
@@ -27,12 +27,12 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
     if (restored.current !== draftKey) {
       restored.current = draftKey;
       const draft = readMemoDraft(draftKey);
-      if (draft !== null && draft !== owner.data?.memo) setMemo(draft);
+      if (draft !== null && draft !== owner.data?.memo) restoreDraft(draft);
       else if (draft !== null) writeMemoDraft(draftKey, null);
     } else if (state === 'saved' && readMemoDraft(draftKey) === memo) {
       writeMemoDraft(draftKey, null);
     }
-  }, [ready, draftKey, owner.data?.memo, state, memo, setMemo]);
+  }, [ready, draftKey, owner.data?.memo, state, memo, restoreDraft]);
   useEffect(() => {
     if (ready && open && window.matchMedia('(min-width: 768px)').matches)
       input.current?.focus({ preventScroll: true });

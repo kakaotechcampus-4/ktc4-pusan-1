@@ -153,3 +153,21 @@ test('서버 메모를 확인한 뒤 다시 바뀌면 재적용도 충돌로 남
   assert.equal(queue.read('a').memo, '내 입력');
   queue.clear();
 });
+
+test('새로고침한 충돌 초안도 서버 확인 없이 자동 저장하지 않는다', async () => {
+  let calls = 0;
+  const queue = createMemoQueue(async () => {
+    calls += 1;
+  });
+  queue.hydrate('a', '다른 탭의 최신 메모');
+  queue.restoreDraft('a', '이전 탭의 충돌 초안');
+  await queue.flush('a');
+  await queue.reapply('a');
+  assert.equal(calls, 0);
+  assert.equal(queue.read('a').state, 'conflict');
+  assert.equal(queue.read('a').memo, '이전 탭의 충돌 초안');
+  queue.reviewConflict('a', '다른 탭의 최신 메모');
+  await queue.reapply('a');
+  assert.equal(calls, 1);
+  queue.clear();
+});

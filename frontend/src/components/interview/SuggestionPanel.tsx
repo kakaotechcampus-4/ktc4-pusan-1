@@ -43,13 +43,15 @@ export function SuggestionPanel() {
     nextFocus.current = null;
   }, [hidden, suggestions]);
   const hide = (id: string) => {
-    nextFocus.current = '[data-suggestion-undo]';
+    const item = root.current?.querySelector(`[data-suggestion-id="${CSS.escape(id)}"]`);
+    nextFocus.current = item?.contains(document.activeElement) ? '[data-suggestion-undo]' : null;
     dismiss(id);
   };
   const restore = () => {
-    nextFocus.current = lastHidden
-      ? `[data-suggestion-id="${CSS.escape(lastHidden)}"] button`
-      : null;
+    nextFocus.current =
+      lastHidden && root.current?.querySelector('[data-suggestion-undo]') === document.activeElement
+        ? `[data-suggestion-id="${CSS.escape(lastHidden)}"] button`
+        : null;
     undo();
   };
 
@@ -80,7 +82,7 @@ export function SuggestionPanel() {
         )}
       </div>
 
-      <label className="flex shrink-0 items-center gap-2 px-4 py-2 text-xs">
+      <label className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-xs focus-within:outline-2 focus-within:outline-offset-2">
         <input
           type="checkbox"
           checked={showQuestions}
@@ -91,7 +93,12 @@ export function SuggestionPanel() {
       {lastHidden && (
         <div role="status" className="flex items-center justify-between gap-2 px-4 py-2 text-xs">
           <span>질문을 지웠습니다.</span>
-          <button type="button" data-suggestion-undo onClick={restore} className="underline">
+          <button
+            type="button"
+            data-suggestion-undo
+            onClick={restore}
+            className="min-h-11 px-2 underline focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
             취소
           </button>
         </div>
