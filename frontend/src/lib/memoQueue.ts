@@ -104,6 +104,7 @@ export function createMemoQueue<T>(
     },
     restoreDraft(id: string, memo: string) {
       const current = read(id);
+      if (current.version !== current.saved) return;
       clearTimeout(timers.get(id));
       drafts.set(id, {
         ...current,

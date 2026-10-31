@@ -38,7 +38,9 @@ export function SuggestionPanel() {
 
   useLayoutEffect(() => {
     if (!nextFocus.current) return;
-    const target = root.current?.querySelector<HTMLElement>(nextFocus.current);
+    const target =
+      root.current?.querySelector<HTMLElement>(nextFocus.current) ??
+      root.current?.querySelector<HTMLButtonElement>('button');
     target?.focus({ preventScroll: true });
     nextFocus.current = null;
   }, [hidden, suggestions]);
