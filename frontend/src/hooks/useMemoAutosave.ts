@@ -81,6 +81,9 @@ export function useMemoAutosave({
     [interviewId],
   );
   return {
+    restoreDraft: (memo: string) => {
+      if (interviewId) queue.restoreDraft(interviewId, memo);
+    },
     serverMemo: draft.serverMemo,
     readConflict: async () => {
       if (!interviewId) return;
