@@ -114,31 +114,7 @@ WebRTC 미디어는 Caddy 를 거치지 않습니다. 브라우저가 인스턴�
 | `SUMMARY_TIMEOUT_SECONDS` | 코드 기본 180초 (`backend/app/core/config.py:78`, `ai/src/irya_ai/config.py:72`) | compose 기본값 600초. 운영 `.env` 값 확인 안 됨 | compose 가 `${SUMMARY_TIMEOUT_SECONDS:-600}` 으로 BE 와 폴러에 같은 값을 넘김. `ai/.env.example` 은 180, `prep_poller.py` 문서는 아직 "3분"으로 적혀 있음 |
 | `OPENAI_API_KEY` | `infra/.env.example` 에 「요약 LLM」으로 있음 | compose 가 어느 서비스에도 넘기지 않음. 요약·타임라인·findings 는 ai-poller 가 `LLM_*` 로 돎 | compose 에 `OPENAI` 문자열 없음 |
 
-## 운영 접근
-
-아래는 운영 서버 운영 방식 기준입니다. 저장소에서 확인되는 것은 SSM 을 쓴다는 점과 로그 상한뿐입니다.
-
-```mermaid
-flowchart LR
-  OPS[운영자 1인]
-  SSM[AWS SSM 세션]
-  HOST[EC2 호스트]
-  LOGS[docker compose logs · 컨테이너당 10MB 3개 롤링]
-  CW[CloudWatch Logs]
-
-  OPS -->|세션 접속| SSM
-  SSM --> HOST
-  HOST --> LOGS
-  LOGS -.->|미도입| CW
-```
-
-- 22번 포트를 열지 않아 SSH 대신 SSM 입니다. CD 도 `aws ssm send-command` 로 배포합니다.
-- 로그는 서버에 들어가 `docker compose logs` 로 봅니다. 컨테이너마다 10MB × 3개로 돌려 쓰므로 그보다 오래된 로그는 남지 않습니다.
-- CloudWatch Logs 는 **아직 없습니다.** 위 다이어그램의 점선이 미도입 구간입니다.
-- 접근 권한이 1인에게 몰려 있습니다. 캠퍼스 운영진 확인을 기다리는 중입니다.
-
 ## 아직 확인 안 된 것
 
 - 운영 `.env` 의 실제 값 전체 (`STT_PROVIDER`, `RECORDING_CDN_*`, `LLM_*`, `KAKAO_*`, `SUMMARY_TIMEOUT_SECONDS`). 서버에만 있어 읽지 않았습니다.
 - 운영에서 LLM 게이트웨이와 카카오 로그인이 켜져 있는지.
-- CloudWatch 도입 범위와 접근 권한 분산 방식. 캠퍼스 운영진 확인 대기.
