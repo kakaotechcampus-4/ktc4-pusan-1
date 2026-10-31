@@ -47,7 +47,7 @@ flowchart LR
   EG -->|트랙 파일 업로드| S3
   BE -->|합친 파일 업로드와 서명 URL 발급| S3
   ITV -->|녹화 재생 · S3 10분 서명 URL| S3
-  CF -.->|녹화 재생 · 운영에서 꺼짐| ITV
+  CF -.->|녹화 재생 · 켜졌는지 확인 안 됨| ITV
   CF -.->|OAC 원본 읽기| S3
   BE -->|면접 기록| DB
 
@@ -98,7 +98,7 @@ WebRTC 미디어는 Caddy 를 거치지 않습니다. 브라우저가 인스턴�
 | --- | --- | --- |
 | LiveKit | 시그널링, 미디어, RoomService, 웹훅. 같은 인스턴스에서 자체 호스팅 | 켜짐. 키 없으면 기동 실패 |
 | S3 버킷 | 버킷 하나를 접두사로 나눠 씁니다. `rec/` 는 egress 트랙 파일과 BE 가 합친 파일, `fe/<sha>/` 는 CD 가 올리고 배포가 받아 가는 FE 빌드 | 녹화는 `RECORDING_BUCKET` 이 스위치이고 비우면 녹화를 걸지 않음. FE 쪽은 켜짐 |
-| CloudFront 녹화 배포 | 녹화 재생 URL 서명. 우리 키로 서명해 3시간 | `RECORDING_CDN_DOMAIN` 이 스위치. **운영은 비어 있어 꺼짐** — 운영 서버 설정 기준이고 저장소에 없음 |
+| CloudFront 녹화 배포 | 녹화 재생 URL 서명. 우리 키로 서명해 3시간 | `RECORDING_CDN_DOMAIN` 이 스위치. 저장소는 빈 기본값이고 배포는 꺼진 채로 만듭니다(`infra/README.md`). **운영에서 켰는지는 확인 안 됨** — 값이 서버에만 있습니다 |
 | LLM 게이트웨이 (Elice, OpenAI 호환) | 꼬리질문(ai), 사전 가공·요약·타임라인·findings(ai-poller) | `LLM_BASE_URL` 과 `LLM_API_KEY` 가 스위치. 비우면 추출형으로 돎. 운영 값 확인 안 됨 |
 | Deepgram | 실시간 STT. `nova-3`, 한국어, numerals 끔, endpointing 300ms, 고정 keyterm, Silero VAD 0.7초 침묵 후 finalize | `STT_PROVIDER=deepgram` 일 때만. 키 없으면 워커가 방을 떠남 |
 | Elice Whisper STT | 실시간 STT. 저장소 기본 공급자 | `STT_PROVIDER` 기본값이 `elice`. 배포 주소나 키 없으면 워커가 방을 떠남 |
@@ -110,7 +110,7 @@ WebRTC 미디어는 Caddy 를 거치지 않습니다. 브라우저가 인스턴�
 | 항목 | 저장소 기본값 | 운영 | 근거 |
 | --- | --- | --- | --- |
 | `STT_PROVIDER` | `elice` | `deepgram` (2026-10-24부터). 운영 자막은 Deepgram | 기본값은 `ai/src/irya_ai/config.py:38`, compose `${STT_PROVIDER:-elice}`, `infra/.env.example`. 분기는 `ai/src/irya_ai/worker.py:213`. 운영 값은 운영 서버 설정 기준이고 저장소에 없음 |
-| `RECORDING_CDN_DOMAIN` | 비어 있음 → S3 10분 서명 URL | 비어 있음 → **꺼짐**. 운영 녹화 재생은 10분 S3 서명 URL | compose `${RECORDING_CDN_DOMAIN:-}`. `recording.py` 의 `_cdn_signer` 는 도메인이 비면 `None` 을 돌려주고, `presign` 이 `URL_TTL` 10분으로 떨어짐. 켜지면 `CDN_URL_TTL` 3시간. 운영이 비어 있다는 것은 운영 서버 설정 기준이고 저장소에 없음 |
+| `RECORDING_CDN_DOMAIN` | 비어 있음 → S3 10분 서명 URL | **확인 안 됨** | compose `${RECORDING_CDN_DOMAIN:-}`. `recording.py` 의 `_cdn_signer` 는 도메인이 비면 `None` 을 돌려주고, `presign` 이 `URL_TTL` 10분으로 떨어짐. 켜져 있으면 `CDN_URL_TTL` 3시간. 운영 값은 서버에만 있어 읽지 않았습니다 |
 | `SUMMARY_TIMEOUT_SECONDS` | 코드 기본 180초 (`backend/app/core/config.py:78`, `ai/src/irya_ai/config.py:72`) | compose 기본값 600초. 운영 `.env` 값 확인 안 됨 | compose 가 `${SUMMARY_TIMEOUT_SECONDS:-600}` 으로 BE 와 폴러에 같은 값을 넘김. `ai/.env.example` 은 180, `prep_poller.py` 문서는 아직 "3분"으로 적혀 있음 |
 | `OPENAI_API_KEY` | `infra/.env.example` 에 「요약 LLM」으로 있음 | compose 가 어느 서비스에도 넘기지 않음. 요약·타임라인·findings 는 ai-poller 가 `LLM_*` 로 돎 | compose 에 `OPENAI` 문자열 없음 |
 
