@@ -85,6 +85,7 @@ function ConfirmDialog({
     void queryClient.invalidateQueries({ queryKey: ['interviews'] });
     queryClient.removeQueries({ queryKey: ['review', interviewId] });
     queryClient.removeQueries({ queryKey: ['interview', interviewId] });
+    queryClient.removeQueries({ queryKey: ['report', interviewId] });
     toast(message, tone);
     onClose();
     onDeleted?.();

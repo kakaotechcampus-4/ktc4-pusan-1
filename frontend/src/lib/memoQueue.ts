@@ -102,6 +102,18 @@ export function createMemoQueue<T>(
         );
       emit();
     },
+    restoreDraft(id: string, memo: string) {
+      const current = read(id);
+      clearTimeout(timers.get(id));
+      drafts.set(id, {
+        ...current,
+        memo,
+        version: current.version + 1,
+        state: 'conflict',
+        serverMemo: undefined,
+      });
+      emit();
+    },
     reviewConflict(id: string, serverMemo: string) {
       const current = read(id);
       if (current.state !== 'conflict') return;
