@@ -576,9 +576,11 @@ class PrepPoller:
             - (self._wall_clock() - requested).total_seconds()
         )
         result: ReportResult | None = None
+        fallback_overview = ""
         try:
             raw = await self.backend.get_report_context(job.interview_id)
             context = ReportContext.model_validate(raw)
+            fallback_overview = context.summary.overview
             if (
                 context.interview_id != job.interview_id
                 or context.session_id != job.session_id
@@ -625,7 +627,9 @@ class PrepPoller:
         ):
             self._hold(job, self.retry_after_seconds)
             return Pass("held", job=job, code=result.error.code)
-        payload = report_payload(result, requested_at=job.requested_at)
+        payload = report_payload(
+            result, requested_at=job.requested_at, fallback_overview=fallback_overview
+        )
         refused = await self._store(
             job, self.backend.put_report(job.interview_id, payload), payload, started
         )

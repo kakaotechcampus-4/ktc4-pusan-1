@@ -329,6 +329,7 @@ export type ReviewResponse =
 
 /** PATCH /api/v1/interviews/{interviewId} — 보낸 것만 바뀐다 (#137 1-3) */
 export interface ReviewUpdate {
+  expectedMemo?: string;
   reviewStatus?: ReviewStatus;
   /** 최대 4000자. 비우려면 빈 문자열 */
   memo?: string;

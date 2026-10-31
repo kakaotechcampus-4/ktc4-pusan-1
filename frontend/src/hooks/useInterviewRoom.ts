@@ -368,6 +368,7 @@ export function useInterviewRoom({
   // roomRef.current 를 렌더 중에 읽으면 연결 이후 값이 갱신되지 않는다.
   // ref 자체를 넘겨 이벤트 핸들러·이펙트 안에서 읽게 한다.
   const toggleMedia = async (kind: 'microphone' | 'camera' | 'speaker') => {
+    if (kind === 'speaker' && role !== 'INTERVIEWER') return;
     const room = roomRef.current;
     if (!room || mediaBusy.current) return;
     mediaBusy.current = true;

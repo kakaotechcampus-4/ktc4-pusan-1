@@ -18,11 +18,12 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getReview, putMark } from '../api/review';
 import { ApiError } from '../api/client';
 import { getInterview } from '../api/interview';
 import { getRecording } from '../api/recording';
+import { DeleteInterviewButton } from '../components/interview/DeleteInterviewButton';
 import { AiReview } from '../components/review/AiReview';
 import { Findings } from '../components/review/Findings';
 import { QaList } from '../components/review/QaList';
@@ -57,6 +58,7 @@ export default function ReviewTimelinePage({
 }: { interviewId?: string; embedded?: boolean } = {}) {
   const { interviewId: routeId } = useParams<{ interviewId: string }>();
   const interviewId = providedId ?? routeId;
+  const navigate = useNavigate();
   const { data, isError, error, isFetching, refetch } = useQuery({
     queryKey: ['review', interviewId],
     queryFn: () => getReview(interviewId!),
@@ -266,6 +268,14 @@ export default function ReviewTimelinePage({
           </p>
         </div>
         <Badge tone={STATUS_TONE[review.reviewStatus]}>{STATUS_LABEL[review.reviewStatus]}</Badge>
+        <DeleteInterviewButton
+          interviewId={interviewId!}
+          candidateName={candidateName}
+          // 지운 면접의 기록 화면에 남아 있을 수 없다. 목록으로 내보낸다.
+          onDeleted={() => {
+            if (!embedded) void navigate('/candidates');
+          }}
+        />
       </header>
 
       {!embedded && (

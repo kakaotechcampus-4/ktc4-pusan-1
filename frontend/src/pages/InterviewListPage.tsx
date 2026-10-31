@@ -1,3 +1,4 @@
+import { DeleteInterviewButton } from '../components/interview/DeleteInterviewButton';
 import { useQuery } from '@tanstack/react-query';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -30,7 +31,7 @@ const COLUMNS = [
   { key: 'adopted', title: '리포트 반영', width: 110 },
   { key: 'memo', title: '메모', width: 185 },
   { key: 'report', title: '리포트', width: 100 },
-  { key: 'actions', title: '작업', width: 100 },
+  { key: 'actions', title: '작업', width: 180 },
 ] as const;
 type ColumnKey = (typeof COLUMNS)[number]['key'];
 const SORTABLE = new Set<string>(['name', 'date', 'needsReview', 'adopted']);
@@ -311,13 +312,29 @@ export default function InterviewListPage() {
       );
     if (key === 'actions')
       return (
-        <button
-          type="button"
-          onClick={() => open(item)}
-          className="border-border-base text-brand min-h-10 rounded-lg border px-3 text-xs"
-        >
-          확인
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => open(item)}
+            className="border-border-base text-brand min-h-10 rounded-lg border px-3 text-xs"
+          >
+            확인
+          </button>
+          <DeleteInterviewButton
+            interviewId={item.interviewId}
+            candidateName={item.candidateName || '이름 없는 지원자'}
+            onDeleted={() => {
+              setSelection(
+                (previous) => new Set([...previous].filter((id) => id !== item.interviewId)),
+              );
+              if (expanded === item.interviewId) {
+                const next = new URLSearchParams(params);
+                next.delete('interview');
+                setParams(next, { replace: true });
+              }
+            }}
+          />
+        </div>
       );
     return (
       <span

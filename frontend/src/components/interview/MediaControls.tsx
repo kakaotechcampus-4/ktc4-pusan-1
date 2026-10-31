@@ -1,4 +1,5 @@
 export interface MediaControlsProps {
+  allowSpeakerControl: boolean;
   microphone: boolean;
   camera: boolean;
   speaker: boolean;
@@ -8,6 +9,7 @@ export interface MediaControlsProps {
 }
 
 export function MediaControls({
+  allowSpeakerControl,
   microphone,
   camera,
   speaker,
@@ -28,19 +30,21 @@ export function MediaControls({
             ['camera', camera, '카메라'],
             ['speaker', speaker, '상대 소리'],
           ] as const
-        ).map(([kind, on, label]) => (
-          <button
-            key={kind}
-            type="button"
-            disabled={busy || !enabled}
-            aria-pressed={on}
-            onClick={() => onToggle(kind)}
-            className={`min-h-11 rounded-xl px-3 text-sm font-semibold disabled:opacity-50 ${on ? 'bg-white/10 text-white' : 'bg-danger-tint text-danger ring-danger/50 ring-1'}`}
-            aria-label={`${label} ${on ? '끄기' : '켜기'}`}
-          >
-            {label} {on ? '켜짐' : '꺼짐'}
-          </button>
-        ))}
+        )
+          .filter(([kind]) => kind !== 'speaker' || allowSpeakerControl)
+          .map(([kind, on, label]) => (
+            <button
+              key={kind}
+              type="button"
+              disabled={busy || !enabled}
+              aria-pressed={on}
+              onClick={() => onToggle(kind)}
+              className={`min-h-11 rounded-xl px-3 text-sm font-semibold disabled:opacity-50 ${on ? 'bg-white/10 text-white' : 'bg-danger-tint text-danger ring-danger/50 ring-1'}`}
+              aria-label={`${label} ${on ? '끄기' : '켜기'}`}
+            >
+              {label} {on ? '켜짐' : '꺼짐'}
+            </button>
+          ))}
       </div>
     </div>
   );

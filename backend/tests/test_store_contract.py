@@ -2248,3 +2248,147 @@ def test_workspace_reads_latest_and_review_sessions_in_one_owner_scope(store):
     assert row.summary.overview == "면접 요약"
     assert row.report.session_id == ended.id
     assert store.list_interview_workspaces("another_owner") == []
+
+
+# ── 면접 삭제 (#246) ────────────────────────────────────
+
+
+def test_delete_interview_takes_everything_with_it(subject: Store):
+    """면접 하나에 달린 기록 전부가 같이 간다. DB 는 CASCADE, 인메모리는 손으로."""
+    session = _seed(subject)
+    interview_id = session.interview_id
+    subject.ensure_prep(InterviewPrep(interview_id=interview_id))
+    subject.save_resume(_resume(interview_id), b"%PDF-1.7\n")
+    subject.ensure_summary(SessionSummary(session_id=session.id))
+    subject.ensure_recording(session.id)  # DB 의 save_recording 은 UPDATE 다
+    subject.save_recording(
+        Recording(session_id=session.id, status=SummaryStatus.READY, s3_key="rec/x")
+    )
+    subject.update_mark(session.id, "mom_x", state=FindingState.ADOPTED)
+    subject.upsert_utterance(_utterance(session))
+    subject.add_suggestion(_suggestion(session))
+
+    assert subject.delete_interview(interview_id) == [session.id]
+
+    assert subject.get_interview(interview_id) is None
+    assert subject.get_session(session.id) is None
+    assert subject.get_prep(interview_id) is None
+    assert subject.get_resume(interview_id) is None
+    assert subject.get_resume_text(interview_id) is None
+    assert subject.get_summary(session.id) is None
+    assert subject.get_recording(session.id) is None
+    assert subject.list_marks(session.id) == []
+    assert subject.list_utterances(session.id) == []
+    assert subject.list_suggestions(session.id) == []
+
+
+def test_delete_interview_without_sessions_gives_an_empty_list(subject: Store):
+    """세션을 안 만든 면접도 지워진다. 빈 목록과 None 은 다르다 — 지울 파일이 없다."""
+    interview = Interview(interviewer_id="user_123")
+    subject.add_interview(interview)
+
+    assert subject.delete_interview(interview.id) == []
+    assert subject.get_interview(interview.id) is None
+
+
+def test_delete_unknown_interview_is_none(subject: Store):
+    assert subject.delete_interview("int_nope") is None
+
+
+def test_delete_interview_refuses_while_a_session_is_live(subject: Store):
+    """진행 중이면 안 지운다 — 지운 뒤에도 S3 에 녹화가 더 올라온다."""
+    session = _seed(subject)
+    session.start()
+    subject.save_session(session)
+
+    assert subject.delete_interview(session.interview_id) is None
+    assert subject.get_interview(session.interview_id) is not None
+    assert subject.get_session(session.id) is not None
+
+
+def test_delete_interview_refuses_while_a_recording_is_merging(subject: Store):
+    """녹화를 합치는 중이면 안 지운다 — 합친 파일이 뒤늦게 올라온다."""
+    session = _seed(subject)
+    subject.ensure_recording(session.id)  # PROCESSING
+
+    assert subject.delete_interview(session.interview_id) is None
+    assert subject.get_session(session.id) is not None
+
+
+def test_delete_interview_leaves_the_other_interviews(subject: Store):
+    mine = _seed(subject)
+    other = _seed(subject)
+
+    assert subject.delete_interview(mine.interview_id) == [mine.id]
+
+    assert subject.get_interview(other.interview_id) is not None
+    assert subject.get_session(other.id) is not None
+
+
+def test_review_memo_compare_and_write_keeps_newer_data(subject: Store):
+    session = _seed(subject)
+    first = subject.update_review(
+        session.interview_id, None, "새 메모", expected_memo=""
+    )
+    assert first is not None
+    stale = subject.update_review(
+        session.interview_id, ReviewStatus.CONFIRMED, "오래된 메모", expected_memo=""
+    )
+    assert stale is None
+    kept = subject.get_interview(session.interview_id)
+    assert kept is not None
+    assert (kept.memo, kept.review_status) == ("새 메모", ReviewStatus.PENDING)
+
+
+def test_two_memo_writers_using_same_baseline_only_store_one(subject: Store):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    session = _seed(subject)
+    ready = Barrier(2)
+
+    def write(value):
+        ready.wait(timeout=5)
+        return subject.update_review(
+            session.interview_id, None, value, expected_memo=""
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        saved = list(executor.map(write, ["첫 탭", "둘째 탭"]))
+    assert sum(result is not None for result in saved) == 1
+
+
+@pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL 이 없다")
+def test_startup_adds_reason_to_existing_schema_without_losing_rows():
+    from uuid import uuid4
+
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+
+    from app.infra.postgres import PostgresStore
+
+    schema = "reason_upgrade_" + uuid4().hex
+    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        subject = PostgresStore(
+            make_conninfo(TEST_DATABASE_URL, options=f"-c search_path={schema}")
+        )
+        subject.open()
+        try:
+            subject.create_schema()
+            session = _seed(subject)
+            subject.add_suggestion(_suggestion(session))
+            with subject._pool.connection() as conn:
+                conn.execute("ALTER TABLE suggestion DROP COLUMN reason")
+            subject.create_schema()
+            subject.create_schema()
+            [restored] = subject.list_suggestions(session.id)
+            assert restored.reason is None
+            assert subject.get_interview(session.interview_id) is not None
+            assert subject.get_session(session.id) is not None
+        finally:
+            subject.close()
+            admin.execute(
+                sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))
+            )
