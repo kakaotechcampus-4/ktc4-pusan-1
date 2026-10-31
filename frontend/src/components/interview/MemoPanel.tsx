@@ -66,7 +66,7 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
         </span>
       </header>
       {open && (
-        <div className="flex min-h-0 flex-col px-4 pb-3">
+        <div className="flex min-h-0 flex-col overflow-y-auto overscroll-contain px-4 pb-3">
           <textarea
             ref={input}
             data-live-memo="true"
