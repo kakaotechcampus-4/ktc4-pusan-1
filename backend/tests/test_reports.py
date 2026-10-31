@@ -69,13 +69,7 @@ def _mark(client: TestClient, interview_id: str, item_id: str, state: str) -> No
 def _confirm(client: TestClient, interview_id: str, memo: str = "메모"):
     return client.patch(
         f"{V1}/interviews/{interview_id}",
-        json={
-            "reviewStatus": "CONFIRMED",
-            "memo": memo,
-            "expectedMemo": client.get(f"{V1}/interviews/{interview_id}").json()[
-                "memo"
-            ],
-        },
+        json={"reviewStatus": "CONFIRMED", "memo": memo},
     )
 
 
