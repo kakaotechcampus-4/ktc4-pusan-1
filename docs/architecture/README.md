@@ -46,8 +46,8 @@ flowchart LR
   VK -->|녹화 작업 수신| EG
   EG -->|트랙 파일 업로드| S3
   BE -->|합친 파일 업로드와 서명 URL 발급| S3
-  ITV -->|녹화 재생 · S3 10분 서명 URL| S3
-  CF -.->|녹화 재생 · 운영에서 꺼짐| ITV
+  CF -->|녹화 재생 · CDN 3시간 서명 URL| ITV
+  ITV -.->|CDN 꺼진 경우 · S3 10분 서명 URL| S3
   CF -.->|OAC 원본 읽기| S3
   BE -->|면접 기록| DB
 
@@ -98,7 +98,7 @@ WebRTC 미디어는 Caddy 를 거치지 않습니다. 브라우저가 인스턴�
 | --- | --- | --- |
 | LiveKit | 시그널링, 미디어, RoomService, 웹훅. 같은 인스턴스에서 자체 호스팅 | 켜짐. 키 없으면 기동 실패 |
 | S3 버킷 | 버킷 하나를 접두사로 나눠 씁니다. `rec/` 는 egress 트랙 파일과 BE 가 합친 파일, `fe/<sha>/` 는 CD 가 올리고 배포가 받아 가는 FE 빌드 | 녹화는 `RECORDING_BUCKET` 이 스위치이고 비우면 녹화를 걸지 않음. FE 쪽은 켜짐 |
-| CloudFront 녹화 배포 | 녹화 재생 URL 서명. 우리 키로 서명해 3시간 | `RECORDING_CDN_DOMAIN` 이 스위치. **운영은 꺼져 있습니다** — 2026-10-31 운영 `backend` 컨테이너의 `RECORDING_CDN_DOMAIN` 이 비어 있는 것을 확인했습니다. 운영 녹화 재생은 10분 S3 서명 URL 입니다 |
+| CloudFront 녹화 배포 | 녹화 재생 URL 서명. 우리 키로 서명해 3시간 | `RECORDING_CDN_DOMAIN` 이 스위치. **2026-10-31 운영에서 켰습니다** — 공개 키를 새로 올려 키 그룹을 바꾸고 운영 `.env` 의 `RECORDING_CDN_DOMAIN` · `RECORDING_CDN_KEY_ID` 를 채운 뒤 `backend` 를 다시 올렸습니다. BE 가 발급한 서명 URL 로 운영 녹화 재생이 `206` 으로 돌아오는 것까지 확인했습니다. 서명 키는 AWS 자격증명과 무관한 우리 RSA 키이고 개인키는 서버 `.env` 에만 있습니다 |
 | LLM 게이트웨이 (Elice, OpenAI 호환) | 꼬리질문(ai), 사전 가공·요약·타임라인·findings(ai-poller) | `LLM_BASE_URL` 과 `LLM_API_KEY` 가 스위치. 비우면 추출형으로 돎. **운영은 켜져 있습니다** |
 | Deepgram | 실시간 STT. `nova-3`, 한국어, numerals 끔, endpointing 300ms, 고정 keyterm, Silero VAD 0.7초 침묵 후 finalize | `STT_PROVIDER=deepgram` 일 때만. 키 없으면 워커가 방을 떠남 |
 | Elice Whisper STT | 실시간 STT. 저장소 기본 공급자 | `STT_PROVIDER` 기본값이 `elice`. 배포 주소나 키 없으면 워커가 방을 떠남 |
@@ -110,11 +110,11 @@ WebRTC 미디어는 Caddy 를 거치지 않습니다. 브라우저가 인스턴�
 | 항목 | 저장소 기본값 | 운영 | 근거 |
 | --- | --- | --- | --- |
 | `STT_PROVIDER` | `elice` | `deepgram` (2026-10-24부터). 운영 자막은 Deepgram | 기본값은 `ai/src/irya_ai/config.py:38`, compose `${STT_PROVIDER:-elice}`, `infra/.env.example`. 분기는 `ai/src/irya_ai/worker.py:213`. 운영 값은 2026-10-31 운영 `.env` 에서 `deepgram` 으로 확인 |
-| `RECORDING_CDN_DOMAIN` | 비어 있음 → S3 10분 서명 URL | 비어 있음 → **꺼짐**. 운영 녹화 재생은 10분 S3 서명 URL (2026-10-31 운영 컨테이너 환경변수 확인) | compose `${RECORDING_CDN_DOMAIN:-}`. `recording.py` 의 `_cdn_signer` 는 도메인이 비면 `None` 을 돌려주고, `presign` 이 `URL_TTL` 10분으로 떨어짐. 켜져 있으면 `CDN_URL_TTL` 3시간. 운영 값은 서버에만 있어 읽지 않았습니다 |
+| `RECORDING_CDN_DOMAIN` | 비어 있음 → S3 10분 서명 URL | 값 있음 → **켜짐**. 운영 녹화 재생은 `CDN_URL_TTL` 3시간 CDN 서명 URL (2026-10-31 운영 컨테이너 환경변수에서 켜짐만 확인) | compose `${RECORDING_CDN_DOMAIN:-}`. `recording.py` 의 `_cdn_signer` 는 도메인이 비면 `None` 을 돌려주고 `presign` 이 `URL_TTL` 10분으로 떨어짐. 도메인이 채워져 있으면 canned policy RSA-SHA1 서명에 `CDN_URL_TTL` 3시간. 실값은 서버에만 있어 적지 않았습니다 |
 | `SUMMARY_TIMEOUT_SECONDS` | 코드 기본 180초 (`backend/app/core/config.py:78`, `ai/src/irya_ai/config.py:72`) | **600초** | 운영 `.env` 에 키는 있고 값이 비어 있어서, compose 의 `${SUMMARY_TIMEOUT_SECONDS:-600}` 이 600 을 넣습니다(2026-10-31 확인). 같은 값이 BE 와 폴러의 `REVIEW_DEADLINE_SECONDS` 로도 갑니다. `ai/.env.example` 은 180, `prep_poller.py` 문서는 아직 "3분"으로 적혀 있어 세 군데가 갈립니다 |
 | `OPENAI_API_KEY` | `infra/.env.example` 에 「요약 LLM」으로 있음 | compose 가 어느 서비스에도 넘기지 않음. 요약·타임라인·findings 는 ai-poller 가 `LLM_*` 로 돎 | compose 에 `OPENAI` 문자열 없음 |
 
 ## 남겨 둔 것
 
-- 운영 `.env` 에 `RECORDING_CDN_DOMAIN` 은 비어 있는데 `RECORDING_CDN_KEY_ID` 에는 값이 남아 있습니다. 도메인이 비면 서명을 걸지 않으니 동작에는 영향이 없고, 10/11 시험 자원을 지울 때 남은 설정으로 보입니다. 정리 대상입니다.
+- `infra/cloudfront-distribution.json` 의 `"Enabled": false` 는 운영과 다릅니다. 운영 배포는 2026-10-31 부터 켜져 있으니 이 정의 파일을 맞춰야 합니다.
 - `SUMMARY_TIMEOUT_SECONDS` 가 코드 180초 · 운영 600초 · `prep_poller.py` 문서 "3분" 으로 갈려 있습니다. 한쪽으로 맞춰야 합니다.
