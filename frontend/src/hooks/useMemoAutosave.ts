@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { updateReview } from '../api/review';
+import { getInterview } from '../api/interview';
 import { readAccessToken } from '../lib/authToken';
 import { createMemoQueue } from '../lib/memoQueue';
 import { clearMemoDrafts } from '../lib/memoDraft';
@@ -8,9 +9,9 @@ import type { Review, ReviewUpdateResponse } from '../types/interview';
 
 export const MEMO_MAX = 4000;
 export type { MemoSaveState } from '../lib/memoQueue';
-const queue = createMemoQueue(async (id, memo) => {
+const queue = createMemoQueue(async (id, memo, expectedMemo) => {
   const token = readAccessToken();
-  const saved = await updateReview(id, { memo });
+  const saved = await updateReview(id, { memo, expectedMemo });
   if (readAccessToken() !== token) return saved;
   queryClient.setQueryData(
     ['interview', id],
@@ -30,6 +31,8 @@ const EMPTY = {
   version: 0,
   saved: 0,
   hydrated: false,
+  baseline: '',
+  serverMemo: undefined as string | undefined,
   result: undefined as ReviewUpdateResponse | undefined,
 };
 
@@ -78,6 +81,15 @@ export function useMemoAutosave({
     [interviewId],
   );
   return {
+    serverMemo: draft.serverMemo,
+    readConflict: async () => {
+      if (!interviewId) return;
+      const token = readAccessToken();
+      const current = await getInterview(interviewId);
+      if (typeof current.memo !== 'string') throw new Error('메모를 읽지 못했습니다.');
+      if (token === readAccessToken()) queue.reviewConflict(interviewId, current.memo);
+    },
+    reapply: () => (interviewId ? queue.reapply(interviewId) : Promise.resolve()),
     memo: draft.memo,
     hydrated: draft.hydrated,
     state: draft.state,
