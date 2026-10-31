@@ -93,6 +93,13 @@ export interface InterviewListItem {
   summaryStatus: SummaryStatus | null;
   /** 요약이 READY 가 아니면 null 이다 — 셀 수 있는 것이 아직 없다 */
   counts: ReviewCounts | null;
+  memo?: string;
+  latestSession?: Interview['latestSession'];
+  reviewSessionId?: string | null;
+  findingsStatus?: FindingsStatus | null;
+  recordingStatus?: SummaryStatus | null;
+  reportStatus?: SummaryStatus | null;
+  reportSessionId?: string | null;
 }
 
 /** GET /api/v1/interviews */
