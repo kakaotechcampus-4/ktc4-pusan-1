@@ -32,7 +32,6 @@ from app.domain.models import (
     SessionSummary,
     SummaryStatus,
 )
-from app.domain.store import Store
 from app.schemas import (
     ContextDocResponse,
     CreateInterviewRequest,
@@ -185,29 +184,6 @@ def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListRespo
             item.report_session_id = workspace.report.session_id
         items.append(item)
     return InterviewListResponse(items=items)
-
-
-def _list_summary(
-    store: Store, interview: Interview, session: Session, status: SummaryStatus | None
-) -> tuple[SummaryStatus | None, ReviewCounts | None]:
-    """보여 줄 요약 상태와 집계. 집계는 READY 일 때만, 상세와 같은 계산으로.
-
-    한도를 넘긴 PROCESSING 은 FAILED 로 **보여 줄 뿐** 쓰지 않는다
-    (`SessionSummary.shown_status`). 판정과 저장은 요약 · 상세 조회가 한다.
-    """
-    # ponytail: READY 한 줄마다 쿼리 3개(N+1). 수백 건이면 LATERAL 로 한 번에 읽는다.
-    if status is not SummaryStatus.PROCESSING and status is not SummaryStatus.READY:
-        return status, None
-    summary = store.get_summary(session.id)
-    if summary is None:
-        return status, None
-    shown = summary.shown_status(settings.summary_timeout)
-    if shown is not SummaryStatus.READY:
-        return shown, None
-    counts = build_review(
-        store.get_prep(interview.id), summary, store.list_marks(session.id)
-    ).counts()
-    return shown, ReviewCounts.model_validate(counts)
 
 
 def _timing(session: Session | None) -> tuple[datetime | None, int | None]:

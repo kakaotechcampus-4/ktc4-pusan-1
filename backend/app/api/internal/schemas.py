@@ -129,6 +129,8 @@ class SuggestionCreate(InternalSchema):
         alias="evidenceUtteranceIds", min_length=1
     )
 
+    #: AI 의 `REASON_MAX_CHARS`(`ai/src/irya_ai/schemas/suggestion.py`) 와 같은 값이다.
+    #: 한쪽만 바꾸면 AI 가 보낸 꼬리질문이 조용히 422 로 떨어진다.
     reason: PgText | None = Field(default=None, max_length=80)
 
 
