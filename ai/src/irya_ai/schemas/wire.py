@@ -57,6 +57,21 @@ agreed payload  source
 summary (a ``completed`` or ``partial`` row must carry text, an ``empty`` or
 ``failed`` one marks the summary failed), so a timeline that failed does not
 fail a summary that worked; it arrives as an empty ``moments`` list.
+
+The report payload (#238) is the smallest of the four: sentences and the id
+of the adopted finding each rests on. Backend joins the finding's quote, time
+and competency name from the id, so the report never carries a quotation
+that could drift from the stored one.
+
+==================  ==========================================================
+agreed payload      source
+==================  ==========================================================
+``status``          ``ReportResult.status``; the review vocabulary
+``requestedAt``     the job's ``requestedAt``, returned as received
+``overview``        ``ReportResult.overview``
+``competencies``    ``ReportResult.competencies``; ``{text, findingId}`` items
+``model``           ``ReportResult.model``; served model and prompt version
+==================  ==========================================================
 """
 
 from typing import Literal
@@ -65,6 +80,7 @@ from pydantic import Field, model_validator
 
 from irya_ai.schemas.analysis import Finding, SuggestedQuestion
 from irya_ai.schemas.base import CamelModel
+from irya_ai.schemas.report import CompetencyReport, ReportResult
 from irya_ai.schemas.summary import AnalysisResult
 from irya_ai.schemas.timeline import Moment, TimelineResult
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
@@ -209,4 +225,34 @@ def review_payload(
         findings=findings,
         findings_status=findings_status,
         model=model,
+    )
+
+
+class ReportPayload(CamelModel):
+    """One interview's report as ``PUT /internal/v1/interviews/{interviewId}/report``.
+
+    ``requestedAt`` goes back exactly as the job carried it: Backend answers
+    409 when the report was requested again in the meantime, and that result
+    is dropped rather than retried. ``status`` uses the review vocabulary;
+    Backend folds ``completed`` and ``partial`` into READY, ``empty`` into
+    FAILED with ``NO_EVIDENCE`` and ``failed`` into FAILED (#238).
+    """
+
+    status: Literal["completed", "partial", "empty", "failed"]
+    requested_at: str
+    overview: str = ""
+    competencies: list[CompetencyReport] = Field(default_factory=list)
+    model: str = ""
+
+
+def report_payload(result: ReportResult, *, requested_at: str) -> ReportPayload:
+    """The agent's result as the agreed row; nothing but sentences on failure."""
+
+    usable = result.status in ("completed", "partial")
+    return ReportPayload(
+        status=result.status,
+        requested_at=requested_at,
+        overview=result.overview if usable else "",
+        competencies=list(result.competencies) if usable else [],
+        model=result.model,
     )

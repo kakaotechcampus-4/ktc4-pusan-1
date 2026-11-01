@@ -8,6 +8,7 @@ uv run irya-ai ground <findings.json> <script>
 uv run irya-ai analyze <snapshot.json> [--backend extractive]
 uv run irya-ai timeline <chunks.json> [--backend extractive] [--frontend]
 uv run irya-ai prep <context.json> [--backend extractive]
+uv run irya-ai report <report_context.json> [--backend extractive]
 uv run irya-ai realign --session <id> --origin-ms <ms> <IDENTITY-SID.ogg@ms> ...
 """
 
@@ -25,12 +26,15 @@ from irya_ai.config import Settings
 from irya_ai.findings import ExtractiveFindingsGenerator, FindingsAgent
 from irya_ai.openai_findings import OpenAIFindingsGenerator
 from irya_ai.openai_prep import OpenAIPrepGenerator
+from irya_ai.openai_report import OpenAIReportGenerator
 from irya_ai.openai_summary import OpenAISummarizer
 from irya_ai.openai_timeline import OpenAITimelineGenerator
 from irya_ai.pipeline import ground_findings, segment_qa
 from irya_ai.prep import ExtractivePrepGenerator, PrepAgent
+from irya_ai.report import ExtractiveReportGenerator, ReportAgent
 from irya_ai.schemas.analysis import Finding
 from irya_ai.schemas.context import InterviewContext
+from irya_ai.schemas.report import ReportContext
 from irya_ai.schemas.transcript import TranscriptSnapshot, Utterance
 from irya_ai.simulator import TranscriptSimulator, load_script
 from irya_ai.simulator.script import TranscriptScript
@@ -409,6 +413,47 @@ def cmd_findings(args: argparse.Namespace) -> int:
     return asyncio.run(_findings(args))
 
 
+async def _report(args: argparse.Namespace) -> int:
+    try:
+        context = ReportContext.model_validate_json(
+            Path(args.context).read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, ValidationError, ValueError):
+        print(
+            json.dumps({"error": {"code": "INVALID_REPORT_INPUT", "retryable": False}})
+        )
+        return 2
+    if args.backend == "extractive":
+        result = await ReportAgent(
+            ExtractiveReportGenerator(), model="extractive-baseline"
+        ).run(context)
+    else:
+        settings = _llm_settings()
+        if isinstance(settings, str):
+            print(json.dumps({"error": {"code": settings, "retryable": False}}))
+            return 2
+        async with AsyncOpenAI(
+            api_key=settings.llm_api_key.get_secret_value(),
+            base_url=settings.llm_base_url,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=0,
+        ) as client:
+            generator = OpenAIReportGenerator(
+                client, model=args.model or settings.llm_model
+            )
+            result = await ReportAgent(
+                generator,
+                model=generator.model,
+                timeout_seconds=settings.llm_timeout_seconds,
+            ).run(context)
+    print(result.model_dump_json(by_alias=True, indent=2))
+    return 1 if result.status in {"failed", "partial"} else 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    return asyncio.run(_report(args))
+
+
 def _recorded_track(spec: str) -> RecordedTrack:
     """``rec/ses_1/CANDIDATE-TR_x.ogg@1760000000000`` - a file and its start (ms)."""
 
@@ -532,6 +577,14 @@ def build_parser() -> argparse.ArgumentParser:
     findings.add_argument("--backend", choices=["llm", "extractive"], default="llm")
     findings.add_argument("--model", help="override LLM_MODEL")
     findings.set_defaults(func=cmd_findings)
+
+    report = sub.add_parser(
+        "report", help="write the interview report from adopted findings"
+    )
+    report.add_argument("context", help="BE report context response JSON")
+    report.add_argument("--backend", choices=["llm", "extractive"], default="llm")
+    report.add_argument("--model", help="override LLM_MODEL")
+    report.set_defaults(func=cmd_report)
 
     timeline = sub.add_parser(
         "timeline", help="build the review timeline from STT chunks"

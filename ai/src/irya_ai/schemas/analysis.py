@@ -1,7 +1,9 @@
-"""Analysis outputs: Q&A pairs, findings, suggested questions, review report.
+"""Analysis outputs: Q&A pairs, findings, suggested questions.
 
-Mirrors the ``QA_PAIR`` / ``FINDING`` / ``SUGGESTED_QUESTION`` /
-``REVIEW_REPORT`` entities in the TechSpec data model.
+Mirrors the ``QA_PAIR`` / ``FINDING`` / ``SUGGESTED_QUESTION`` entities in the
+TechSpec data model. The interview report is not a stored entity on this side:
+its wire shape is :class:`irya_ai.schemas.wire.ReportPayload` and its inputs
+and results live in :mod:`irya_ai.schemas.report` (#239).
 
 Every ``Finding`` must cite a verbatim ``evidence_quote`` that exists in the
 transcript. The grounding check that enforces this lives in the pipeline, not
@@ -10,7 +12,6 @@ here, but the contract is: a finding without transcript evidence is invalid.
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
 
 from pydantic import Field, model_validator
 
@@ -109,20 +110,3 @@ class SuggestedQuestion(CamelModel):
     status: SuggestedQuestionStatus = SuggestedQuestionStatus.BUFFERED
     generated_at: datetime
     asked_at: datetime | None = None
-
-
-class ReviewReportStatus(StrEnum):
-    DRAFT = "DRAFT"
-    APPROVED = "APPROVED"
-
-
-class ReviewReport(CamelModel):
-    """Versioned report assembled from adopted findings."""
-
-    report_id: str
-    session_id: str
-    version: int = Field(ge=1)
-    content: dict[str, Any] = Field(default_factory=dict)
-    status: ReviewReportStatus = ReviewReportStatus.DRAFT
-    generated_at: datetime
-    approved_at: datetime | None = None
