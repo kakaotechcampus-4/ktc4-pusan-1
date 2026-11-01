@@ -316,15 +316,19 @@ class ReportAgent:
             context, draft
         )
         if result.sentence_count == 0:
-            # ``empty``: the model wrote nothing that stands on an adopted
-            # finding. Backend shows it as NO_EVIDENCE; not worth a retry.
-            return self._finish(result, started)
+            # The interviewer adopted findings, yet no sentence stands on one:
+            # the model wrote nothing or nothing grounded. That is the
+            # model's failure, not the evidence's, so it is ``failed`` and
+            # retryable (another draft may ground), never ``empty``, which
+            # Backend shows as NO_EVIDENCE and blames the selection.
+            return self._fail(
+                result, "NO_GROUNDED_SENTENCE", started=started, retryable=True
+            )
         if not result.overview:
             # Neither the model nor the stored summary gave an overview, and
             # Backend refuses a completed or partial report without one
-            # (#238). Not retryable: the same input gives the same summary;
-            # the interviewer can ask again.
-            return self._fail(result, "NO_OVERVIEW", started=started)
+            # (#238). Retryable: another draft may carry one.
+            return self._fail(result, "NO_OVERVIEW", started=started, retryable=True)
         result.status = "partial" if result.rejections else "completed"
         return self._finish(result, started)
 

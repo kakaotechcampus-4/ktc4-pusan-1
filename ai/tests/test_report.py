@@ -301,11 +301,11 @@ async def test_agent_fails_a_report_with_sentences_but_no_overview():
     result = await ReportAgent(FakeReportGenerator(draft(overview=""))).run(ctx)
     assert result.status == "failed"
     assert result.error.code == "NO_OVERVIEW"
-    assert result.error.retryable is False
+    assert result.error.retryable is True
     assert result.sentence_count == 2
 
 
-async def test_agent_completed_partial_and_empty():
+async def test_agent_completed_and_partial():
     good = await ReportAgent(FakeReportGenerator(draft()), model="fake").run(context())
     assert good.status == "completed"
     assert good.sentence_count == 2
@@ -320,12 +320,24 @@ async def test_agent_completed_partial_and_empty():
     assert partial.status == "partial"
     assert partial.rejections == ["cmp_api confirmed 2: finding not adopted"]
 
-    empty = await ReportAgent(
-        FakeReportGenerator(draft(block(confirmed=[], unconfirmed=[])))
-    ).run(context())
-    assert empty.status == "empty"
-    assert empty.error is None
-    assert [c.competency_id for c in empty.competencies] == ["cmp_api", "cmp_db"]
+
+@pytest.mark.parametrize(
+    "blocks",
+    [
+        # The model wrote nothing for the adopted findings.
+        [block(confirmed=[], unconfirmed=[])],
+        # The model wrote sentences and the grounding checks dropped them all.
+        [block(confirmed=[sentence(finding_id="x")], unconfirmed=[])],
+    ],
+)
+async def test_no_surviving_sentence_is_a_retryable_failure_not_empty(blocks):
+    # Backend never sends a report job without adopted findings, so an
+    # ``empty`` here would be shown as NO_EVIDENCE and blame the selection.
+    result = await ReportAgent(FakeReportGenerator(draft(*blocks))).run(context())
+    assert result.status == "failed"
+    assert result.error.code == "NO_GROUNDED_SENTENCE"
+    assert result.error.retryable is True
+    assert [c.competency_id for c in result.competencies] == ["cmp_api", "cmp_db"]
 
 
 async def test_agent_does_not_call_the_model_without_findings_or_competencies():
