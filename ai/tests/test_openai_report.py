@@ -63,6 +63,7 @@ def test_payload_sends_ids_text_and_summary_but_no_memo_or_timestamps():
     assert payload["findings"][1]["quote"] == "결제 멱등키 중복 방지를 설계·구현"
     assert "atSec" not in dumped and "memo" not in dumped
     assert "점수" in SYSTEM_PROMPT and "finding_id" in SYSTEM_PROMPT
+    assert "120자" in SYSTEM_PROMPT and "200자" in SYSTEM_PROMPT
     schema = ReportDraft.model_json_schema()
     assert set(schema["$defs"]["SentenceDraft"]["required"]) == {"text", "finding_id"}
     assert set(schema["$defs"]["CompetencyReportDraft"]["required"]) == {

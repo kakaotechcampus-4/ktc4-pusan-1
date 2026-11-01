@@ -124,11 +124,36 @@ def build_report(
             )
         )
 
-    overview = normalize(draft.overview)
-    if len(overview) > OVERVIEW_MAX_CHARS:
-        rejections.append("overview: too long")
-        overview = ""
+    overview = _overview(draft.overview, context.summary.overview, rejections)
     return overview, reports, rejections
+
+
+def _overview(drafted: str, stored: str, rejections: list[str]) -> str:
+    """The draft's overview cut to the limit, or the stored summary's.
+
+    Backend refuses a ``completed`` or ``partial`` report whose overview is
+    empty (#238), so an overview that is only too long is cut rather than
+    dropped, and a draft without one borrows the stored summary's. Either
+    way leaves a note, so the result reads ``partial``.
+    """
+
+    text = normalize(drafted)
+    if not text:
+        text = normalize(stored)
+        if text:
+            rejections.append("overview: taken from the summary")
+    if len(text) > OVERVIEW_MAX_CHARS:
+        rejections.append("overview: truncated")
+        text = _cut(text, OVERVIEW_MAX_CHARS)
+    return text
+
+
+def _cut(text: str, limit: int) -> str:
+    """At most ``limit`` characters, ending on a word when one is near."""
+
+    head = text[:limit]
+    space = head.rfind(" ")
+    return (head[:space] if space >= limit // 2 else head).rstrip()
 
 
 def _sentences(
@@ -291,11 +316,19 @@ class ReportAgent:
             context, draft
         )
         if result.sentence_count == 0:
-            # ``empty``: the model wrote nothing that stands on an adopted
-            # finding. Backend shows it as NO_EVIDENCE; not worth a retry.
-            return self._finish(result, started)
+            # The interviewer adopted findings, yet no sentence stands on one:
+            # the model wrote nothing or nothing grounded. That is the
+            # model's failure, not the evidence's, so it is ``failed`` and
+            # retryable (another draft may ground), never ``empty``, which
+            # Backend shows as NO_EVIDENCE and blames the selection.
+            return self._fail(
+                result, "NO_GROUNDED_SENTENCE", started=started, retryable=True
+            )
         if not result.overview:
-            result.warnings.append("NO_OVERVIEW")
+            # Neither the model nor the stored summary gave an overview, and
+            # Backend refuses a completed or partial report without one
+            # (#238). Retryable: another draft may carry one.
+            return self._fail(result, "NO_OVERVIEW", started=started, retryable=True)
         result.status = "partial" if result.rejections else "completed"
         return self._finish(result, started)
 
