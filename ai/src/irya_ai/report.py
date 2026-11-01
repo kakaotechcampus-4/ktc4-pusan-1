@@ -124,11 +124,36 @@ def build_report(
             )
         )
 
-    overview = normalize(draft.overview)
-    if len(overview) > OVERVIEW_MAX_CHARS:
-        rejections.append("overview: too long")
-        overview = ""
+    overview = _overview(draft.overview, context.summary.overview, rejections)
     return overview, reports, rejections
+
+
+def _overview(drafted: str, stored: str, rejections: list[str]) -> str:
+    """The draft's overview cut to the limit, or the stored summary's.
+
+    Backend refuses a ``completed`` or ``partial`` report whose overview is
+    empty (#238), so an overview that is only too long is cut rather than
+    dropped, and a draft without one borrows the stored summary's. Either
+    way leaves a note, so the result reads ``partial``.
+    """
+
+    text = normalize(drafted)
+    if not text:
+        text = normalize(stored)
+        if text:
+            rejections.append("overview: taken from the summary")
+    if len(text) > OVERVIEW_MAX_CHARS:
+        rejections.append("overview: truncated")
+        text = _cut(text, OVERVIEW_MAX_CHARS)
+    return text
+
+
+def _cut(text: str, limit: int) -> str:
+    """At most ``limit`` characters, ending on a word when one is near."""
+
+    head = text[:limit]
+    space = head.rfind(" ")
+    return (head[:space] if space >= limit // 2 else head).rstrip()
 
 
 def _sentences(
@@ -295,7 +320,11 @@ class ReportAgent:
             # finding. Backend shows it as NO_EVIDENCE; not worth a retry.
             return self._finish(result, started)
         if not result.overview:
-            result.warnings.append("NO_OVERVIEW")
+            # Neither the model nor the stored summary gave an overview, and
+            # Backend refuses a completed or partial report without one
+            # (#238). Not retryable: the same input gives the same summary;
+            # the interviewer can ask again.
+            return self._fail(result, "NO_OVERVIEW", started=started)
         result.status = "partial" if result.rejections else "completed"
         return self._finish(result, started)
 

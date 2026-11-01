@@ -277,10 +277,32 @@ def test_sentence_limit_per_list():
     assert rejected == ["cmp_api confirmed 5: sentence limit exceeded"]
 
 
-def test_overview_too_long_is_dropped_not_truncated():
-    overview, _, rejected = build_report(context(), draft(overview="가" * 601))
-    assert overview == ""
-    assert rejected == ["overview: too long"]
+def test_overview_too_long_is_cut_on_a_word_not_dropped():
+    words = " ".join(["단어"] * 300)
+    overview, _, rejected = build_report(context(), draft(overview=words))
+    assert 0 < len(overview) <= 600
+    assert overview.endswith("단어")
+    assert rejected == ["overview: truncated"]
+    # No word boundary near the limit: a plain cut.
+    overview, _, _ = build_report(context(), draft(overview="가" * 601))
+    assert overview == "가" * 600
+
+
+def test_overview_falls_back_to_the_stored_summary():
+    overview, _, rejected = build_report(context(), draft(overview="  "))
+    assert overview == "캐시와 결제를 이야기한 면접."
+    assert rejected == ["overview: taken from the summary"]
+
+
+async def test_agent_fails_a_report_with_sentences_but_no_overview():
+    # Backend answers 422 to completed/partial without an overview (#238);
+    # failed is stored and the interviewer can ask again.
+    ctx = context(summary={"overview": "", "keyPoints": []})
+    result = await ReportAgent(FakeReportGenerator(draft(overview=""))).run(ctx)
+    assert result.status == "failed"
+    assert result.error.code == "NO_OVERVIEW"
+    assert result.error.retryable is False
+    assert result.sentence_count == 2
 
 
 async def test_agent_completed_partial_and_empty():

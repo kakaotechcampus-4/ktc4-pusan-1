@@ -287,6 +287,9 @@ uv run irya-ai report report_context.json            # LLM_* 설정 필요
   근거가 없는 역량에도 씁니다(안 다룬 역량이 다음 면접의 질문거리).
 - `status`는 검토 저장과 같은 어휘입니다. 문장을 다 살리면 `completed`, 일부 버리면 `partial`,
   근거 있는 문장이 하나도 없으면 `empty`, 모델 오류면 `failed`.
+- overview가 600자를 넘으면 자르고, 모델이 안 주면 저장된 요약의 overview를 씁니다(둘 다
+  `partial`). 둘 다 없으면 `failed`입니다. BE가 overview 없는 `completed`/`partial`을 422로
+  거절하기 때문입니다(#238).
 - 게이트웨이 출력 상한(2,000토큰, #171)에 맞춰 역량을 4개씩 나눠 부르고 합칩니다.
 - 폴러에 `REPORT` 작업을 붙이는 일은 #249 입니다.
 
