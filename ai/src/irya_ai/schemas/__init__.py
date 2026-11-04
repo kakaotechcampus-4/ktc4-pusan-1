@@ -14,8 +14,6 @@ from irya_ai.schemas.analysis import (
     FindingState,
     FindingType,
     QAPair,
-    ReviewReport,
-    ReviewReportStatus,
     SuggestedQuestion,
     SuggestedQuestionStatus,
 )
@@ -30,12 +28,21 @@ from irya_ai.schemas.context import (
     ResumeClaim,
     Rubric,
 )
+from irya_ai.schemas.findings import FindingDraft, FindingsDraft, FindingsResult
 from irya_ai.schemas.jobs import PendingJob
 from irya_ai.schemas.prep import (
     CompetencyDraft,
     PrepDraft,
     PrepResult,
     ResumeClaimDraft,
+)
+from irya_ai.schemas.report import (
+    AdoptedFinding,
+    CompetencyReport,
+    ReportContext,
+    ReportDraft,
+    ReportResult,
+    ReportSentence,
 )
 from irya_ai.schemas.suggestion import (
     SuggestionBatchDraft,
@@ -81,12 +88,17 @@ __all__ = [
     "CamelModel",
     "AnalysisError",
     "AnalysisResult",
+    "AdoptedFinding",
     "Candidate",
     "CitationDraft",
+    "CompetencyReport",
     "Company",
     "Competency",
     "CompetencyDraft",
     "Finding",
+    "FindingDraft",
+    "FindingsDraft",
+    "FindingsResult",
     "FindingState",
     "FindingType",
     "Evidence",
@@ -103,11 +115,13 @@ __all__ = [
     "PrepDraft",
     "PrepResult",
     "QAPair",
+    "ReportContext",
+    "ReportDraft",
+    "ReportResult",
+    "ReportSentence",
     "Resume",
     "ResumeClaim",
     "ResumeClaimDraft",
-    "ReviewReport",
-    "ReviewReportStatus",
     "Rubric",
     "SpeakerRole",
     "SuggestedQuestion",

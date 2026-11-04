@@ -7,6 +7,12 @@
       "Expiration": { "Days": 30 }
     },
     {
+      "ID": "rec-30d",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "rec/" },
+      "Expiration": { "Days": 30 }
+    },
+    {
       "ID": "abort-incomplete-upload-7d",
       "Status": "Enabled",
       "Filter": { "Prefix": "" },

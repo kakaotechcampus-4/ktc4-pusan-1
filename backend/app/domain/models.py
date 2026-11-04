@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 
@@ -158,6 +158,18 @@ class Session:
     #: AI 의 `startMs` 와 FE 의 `atSec` 은 단위만 다르고 원점은 이 값 하나를 쓴다.
     #: 녹화(Egress) 도입 시 Egress start 와의 오프셋 보정 때문에 재검토한다.
     transcript_origin_at: datetime | None = None
+    #: Agent 가 전사 WebSocket 을 1000 으로 닫은 시각 (#164). 남은 발화를 다 보냈다는
+    #: 뜻이라 면접 후 분석을 이때 내준다. 새 연결이 붙으면 비운다 — 1012(교체) ·
+    #: 네트워크 끊김은 아직 보낼 발화가 남았을 수 있어 채우지 않는다.
+    transcript_closed_at: datetime | None = None
+    #: 지원자가 녹화 · 전사 · 분석에 동의한 시각 (#245). 비어 있으면 아직 안 받았다.
+    #:
+    #: 세션에 둔다 — 동의는 「이 면접을 녹화해도 되는가」라서 면접 한 번이 단위다.
+    #: 다시 들어와도 묻지 않고, 면접을 새로 만들면 다시 묻는다.
+    consent_at: datetime | None = None
+    #: 동의받은 문구의 판 (`CONSENT_VERSION`). 문구가 바뀌면 값이 달라지므로
+    #: 나중에 **무엇에 동의했는지**를 답할 수 있다. 시각만 남기면 그걸 못 한다.
+    consent_version: str = ""
 
     @property
     def room_name(self) -> str:
@@ -282,6 +294,18 @@ class SummaryStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class FindingsStatus(StrEnum):
+    """검토 항목(findings)을 만든 결과 (#244). 요약의 상태와 따로 간다.
+
+    「찾아봤는데 없다」(EMPTY)와 「만들지 못했다」(FAILED)가 화면에서 같아 보이면
+    면접관은 실패를 「역량 근거 없음」으로 읽는다. 아직 보고가 없으면 `None` 이다.
+    """
+
+    COMPLETED = "COMPLETED"
+    EMPTY = "EMPTY"
+    FAILED = "FAILED"
+
+
 @dataclass
 class SessionSummary:
     """세션 하나의 요약. 면접이 끝나는 순간 PROCESSING 으로 태어난다.
@@ -301,6 +325,9 @@ class SessionSummary:
     #: BE 는 id 로 조인 · 집계만 한다(#163). 써 넣는 길은 #164 다.
     moments: list[dict[str, Any]] = field(default_factory=list)
     findings: list[dict[str, Any]] = field(default_factory=list)
+    findings_status: FindingsStatus | None = None
+    #: 결과를 만든 모델. Agent 가 보낸 값 그대로다 (#164).
+    model: str = ""
 
     def overdue(self, limit: timedelta, now: datetime | None = None) -> bool:
         """기다린 시간이 한도를 넘었나. 이미 끝난 요약은 언제 봐도 False 다.
@@ -327,22 +354,59 @@ class SessionSummary:
         *,
         moments: list[dict[str, Any]] | None = None,
         findings: list[dict[str, Any]] | None = None,
+        findings_failed: bool = False,
+        model: str = "",
     ) -> None:
         """Agent 가 만든 요약을 받는다."""
         self.status = SummaryStatus.READY
         self.overview = overview
         self.key_points = list(key_points)
         self.moments = list(moments or [])
-        self.findings = list(findings or [])
+        self.take_findings(findings, failed=findings_failed)
+        self.model = model
         self.completed_at = utcnow()
 
-    def give_up(self) -> None:
-        """요약을 못 만들었다고 확정한다. 본문은 비운다."""
+    def give_up(
+        self,
+        *,
+        moments: list[dict[str, Any]] | None = None,
+        findings: list[dict[str, Any]] | None = None,
+        findings_failed: bool = False,
+        model: str = "",
+    ) -> None:
+        """요약을 못 만들었다고 확정한다. 본문은 비운다.
+
+        요약만 실패하고 타임라인 · findings 는 나왔으면 그것은 받아 둔다 (#164).
+        화면은 「요약 실패」를 보이면서 타임라인 · findings 를 그대로 보인다.
+        """
         self.status = SummaryStatus.FAILED
         self.overview = ""
         self.key_points = []
-        self.moments = []
-        self.findings = []
+        self.moments = list(moments or [])
+        self.take_findings(findings, failed=findings_failed)
+        self.model = model
+
+    def expire(self) -> None:
+        """한도를 넘겨 실패로 닫는다. Agent 의 보고가 없었으니 findings 도 실패다."""
+        self.give_up(findings=[])
+        self.findings_status = FindingsStatus.FAILED
+
+    def take_findings(
+        self, findings: list[dict[str, Any]] | None, *, failed: bool = False
+    ) -> None:
+        """findings 를 받는다. `None` 은 「이번엔 없음」이라 있던 값을 덮지 않는다.
+
+        실패 보고는 아직 결과가 없을 때만 남는다 — 실패 한 번이 앞서 받은 결과를
+        지우지 않는다 (#132 와 같은 이유). DB 구현의
+        `COALESCE(새 값, 있던 값, 실패)` 와 같은 규칙이다.
+        """
+        if findings is not None:
+            self.findings = list(findings)
+            self.findings_status = (
+                FindingsStatus.COMPLETED if findings else FindingsStatus.EMPTY
+            )
+        elif failed and self.findings_status is None:
+            self.findings_status = FindingsStatus.FAILED
         self.completed_at = utcnow()
 
 
@@ -455,10 +519,12 @@ class JobKind(StrEnum):
 
     PREP    면접 전 분석 — 역량 · 이력서 주장 (#162)
     REVIEW  면접 후 분석 — 요약 · 타임라인 · findings (#164)
+    REPORT  면접 리포트 — 채택한 근거로 만드는 인계 문서 (#238)
     """
 
     PREP = "PREP"
     REVIEW = "REVIEW"
+    REPORT = "REPORT"
 
 
 @dataclass(frozen=True)
@@ -493,6 +559,56 @@ class InterviewPrep:
     model: str = ""
     requested_at: datetime = field(default_factory=utcnow)
     completed_at: datetime | None = None
+
+
+@dataclass
+class InterviewReport:
+    """면접 리포트 — 면접에 없던 사람에게 넘기는 인계 문서 (#238).
+
+    면접 하나에 하나다. 면접관이 「리포트 만들기」를 누르면 PROCESSING 으로 열고,
+    다시 누르면 그 자리를 덮는다 — 버전을 남기지 않는다. 상태 기계는 요약과 같아서
+    `SummaryStatus` 를 쓴다.
+
+    `session_id` 는 리포트를 만든 기준 세션이다. **조회도 이 세션을 본다** — AI 가
+    돌려준 문장은 그때의 findings 에 붙어 있어서, 그 뒤에 새 세션이 끝났다고 그쪽
+    findings 로 조인하면 남의 발화가 붙는다.
+
+    `competencies` 는 AI 가 보낸 역량별 문장을 camelCase JSON 그대로 둔다. BE 는
+    `competencyId` · `findingId` 로 조인만 하고(#163) 안을 해석하지 않는다.
+
+    `failure_reason` 은 실패를 면접관에게 다르게 말해야 하는 경우뿐이다. 채택한
+    근거가 하나도 쓸 만하지 않았으면 NO_EVIDENCE 고(기다릴 일이 아니라 근거를 더
+    채택할 일이다), 그 밖의 실패는 null 이다.
+    """
+
+    interview_id: str
+    session_id: str
+    status: SummaryStatus = SummaryStatus.PROCESSING
+    overview: str = ""
+    competencies: list[dict[str, Any]] = field(default_factory=list)
+    failure_reason: Literal["NO_EVIDENCE"] | None = None
+    model: str = ""
+    requested_at: datetime = field(default_factory=utcnow)
+    completed_at: datetime | None = None
+
+    def overdue(self, limit: timedelta, now: datetime | None = None) -> bool:
+        """기다린 시간이 한도를 넘었나. `SessionSummary.overdue` 와 같다."""
+        if self.status is not SummaryStatus.PROCESSING:
+            return False
+        return (now or utcnow()) - self.requested_at > limit
+
+    def give_up(self, reason: Literal["NO_EVIDENCE"] | None = None) -> None:
+        """리포트를 못 만들었다고 확정한다. 본문은 비운다.
+
+        한도 초과는 `reason` 이 없다 — 면접관이 할 일이 「다시 만들기」뿐이다.
+        채택한 근거로 쓸 문장이 하나도 안 나왔으면 NO_EVIDENCE 고, 그때는 기다릴
+        일이 아니라 근거를 더 채택할 일이라 화면이 다르게 말해야 한다.
+        """
+        self.status = SummaryStatus.FAILED
+        self.overview = ""
+        self.competencies = []
+        self.failure_reason = reason
+        self.completed_at = utcnow()
 
 
 class SuggestionStatus(StrEnum):

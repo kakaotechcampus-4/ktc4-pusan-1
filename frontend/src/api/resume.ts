@@ -7,8 +7,6 @@
  */
 
 import type { ContextDoc } from '../types/interview';
-import { USE_MOCK_API } from '../mocks/mockApi';
-import { handleMockResumeUpload } from '../mocks/resumeMock';
 import { uploadFile } from './client';
 
 const V1 = '/api/v1';
@@ -24,8 +22,5 @@ export function uploadResume(
   file: File,
   onProgress: (ratio: number) => void,
 ): Promise<ContextDoc> {
-  // ⚠️ 프로토타입 임시 분기. XHR 은 request() 를 거치지 않으므로 여기서 따로 가른다.
-  if (USE_MOCK_API) return handleMockResumeUpload(file, onProgress);
-
   return uploadFile(`${V1}/interviews/${interviewId}/resume`, file, onProgress);
 }

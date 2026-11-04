@@ -29,6 +29,8 @@ from app.domain.models import (
 )
 from app.domain.store import Store
 from app.schemas import (
+    ConsentRequest,
+    ConsentResponse,
     EndSessionResponse,
     JoinRequest,
     JoinResponse,
@@ -36,10 +38,13 @@ from app.schemas import (
     ReviewProcessingResponse,
     SessionStateResponse,
     StartSessionResponse,
+    SuggestionListResponse,
+    SuggestionResponse,
     SummaryContent,
     SummaryResponse,
 )
 from app.services import recording as recording_module
+from app.services.review import failure_reason
 
 router = APIRouter(prefix="/sessions", tags=["세션"])
 
@@ -78,7 +83,49 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
         started_at=session.started_at,
         ended_at=session.ended_at,
         transcript_origin_at=session.transcript_origin_at,
+        consent=_consent_of(session),
     )
+
+
+def _consent_of(session: Session) -> ConsentResponse | None:
+    """동의 기록. 안 받았으면 None 이다."""
+    if session.consent_at is None:
+        return None
+    return ConsentResponse(
+        agreed_at=session.consent_at, version=session.consent_version
+    )
+
+
+@router.post(
+    "/{sessionId}/consent",
+    response_model=ConsentResponse,
+    summary="지원자 동의 기록",
+    responses=responses((404, "Session을 찾을 수 없음"), (409, "이미 종료된 Session")),
+)
+async def agree_consent(
+    session_id: SessionIdPath, body: ConsentRequest, store: StoreDep
+) -> ConsentResponse:
+    """지원자가 녹화 · 전사 · 분석에 동의했음을 기록한다 (#245).
+
+    지원자는 로그인하지 않는다. 그래서 입장(`join`)과 같이 열어 둔다 — 초대 링크의
+    sessionId 를 아는 사람만 부를 수 있다.
+
+    **여러 번 불러도 된다.** 먼저 받은 동의가 그대로 남고 그 기록을 돌려준다.
+    재입장 때도 동의 화면을 지나가므로 실제로 여러 번 온다. 덮어쓰면 「언제 무엇에
+    동의받았는가」가 뒤에 온 요청으로 바뀐다.
+    """
+    session = await run_in_threadpool(_load, store, session_id)
+    if session.status is SessionStatus.ENDED:
+        # 끝난 면접에는 녹화할 것이 없다. 동의를 받아 둘 이유도 없다.
+        raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
+
+    await run_in_threadpool(store.record_consent, session_id, utcnow(), body.version)
+    # 기록했든 이미 있었든 저장소에 남은 것을 읽어 돌려준다 — 먼저 받은 동의가 답이다.
+    saved = await run_in_threadpool(_load, store, session_id)
+    consent = _consent_of(saved)
+    if consent is None:  # 기록 직후 세션이 지워진 경우 말고는 닿지 않는다
+        raise ApiError(ErrorCode.SESSION_NOT_FOUND, 404, "Session 을 찾을 수 없습니다.")
+    return consent
 
 
 @router.post(
@@ -88,6 +135,7 @@ def get_session(session_id: SessionIdPath, store: StoreDep) -> SessionStateRespo
     responses=responses(
         (401, "면접관으로 입장하는데 로그인이 안 됨"),
         (403, "면접관으로 입장하는데 이 면접의 주인이 아님"),
+        (403, "지원자가 아직 녹화 · 전사 · 분석에 동의하지 않음"),
         (404, "Session을 찾을 수 없음"),
         (409, "이미 종료된 Session 등 현재 상태에서 입장할 수 없음"),
     ),
@@ -126,6 +174,18 @@ async def join_session(
 
     if session.status is SessionStatus.ENDED:
         raise ApiError(ErrorCode.SESSION_ENDED, 409, "이미 종료된 Session 입니다.")
+
+    # 동의 없이는 지원자를 들여보내지 않는다 (#245). 화면에서만 막으면 우리 화면을
+    # 거치지 않고 이 API 를 부르는 길이 남는다 — 지원자 입장은 로그인이 없어 누구나
+    # 부를 수 있으므로 서버가 막아야 「동의 전에는 녹화되지 않는다」가 성립한다.
+    # 녹화는 트랙이 올라올 때 시작하므로(`api/v1/webhooks.py`), 방에 못 들어오면
+    # 지원자의 영상 · 음성은 한 조각도 올라가지 않는다.
+    if body.role is Role.CANDIDATE and session.consent_at is None:
+        raise ApiError(
+            ErrorCode.CONSENT_REQUIRED,
+            403,
+            "녹화 · 전사 · 분석에 동의해야 입장할 수 있습니다.",
+        )
 
     # 정원은 LiveKit 이 접속 시점에 강제한다. 여기 검사는 사전 안내용이고
     # 조회와 접속 사이의 경쟁 조건까지 막지는 못한다.
@@ -279,6 +339,7 @@ def get_summary(session: OwnedSessionDep, store: StoreDep) -> SummaryResponse:
         status=summary.status,
         content=content,
         duration_sec=_duration_sec(session),
+        failure_reason=failure_reason(store, session.id, summary.status),
     )
 
 
@@ -296,7 +357,10 @@ def get_summary(session: OwnedSessionDep, store: StoreDep) -> SummaryResponse:
 def get_recording(
     session: OwnedSessionDep, store: StoreDep
 ) -> RecordingResponse | JSONResponse:
-    """면접 녹화를 10분짜리 서명 URL 로 준다 (#112). 면접 주인만 본다.
+    """면접 녹화를 서명 URL 로 준다 (#112). 면접 주인만 본다.
+
+    URL 은 `expiresAt` 까지 유효하다 — CloudFront 를 켜면 3시간, 아니면 10분
+    (#197). 재생이 실패했는데 만료가 지났으면 다시 부른다.
 
     면접 중이거나 합치는 중이면 검토 API 처럼 `202 {"status": "PROCESSING"}` 다.
     녹화가 없거나 합치지 못했으면(FAILED) 404 — 화면은 둘 다 녹화 없이 전사로
@@ -316,11 +380,36 @@ def get_recording(
     offset_ms = 0
     if origin is not None and started is not None:
         offset_ms = int((started - origin).total_seconds() * 1000)
+    url, expires_at = recording_module.presign(recording.s3_key)
     return RecordingResponse(
-        url=recording_module.presign(recording.s3_key),
-        expires_at=utcnow() + recording_module.URL_TTL,
+        url=url,
+        expires_at=expires_at,
         offset_ms=offset_ms,
         duration_sec=recording.duration_ms // 1000,
+    )
+
+
+@router.get(
+    "/{sessionId}/suggestions",
+    response_model=SuggestionListResponse,
+    summary="꼬리질문 목록 조회",
+    responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
+)
+def list_suggestions(
+    session: OwnedSessionDep, store: StoreDep
+) -> SuggestionListResponse:
+    """그 면접에서 나온 꼬리질문 전부를 도착한 순서대로 준다 (#212). 면접 주인만 본다.
+
+    면접 중에는 새 꼬리질문이 LiveKit 데이터 패킷으로 면접관에게 바로 간다 —
+    `RoomEvent.DataReceived`, topic `irya.suggestion.v1`, 본문은 이 목록의 항목과
+    같은 JSON 이다. 이 API 는 입장 · 새로고침 · 재연결 때 그 전 것을 채우고
+    면접 뒤 다시 보는 데 쓴다. 둘은 `suggestionId` 로 합친다.
+    """
+    return SuggestionListResponse(
+        items=[
+            SuggestionResponse.model_validate(s, from_attributes=True)
+            for s in store.list_suggestions(session.id)
+        ]
     )
 
 

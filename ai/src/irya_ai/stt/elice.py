@@ -102,8 +102,14 @@ STOCK_PHRASES = (
     "자막제공및자막편집",
 )
 # A broadcast sign-off, "MBC 뉴스 홍길동입니다": the reporter's name varies,
-# which is why it is a pattern and not one more phrase.
-_NEWS_SIGNOFF = r"(?:MBC|KBS|SBS|YTN|JTBC)뉴스[가-힣]{2,4}입니다"
+# which is why it is a pattern and not one more phrase. A name here is a common
+# surname and two more syllables, because any three syllables also take in a
+# candidate's own "MBC 뉴스 지망생입니다" (#203).
+_COMMON_SURNAMES = (
+    "김이박최정강조윤장임한오서신권황안송류전"
+    "홍고문양손배백허남심노하곽성차주우구민진유나"
+)
+_NEWS_SIGNOFF = rf"(?:MBC|KBS|SBS|YTN|JTBC)뉴스[{_COMMON_SURNAMES}][가-힣]{{2}}입니다"
 # One or more stock pieces back to back and nothing else - Whisper chains them
 # ("시청해 주셔서 감사합니다. 구독과 좋아요 부탁드립니다.").
 _STOCK_TEXT = re.compile(

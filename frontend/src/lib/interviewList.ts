@@ -5,7 +5,22 @@
  * 여기 있는 판단은 숫자 대신 무슨 말을 적을지를 정하므로 틀리면 사용자가 바로 읽는다.
  */
 
-import type { InterviewListItem } from '../types/interview';
+import type { BadgeTone } from '../components/ui/Badge';
+import type { InterviewListItem, ReviewStatus } from '../types/interview';
+
+/** 검토 상태의 한글 표시. 서버는 값만 주고 말은 FE 가 정한다 (#137 1-3). */
+export const STATUS_LABEL: Record<ReviewStatus, string> = {
+  PENDING: '검토 대기',
+  IN_REVIEW: '검토 중',
+  CONFIRMED: '확정',
+};
+
+/** 상태 배지 색 — 대기는 눈에 띄게, 확정은 끝났다는 민트 */
+export const STATUS_TONE: Record<ReviewStatus, BadgeTone> = {
+  PENDING: 'warning',
+  IN_REVIEW: 'brand',
+  CONFIRMED: 'accent',
+};
 
 /**
  * 숫자 칸 대신 보여 줄 말. 집계가 있으면 null (= 숫자를 적어라).

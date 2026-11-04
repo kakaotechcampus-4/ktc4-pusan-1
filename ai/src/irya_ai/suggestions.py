@@ -510,13 +510,7 @@ class LiveSuggestionAgent:
                 result, exc.code, retryable=exc.retryable, started=started
             )
 
-        usage = getattr(self.generator, "last_usage", None)
-        if isinstance(usage, LlmUsage):
-            result.usage = usage
-        served_model = getattr(self.generator, "last_model", None)
-        if served_model:
-            result.model = served_model
-
+        self._record_call(result)
         suggestions, rejections = build_suggestions(
             pair,
             draft,
@@ -553,6 +547,16 @@ class LiveSuggestionAgent:
         ]
         return tuple(before[-self.recent_exchanges :])
 
+    def _record_call(self, result: SuggestionResult) -> None:
+        """Copy what the generator reports about its last call onto ``result``."""
+
+        usage = getattr(self.generator, "last_usage", None)
+        if isinstance(usage, LlmUsage):
+            result.usage = usage
+        served_model = getattr(self.generator, "last_model", None)
+        if served_model:
+            result.model = served_model
+
     def _failed(
         self,
         result: SuggestionResult,
@@ -561,6 +565,8 @@ class LiveSuggestionAgent:
         retryable: bool,
         started: float,
     ) -> SuggestionResult:
+        # A call that came back but could not be used was still paid for.
+        self._record_call(result)
         result.status = "failed"
         result.error = AnalysisError(code=code, retryable=retryable)
         result.elapsed_ms = round((perf_counter() - started) * 1000)

@@ -45,7 +45,7 @@ from irya_ai.config import Settings
 from irya_ai.schemas.base import CamelModel
 from irya_ai.schemas.jobs import PendingJob
 from irya_ai.schemas.prep import PrepResult
-from irya_ai.schemas.wire import SuggestionPayload
+from irya_ai.schemas.wire import ReviewPayload, SuggestionPayload
 from irya_ai.stt.http_logging import protect_host
 
 logger = logging.getLogger(__name__)
@@ -176,6 +176,30 @@ class BackendClient:
         await self.request_json(
             "PUT",
             f"/internal/v1/interviews/{path_segment(interview_id)}/prep",
+            body=body,
+        )
+
+    async def put_review(
+        self, session_id: str, payload: ReviewPayload, *, requested_at: str
+    ) -> None:
+        """Store one interview's analysis at ``PUT .../sessions/{id}/review``.
+
+        ``requestedAt`` is copied from the job as for :meth:`put_prep`, and a
+        ``BACKEND_CONFLICT`` (409) means the same thing: the result answers a
+        request that was replaced, so it is dropped. ``findings`` is left out
+        of the body rather than sent as ``null`` while it is not wired, so a
+        Backend that has the field keeps whatever it already holds.
+        """
+
+        body = payload.model_dump(by_alias=True, mode="json")
+        if payload.findings is None:
+            del body["findings"]
+        if payload.findings_status is None:
+            del body["findingsStatus"]
+        body["requestedAt"] = requested_at
+        await self.request_json(
+            "PUT",
+            f"/internal/v1/sessions/{path_segment(session_id)}/review",
             body=body,
         )
 

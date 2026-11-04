@@ -3,14 +3,14 @@
  *
  *   /login                  면접관 로그인 (카카오)
  *   /oauth/kakao/callback   카카오 콜백 — code 를 토큰으로 바꾼다
- *   /                       메인 — 면접 만들기 입구
+ *   /terms · /privacy       이용약관 · 개인정보처리방침 — 로그인 없이 열린다
+ *   /                       로그인 전에는 랜딩, 로그인 후에는 대시보드
  *   /settings/context       기업 컨텍스트 설정 — 조직당 하나, 모든 면접에 적용
  *   /interviews/new         면접 만들기 — 지원자 정보 · 이력서 · 초대 링크
  *   /interview/:sessionId   초대 링크 착지 — 입장 → 기기 점검 → 면접 화면
  *   /interview/:sessionId/summary  면접 종료 후 요약
  *   /review/:interviewId    면접 기록 — 녹화 · 타임라인 · AI 평가
  *   /candidates             지원자 목록 — 내가 만든 면접
- *   /mock/interview         개발용 목 면접 미리보기
  *
  * 경로는 명세의 inviteUrl(`https://irya.com/interview/ses_123`)과 맞췄다.
  */
@@ -26,18 +26,20 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
+import ConsentPage from './pages/ConsentPage';
 import ContextSettingsPage from './pages/ContextSettingsPage';
 import InterviewCreatePage from './pages/InterviewCreatePage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
 import KakaoCallbackPage from './pages/KakaoCallbackPage';
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import MainPage from './pages/MainPage';
 import { getMe } from './api/auth';
 import { ApiError } from './api/client';
 import { useAccessToken } from './hooks/useAccessToken';
-import { USE_MOCK_API } from './mocks/mockApi';
-import { InterviewerHeader } from './components/layout/InterviewerHeader';
+import { AppShell } from './components/layout/AppShell';
+import { buttonClass } from './components/ui/buttonClass';
 import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from './lib/candidateName';
 import type { JoinSessionResponse, Role } from './types/interview';
 
@@ -46,19 +48,14 @@ import type { JoinSessionResponse, Role } from './types/interview';
    이렇게 나누면 링크를 연 사람이 첫 화면을 보기까지 받는 양이 줄어든다. */
 const InterviewRoom = lazy(() => import('./pages/InterviewRoom'));
 const InterviewListPage = lazy(() => import('./pages/InterviewListPage'));
-const CandidateListPage = lazy(() => import('./pages/CandidateListPage'));
-const CandidateDetailPage = lazy(() => import('./pages/CandidateDetailPage'));
-const CandidateMemoPage = lazy(() => import('./pages/CandidateMemoPage'));
 const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
-// hls.js 도 크다. 면접 기록을 여는 사람만 받는다.
 const ReviewTimelinePage = lazy(() => import('./pages/ReviewTimelinePage'));
-const InterviewRoomPreview = lazy(() =>
-  import('./mocks/InterviewRoomPreview').then((m) => ({ default: m.InterviewRoomPreview })),
-);
+const TermsPage = lazy(() => import('./pages/TermsPage'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 
 /** 청크를 받는 동안 잠깐 보인다. 배경색만 맞춰 깜빡임을 줄인다. */
 function ChunkFallback() {
-  return <div className="h-screen w-screen bg-[#0B0E14]" />;
+  return <div className="bg-surface h-screen w-full" />;
 }
 
 interface LocalTracks {
@@ -123,6 +120,9 @@ function InterviewFlow() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const [session, setSession] = useState<JoinSessionResponse | null>(null);
+  // 지원자가 이 화면에서 동의를 마쳤는가. 서버에도 남지만 여기서는 다음 단계로
+  // 넘어가도 되는지만 본다 — 상태를 다시 조회하는 왕복을 끼우지 않는다 (#245).
+  const [agreed, setAgreed] = useState(false);
 
   // 명세상 role 은 클라이언트가 선언한다 (인증 도입 전 임시 구조).
   // 초대 링크로 들어오면 지원자, `?role=interviewer` 면 면접관이다.
@@ -136,6 +136,13 @@ function InterviewFlow() {
 
   if (!sessionId) return <Navigate to="/" replace />;
 
+  // 동의 → 입장 → 기기 점검 → 면접 화면. 동의가 맨 앞이다 — 녹화는 방에 트랙이
+  // 올라올 때 시작하므로, 여기서 멈춰 있는 동안에는 아무것도 올라가지 않는다.
+  // 면접관에게는 묻지 않는다. 동의는 녹화되는 사람에게 받는 것이다.
+  if (role === 'CANDIDATE' && !agreed) {
+    return <ConsentPage sessionId={sessionId} onAgreed={() => setAgreed(true)} />;
+  }
+
   if (!session) {
     return <JoinPage role={role} onJoined={setSession} />;
   }
@@ -147,35 +154,25 @@ function InterviewFlow() {
       { replace: true },
     );
     setSession(null);
+    // 동의는 그대로 둔다 — 같은 면접에 다시 들어오는 길이라 또 물을 일이 아니다.
   };
 
   return (
     <DeviceGate
-      livekitConnection={USE_MOCK_API ? undefined : session}
+      livekitConnection={session}
       // 지원자는 계정이 없으므로 점검을 취소해도 초대 링크 안에서 다시 입장한다.
       onBack={role === 'CANDIDATE' ? () => setSession(null) : undefined}
     >
       {(tracks) => (
         <Suspense fallback={<ChunkFallback />}>
-          {USE_MOCK_API ? (
-            <InterviewRoomPreview
-              role={role}
-              sessionId={sessionId}
-              remoteName={remoteName}
-              localVideoTrack={tracks.videoTrack}
-              localAudioTrack={tracks.audioTrack}
-              onLeave={onEnded}
-            />
-          ) : (
-            <InterviewRoom
-              sessionId={sessionId}
-              role={role}
-              remoteName={remoteName}
-              videoTrack={tracks.videoTrack}
-              audioTrack={tracks.audioTrack}
-              onEnded={onEnded}
-            />
-          )}
+          <InterviewRoom
+            sessionId={sessionId}
+            role={role}
+            remoteName={remoteName}
+            videoTrack={tracks.videoTrack}
+            audioTrack={tracks.audioTrack}
+            onEnded={onEnded}
+          />
         </Suspense>
       )}
     </DeviceGate>
@@ -191,12 +188,28 @@ function InterviewEntry() {
   return interviewer ? <RequireAuth>{flow}</RequireAuth> : flow;
 }
 
-/** 업무 화면에서 어디서든 목록·설정·새 면접으로 이동할 수 있다. */
+/**
+ * `/` 하나로 두 사람을 받는다. 토큰이 없으면 처음 온 사람이라 랜딩을, 있으면 대시보드를
+ * 그린다. 토큰이 만료됐으면 대시보드 쪽 `RequireAuth` 가 로그인으로 보낸다.
+ */
+function Home() {
+  const token = useAccessToken();
+  return token ? (
+    <InterviewerPage>
+      <MainPage />
+    </InterviewerPage>
+  ) : (
+    <LandingPage />
+  );
+}
+
+/** 업무 화면은 사이드바(좁으면 아래 탭) 틀 안에 그린다. 어디서든 목록·설정·새 면접으로 간다. */
 function InterviewerPage({ children }: { children: ReactNode }) {
   return (
     <RequireAuth>
-      <InterviewerHeader />
-      <Suspense fallback={<ChunkFallback />}>{children}</Suspense>
+      <AppShell>
+        <Suspense fallback={<ChunkFallback />}>{children}</Suspense>
+      </AppShell>
     </RequireAuth>
   );
 }
@@ -236,9 +249,10 @@ function RequireAuth({ children }: { children: ReactNode }) {
   if (isLoading) return <ChunkFallback />;
   if (isError) {
     return (
-      <div className="bg-surface text-ink flex min-h-screen flex-col items-center justify-center gap-4">
-        <p>로그인 상태를 확인하지 못했습니다.</p>
-        <button type="button" onClick={() => void refetch()}>
+      <div className="bg-surface text-ink flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
+        <p className="text-[16px] font-semibold">로그인 상태를 확인하지 못했습니다.</p>
+        <p className="text-ink-muted -mt-2 text-[14px]">네트워크를 확인한 뒤 다시 시도해주세요.</p>
+        <button type="button" onClick={() => void refetch()} className={buttonClass('primary')}>
           다시 확인
         </button>
       </div>
@@ -249,20 +263,28 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  const navigate = useNavigate();
   useAccessToken();
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/oauth/kakao/callback" element={<KakaoCallbackPage />} />
       <Route
-        path="/"
+        path="/terms"
         element={
-          <InterviewerPage>
-            <MainPage />
-          </InterviewerPage>
+          <Suspense fallback={<ChunkFallback />}>
+            <TermsPage />
+          </Suspense>
         }
       />
+      <Route
+        path="/privacy"
+        element={
+          <Suspense fallback={<ChunkFallback />}>
+            <PrivacyPage />
+          </Suspense>
+        }
+      />
+      <Route path="/" element={<Home />} />
       <Route
         path="/settings/context"
         element={
@@ -304,46 +326,6 @@ export default function App() {
           <InterviewerPage>
             <InterviewListPage />
           </InterviewerPage>
-        }
-      />
-      <Route
-        path="/demo/candidates"
-        element={
-          <Suspense fallback={<ChunkFallback />}>
-            <CandidateListPage />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/demo/candidates/:candidateId"
-        element={
-          <Suspense fallback={<ChunkFallback />}>
-            <CandidateDetailPage />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/demo/candidates/:candidateId/memo"
-        element={
-          <Suspense fallback={<ChunkFallback />}>
-            <CandidateMemoPage />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/mock/interview"
-        element={
-          <DeviceGate>
-            {(tracks) => (
-              <Suspense fallback={<ChunkFallback />}>
-                <InterviewRoomPreview
-                  localVideoTrack={tracks.videoTrack}
-                  localAudioTrack={tracks.audioTrack}
-                  onLeave={() => void navigate('/')}
-                />
-              </Suspense>
-            )}
-          </DeviceGate>
         }
       />
       <Route path="*" element={<Navigate to="/" replace />} />

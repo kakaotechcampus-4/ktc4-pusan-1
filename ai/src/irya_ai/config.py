@@ -28,12 +28,21 @@ class Settings(BaseSettings):
     elice_stt_model: str = "whisper-large-v3"
     elice_stt_language: str = "ko"
     elice_stt_timeout_seconds: float = Field(default=60, gt=0, le=300)
+    # How long one live segment may take, retries included, before its caption
+    # is given up on. Shorter than the per-attempt timeout above on purpose.
+    stt_request_deadline_seconds: float = Field(default=15, gt=0, le=120)
+
+    # Which live STT the worker uses. Elice stays the default until Deepgram
+    # has been measured on the same inputs; a key being present does not
+    # switch providers, only this setting does.
+    stt_provider: Literal["elice", "deepgram"] = "elice"
+    deepgram_api_key: SecretStr = SecretStr("")
 
     # Project LLM (Elice ML API, OpenAI-compatible). The base URL names a
     # private gateway, so it is read from the environment like a credential.
     llm_base_url: str = ""
     llm_api_key: SecretStr = SecretStr("")
-    llm_model: str = "gpt-5.6-luna"
+    llm_model: str = "gpt-6-luna"
     llm_reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
     llm_timeout_seconds: float = Field(default=60, gt=0, le=300)
 
@@ -55,6 +64,12 @@ class Settings(BaseSettings):
     # retried at the polling rate until Backend's own time limit fails it.
     prep_poll_interval_seconds: float = Field(default=5, gt=0, le=300)
     prep_retry_after_seconds: float = Field(default=30, ge=0, le=3600)
+    # A REVIEW job is retried after a passing failure only while the retry can
+    # still finish this many seconds after Backend's ``requestedAt``. Keep it
+    # equal to Backend's ``SUMMARY_TIMEOUT_SECONDS`` (180 by default): past
+    # that Backend fails the row and refuses the result, so a retry that
+    # would end later loses the summary and timeline that did finish (#234).
+    review_deadline_seconds: float = Field(default=180, gt=0, le=1800)
 
     # Transcript WebSocket (``WS /internal/v1/sessions/{sessionId}/transcripts``).
     # The address is derived from ``backend_base_url`` rather than configured

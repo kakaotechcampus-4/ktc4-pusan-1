@@ -6,7 +6,6 @@
  */
 
 import type { CompanyContext, ContextDoc, DocCategory } from '../types/interview';
-import { handleMockUpload, USE_MOCK_API } from '../mocks/mockApi';
 import { request, uploadFile } from './client';
 
 const V1 = '/api/v1';
@@ -33,8 +32,5 @@ export function uploadDoc(
   onProgress: (ratio: number) => void,
   category: DocCategory,
 ): Promise<ContextDoc> {
-  // ⚠️ 프로토타입 임시 분기. XHR 은 request() 를 거치지 않으므로 여기서 따로 가른다.
-  if (USE_MOCK_API) return handleMockUpload(file, onProgress, category);
-
   return uploadFile(`${V1}/contexts/${contextId}/docs`, file, onProgress, category);
 }

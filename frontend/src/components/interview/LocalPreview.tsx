@@ -100,15 +100,15 @@ export function LocalPreview({ videoTrack, audioTrack, className }: LocalPreview
 
       {!videoTrack && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <p className="text-ink-dim text-[13px]">카메라 꺼짐</p>
+          <p className="text-[13px] text-white/70">카메라 꺼짐</p>
         </div>
       )}
 
       {audioTrack && (
-        <div aria-hidden className="absolute inset-x-1.5 bottom-1.5 h-1 rounded-full bg-white/25">
+        <div aria-hidden className="absolute inset-x-1.5 bottom-1.5 h-1 rounded-full bg-white/30">
           <span
             ref={barElRef}
-            className="block h-full origin-left rounded-full bg-emerald-400"
+            className="bg-accent block h-full origin-left rounded-full"
             style={{ transform: 'scaleX(0)' }}
           />
         </div>

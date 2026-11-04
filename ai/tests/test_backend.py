@@ -391,3 +391,46 @@ async def test_the_poller_routes_refuse_an_id_that_rewrites_the_path() -> None:
         await client.put_prep(
             "a/b", PrepResult(session_id="ses_1", status="empty"), requested_at="x"
         )
+
+
+async def test_put_review_goes_to_the_session_and_leaves_out_unwired_findings() -> None:
+    from irya_ai.schemas.wire import ReviewPayload
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(204)
+
+    payload = ReviewPayload(status="completed", summary="요약", key_points=["a"])
+    await client_for(handler).put_review(
+        "ses_1", payload, requested_at="2026-10-06T00:00:00.123456Z"
+    )
+
+    assert seen[0].method == "PUT"
+    assert seen[0].url.path == "/internal/v1/sessions/ses_1/review"
+    body = json.loads(seen[0].content)
+    assert body == {
+        "status": "completed",
+        "summary": "요약",
+        "keyPoints": ["a"],
+        "moments": [],
+        "model": "",
+        "requestedAt": "2026-10-06T00:00:00.123456Z",
+    }
+
+
+async def test_put_review_sends_findings_once_there_are_some_to_send() -> None:
+    from irya_ai.schemas.wire import ReviewPayload
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(204)
+
+    await client_for(handler).put_review(
+        "ses_1", ReviewPayload(status="empty", findings=[]), requested_at="x"
+    )
+
+    assert json.loads(seen[0].content)["findings"] == []

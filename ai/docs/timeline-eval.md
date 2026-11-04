@@ -11,6 +11,7 @@ STT 청크(`Utterance` JSON)를 면접 종료 후 한꺼번에 프로젝트 LLM�
 | 순서 | 모델 | 이유 |
 | --- | --- | --- |
 | 1차 | `gpt-5.6-luna` | 대량 요약·추출용 경량 모델. 입력 ₩304 / 출력 ₩1,827 per 1M tokens |
+| 현재 기본값 (2026-10-16~) | `gpt-6-luna` | 게이트웨이 목록에 이 모델만 남음. 단가 미확인 |
 | 예비 | `gpt-5.6-terra` | Luna 결과가 부족할 때. 입력 ₩3,045 / 출력 ₩18,270 per 1M tokens (10배) |
 
 두 모델 모두 Elice ML API의 OpenAI 호환 게이트웨이를 쓴다. **지원 목록에 없는 파라미터는 400으로
@@ -23,7 +24,7 @@ STT 청크(`Utterance` JSON)를 면접 종료 후 한꺼번에 프로젝트 LLM�
 # ai/.env  (값은 절대 커밋하지 않는다)
 LLM_BASE_URL=https://<mlapi-endpoint>/v1
 LLM_API_KEY=<Serverless API Key>
-LLM_MODEL=gpt-5.6-luna
+LLM_MODEL=gpt-6-luna
 LLM_REASONING_EFFORT=        # 비우면 보내지 않음. none / low / medium / high
 LLM_TIMEOUT_SECONDS=60
 
@@ -113,6 +114,30 @@ uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --backend ext
 - **Luna로 충분하다.** 두 실행 모두 7/7 완료, 인용 탈락 0, 호출당 11~15초, 비용 ₩3 안팎. Terra는 비교 실행하지 않았다(필요 시 `--model gpt-5.6-terra`로 같은 입력을 돌려 이 문서에 추가).
 - 프롬프트 수정 후보(`timeline-v2`): 종결 어미 고정("~했다"), answer 글자 수 상한(예: 120자), 라벨 중복 방지.
 - 인용 탈락은 없었지만 입력이 합성 청크 1건뿐이다. #36 실제 STT 출력과 기획 모의 면접 녹음으로 다시 돌려야 대소문자·띄어쓰기 흔들림에 의한 탈락률을 알 수 있다.
+
+### 실행 3·4 — 2026-10-16 `gpt-6-luna`, `timeline-v1`, reasoning_effort 미지정
+
+기본값을 `gpt-6-luna`로 바꾸며 같은 입력을 두 번 돌렸다(실행 1·2와 같은 시점 측정 아님).
+코드는 develop `31109da`다.
+
+| 항목 | 실행 3 | 실행 4 |
+| --- | --- | --- |
+| 응답 model | `gpt-6-luna` | `gpt-6-luna` |
+| usage (prompt / completion / cached) | 2160 / 1377 / 0 | 1728 / 1316 / 1725 |
+| 추정 비용 | 단가 미확인 | 단가 미확인 |
+| status / moments / selected / rejected | `completed` / 7 / 7 / 0 | `completed` / 7 / 7 / 0 |
+| warnings | `PROVISIONAL_TRANSCRIPT` | `PROVISIONAL_TRANSCRIPT` |
+| 인용 수 | 18 | 20 |
+| 소요 ms | 13549 | 13437 |
+
+- 라벨은 7개 중 5개가 두 실행에서 같았다(`성능 측정` → `응답 측정`, `장애 대응` → `온콜 대응`).
+- answer 14개가 모두 "~했습니다"로 끝났다. 2회 관찰이다.
+- answer 길이는 69~138자다. `qa_utt_020`은 두 실행 모두 120자를 넘었다(127 / 138).
+- 지원자가 말한 내용을 "~고 했습니다", "~고 답했습니다"처럼 전한 말로 쓴 answer가 섞였다.
+  평가·추측 표현은 보지 못했다.
+- completion 토큰이 1,316~1,377로 2,000 상한 안에 들었다. 응답 `usage`에 추론 토큰 내역은
+  기록하지 않아 그 몫은 미측정이다. Q&A가 7개보다 많은 면접에서 상한 안에 드는지는
+  확인하지 않았다.
 
 ### 게이트웨이 사용 시 걸린 것
 

@@ -22,9 +22,12 @@ from app.core.errors import LOGIN_REQUIRED, ApiError, ErrorCode, responses
 from app.core.uploads import read_upload
 from app.domain.models import (
     Context,
+    FindingsStatus,
     Interview,
     InterviewPrep,
+    InterviewReport,
     Resume,
+    ReviewStatus,
     Session,
     SessionSummary,
     SummaryStatus,
@@ -40,6 +43,8 @@ from app.schemas import (
     InterviewResponse,
     MarkResponse,
     MarkUpdateRequest,
+    ReportCompetency,
+    ReportResponse,
     ReviewCandidate,
     ReviewCounts,
     ReviewCoverage,
@@ -51,7 +56,9 @@ from app.schemas import (
     ReviewUpdateResponse,
     SummaryContent,
 )
-from app.services.review import build_review, item_kinds
+from app.services import recording
+from app.services.report import adopted_findings, build_competencies
+from app.services.review import build_review, failure_reason, item_kinds
 
 router = APIRouter(prefix="/interviews", tags=["면접"])
 
@@ -224,6 +231,40 @@ def update_review(
     )
 
 
+@router.delete(
+    "/{interviewId}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="면접 삭제",
+    responses=responses(
+        LOGIN_REQUIRED, _NOT_FOUND, (409, "진행 중이거나 녹화를 합치는 중")
+    ),
+)
+async def delete_interview(interview: OwnedInterviewDep, store: StoreDep) -> None:
+    """면접과 딸린 기록을 전부 지운다 (기획 F12, #246). 되돌릴 수 없다.
+
+    세션 · 전사 · 분석 · 요약 · 채택 기록 · 메모 · 이력서 · 리포트 · 녹화가 같이
+    간다. 진행 중인 세션이나 아직 합치는 중인 녹화가 있으면 409 다 — 지운 뒤에도
+    S3 에 파일이 더 올라와 주인 없는 녹화가 남는다.
+    """
+    sessions = await run_in_threadpool(store.delete_interview, interview.id)
+    if sessions is None:
+        if await run_in_threadpool(store.get_interview, interview.id) is None:
+            # 주인 검사 뒤에 지워졌다
+            raise ApiError(
+                ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다."
+            )
+        raise ApiError(
+            ErrorCode.INVALID_SESSION_STATE,
+            409,
+            "진행 중인 면접은 지울 수 없습니다. 면접을 끝낸 뒤 다시 시도해 주세요.",
+        )
+
+    # DB 를 먼저 지우고 파일을 지운다. 거꾸로면 파일을 지운 뒤 409 로 거절하는 경우가
+    # 생겨, 남아 있는 면접의 녹화가 사라진다. 이 순서에서는 파일 삭제가 실패하면
+    # 500 이 나가고 주인 없는 파일이 남지만, 그건 로그에 남고 다시 지울 수 있다.
+    await run_in_threadpool(recording.purge, sessions)
+
+
 @router.post(
     "/{interviewId}/sessions",
     response_model=CreateSessionResponse,
@@ -278,9 +319,11 @@ def get_review(
     기준 세션은 그 면접에서 가장 나중에 끝난 세션이다(목록과 같다). 끝난 세션이
     없거나 요약이 아직 PROCESSING 이면 202 다. FE 는 그동안 다시 조회한다.
 
-    **요약이 FAILED 여도 200 이다** (#163). `summary` 는 null 이고 moments ·
-    findings 는 비며 coverage 는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI
-    결과와 상관없이 할 수 있어야 한다.
+    **요약이 FAILED 여도 200 이다** (#163). `summary` 는 null 이다. Agent 가 요약만
+    실패를 보냈으면 같이 온 moments · findings 와 그것으로 낸 coverage 를 보인다
+    (#164). 시간 한도를 넘겨 FAILED 가 됐으면 moments · findings 는 비고 coverage
+    는 역량 전부 MISSING 이다. 메모 · 검토 확정은 AI 결과와 상관없이 할 수 있어야
+    한다.
     """
     session = store.last_ended_session(interview.id)
     if session is None:
@@ -322,6 +365,10 @@ def get_review(
         coverage=[ReviewCoverage.model_validate(c) for c in review.coverage],
         moments=[ReviewMoment.model_validate(m) for m in review.moments],
         findings=[ReviewFinding.model_validate(f) for f in review.findings],
+        # 보고가 없으면(이 필드 전에 끝난 면접) 목록으로 가른다 — 예전 화면과 같다.
+        findings_status=summary.findings_status
+        or (FindingsStatus.COMPLETED if summary.findings else FindingsStatus.EMPTY),
+        failure_reason=failure_reason(store, session.id, shown),
     )
 
 
@@ -330,7 +377,9 @@ def get_review(
     response_model=MarkResponse,
     summary="검토 항목 채택 · 문답 북마크",
     responses=responses(
-        LOGIN_REQUIRED, (404, "면접이 없거나 지금 상세에 그 항목이 없음")
+        LOGIN_REQUIRED,
+        (404, "면접이 없거나 지금 상세에 그 항목이 없음"),
+        (409, "확정한 검토는 채택을 바꿀 수 없음"),
     ),
 )
 def put_mark(
@@ -342,15 +391,16 @@ def put_mark(
     """검토 항목(finding)의 채택 · 반려, 문답(moment)의 북마크 (#137 1-4).
 
     `itemId` 는 지금 상세의 `findings[].id` 나 `moments[].id` 여야 한다. 아니면
-    404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 READY 가 되기 전에는 표시할 것도
-    없다 (#163 결정). 문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중
-    하나」). 표시는 기준 세션에 남는다.
+    404 다 — 아무 id 로 행이 쌓이지 않고, 분석이 끝나기 전에는 표시할 것도 없다
+    (#163 결정). 요약만 FAILED 여도 Agent 가 보낸 항목은 표시할 수 있다 (#164).
+    문답은 북마크만, 검토 항목은 채택만 받는다(1-4 「둘 중 하나」). 표시는 기준
+    세션에 남는다. 검토를 확정한 뒤 채택 · 반려 · 되돌리기는 409 다 (#247).
     """
     session = store.last_ended_session(interview.id)
     summary = None if session is None else store.get_summary(session.id)
     kinds = (
         {}
-        if summary is None or summary.status is not SummaryStatus.READY
+        if summary is None or summary.status is SummaryStatus.PROCESSING
         else item_kinds(summary)
     )
     kind = kinds.get(item_id)
@@ -364,12 +414,144 @@ def put_mark(
             422,
             "문답은 bookmarked 만, 검토 항목은 state 만 받습니다.",
         )
+    if kind == "finding" and interview.review_status is ReviewStatus.CONFIRMED:
+        # 확정 뒤에는 채택이 움직이지 않는다 (#247). 확정 시각이 검토 시간 지표이고,
+        # 리포트 근거가 그 시각의 채택을 전제한다. 되돌리기도 같이 막힌다. 북마크는
+        # 근거도 지표도 아니라서 그대로 둔다.
+        raise ApiError(
+            "REVIEW_CONFIRMED", 409, "확정한 검토는 채택을 바꿀 수 없습니다."
+        )
 
     # 보낸 것만 한 문장으로 바꾼다.
     mark = store.update_mark(
         session.id, item_id, state=body.state, bookmarked=body.bookmarked
     )
     return MarkResponse(item_id=item_id, state=mark.state, bookmarked=mark.bookmarked)
+
+
+@router.post(
+    "/{interviewId}/report",
+    response_model=ReviewProcessingResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="면접 리포트 생성 요청",
+    responses=responses(
+        LOGIN_REQUIRED,
+        _NOT_FOUND,
+        (409, "검토 미확정 · 채택한 근거 0개 · 이미 만들고 있음"),
+    ),
+)
+def post_report(
+    interview: OwnedInterviewDep, store: StoreDep
+) -> ReviewProcessingResponse:
+    """면접 리포트를 만들기 시작한다 (#238). 만드는 일은 AI 가 한다.
+
+    **면접 하나에 리포트 하나다.** 다시 누르면 앞의 것을 덮는다 — 검토를 확정하면
+    채택이 더 바뀌지 않으니(#247) 버전을 남길 이유가 없다.
+
+    세 가지를 미리 막는다. 셋 다 409 이고 `ErrorCode` 에는 넣지 않는다 — 리포트
+    화면 하나에서만 뜻이 있는 상태다(`PREP_OUTDATED` 와 같은 결).
+
+    1. 검토가 확정되지 않았다 — 리포트는 확정된 판단을 넘기는 문서다
+    2. 채택한 근거가 0개다 — 쓸 근거가 없으면 리포트도 없다
+    3. 이미 만들고 있다 — 한도(`report_timeout`)를 넘기면 다시 누를 수 있다
+    """
+    if interview.review_status is not ReviewStatus.CONFIRMED:
+        raise ApiError("REVIEW_NOT_CONFIRMED", 409, "검토를 먼저 확정해 주세요.")
+
+    # 채택 여부는 리포트 전체에서 한 함수만 센다 (#238). 여기서 센 것과 AI 가 받는
+    # 것이 다르면 「채택했는데 리포트에 없다」가 된다.
+    session = store.last_ended_session(interview.id)
+    summary = None if session is None else store.get_summary(session.id)
+    if (
+        session is None
+        or summary is None
+        or not adopted_findings(summary, store.list_marks(session.id))
+    ):
+        raise ApiError("NO_ADOPTED_FINDING", 409, "근거를 1개 이상 채택해 주세요.")
+
+    # 기준 세션을 리포트에 박아 둔다. 조회도 AI 입력도 이 세션만 본다 — 나중에 세션이
+    # 하나 더 끝나도 이미 만든 리포트의 근거 시각이 흔들리지 않는다.
+    opened = store.start_report(
+        InterviewReport(interview_id=interview.id, session_id=session.id),
+        settings.report_timeout,
+    )
+    if not opened:
+        raise ApiError("REPORT_IN_PROGRESS", 409, "이미 리포트를 만들고 있습니다.")
+    return ReviewProcessingResponse()
+
+
+@router.get(
+    "/{interviewId}/report",
+    response_model=ReportResponse,
+    summary="면접 리포트 조회",
+    responses={
+        202: {"model": ReviewProcessingResponse, "description": "만드는 중"},
+        **responses(
+            LOGIN_REQUIRED, (404, "면접이 없거나(남의 면접 포함) 리포트가 아직 없음")
+        ),
+    },
+)
+def get_report(
+    interview: OwnedInterviewDep, user: CurrentUserDep, store: StoreDep
+) -> ReportResponse | JSONResponse:
+    """면접 리포트 (#238) — 면접에 없던 사람에게 넘기는 인계 문서.
+
+    아직 만든 적이 없으면 404 다(`REPORT_NOT_FOUND`). 없는 면접 · 남의 면접도 404
+    이지만 코드가 다르다 — FE 가 「리포트 만들기」를 보일지 「면접이 없습니다」를
+    보일지 가른다.
+
+    만드는 중이면 202 다. 한도를 넘겼으면 그 자리에서 FAILED 로 접는다 — 아무도
+    기다려 주지 않아도 화면은 끝나야 한다(요약 · 면접 전 분석과 같은 판정).
+
+    **실패해도 200 이다.** 머리(지원자 · 면접관 · 메모)는 그대로 내보낸다. 실패
+    화면에서도 「누구의 어떤 면접인가」는 읽혀야 하고, 거기서 다시 만들 수 있다.
+
+    역량 카드는 BE 가 붙인다. AI 는 문장과 `findingId` 만 보냈고(#163) 이름 · 필수
+    여부 · 상태 · 지원서 문장 · 면접 발화 · 시각은 검토 화면과 같은 함수를 지난다.
+    """
+    report = store.get_report(interview.id)
+    if report is None:
+        raise ApiError(ErrorCode.REPORT_NOT_FOUND, 404, "리포트가 아직 없습니다.")
+    if report.status is SummaryStatus.PROCESSING:
+        report = store.expire_report(interview.id, settings.report_timeout) or report
+    if report.status is SummaryStatus.PROCESSING:
+        return _processing()
+
+    ready = report.status is SummaryStatus.READY
+    session = store.get_session(report.session_id)
+    # 자리가 비어 있어도(요약 행이 지워진 옛 세션) 역량 카드는 JD 수만큼 나가야
+    # 한다 — 빈 요약을 넣으면 전부 MISSING 으로 「다루지 않음」이 보인다.
+    summary = store.get_summary(report.session_id) or SessionSummary(
+        session_id=report.session_id
+    )
+    cards = (
+        build_competencies(
+            store.get_prep(interview.id),
+            summary,
+            store.list_marks(report.session_id),
+            report.competencies,
+        )
+        if ready
+        else []
+    )
+    began, _ = _timing(session)
+    return ReportResponse(
+        status="READY" if ready else "FAILED",
+        interview_id=interview.id,
+        session_id=report.session_id,
+        generated_at=report.completed_at,
+        review_status=interview.review_status,
+        candidate=ReviewCandidate(
+            name=interview.candidate_name,
+            role=store.ensure_context(Context(owner_id=user.id)).role,
+        ),
+        interviewer=InterviewerSummary(nickname=user.nickname),
+        interviewed_at=began,
+        memo=interview.memo,
+        overview=report.overview if ready else "",
+        competencies=[ReportCompetency.model_validate(c) for c in cards],
+        failure_reason=None if ready else report.failure_reason,
+    )
 
 
 def _processing() -> JSONResponse:

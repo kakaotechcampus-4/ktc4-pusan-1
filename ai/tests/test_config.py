@@ -17,6 +17,7 @@ def test_settings_have_safe_local_defaults() -> None:
     assert settings.elice_stt_model == "whisper-large-v3"
     assert settings.elice_stt_language == "ko"
     assert settings.elice_stt_timeout_seconds == 60
+    assert settings.stt_request_deadline_seconds == 15
 
 
 def test_settings_load_environment_variables(monkeypatch) -> None:
@@ -32,6 +33,7 @@ def test_settings_load_environment_variables(monkeypatch) -> None:
     monkeypatch.setenv("ELICE_STT_MODEL", "whisper-large-v3-turbo")
     monkeypatch.setenv("ELICE_STT_LANGUAGE", "en")
     monkeypatch.setenv("ELICE_STT_TIMEOUT_SECONDS", "15")
+    monkeypatch.setenv("STT_REQUEST_DEADLINE_SECONDS", "8")
 
     settings = Settings(_env_file=None)
 
@@ -47,6 +49,7 @@ def test_settings_load_environment_variables(monkeypatch) -> None:
     assert settings.elice_stt_model == "whisper-large-v3-turbo"
     assert settings.elice_stt_language == "en"
     assert settings.elice_stt_timeout_seconds == 15
+    assert settings.stt_request_deadline_seconds == 8
 
 
 def test_secret_values_are_masked() -> None:

@@ -77,6 +77,15 @@ class Settings(BaseSettings):
     # 받으므로(`PUT .../review`), 짧게 잡아 틀리는 쪽이 복구된다.
     summary_timeout_seconds: float = Field(default=180, gt=0, le=1800)
 
+    # 면접 리포트를 기다리는 한도 (#238). 요약과 같은 이유로 서버가 마감을 쥔다 —
+    # FE 는 PROCESSING 동안만 다시 조회한다.
+    #
+    # 기본값을 요약과 같이 둔다. 리포트는 채택한 근거만 넣어 한 번 부르는 일이라
+    # 요약보다 짧게 끝나야 맞지만, 쓸 수 있는 근거가 요약과 같은 AI 상한
+    # (`analysis_timeout_seconds` 가 `le=120`) 아래 있으므로 더 줄여 틀릴 이유가 없다.
+    # 넘겨 FAILED 가 돼도 면접관이 다시 누르면 그 자리를 새로 연다.
+    report_timeout_seconds: float = Field(default=180, gt=0, le=1800)
+
     # 문서 본문 추출 — Elice ML API 의 Helpy Document Vision (#143).
     # 키는 AI Cloud 의 `API 키 관리 → Serverless` 에서, 주소는 모델 페이지 API 탭
     # 예시 코드의 `https://mlapi.run/<uuid>` 에서 가져온다.
@@ -94,6 +103,15 @@ class Settings(BaseSettings):
     # 자격증명은 받지 않는다. 운영은 인스턴스 역할을, 로컬은 AWS_* 환경변수를 쓴다.
     recording_bucket: str = ""
 
+    # 녹화 재생 URL 을 CloudFront 서명 URL 로 준다 (#197). 도메인이 스위치다 —
+    # 비우면 10분짜리 S3 서명 URL 이다. 도메인을 넣었는데 키 ID 나 개인키가 없거나
+    # 읽을 수 없으면 기동을 거부한다.
+    recording_cdn_domain: str = ""
+    # CloudFront 공개키 ID (K 로 시작). 키 그룹 ID 가 아니다.
+    recording_cdn_key_id: str = ""
+    # 서명용 RSA 개인키(PEM)를 base64 한 줄로. 여러 줄 값은 env 로 넘기기 까다롭다.
+    recording_cdn_private_key: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -108,6 +126,10 @@ class Settings(BaseSettings):
     @property
     def summary_timeout(self) -> timedelta:
         return timedelta(seconds=self.summary_timeout_seconds)
+
+    @property
+    def report_timeout(self) -> timedelta:
+        return timedelta(seconds=self.report_timeout_seconds)
 
     @property
     def doc_parse_timeout(self) -> timedelta:

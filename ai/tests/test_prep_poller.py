@@ -8,24 +8,42 @@ and checks what the poller did with it.
 import asyncio
 import json
 import logging
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
 
 from irya_ai.backend import BackendClient
 from irya_ai.config import Settings
+from irya_ai.findings import (
+    ExtractiveFindingsGenerator,
+    FindingsAgent,
+    FindingsError,
+)
 from irya_ai.prep import FakePrepGenerator, PrepAgent, PrepError
 from irya_ai.prep_poller import (
     HOLD_PRUNE_SIZE,
     PollerError,
     PrepPoller,
-    build_prep_agent,
+    ReviewAgents,
+    ReviewParts,
+    build_agents,
     context_from_response,
+    exception_types,
+    snapshot_from_response,
 )
 from irya_ai.schemas.jobs import PendingJob
 from irya_ai.schemas.prep import CompetencyDraft, PrepDraft, ResumeClaimDraft
+from irya_ai.schemas.summary import AnalysisError
+from irya_ai.summarize import ExtractiveSummarizer, SummarizationError
+from irya_ai.timeline import (
+    ExtractiveTimelineGenerator,
+    ReviewTimelineAgent,
+    TimelineError,
+)
 
 REQUESTED_AT = "2026-10-06T00:00:00.123456Z"
+REQUESTED = datetime.fromisoformat(REQUESTED_AT)
 RESUME_TEXT = (
     "경력\n- 상품 조회 API에 Redis 캐시를 도입하여 응답 시간을 60% 단축했습니다."
 )
@@ -108,6 +126,7 @@ class FakeBackend:
         self.contexts: dict[str, dict] = {}
         self.put_status: int = 204
         self.put_bodies: list[dict] = []
+        self.put_paths: list[str] = []
         self.pending_calls = 0
         self.context_status: int = 200
 
@@ -129,6 +148,14 @@ class FakeBackend:
                 # A stored result leaves the queue, like Backend's row does.
                 interview_id = path.split("/")[-2]
                 self.jobs = [j for j in self.jobs if j["interviewId"] != interview_id]
+                return httpx.Response(204)
+            return httpx.Response(self.put_status)
+        if request.method == "PUT" and path.endswith("/review"):
+            self.put_paths.append(path)
+            self.put_bodies.append(json.loads(request.content))
+            if self.put_status == 204:
+                session_id = path.split("/")[-2]
+                self.jobs = [j for j in self.jobs if j["sessionId"] != session_id]
                 return httpx.Response(204)
             return httpx.Response(self.put_status)
         return httpx.Response(404)
@@ -170,7 +197,17 @@ def poller_for(
     **kwargs,
 ) -> PrepPoller:
     agent = PrepAgent(generator or FakePrepGenerator(draft()), model="fake")
+    # Unless a test moves it, the wall clock stands at the request itself, so
+    # the review deadline is far off and a retry always fits.
+    kwargs.setdefault("wall_clock", after_request(0))
     return PrepPoller(backend.client(), agent, clock=clock or Clock(), **kwargs)
+
+
+def after_request(seconds: float):  # noqa: ANN201
+    """A wall clock stopped this long after ``REQUESTED_AT``."""
+
+    moment = REQUESTED + timedelta(seconds=seconds)
+    return lambda: moment
 
 
 # --- one pass ----------------------------------------------------------------
@@ -259,8 +296,8 @@ async def test_an_outdated_result_is_dropped_and_the_pass_moves_on() -> None:
 
 async def test_a_job_kind_it_does_not_know_is_left_to_backend() -> None:
     backend = FakeBackend()
-    backend.jobs = [job(kind="REVIEW")]
-    poller = poller_for(backend)
+    backend.jobs = [job(kind="REALIGN")]
+    poller = poller_for(backend, review=review_agents())
 
     done = await poller.run_once()
 
@@ -296,6 +333,76 @@ async def test_a_retryable_agent_failure_is_held_not_stored() -> None:
     # After it, the job is tried again.
     clock.now += 2.0
     assert (await poller.run_once()).outcome == "held"
+
+
+async def test_an_unexpected_agent_failure_is_stored_and_logs_only_its_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend = FakeBackend()
+    backend.jobs = [job()]
+    backend.contexts["ses_1"] = context()
+    poller = poller_for(backend)
+
+    async def explode(job):  # noqa: ANN001, ANN202
+        raise RuntimeError(QUOTE)
+
+    poller._prepare = explode  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.ERROR):
+        done = await poller.run_once()
+
+    # A bug raises the same way on every try, so the job is not asked again.
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "failed"
+    assert backend.put_bodies[0]["error"] == {
+        "code": "UNEXPECTED_ERROR",
+        "retryable": False,
+    }
+    assert backend.jobs == []
+    assert "RuntimeError" in caplog.text
+    assert QUOTE not in caplog.text
+
+
+async def test_an_unexpected_failure_outside_the_agent_holds_the_job(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend = FakeBackend()
+    backend.jobs = [job()]
+    backend.contexts["ses_1"] = context()
+    clock = Clock()
+    poller = poller_for(backend, clock=clock, retry_after_seconds=30.0)
+    calls = 0
+
+    async def explode(*args):  # noqa: ANN002, ANN202
+        nonlocal calls
+        calls += 1
+        for arg in args:
+            if asyncio.iscoroutine(arg):
+                arg.close()
+        raise RuntimeError(QUOTE)
+
+    poller._store = explode  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.ERROR):
+        done = await poller.run_once()
+
+    assert done.outcome == "held"
+    assert done.code == "UNEXPECTED_ERROR"
+    assert "RuntimeError" in caplog.text
+    assert QUOTE not in caplog.text
+    # The next poll skips the job instead of running it again.
+    clock.now += 29.0
+    assert (await poller.run_once()).outcome == "idle"
+    assert calls == 1
+
+
+def test_a_grouped_failure_is_logged_by_the_types_inside() -> None:
+    group = ExceptionGroup(
+        "agents", [ValueError("x"), ExceptionGroup("inner", [KeyError("y")])]
+    )
+
+    assert exception_types(group) == "ValueError,KeyError"
+    assert exception_types(TypeError("z")) == "TypeError"
 
 
 async def test_a_failure_that_would_repeat_is_stored_as_failed() -> None:
@@ -547,18 +654,31 @@ async def test_logs_carry_ids_and_outcome_but_not_the_resume(
 
 def test_the_agent_is_the_project_llm_only_when_both_values_are_set() -> None:
     bare = Settings(_env_file=None)
-    agent, client = build_prep_agent(bare)
+    agent, review, client = build_agents(bare)
     assert client is None
     assert agent.model == "extractive-baseline"
+    assert review.model == "extractive-baseline"
+    assert review.findings is not None
+    assert review.findings.model == "extractive-baseline"
 
     configured = Settings(
         _env_file=None, llm_base_url="https://gateway.invalid/dep", llm_api_key="k"
     )
-    agent, client = build_prep_agent(configured)
+    agent, review, client = build_agents(configured)
     try:
         assert client is not None
         assert agent.model == configured.llm_model
         assert agent.timeout_seconds == configured.llm_timeout_seconds
+        assert review.model == configured.llm_model
+        assert review.summary.timeout_seconds == configured.llm_timeout_seconds
+        assert review.timeline.timeout_seconds == configured.llm_timeout_seconds
+        assert review.summary.summarizer.client is client
+        assert review.timeline.generator.client is client
+        assert review.findings is not None
+        assert review.findings.model == configured.llm_model
+        assert review.findings.timeout_seconds == configured.llm_timeout_seconds
+        assert review.findings.generator.client is client
+        assert review.findings.generator.model == configured.llm_model
     finally:
         if client is not None:
             asyncio.run(client.close())
@@ -568,6 +688,7 @@ def test_poller_settings_have_sane_defaults_and_bounds() -> None:
     settings = Settings(_env_file=None)
     assert settings.prep_poll_interval_seconds == 5
     assert settings.prep_retry_after_seconds == 30
+    assert settings.review_deadline_seconds == 180
     with pytest.raises(ValueError):
         Settings(_env_file=None, prep_poll_interval_seconds=0)
 
@@ -577,3 +698,593 @@ def test_a_pending_job_ignores_fields_backend_adds_later() -> None:
 
     assert parsed.key == ("int_1", REQUESTED_AT)
     assert parsed.requested_at == REQUESTED_AT
+
+
+# --- review ------------------------------------------------------------------
+
+
+def interview(session_id: str = "ses_1") -> list[dict]:
+    """One question and its answer, as Backend's utterance rows."""
+
+    def row(utterance_id: str, speaker: str, seq: int, start: int, text: str):
+        return {
+            "utteranceId": utterance_id,
+            "sessionId": session_id,
+            "trackId": f"TR_{speaker.lower()}",
+            "speaker": speaker,
+            "seq": seq,
+            "startMs": start,
+            "endMs": start + 4000,
+            "content": text,
+        }
+
+    return [
+        row("utt_q1", "INTERVIEWER", 1, 1000, "캐시를 도입한 이유가 무엇인가요?"),
+        row("utt_a1", "CANDIDATE", 2, 6000, "조회 응답이 느려서 Redis를 붙였습니다."),
+    ]
+
+
+def review_context(session_id: str = "ses_1", utterances=None) -> dict:  # noqa: ANN001
+    data = context(session_id)
+    data["utterances"] = interview(session_id) if utterances is None else utterances
+    return data
+
+
+class FailingSummarizer:
+    def __init__(self, code: str, *, retryable: bool) -> None:
+        self.code = code
+        self.retryable = retryable
+
+    async def summarize(self, transcript):  # noqa: ANN001, ANN201
+        raise SummarizationError(self.code, retryable=self.retryable)
+
+
+class FailingTimeline:
+    def __init__(self, code: str, *, retryable: bool) -> None:
+        self.code = code
+        self.retryable = retryable
+
+    async def generate(self, pairs, sources):  # noqa: ANN001, ANN201
+        raise TimelineError(self.code, retryable=self.retryable)
+
+
+class FakeFindingsResult:
+    def __init__(self, status: str, findings=None, error=None) -> None:  # noqa: ANN001
+        self.status = status
+        self.findings = findings or []
+        self.error = error
+        self.elapsed_ms = 3
+
+
+class FakeFindings:
+    def __init__(self, result: FakeFindingsResult) -> None:
+        self.result = result
+        self.contexts: list = []
+
+    async def run(self, context, snapshot):  # noqa: ANN001, ANN201
+        self.contexts.append(context)
+        return self.result
+
+
+def review_agents(summarizer=None, timeline=None, findings=None) -> ReviewAgents:  # noqa: ANN001
+    from irya_ai.analysis import ContextAnalysisAgent
+
+    return ReviewAgents(
+        summary=ContextAnalysisAgent(summarizer or ExtractiveSummarizer()),
+        timeline=ReviewTimelineAgent(
+            timeline or ExtractiveTimelineGenerator(), model="fake"
+        ),
+        findings=findings,
+        model="fake",
+    )
+
+
+def review_backend(utterances=None) -> FakeBackend:  # noqa: ANN001
+    backend = FakeBackend()
+    backend.jobs = [job(kind="REVIEW")]
+    backend.contexts["ses_1"] = review_context(utterances=utterances)
+    return backend
+
+
+async def test_a_review_job_stores_summary_and_moments_at_the_session() -> None:
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_paths == ["/internal/v1/sessions/ses_1/review"]
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["summary"]
+    assert body["requestedAt"] == REQUESTED_AT
+    assert body["model"] == "fake"
+    assert [m["qaId"] for m in body["moments"]] == ["qa_utt_q1"]
+    assert body["moments"][0]["evidence"][0]["utteranceId"] == "utt_a1"
+    # Not wired is not the same as "found nothing": the key is left out.
+    assert "findings" not in body
+    assert backend.jobs == []
+    assert poller.holds == {}
+
+
+async def test_a_review_job_without_review_agents_is_held() -> None:
+    backend = review_backend()
+    poller = poller_for(backend)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "held"
+    assert done.code == "UNSUPPORTED_JOB_KIND"
+    assert backend.put_bodies == []
+
+
+@pytest.mark.parametrize("part", ["summary", "timeline", "findings"])
+async def test_a_part_that_failed_for_a_passing_reason_holds_the_whole_job(
+    part: str,
+) -> None:
+    backend = review_backend()
+    clock = Clock()
+    agents = review_agents(
+        summarizer=FailingSummarizer("LLM_TIMEOUT", retryable=True)
+        if part == "summary"
+        else None,
+        timeline=FailingTimeline("LLM_RATE_LIMITED", retryable=True)
+        if part == "timeline"
+        else None,
+        findings=FakeFindings(
+            FakeFindingsResult(
+                "failed", error=AnalysisError(code="LLM_UNAVAILABLE", retryable=True)
+            )
+        )
+        if part == "findings"
+        else None,
+    )
+    poller = poller_for(backend, review=agents, clock=clock, retry_after_seconds=30)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "held"
+    assert backend.put_bodies == []
+    assert poller.holds[("int_1", REQUESTED_AT)] == clock.now + 30
+
+
+def passing_failure(part: str) -> ReviewAgents:
+    """Review agents where ``part`` fails for a reason that may pass."""
+
+    return review_agents(
+        summarizer=FailingSummarizer("LLM_TIMEOUT", retryable=True)
+        if part == "summary"
+        else None,
+        timeline=FailingTimeline("LLM_RATE_LIMITED", retryable=True)
+        if part == "timeline"
+        else None,
+        findings=FakeFindings(
+            FakeFindingsResult(
+                "failed", error=AnalysisError(code="LLM_TIMEOUT", retryable=True)
+            )
+        )
+        if part == "findings"
+        else None,
+    )
+
+
+@pytest.mark.parametrize("part", ["summary", "timeline", "findings"])
+async def test_a_retry_that_would_end_past_the_deadline_stores_what_finished(
+    part: str,
+) -> None:
+    # Backend fails the row 180s after the request. A hold now would end the
+    # next try at 151 + 30 > 180, so the finished parts go in as they are.
+    backend = review_backend()
+    poller = poller_for(
+        backend,
+        review=passing_failure(part),
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
+        wall_clock=after_request(151),
+    )
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert poller.holds == {}
+    assert backend.jobs == []
+    body = backend.put_bodies[0]
+    if part == "summary":
+        assert body["status"] == "failed"
+    elif part == "timeline":
+        assert body["status"] == "completed"
+        assert body["summary"]
+        assert body["moments"] == []
+    else:
+        assert body["status"] == "completed"
+        assert body["summary"]
+        assert body["moments"]
+        assert "findings" not in body
+
+
+@pytest.mark.parametrize(
+    ("seconds_after_request", "outcome"), [(89, "held"), (91, "stored")]
+)
+async def test_the_hold_and_a_full_length_retry_count_against_the_deadline(
+    seconds_after_request: float, outcome: str
+) -> None:
+    # The fakes fail at once, but the retry is planned for the agents' 60s
+    # timeout: 89 + 30 + 60 fits in 180, 91 + 30 + 60 does not.
+    backend = review_backend()
+    poller = poller_for(
+        backend,
+        review=passing_failure("findings"),
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
+        wall_clock=after_request(seconds_after_request),
+    )
+
+    assert (await poller.run_once()).outcome == outcome
+
+
+def test_the_next_try_is_planned_for_the_longest_it_can_take() -> None:
+    # The fakes' timeouts are 30s (summary) and 60s (timeline).
+    poller = poller_for(
+        FakeBackend(),
+        review=review_agents(),
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
+    )
+
+    # An attempt that failed at once still plans a 60s retry: 90 + 30 + 60.
+    assert poller._retry_fits(90.0, ReviewParts(agent_ms=2_000))
+    assert not poller._retry_fits(91.0, ReviewParts(agent_ms=2_000))
+    # An attempt that took longer than the timeout plans for that instead.
+    assert poller._retry_fits(50.0, ReviewParts(agent_ms=100_000))
+    assert not poller._retry_fits(51.0, ReviewParts(agent_ms=100_000))
+    # No readable request time, no deadline to place the retry against.
+    assert not poller._retry_fits(None, ReviewParts(agent_ms=0))
+
+
+def test_one_run_lasts_as_long_as_the_slowest_agent() -> None:
+    from irya_ai.analysis import ContextAnalysisAgent
+
+    summary = ContextAnalysisAgent(ExtractiveSummarizer(), timeout_seconds=30)
+    timeline = ReviewTimelineAgent(
+        ExtractiveTimelineGenerator(), model="fake", timeout_seconds=45
+    )
+    findings = FindingsAgent(
+        ExtractiveFindingsGenerator(), model="fake", timeout_seconds=90
+    )
+
+    assert ReviewAgents(summary, timeline, findings).attempt_seconds == 90
+    assert ReviewAgents(summary, timeline, None).attempt_seconds == 45
+    # A runner without a timeout adds nothing.
+    fake = FakeFindings(FakeFindingsResult("empty"))
+    assert ReviewAgents(summary, timeline, fake).attempt_seconds == 45
+
+
+async def test_a_findings_timeout_twice_in_a_row_still_stores_the_summary() -> None:
+    # The sequence from the #229 review: 60s timeout, 30s hold, 60s timeout.
+    # The first failure lands at 60s and a retry would end at 150s, inside
+    # Backend's 180s. The second lands at 150s and a retry would end at 240s,
+    # so the summary and timeline are stored then instead of lost at 180s.
+    backend = review_backend()
+    clock = Clock()
+    wall = {"at": after_request(60)}
+    poller = poller_for(
+        backend,
+        review=passing_failure("findings"),
+        clock=clock,
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
+        wall_clock=lambda: wall["at"](),
+    )
+
+    assert (await poller.run_once()).outcome == "held"
+    clock.now += 31.0
+    wall["at"] = after_request(150)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["summary"]
+    assert "findings" not in body
+
+
+async def test_a_fast_failure_does_not_plan_a_retry_that_cannot_finish() -> None:
+    # A rate limit comes back in a second. Planning the retry from that
+    # second would hold at 100s and let the retry run to its 60s timeout at
+    # 190s, past Backend's 180s; the plan uses the timeout, so it stores now.
+    backend = review_backend()
+    poller = poller_for(
+        backend,
+        review=passing_failure("timeline"),
+        retry_after_seconds=30,
+        review_deadline_seconds=180,
+        wall_clock=after_request(100),
+    )
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["summary"]
+    assert backend.put_bodies[0]["moments"] == []
+
+
+async def test_a_request_time_this_process_cannot_read_is_not_retried(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend = review_backend()
+    backend.jobs = [job(kind="REVIEW", requested_at="soon")]
+    poller = poller_for(backend, review=passing_failure("findings"))
+
+    with caplog.at_level(logging.WARNING, logger="irya_ai.prep_poller"):
+        done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert "stored without retry" in caplog.text
+    assert "since_request=?s" in caplog.text
+
+
+async def test_a_timeline_that_would_fail_again_does_not_cost_the_summary() -> None:
+    backend = review_backend()
+    agents = review_agents(timeline=FailingTimeline("LLM_REFUSED", retryable=False))
+    poller = poller_for(backend, review=agents)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["summary"]
+    assert body["moments"] == []
+
+
+async def test_a_summary_that_would_fail_again_is_stored_as_failed() -> None:
+    backend = review_backend()
+    agents = review_agents(
+        summarizer=FailingSummarizer("LLM_INVALID_OUTPUT", retryable=False)
+    )
+    poller = poller_for(backend, review=agents)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "failed"
+    assert body["summary"] == ""
+    assert body["keyPoints"] == []
+
+
+async def test_an_interview_with_no_utterances_is_stored_as_empty() -> None:
+    backend = review_backend(utterances=[])
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "empty"
+    assert backend.put_bodies[0]["moments"] == []
+
+
+async def test_utterances_that_do_not_fit_are_stored_as_a_failed_review() -> None:
+    rows = interview()
+    rows[1]["endMs"] = 0  # ends before it starts
+    backend = review_backend(utterances=rows)
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "failed"
+
+
+async def test_rows_without_a_track_or_seq_are_filled_not_failed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Rows saved before #158 come back with both columns empty.
+    rows = interview()
+    rows[0]["trackId"] = None
+    rows[1]["seq"] = None
+    backend = review_backend(utterances=rows)
+    poller = poller_for(backend, review=review_agents())
+
+    with caplog.at_level(logging.WARNING):
+        done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "completed"
+    assert "filled=2 of 2" in caplog.text
+
+
+def test_a_missing_seq_follows_backend_order_and_keeps_revisions_together() -> None:
+    rows = interview()
+    rows.append(dict(rows[1]))  # a second revision of the answer
+    for row in rows:
+        row["seq"] = None
+        row["trackId"] = None
+
+    snapshot = snapshot_from_response({"utterances": rows}, "ses_1")
+
+    assert [(u.utterance_id, u.seq) for u in snapshot.utterances] == [
+        ("utt_q1", 0),
+        ("utt_a1", 1),
+        ("utt_a1", 1),
+    ]
+    assert snapshot.utterances[0].track_id == "trk_interviewer"
+
+
+async def test_an_unexpected_review_failure_is_stored_once_with_its_real_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class Broken:
+        calls = 0
+
+        async def summarize(self, transcript):  # noqa: ANN001, ANN201
+            Broken.calls += 1
+            raise ValueError(QUOTE)
+
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents(summarizer=Broken()))
+
+    with caplog.at_level(logging.ERROR):
+        done = await poller.run_once()
+    again = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "failed"
+    assert again.outcome == "idle"
+    assert Broken.calls == 1
+    assert "ValueError" in caplog.text
+    assert "ExceptionGroup" not in caplog.text
+    assert QUOTE not in caplog.text
+
+
+async def test_utterance_columns_the_poller_does_not_read_are_ignored() -> None:
+    rows = [row | {"createdAt": "2026-10-06T00:00:00Z"} for row in interview()]
+    backend = review_backend(utterances=rows)
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert backend.put_bodies[0]["status"] == "completed"
+
+
+async def test_a_review_for_a_replaced_request_is_dropped() -> None:
+    backend = review_backend()
+    backend.put_status = 409
+    poller = poller_for(backend, review=review_agents())
+
+    done = await poller.run_once()
+
+    assert done.outcome == "outdated"
+    assert poller.holds == {}
+
+
+async def test_a_review_backend_refuses_holds_the_queue_for_the_long_wait() -> None:
+    backend = review_backend()
+    backend.put_status = 422
+    clock = Clock()
+    poller = poller_for(backend, review=review_agents(), clock=clock)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "held"
+    assert done.code == "BACKEND_CLIENT_ERROR"
+    assert poller.holds[("int_1", REQUESTED_AT)] == clock.now + poller.give_up_seconds
+
+
+async def test_findings_go_in_the_body_once_wired_and_read_the_context() -> None:
+    from irya_ai.schemas.analysis import Finding, FindingType
+
+    finding = Finding(
+        finding_id="fnd_1",
+        session_id="ses_1",
+        type=FindingType.GAP,
+        summary="성능 수치의 측정 방법을 설명하지 않았다.",
+    )
+    findings = FakeFindings(FakeFindingsResult("completed", [finding]))
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents(findings=findings))
+
+    await poller.run_once()
+
+    assert [f["findingId"] for f in backend.put_bodies[0]["findings"]] == ["fnd_1"]
+    assert findings.contexts[0].session_id == "ses_1"
+
+
+async def test_findings_that_failed_for_good_are_left_out_not_sent_empty() -> None:
+    findings = FakeFindings(
+        FakeFindingsResult(
+            "failed", error=AnalysisError(code="LLM_INVALID_OUTPUT", retryable=False)
+        )
+    )
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents(findings=findings))
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    assert "findings" not in backend.put_bodies[0]
+    # Left out, but reported: Backend tells this from "never ran" (#244).
+    assert backend.put_bodies[0]["findingsStatus"] == "failed"
+
+
+async def test_the_wired_findings_agent_puts_the_claims_it_finds_in_the_body() -> None:
+    # The real agents from build_agents(), not fakes: the extractive baseline
+    # reports a resume claim quoted word for word in a candidate answer.
+    backend = review_backend()
+    backend.contexts["ses_1"]["resumeClaims"] = [
+        {
+            "claimId": "clm_1",
+            "resumeId": "doc_1",
+            "quote": "Redis를 붙였습니다",
+            "section": "프로젝트",
+        }
+    ]
+    _, review, client = build_agents(Settings(_env_file=None))
+    assert client is None
+    poller = poller_for(backend, review=review)
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["model"] == "extractive-baseline"
+    assert [m["qaId"] for m in body["moments"]] == ["qa_utt_q1"]
+    assert [(f["type"], f["claimId"]) for f in body["findings"]] == [
+        ("CLAIM_VERIFIED", "clm_1")
+    ]
+    assert body["findings"][0]["evidenceQuote"] == "Redis를 붙였습니다"
+    assert body["findings"][0]["evidenceTMs"] == 6000
+
+
+class RaisingFindingsGenerator:
+    def __init__(self, code: str, *, retryable: bool) -> None:
+        self.code = code
+        self.retryable = retryable
+
+    async def generate(self, context, finals):  # noqa: ANN001, ANN201
+        raise FindingsError(self.code, retryable=self.retryable)
+
+
+async def test_a_findings_agent_that_fails_for_good_costs_the_others_nothing() -> None:
+    # Through the real FindingsAgent: a reply that will not parse is final,
+    # so the summary and timeline go out now, without a findings key. The
+    # context needs a claim, or the agent reports "empty" without a call.
+    backend = review_backend()
+    backend.contexts["ses_1"]["resumeClaims"] = [
+        {"claimId": "clm_1", "resumeId": "doc_1", "quote": "Kafka", "section": None}
+    ]
+    findings = FindingsAgent(
+        RaisingFindingsGenerator("LLM_INVALID_OUTPUT", retryable=False),
+        model="fake",
+    )
+    poller = poller_for(backend, review=review_agents(findings=findings))
+
+    done = await poller.run_once()
+
+    assert done.outcome == "stored"
+    body = backend.put_bodies[0]
+    assert body["status"] == "completed"
+    assert body["summary"]
+    assert [m["qaId"] for m in body["moments"]] == ["qa_utt_q1"]
+    assert "findings" not in body
+    assert body["findingsStatus"] == "failed"
+    assert poller.holds == {}
+
+
+async def test_a_review_log_names_counts_and_times_but_no_words(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend = review_backend()
+    poller = poller_for(backend, review=review_agents())
+
+    with caplog.at_level(logging.INFO, logger="irya_ai.prep_poller"):
+        await poller.run_once()
+
+    text = caplog.text
+    assert "review job interview=int_1" in text
+    assert "summary=completed" in text and "timeline=" in text
+    assert "agent=" in text and "total=" in text
+    assert "Redis" not in text and "캐시" not in text

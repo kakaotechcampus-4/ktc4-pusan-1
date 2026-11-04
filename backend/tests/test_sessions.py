@@ -23,6 +23,7 @@ def test_get_session(client: TestClient, session_id: str):
         "startedAt",
         "endedAt",
         "transcriptOriginAt",
+        "consent",
     }
     assert body["sessionId"] == session_id
     assert body["candidateName"] is None
@@ -31,6 +32,8 @@ def test_get_session(client: TestClient, session_id: str):
     assert body["endedAt"] is None
     # Webhook 이 오기 전까지는 비어 있다.
     assert body["transcriptOriginAt"] is None
+    # 아직 동의를 받지 않았다. 이 상태에서는 지원자가 입장하지 못한다 (#245).
+    assert body["consent"] is None
 
 
 def test_get_unknown_session(client: TestClient):
@@ -43,7 +46,9 @@ def test_get_unknown_session(client: TestClient):
 # ── 입장 ────────────────────────────────────────────────
 
 
-def test_join_returns_livekit_connection_info(client: TestClient, session_id: str):
+def test_join_returns_livekit_connection_info(
+    client: TestClient, session_id: str, consented: str
+):
     response = client.post(f"/api/v1/sessions/{session_id}/join", json={})
 
     assert response.status_code == 200
@@ -79,7 +84,9 @@ def test_join_returns_candidate_name(client: TestClient):
     assert response.json()["candidateName"] == "김지원"
 
 
-def test_join_defaults_to_candidate(client: TestClient, session_id: str):
+def test_join_defaults_to_candidate(
+    client: TestClient, session_id: str, consented: str
+):
     """명세 Request Body 예시가 CANDIDATE 다."""
     body = client.post(f"/api/v1/sessions/{session_id}/join", json={}).json()
     with_role = client.post(
@@ -106,7 +113,7 @@ def test_join_rejects_unknown_role(client: TestClient, session_id: str):
     assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-def test_join_is_repeatable(client: TestClient, session_id: str):
+def test_join_is_repeatable(client: TestClient, session_id: str, consented: str):
     """토큰은 접속 시점에만 검증되므로 재입장은 다시 발급받으면 된다."""
     path = f"/api/v1/sessions/{session_id}/join"
 
@@ -115,7 +122,7 @@ def test_join_is_repeatable(client: TestClient, session_id: str):
 
 
 def test_join_rejected_when_room_is_full(
-    client: TestClient, session_id: str, media: FakeMedia
+    client: TestClient, session_id: str, consented: str, media: FakeMedia
 ):
     media.participants = 2
 
@@ -136,6 +143,95 @@ def test_join_rejected_after_end(client: TestClient, session_id: str):
 
 def test_join_unknown_session(client: TestClient):
     response = client.post("/api/v1/sessions/ses_nope/join", json={})
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SESSION_NOT_FOUND"
+
+
+# ── 지원자 동의 (#245) ──────────────────────────────────
+
+
+def test_candidate_cannot_join_without_consent(client: TestClient, session_id: str):
+    """화면이 아니라 서버가 막는다 — 지원자 입장은 로그인이 없어 누구나 부를 수 있다."""
+    response = client.post(f"/api/v1/sessions/{session_id}/join", json={})
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "CONSENT_REQUIRED"
+
+
+def test_interviewer_joins_without_consent(client: TestClient, session_id: str):
+    """동의는 지원자에게 받는 것이다. 면접관까지 막으면 아무도 면접을 열 수 없다."""
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/join", json={"role": "INTERVIEWER"}
+    )
+
+    assert response.status_code == 200
+
+
+def test_candidate_joins_after_consent(client: TestClient, session_id: str):
+    agreed = client.post(
+        f"/api/v1/sessions/{session_id}/consent", json={"version": "2026-10-30"}
+    )
+
+    assert agreed.status_code == 200
+    assert set(agreed.json()) == {"agreedAt", "version"}
+    assert agreed.json()["version"] == "2026-10-30"
+    assert (
+        client.post(f"/api/v1/sessions/{session_id}/join", json={}).status_code == 200
+    )
+
+
+def test_consent_keeps_the_first_record(client: TestClient, session_id: str):
+    """재입장 때도 동의 화면을 지나간다.
+
+    뒤에 온 요청이 시각 · 문구 판을 바꾸면 안 된다.
+    """
+    first = client.post(
+        f"/api/v1/sessions/{session_id}/consent", json={"version": "2026-10-30"}
+    ).json()
+
+    again = client.post(
+        f"/api/v1/sessions/{session_id}/consent", json={"version": "2026-11-01"}
+    )
+
+    assert again.status_code == 200
+    assert again.json() == first
+
+
+def test_consent_shows_up_in_session_state(client: TestClient, session_id: str):
+    """면접관 화면이 이 값으로 동의 여부를 표시한다."""
+    agreed = client.post(
+        f"/api/v1/sessions/{session_id}/consent", json={"version": "2026-10-30"}
+    ).json()
+
+    state = client.get(f"/api/v1/sessions/{session_id}").json()
+
+    assert state["consent"] == agreed
+
+
+def test_consent_needs_a_version(client: TestClient, session_id: str):
+    """어떤 문구에 동의받았는지를 모르면 기록이 아니다."""
+    assert (
+        client.post(f"/api/v1/sessions/{session_id}/consent", json={}).status_code
+        == 422
+    )
+
+
+def test_consent_rejected_after_end(client: TestClient, session_id: str):
+    client.post(f"/api/v1/sessions/{session_id}/end")
+
+    response = client.post(
+        f"/api/v1/sessions/{session_id}/consent", json={"version": "2026-10-30"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SESSION_ENDED"
+
+
+def test_consent_on_unknown_session(client: TestClient):
+    response = client.post(
+        "/api/v1/sessions/ses_nope/consent", json={"version": "2026-10-30"}
+    )
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "SESSION_NOT_FOUND"

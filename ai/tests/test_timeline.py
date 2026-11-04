@@ -9,6 +9,7 @@ from pydantic import TypeAdapter
 
 from irya_ai.pipeline.qa_segmentation import segment_qa
 from irya_ai.schemas import (
+    LlmUsage,
     MomentCitationDraft,
     MomentDraft,
     QAPair,
@@ -377,6 +378,29 @@ async def test_agent_maps_generator_errors_and_timeouts(
     timed_out = await ReviewTimelineAgent(Slow(), timeout_seconds=0.01).run(snapshot)
     assert timed_out.status == "failed"
     assert timed_out.error.code == "LLM_TIMEOUT"
+
+
+async def test_a_call_that_fails_after_answering_still_reports_its_usage(
+    snapshot: TranscriptSnapshot,
+) -> None:
+    class AnsweredThenRejected:
+        last_usage = None
+        last_model = ""
+
+        async def generate(self, pairs, sources):
+            self.last_usage = LlmUsage(prompt_tokens=4321, completion_tokens=300)
+            self.last_model = "served-model"
+            raise TimelineError("LLM_INCOMPLETE_OUTPUT", retryable=True)
+
+    result = await ReviewTimelineAgent(AnsweredThenRejected()).run(snapshot)
+
+    assert result.status == "failed"
+    assert result.error is not None
+    assert result.error.code == "LLM_INCOMPLETE_OUTPUT"
+    assert result.usage is not None
+    assert result.usage.prompt_tokens == 4321
+    assert result.usage.completion_tokens == 300
+    assert result.model == "served-model"
 
 
 async def test_agent_empty_when_no_answered_question() -> None:

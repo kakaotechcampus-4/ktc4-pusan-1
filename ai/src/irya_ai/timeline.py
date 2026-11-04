@@ -319,22 +319,13 @@ class ReviewTimelineAgent:
             async with asyncio.timeout(self.timeout_seconds):
                 draft = await self.generator.generate(selected, sources)
         except TimeoutError:
-            result.status = "failed"
-            result.error = AnalysisError(code="LLM_TIMEOUT", retryable=True)
-            result.elapsed_ms = round((perf_counter() - started) * 1000)
-            return result
+            return self._failed(result, "LLM_TIMEOUT", retryable=True, started=started)
         except TimelineError as exc:
-            result.status = "failed"
-            result.error = AnalysisError(code=exc.code, retryable=exc.retryable)
-            result.elapsed_ms = round((perf_counter() - started) * 1000)
-            return result
+            return self._failed(
+                result, exc.code, retryable=exc.retryable, started=started
+            )
 
-        usage = getattr(self.generator, "last_usage", None)
-        if isinstance(usage, LlmUsage):
-            result.usage = usage
-        served_model = getattr(self.generator, "last_model", None)
-        if served_model:
-            result.model = served_model
+        self._record_call(result)
 
         moments, rejections = build_timeline(
             snapshot, selected, draft, model=result.model
@@ -353,5 +344,30 @@ class ReviewTimelineAgent:
             result.status = "completed"
         if moments and len(moments) < MIN_MOMENTS_WARNING:
             result.warnings.append("FEWER_THAN_FIVE_MOMENTS")
+        result.elapsed_ms = round((perf_counter() - started) * 1000)
+        return result
+
+    def _record_call(self, result: TimelineResult) -> None:
+        """Copy what the generator reports about its last call onto ``result``."""
+
+        usage = getattr(self.generator, "last_usage", None)
+        if isinstance(usage, LlmUsage):
+            result.usage = usage
+        served_model = getattr(self.generator, "last_model", None)
+        if served_model:
+            result.model = served_model
+
+    def _failed(
+        self,
+        result: TimelineResult,
+        code: str,
+        *,
+        retryable: bool,
+        started: float,
+    ) -> TimelineResult:
+        # A call that came back but could not be used was still paid for.
+        self._record_call(result)
+        result.status = "failed"
+        result.error = AnalysisError(code=code, retryable=retryable)
         result.elapsed_ms = round((perf_counter() - started) * 1000)
         return result

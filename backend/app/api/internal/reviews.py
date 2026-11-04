@@ -48,19 +48,51 @@ def put_review(session_id: SessionIdPath, body: ReviewUpsert, store: StoreDep) -
     # 자리가 없으면 만든다. 종료를 안 거친 세션이나 이 기능이 붙기 전에 끝난
     # 세션이라도, 결과가 왔는데 버리는 것보다 받는 편이 낫다.
     summary = store.ensure_summary(SessionSummary(session_id=session_id))
+    moments = [m.model_dump(by_alias=True, mode="json") for m in body.moments]
+    findings = (
+        None
+        if body.findings is None
+        else [f.model_dump(by_alias=True, mode="json") for f in body.findings]
+    )
+    # findings 만 실패했으면 목록은 없고 실패 보고만 온다. 빈 목록과 다르다 (#244).
+    findings_failed = findings is None and body.findings_status == "failed"
     if body.status in SHOWABLE:
         # 성공은 덮어쓴다 — 다시 돌린 분석이 반영되고, 늦게 온 결과가 FAILED 를 살린다.
-        summary.complete(body.summary, body.key_points)
+        summary.complete(
+            body.summary,
+            body.key_points,
+            moments=moments,
+            findings=findings,
+            findings_failed=findings_failed,
+            model=body.model,
+        )
         store.save_summary(summary)
-    elif store.fail_summary(session_id):
-        summary.give_up()
+    elif store.fail_summary(
+        session_id,
+        moments=moments,
+        findings=findings,
+        findings_failed=findings_failed,
+        model=body.model,
+    ):
+        # 요약만 실패했다. 타임라인 · findings 는 받아 둔다 (#164).
+        summary.give_up(
+            moments=moments,
+            findings=findings,
+            findings_failed=findings_failed,
+            model=body.model,
+        )
     # 그 밖은 이미 READY 다. 실패 한 번으로 성공한 요약을 지우지 않는다 (#132).
 
     # 요약 본문은 남기지 않는다. 면접 내용이 그대로 로그에 쌓인다.
     logger.info(
-        "최종 리뷰 수신 session_id=%s agent_status=%s → %s 핵심=%d개",
+        "최종 리뷰 수신 session_id=%s agent_status=%s → %s 핵심=%d개 "
+        "타임라인=%d개 findings=%s(%s) model=%s",
         session_id,
         body.status,
         summary.status.value,
         len(summary.key_points),
+        len(summary.moments),
+        "유지" if findings is None else len(findings),
+        summary.findings_status,
+        body.model,
     )

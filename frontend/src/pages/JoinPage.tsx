@@ -11,12 +11,20 @@
  */
 
 import { useMutation } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { useParams } from 'react-router-dom';
 import { joinSession, toJoinFailure } from '../api/interview';
+import deviceCheckImg from '../assets/illustrations/device-check.webp';
+import { buttonClass } from '../components/ui/buttonClass';
+import { Logo } from '../components/ui/Logo';
 import type { JoinFailure, JoinSessionResponse, Role } from '../types/interview';
 
 const FAILURE_MESSAGE: Record<JoinFailure, string> = {
   'not-found': '유효하지 않은 링크입니다. 면접관에게 링크를 다시 요청해주세요.',
+  // 동의 화면을 지나야 여기까지 오므로 거의 닿지 않는다. 닿았다면 동의가 저장되지
+  // 않은 것이라 다시 받아야 한다 — 서버가 동의 없이는 들여보내지 않는다 (#245).
+  'consent-required':
+    '녹화 · 전사 · 분석 동의가 저장되지 않았습니다. 받으신 링크를 다시 열어 동의해주세요.',
   // 다시 눌러도 같다 — 계정을 바꾸거나 지원자로 들어와야 한다.
   'not-allowed':
     '이 면접의 면접관만 면접관으로 입장할 수 있습니다. 로그인한 계정을 확인해주세요. 지원자라면 받으신 초대 링크로 들어와주세요.',
@@ -53,45 +61,62 @@ export default function JoinPage({ role, onJoined }: JoinPageProps) {
   // 링크에 sessionId 가 없으면 입장 자체가 불가능하다.
   if (!sessionId) {
     return (
-      <div className="flex min-h-full items-center justify-center bg-[#0B0E14] p-8">
-        <div className="w-full max-w-md text-center">
-          <h1 className="text-2xl font-semibold text-white">유효하지 않은 링크입니다</h1>
-          <p className="mt-3 text-[15px] leading-relaxed text-white/60">
-            면접관에게 받은 초대 링크를 그대로 열어주세요.
-          </p>
-        </div>
-      </div>
+      <Frame>
+        <h1 className="text-ink text-[24px] font-bold">유효하지 않은 링크입니다</h1>
+        <p className="text-ink-muted mt-2 text-[15px] leading-relaxed">
+          면접관에게 받은 초대 링크를 그대로 열어주세요.
+        </p>
+      </Frame>
     );
   }
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-[#0B0E14] p-8">
-      <div className="w-full max-w-md">
-        <Link to="/" className="mb-6 inline-flex text-sm text-white/55 hover:text-white">
-          ← 처음으로
-        </Link>
-        <h1 className="text-2xl font-semibold text-white">면접 입장</h1>
-        <p className="mt-2 text-[15px] leading-relaxed text-white/60">
-          입장하면 카메라와 마이크 사용 권한을 요청합니다.
-        </p>
+    <Frame>
+      <img
+        src={deviceCheckImg}
+        alt=""
+        width={1200}
+        height={800}
+        className="mx-auto -mt-2 mb-2 w-full max-w-[320px]"
+      />
+      <h1 className="text-ink text-[24px] font-bold tracking-tight">
+        {role === 'INTERVIEWER' ? '면접관으로 입장합니다' : '화상 면접에 입장합니다'}
+      </h1>
+      <p className="text-ink-muted mt-2 text-[15px] leading-relaxed">
+        입장하면 카메라와 마이크 사용 권한을 요청합니다. 다음 화면에서 기기를 점검한 뒤 면접방에
+        들어갑니다.
+      </p>
 
-        <div aria-live="polite" className="mt-6 min-h-[24px]">
-          {failure && <p className="text-sm text-[#FF8A8A]">{FAILURE_MESSAGE[failure]}</p>}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => join.mutate()}
-          disabled={join.isPending}
-          className="mt-2 w-full rounded-lg bg-[#2B44D6] py-3.5 text-[15px] font-medium text-white transition hover:bg-[#243AB8] disabled:bg-white/10 disabled:text-white/35"
-        >
-          {join.isPending ? '입장하는 중…' : '입장'}
-        </button>
-
-        <p className="mt-6 text-center font-mono text-[12px] break-all text-white/25">
-          {sessionId}
-        </p>
+      <div aria-live="polite" className="mt-5 min-h-[24px]">
+        {failure && (
+          <p className="bg-danger-tint text-danger rounded-xl px-4 py-3 text-left text-[14px]">
+            {FAILURE_MESSAGE[failure]}
+          </p>
+        )}
       </div>
+
+      <button
+        type="button"
+        onClick={() => join.mutate()}
+        disabled={join.isPending}
+        className={`${buttonClass('primary', 'lg')} mt-2 w-full`}
+      >
+        {join.isPending ? '입장하는 중…' : '입장하기'}
+      </button>
+
+      <p className="text-ink-dim mt-6 font-mono text-[12px] break-all">{sessionId}</p>
+    </Frame>
+  );
+}
+
+/** 로그인 없이 여는 화면이라 앱 틀 없이 가운데 카드 하나로 그린다. */
+function Frame({ children }: { children: ReactNode }) {
+  return (
+    <div className="from-brand-tint via-surface flex min-h-full flex-col items-center justify-center gap-6 bg-gradient-to-b to-[#effbf8] p-5">
+      <Logo />
+      <main className="border-border-base bg-surface-panel shadow-card w-full max-w-md rounded-3xl border p-7 text-center sm:p-8">
+        {children}
+      </main>
     </div>
   );
 }

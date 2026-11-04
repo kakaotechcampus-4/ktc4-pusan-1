@@ -7,6 +7,7 @@
 라우터는 MediaGateway 프로토콜에만 의존한다 — 테스트에서 LiveKit 없이 돌리기 위해서다.
 """
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -69,6 +70,12 @@ class MediaGateway(Protocol):
 
     async def list_egress(self, room: str) -> list[api.EgressInfo]:
         """그 방의 녹화 전부. 끝난 것은 LiveKit 이 24시간 들고 있다."""
+        ...
+
+    async def send_data(
+        self, room: str, data: bytes, *, topic: str, to: list[str]
+    ) -> None:
+        """방 안의 `to`(identity) 에게만 데이터 패킷을 보낸다 (#212)."""
         ...
 
 
@@ -198,6 +205,30 @@ class LiveKitGateway:
                 api.ListEgressRequest(room_name=room)
             )
             return list(result.items)
+        finally:
+            await client.aclose()
+
+    async def send_data(
+        self, room: str, data: bytes, *, topic: str, to: list[str]
+    ) -> None:
+        """RoomService `SendData` — 서버가 보내므로 토큰의 canPublishData 와 무관하다.
+
+        RELIABLE 로 보낸다. 꼬리질문 하나를 잃으면 다시 오지 않는다.
+        """
+        client = self._client()
+        try:
+            await asyncio.wait_for(
+                client.room.send_data(
+                    api.SendDataRequest(
+                        room=room,
+                        data=data,
+                        kind=api.DataPacket.Kind.RELIABLE,
+                        destination_identities=to,
+                        topic=topic,
+                    )
+                ),
+                timeout=3,
+            )
         finally:
             await client.aclose()
 
