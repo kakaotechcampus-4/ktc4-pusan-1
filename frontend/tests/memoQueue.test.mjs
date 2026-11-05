@@ -190,3 +190,40 @@ test('같은 면접으로 돌아와도 저장 중인 새 입력을 옛 탭 초�
   finish();
   await pending;
 });
+
+test('서버가 초안 기준값과 같으면 복구 후 자동저장과 다음 입력 저장을 재개한다', async () => {
+  const calls = [];
+  const queue = createMemoQueue(async (id, memo, expectedMemo) => {
+    calls.push({ memo, expectedMemo });
+  });
+  queue.hydrate('a', '원문');
+  queue.restoreDraft('a', '복구한 입력', '원문');
+  await new Promise((resolve) => setTimeout(resolve, 850));
+  assert.equal(queue.read('a').state, 'saved');
+  queue.edit('a', '다음 입력');
+  await queue.flush('a');
+  assert.deepEqual(calls, [
+    { memo: '복구한 입력', expectedMemo: '원문' },
+    { memo: '다음 입력', expectedMemo: '복구한 입력' },
+  ]);
+  queue.clear();
+});
+
+test('서버가 초안 기준값에서 바뀌었을 때만 복구한 입력을 충돌로 보존한다', async () => {
+  const queue = createMemoQueue(async () => assert.fail('충돌 초안은 자동저장하면 안 된다'));
+  queue.hydrate('a', '다른 탭의 입력');
+  queue.restoreDraft('a', '내 초안', '원문');
+  await queue.flush('a');
+  assert.equal(queue.read('a').state, 'conflict');
+  assert.equal(queue.read('a').memo, '내 초안');
+  queue.clear();
+});
+
+test('이미 서버에 저장된 초안은 충돌이나 재저장 없이 정리한다', () => {
+  const queue = createMemoQueue(async () => assert.fail('이미 저장된 초안이다'));
+  queue.hydrate('a', '저장된 초안');
+  queue.restoreDraft('a', '저장된 초안', '옛 원문');
+  assert.equal(queue.read('a').version, queue.read('a').saved);
+  assert.notEqual(queue.read('a').state, 'conflict');
+  queue.clear();
+});

@@ -102,17 +102,24 @@ export function createMemoQueue<T>(
         );
       emit();
     },
-    restoreDraft(id: string, memo: string) {
+    restoreDraft(id: string, memo: string, baseline?: string) {
       const current = read(id);
-      if (current.version !== current.saved) return;
+      if (!current.hydrated || current.version !== current.saved || current.memo === memo) return;
+      const conflict = baseline === undefined || baseline !== current.baseline;
       clearTimeout(timers.get(id));
       drafts.set(id, {
         ...current,
         memo,
+        baseline: baseline ?? current.baseline,
         version: current.version + 1,
-        state: 'conflict',
+        state: conflict ? 'conflict' : 'idle',
         serverMemo: undefined,
       });
+      if (!conflict)
+        timers.set(
+          id,
+          setTimeout(() => void flush(id), 800),
+        );
       emit();
     },
     reviewConflict(id: string, serverMemo: string) {

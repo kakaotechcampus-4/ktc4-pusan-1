@@ -3,7 +3,7 @@ import { updateReview } from '../api/review';
 import { getInterview } from '../api/interview';
 import { readAccessToken } from '../lib/authToken';
 import { createMemoQueue } from '../lib/memoQueue';
-import { clearMemoDrafts } from '../lib/memoDraft';
+import { clearMemoDrafts, memoDraftKey, readMemoDraft, writeMemoDraft } from '../lib/memoDraft';
 import { queryClient } from '../lib/queryClient';
 import type { Review, ReviewUpdateResponse } from '../types/interview';
 
@@ -49,10 +49,12 @@ if (typeof window !== 'undefined') {
 
 export function useMemoAutosave({
   interviewId,
+  ownerId,
   initial,
   onSaved,
 }: {
   interviewId: string | null;
+  ownerId?: string;
   initial?: string;
   onSaved?: (saved: ReviewUpdateResponse) => void;
 }) {
@@ -61,6 +63,8 @@ export function useMemoAutosave({
   );
   const callback = useRef(onSaved);
   const notified = useRef<string | null>(null);
+  const restored = useRef<string | null>(null);
+  const draftKey = ownerId && interviewId ? memoDraftKey(ownerId, interviewId) : null;
   useEffect(() => {
     callback.current = onSaved;
   });
@@ -72,8 +76,27 @@ export function useMemoAutosave({
     }
   }, [interviewId, draft.state, draft.saved, draft.result]);
   useEffect(() => {
-    if (interviewId && initial !== undefined) queue.hydrate(interviewId, initial);
-  }, [interviewId, initial]);
+    if (!interviewId || initial === undefined) return;
+    queue.hydrate(interviewId, initial);
+    if (draftKey && restored.current !== draftKey) {
+      restored.current = draftKey;
+      const stored = readMemoDraft(draftKey);
+      if (stored) queue.restoreDraft(interviewId, stored.memo, stored.baseline);
+    }
+  }, [interviewId, initial, draftKey]);
+  useEffect(() => {
+    if (!interviewId || !draftKey || !draft.hydrated || restored.current !== draftKey) return;
+    // 복구 직전 렌더의 값으로 복구된 초안을 덮지 않는다.
+    if (queue.read(interviewId) !== draft) return;
+    if (draft.version !== draft.saved) {
+      const stored = readMemoDraft(draftKey);
+      writeMemoDraft(draftKey, {
+        memo: draft.memo,
+        baseline:
+          draft.state === 'conflict' && stored?.baseline === undefined ? undefined : draft.baseline,
+      });
+    } else if (readMemoDraft(draftKey)?.memo === draft.memo) writeMemoDraft(draftKey, null);
+  }, [interviewId, draftKey, draft]);
   useEffect(
     () => () => {
       if (interviewId) void queue.flush(interviewId);
@@ -81,9 +104,6 @@ export function useMemoAutosave({
     [interviewId],
   );
   return {
-    restoreDraft: (memo: string) => {
-      if (interviewId) queue.restoreDraft(interviewId, memo);
-    },
     serverMemo: draft.serverMemo,
     readConflict: async () => {
       if (!interviewId) return;
@@ -92,12 +112,33 @@ export function useMemoAutosave({
       if (typeof current.memo !== 'string') throw new Error('메모를 읽지 못했습니다.');
       if (token === readAccessToken()) queue.reviewConflict(interviewId, current.memo);
     },
-    reapply: () => (interviewId ? queue.reapply(interviewId) : Promise.resolve()),
+    reapply: async () => {
+      if (!interviewId) return;
+      const token = readAccessToken();
+      const current = await getInterview(interviewId);
+      if (token !== readAccessToken()) throw new Error('로그인 상태가 바뀌었습니다.');
+      if (typeof current.memo !== 'string') throw new Error('메모를 읽지 못했습니다.');
+      queue.reviewConflict(interviewId, current.memo);
+      await queue.reapply(interviewId);
+      if (queue.read(interviewId).state !== 'saved') throw new Error('메모를 저장하지 못했습니다.');
+    },
     memo: draft.memo,
     hydrated: draft.hydrated,
     state: draft.state,
     setMemo: (value: string) => {
-      if (interviewId) queue.edit(interviewId, value);
+      if (!interviewId) return;
+      queue.edit(interviewId, value);
+      if (draftKey) {
+        const current = queue.read(interviewId);
+        const stored = readMemoDraft(draftKey);
+        writeMemoDraft(draftKey, {
+          memo: current.memo,
+          baseline:
+            current.state === 'conflict' && stored?.baseline === undefined
+              ? undefined
+              : current.baseline,
+        });
+      }
     },
     flush: () => (interviewId ? queue.flush(interviewId) : Promise.resolve()),
   };
