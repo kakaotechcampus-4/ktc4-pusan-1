@@ -31,6 +31,7 @@ import { ReviewNotes } from '../components/review/ReviewNotes';
 import { ReviewPlayer } from '../components/review/ReviewPlayer';
 import { ReviewStatusBar } from '../components/review/ReviewStatusBar';
 import { Timeline } from '../components/review/Timeline';
+import { ReportPanel } from '../components/review/ReportPanel';
 import { useRecordingPlayer } from '../hooks/useRecordingPlayer';
 import { FALLBACK_CANDIDATE } from '../lib/candidateName';
 import { Badge } from '../components/ui/Badge';
@@ -44,7 +45,7 @@ import type { MarkUpdate, Moment, Review, ReviewResponse } from '../types/interv
 type Tab = 'record' | 'ai' | 'memo';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'record', label: '영상 · 문답' },
-  { id: 'ai', label: 'AI 검토' },
+  { id: 'ai', label: '면접 요약' },
   { id: 'memo', label: '메모' },
 ];
 
@@ -258,6 +259,10 @@ export default function ReviewTimelinePage() {
           onDeleted={() => void navigate('/candidates')}
         />
       </header>
+
+      <div className="mt-4">
+        <ReportPanel interviewId={interviewId!} compact />
+      </div>
 
       {/* 이 화면이 무엇을 하는 곳인지 먼저 적는다 — 시안의 첫 줄이다. */}
       <p className="text-ink-muted mt-3 text-[13px] leading-relaxed">

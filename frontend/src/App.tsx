@@ -50,6 +50,7 @@ const InterviewRoom = lazy(() => import('./pages/InterviewRoom'));
 const InterviewListPage = lazy(() => import('./pages/InterviewListPage'));
 const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
 const ReviewTimelinePage = lazy(() => import('./pages/ReviewTimelinePage'));
+const InterviewReportPage = lazy(() => import('./pages/InterviewReportPage'));
 const TermsPage = lazy(() => import('./pages/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 
@@ -316,6 +317,14 @@ export default function App() {
             <Suspense fallback={<ChunkFallback />}>
               <ReviewTimelinePage />
             </Suspense>
+          </InterviewerPage>
+        }
+      />
+      <Route
+        path="/report/:interviewId"
+        element={
+          <InterviewerPage>
+            <InterviewReportPage />
           </InterviewerPage>
         }
       />
