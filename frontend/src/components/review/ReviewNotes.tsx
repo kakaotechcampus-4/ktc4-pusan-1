@@ -5,17 +5,20 @@ import type { ReviewUpdateResponse } from '../../types/interview';
 
 export interface ReviewNotesProps {
   interviewId: string;
+  ownerId?: string;
   memo: string;
   onSaved?: (saved: ReviewUpdateResponse) => void;
 }
 
-export function ReviewNotes({ interviewId, memo: initial, onSaved }: ReviewNotesProps) {
+export function ReviewNotes({ interviewId, ownerId, memo: initial, onSaved }: ReviewNotesProps) {
   const id = useId();
-  const { memo, setMemo, state, flush, serverMemo, readConflict, reapply } = useMemoAutosave({
-    interviewId,
-    initial,
-    onSaved,
-  });
+  const { memo, setMemo, state, flush, hydrated, serverMemo, readConflict, reapply } =
+    useMemoAutosave({
+      interviewId,
+      ownerId,
+      initial,
+      onSaved,
+    });
   return (
     <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-5">
       <div className="flex items-center justify-between gap-3">
@@ -41,6 +44,7 @@ export function ReviewNotes({ interviewId, memo: initial, onSaved }: ReviewNotes
         id={id}
         rows={4}
         maxLength={MEMO_MAX}
+        disabled={!ownerId || !hydrated}
         value={memo}
         onChange={(event) => setMemo(event.target.value)}
         onBlur={() => void flush()}
