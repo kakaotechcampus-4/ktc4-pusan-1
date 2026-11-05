@@ -79,6 +79,10 @@ export default function InterviewListPage() {
   const [copyText, setCopyText] = useState<string | null>(null);
   const [exportRange, setExportRange] = useState('filtered');
   const [exportProgress, setExportProgress] = useState<string | null>(null);
+  const selectRows = (next: Set<string> | ((previous: Set<string>) => Set<string>)) => {
+    setSelection(next);
+    setExportRange('selected');
+  };
   const scrollContainer = useRef<HTMLDivElement>(null);
   const anchor = useRef<string | null>(null);
   const resizeCleanup = useRef<(() => void) | null>(null);
@@ -114,7 +118,7 @@ export default function InterviewListPage() {
   };
   const selectOne = (id: string, shift: boolean) => {
     const checked = !selection.has(id);
-    setSelection(
+    selectRows(
       shift
         ? rangeSelection(
             filtered.map((item) => item.interviewId),
@@ -251,10 +255,26 @@ export default function InterviewListPage() {
   };
   const exportRows =
     exportRange === 'all' ? items : exportRange === 'selected' ? selected : filtered;
+  const confirmExport = () => {
+    const rows = [...exportRows];
+    const range =
+      exportRange === 'all'
+        ? '전체 지원자'
+        : exportRange === 'selected'
+          ? '선택한 지원자'
+          : '필터 결과';
+    return rows.length &&
+      window.confirm(`${range} ${rows.length}건의 면접 정보를 파일로 내보냅니다. 계속할까요?`)
+      ? rows
+      : null;
+  };
   const exportCsv = async () => {
+    if (exportProgress !== null) return;
+    const targets = confirmExport();
+    if (!targets) return;
     setExportProgress('자료 확인 중');
     try {
-      const rows = await readSavedRows(exportRows);
+      const rows = await readSavedRows(targets);
       saveDownload(
         new Blob(['\uFEFF', textTable(rows, ',')], { type: 'text/csv;charset=utf-8' }),
         'IRYA_면접목록.csv',
@@ -267,16 +287,19 @@ export default function InterviewListPage() {
     }
   };
   const exportXlsx = async () => {
+    if (exportProgress !== null) return;
+    const targets = confirmExport();
+    if (!targets) return;
     setExportProgress('자료 확인 중');
     setNotice(null);
     try {
       const { candidateExport } = await import('../lib/candidateExport');
-      const rows = await readSavedRows(exportRows);
+      const rows = await readSavedRows(targets);
       const blob = await candidateExport(rows, (done, total) =>
         setExportProgress(`${done}/${total}건 확인`),
       );
       saveDownload(blob, 'IRYA_면접기록.xlsx');
-      setNotice(`${exportRows.length}건을 내보냈습니다.`);
+      setNotice(`${targets.length}건을 내보냈습니다.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '내보내기에 실패했습니다.');
     } finally {
@@ -324,7 +347,7 @@ export default function InterviewListPage() {
             interviewId={item.interviewId}
             candidateName={item.candidateName || '이름 없는 지원자'}
             onDeleted={() => {
-              setSelection(
+              selectRows(
                 (previous) => new Set([...previous].filter((id) => id !== item.interviewId)),
               );
               if (expanded === item.interviewId) {
@@ -516,14 +539,14 @@ export default function InterviewListPage() {
           </button>
           <button
             type="button"
-            onClick={() => setSelection(new Set(filtered.map((item) => item.interviewId)))}
+            onClick={() => selectRows(new Set(filtered.map((item) => item.interviewId)))}
             className="rounded px-2 py-1 underline"
           >
             검색 결과 {filtered.length}건 모두 선택
           </button>
           <button
             type="button"
-            onClick={() => setSelection(new Set())}
+            onClick={() => selectRows(new Set())}
             className="rounded px-2 py-1 underline"
           >
             선택 취소
@@ -592,7 +615,7 @@ export default function InterviewListPage() {
                         pageItems.every((item) => selection.has(item.interviewId))
                       }
                       onChange={(event) =>
-                        setSelection((old) => {
+                        selectRows((old) => {
                           const next = new Set(old);
                           for (const item of pageItems) {
                             if (event.target.checked) next.add(item.interviewId);
