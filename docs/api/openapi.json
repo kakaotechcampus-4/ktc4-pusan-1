@@ -1487,6 +1487,19 @@
       "ReviewUpdateRequest": {
         "description": "`PATCH /interviews/{interviewId}` — 검토 상태 · 메모 (#137 1-3). 둘 다 선택이다.\n\nnull 은 보내지 않은 것과 같다. 메모를 비우려면 빈 문자열을 보낸다. 길이와 NUL 은\n경계에서 막는다 — PostgreSQL TEXT 는 NUL 을 못 넣어 500 이 된다.",
         "properties": {
+          "expectedMemo": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "pattern": "^[^\\x00]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expectedmemo"
+          },
           "memo": {
             "anyOf": [
               {
@@ -2788,6 +2801,16 @@
               }
             },
             "description": "면접을 찾을 수 없음 (남의 면접 포함)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "메모가 다른 창에서 변경됨"
           },
           "422": {
             "content": {

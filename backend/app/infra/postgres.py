@@ -117,7 +117,12 @@ class PostgresStore:
         return None if row is None else self._to_interview(row)
 
     def update_review(
-        self, interview_id: str, status: ReviewStatus | None, memo: str | None
+        self,
+        interview_id: str,
+        status: ReviewStatus | None,
+        memo: str | None,
+        *,
+        expected_memo: str | None = None,
     ) -> Interview | None:
         """`Interview.update_review` 의 규칙을 한 문장으로 옮긴 것이다.
 
@@ -136,11 +141,13 @@ class PostgresStore:
                    END,
                    review_status = COALESCE(%(status)s::text, review_status)
              WHERE id = %(id)s
+               AND (%(expected_memo)s::text IS NULL OR memo = %(expected_memo)s)
          RETURNING id, interviewer_id, candidate_name, created_at,
                    review_status, memo, reviewed_at
             """,
             {
                 "memo": memo,
+                "expected_memo": expected_memo,
                 "status": None if status is None else status.value,
                 "confirmed": ReviewStatus.CONFIRMED.value,
                 "now": utcnow(),

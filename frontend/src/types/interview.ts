@@ -39,6 +39,13 @@ export interface Interview {
   /** 면접관 화면에 표시할 지원자 이름 */
   candidateName: string | null;
   createdAt: string;
+  memo?: string;
+  reviewStatus?: ReviewStatus;
+  reviewedAt?: string | null;
+  latestSession?: Pick<
+    CreateSessionResponse,
+    'sessionId' | 'status' | 'inviteUrl' | 'createdAt'
+  > | null;
 }
 
 /**
@@ -111,15 +118,10 @@ export interface StartSessionResponse {
   startedAt: string;
 }
 
-/**
- * 지원자가 녹화 · 전사 · 분석에 동의한 기록 (#245).
- *
- * `version` 은 그때 **실제로 보여 준** 문구의 판이다(`lib/consent.ts`). 시각만
- * 남기면 나중에 무엇에 동의받았는지 답할 수 없다.
- */
+/** 두 동의 PR의 응답을 화면에서 같은 형태로 읽는다. #255 상태 조회에는 버전이 없다. */
 export interface Consent {
   agreedAt: string;
-  version: string;
+  version: string | null;
 }
 
 /** GET /api/v1/sessions/{sessionId} — 새로고침·재접속 시 상태 복구용 */
@@ -130,8 +132,8 @@ export interface SessionState {
   status: SessionStatus;
   startedAt: string | null;
   endedAt: string | null;
-  /** 아직 동의를 안 받았으면 null. 그 상태에서는 지원자가 입장하지 못한다 */
-  consent: Consent | null;
+  consent?: Consent | null;
+  consentedAt?: string | null;
 }
 
 /**
@@ -320,6 +322,7 @@ export type ReviewResponse =
 
 /** PATCH /api/v1/interviews/{interviewId} — 보낸 것만 바뀐다 (#137 1-3) */
 export interface ReviewUpdate {
+  expectedMemo?: string;
   reviewStatus?: ReviewStatus;
   /** 최대 4000자. 비우려면 빈 문자열 */
   memo?: string;
@@ -396,12 +399,6 @@ export interface JoinSessionResponse {
 export type JoinFailure =
   /** 존재하지 않는 세션 */
   | 'not-found'
-  /**
-   * 지원자가 아직 녹화 · 전사 · 분석에 동의하지 않았다 (#245).
-   *
-   * 화면 순서상 닿기 어렵다 — 동의 화면을 지나야 입장을 부른다. 동의 기록이
-   * 저장되지 않았는데 다음 화면으로 넘어간 경우라 다시 동의를 받아야 한다.
-   */
   | 'consent-required'
   /** 로그인은 했지만 이 면접의 주인이 아니다 — 다시 시도해도 같다 (#150) */
   | 'not-allowed'
@@ -460,6 +457,7 @@ export interface Suggestion {
   /** 명세의 `suggestionId`. 실시간 패킷과 조회 응답을 이 값으로 합친다 */
   id: string;
   content: string;
+  reason?: string | null;
   /** 서버가 받은 시각(ISO) */
   createdAt: string;
   /**

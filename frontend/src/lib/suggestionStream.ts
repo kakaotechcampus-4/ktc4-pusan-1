@@ -28,14 +28,20 @@ export const SUGGESTION_TOPIC = 'irya.suggestion.v1';
  */
 export function toSuggestion(value: unknown): Suggestion | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const { suggestionId, content, createdAt } = value as Record<string, unknown>;
+  const { suggestionId, content, createdAt, reason } = value as Record<string, unknown>;
 
   if (typeof suggestionId !== 'string' || !suggestionId.trim()) return null;
   // 빈 질문은 올려도 면접관이 읽을 것이 없다.
   if (typeof content !== 'string' || !content.trim()) return null;
   if (typeof createdAt !== 'string' || Number.isNaN(Date.parse(createdAt))) return null;
 
-  return { id: suggestionId, content, createdAt, pinned: false };
+  return {
+    id: suggestionId,
+    content,
+    createdAt,
+    pinned: false,
+    ...(typeof reason === 'string' && reason.trim() ? { reason } : {}),
+  };
 }
 
 export function parseSuggestion(raw: string): Suggestion | null {

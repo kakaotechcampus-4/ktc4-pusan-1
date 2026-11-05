@@ -350,6 +350,7 @@ export default function ReviewTimelinePage() {
           <div className={tab === 'memo' ? '' : 'hidden lg:block'}>
             <ReviewNotes
               interviewId={review.interviewId}
+              ownerId={interview?.interviewerId}
               memo={review.memo}
               onSaved={patchReview}
             />

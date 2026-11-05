@@ -387,6 +387,15 @@ class ReviewUpdateRequest(Schema):
 
     review_status: ReviewStatus | None = Field(default=None, alias="reviewStatus")
     memo: str | None = Field(default=None, max_length=4000, pattern=r"^[^\x00]*$")
+    expected_memo: str | None = Field(
+        default=None, alias="expectedMemo", max_length=4000, pattern=r"^[^\x00]*$"
+    )
+
+    @model_validator(mode="after")
+    def _memo_needs_the_value_read(self) -> "ReviewUpdateRequest":
+        if self.memo is not None and self.expected_memo is None:
+            raise ValueError("메모를 저장하려면 처음 읽은 expectedMemo가 필요합니다.")
+        return self
 
 
 class ReviewUpdateResponse(Schema):

@@ -88,6 +88,7 @@ export default function ConsentPage({ sessionId, onAgreed }: ConsentPageProps) {
       <label className="border-border-base bg-surface-container mt-6 flex items-start gap-3 rounded-2xl border p-4 text-left">
         <input
           type="checkbox"
+          disabled={agree.isPending}
           checked={checked}
           onChange={(e) => setChecked(e.target.checked)}
           className="accent-brand mt-0.5 h-5 w-5 shrink-0"
@@ -115,6 +116,7 @@ export default function ConsentPage({ sessionId, onAgreed }: ConsentPageProps) {
       </button>
       <button
         type="button"
+        disabled={agree.isPending}
         onClick={() => setDeclined(true)}
         className="text-ink-dim mt-3 w-full text-[14px] underline underline-offset-4"
       >
