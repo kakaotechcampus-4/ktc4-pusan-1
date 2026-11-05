@@ -5,7 +5,7 @@ import type { ReviewUpdateResponse } from '../../types/interview';
 
 export interface ReviewNotesProps {
   interviewId: string;
-  ownerId?: string;
+  ownerId: string | undefined;
   memo: string;
   onSaved?: (saved: ReviewUpdateResponse) => void;
 }

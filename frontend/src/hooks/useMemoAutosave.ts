@@ -76,9 +76,9 @@ export function useMemoAutosave({
     }
   }, [interviewId, draft.state, draft.saved, draft.result]);
   useEffect(() => {
-    if (!interviewId || initial === undefined) return;
+    if (!interviewId || !draftKey || initial === undefined) return;
     queue.hydrate(interviewId, initial);
-    if (draftKey && restored.current !== draftKey) {
+    if (restored.current !== draftKey) {
       restored.current = draftKey;
       const stored = readMemoDraft(draftKey);
       if (stored) queue.restoreDraft(interviewId, stored.memo, stored.baseline);
