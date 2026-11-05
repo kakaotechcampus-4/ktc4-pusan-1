@@ -121,7 +121,7 @@ export default function ReviewTimelinePage({
 
   const pendingMarks = useRef(new Set<string>());
   const [pendingMarkIds, setPendingMarkIds] = useState<Set<string>>(new Set());
-  const [markFailed, setMarkFailed] = useState(false);
+  const [markFailed, setMarkFailed] = useState<string | null>(null);
   const patchReview = (change: Partial<Review> | ((r: Review) => Review)) =>
     queryClient.setQueryData<ReviewResponse>(['review', interviewId], (prev) =>
       prev?.status === 'READY'
@@ -136,13 +136,17 @@ export default function ReviewTimelinePage({
     if (!before || pendingMarks.current.has(itemId)) return;
     pendingMarks.current.add(itemId);
     setPendingMarkIds(new Set(pendingMarks.current));
-    setMarkFailed(false);
+    setMarkFailed(null);
     patchReview((r) => applyMark(r, itemId, next));
     putMark(interviewId!, itemId, next)
       .catch((error: unknown) => {
         if (error instanceof ApiError && error.code === 'REVIEW_CONFIRMED') void refetch();
         patchReview((r) => applyMark(r, itemId, before));
-        setMarkFailed(true);
+        setMarkFailed(
+          error instanceof ApiError && error.code === 'REVIEW_CONFIRMED'
+            ? '검토가 확정되어 표시를 저장하지 못했습니다. 검토 확정을 먼저 해제하세요.'
+            : '표시를 저장하지 못해 되돌렸습니다. 다시 눌러주세요.',
+        );
       })
       .finally(() => {
         pendingMarks.current.delete(itemId);
@@ -358,7 +362,7 @@ export default function ReviewTimelinePage({
 
             {markFailed && (
               <p role="alert" className="text-danger text-[13px]">
-                표시를 저장하지 못해 되돌렸습니다. 다시 눌러주세요.
+                {markFailed}
               </p>
             )}
 
