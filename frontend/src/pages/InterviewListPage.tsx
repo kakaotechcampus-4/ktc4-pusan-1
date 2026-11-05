@@ -34,7 +34,7 @@ const COLUMNS = [
   { key: 'actions', title: '작업', width: 180 },
 ] as const;
 type ColumnKey = (typeof COLUMNS)[number]['key'];
-const SORTABLE = new Set<string>(['name', 'date', 'needsReview', 'adopted']);
+const SORTABLE = new Set<string>(['name', 'date', 'needsReview']);
 const REPORT_LABEL = { PROCESSING: '생성 중', READY: '완료', FAILED: '실패' };
 const FIELD =
   'border-border-input bg-surface-input text-ink focus:ring-brand min-h-10 rounded-lg border px-3 text-sm focus:ring-2';
@@ -377,6 +377,7 @@ export default function InterviewListPage() {
         <div>
           <h1 className="text-ink text-[26px] font-bold">지원자 관리</h1>
           <p className="text-ink-muted mt-1.5 text-sm">내가 만든 면접을 확인하고 처리합니다.</p>
+          <p className="text-ink-muted mt-1 text-sm">점수와 순위는 매기지 않습니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button

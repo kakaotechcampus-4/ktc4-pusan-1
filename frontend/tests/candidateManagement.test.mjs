@@ -12,7 +12,7 @@ const rows = Array.from({ length: 1000 }, (_, i) => ({
 }));
 test('천 건을 검색·필터·다중 정렬해도 원본과 면접 ID를 바꾸지 않는다', () => {
   const filtered = candidateRows(rows, { search: '김지원', review: 'CONFIRMED', summary: 'all' }, [
-    { key: 'adopted', descending: true },
+    { key: 'name', descending: false },
     { key: 'needsReview', descending: true },
   ]);
   assert.equal(filtered.length, 500);

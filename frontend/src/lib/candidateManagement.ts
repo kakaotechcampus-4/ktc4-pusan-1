@@ -1,6 +1,6 @@
 import type { InterviewListItem, ReviewStatus } from '../types/interview';
 
-export type SortKey = 'name' | 'date' | 'needsReview' | 'adopted';
+export type SortKey = 'name' | 'date' | 'needsReview';
 export interface SortRule {
   key: SortKey;
   descending: boolean;
