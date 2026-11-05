@@ -22,6 +22,7 @@ from app.domain.models import (
     Interview,
     InterviewPrep,
     InterviewReport,
+    InterviewWorkspace,
     Job,
     JobKind,
     Recording,
@@ -84,6 +85,31 @@ class Store(Protocol):
 
         목록(`list_interviews`)이 붙이는 세션과 같은 것이어야 목록과 상세가 어긋나지
         않는다. 같은 시각에 끝났으면 id 가 큰 쪽이다. 끝난 세션이 없으면 None.
+        """
+        ...
+
+    def latest_session(self, interview_id: str) -> Session | None:
+        """그 면접에서 **가장 나중에 만든** 세션. 끝났는지는 보지 않는다.
+
+        `last_ended_session` 과 헷갈리면 안 된다. 목록 정렬과 검토 화면의 기준 세션은
+        끝난 세션(`last_ended_session`)이고, 이쪽은 「지금 쓰는 초대 링크」를
+        보여 주려고 본다 — 아직 아무도 입장하지 않은 세션도 링크는 살아 있다. 둘을
+        바꿔 쓰면 목록과 상세가 어긋난다. 같은 시각에 만들었으면 id 가 큰 쪽이다.
+        세션이 없으면 None.
+        """
+        ...
+
+    def list_interview_workspaces(
+        self, interviewer_id: str
+    ) -> list[InterviewWorkspace]:
+        """목록 한 화면에 필요한 것을 면접마다 한 덩어리로 모아 준다 (#137 1-1).
+
+        순서는 `list_interviews` 와 같다. 각 줄의 세션 둘은 역할이 다르다 —
+        `session` 은 끝난 기준 세션, `latest_session` 은 가장 나중에 만든 세션이다.
+        요약 · 마크 · 녹화는 기준 세션에, prep · 리포트는 면접에 붙는다.
+
+        목록 크기와 관계없이 묶음 조회 몇 번으로 끝내는 것이 이 메서드의 존재 이유다.
+        줄마다 다시 조회하면(N+1) 수백 건에서 목록이 느려진다.
         """
         ...
 
@@ -559,6 +585,36 @@ class InMemoryStore:
             ended, key=lambda s: (s.ended_at or s.created_at, s.id), default=None
         )
         return None if last is None else deepcopy(last)
+
+    def latest_session(self, interview_id: str) -> Session | None:
+        return deepcopy(
+            max(
+                (
+                    session
+                    for session in self._sessions.values()
+                    if session.interview_id == interview_id
+                ),
+                key=lambda session: (session.created_at, session.id),
+                default=None,
+            )
+        )
+
+    def list_interview_workspaces(
+        self, interviewer_id: str
+    ) -> list[InterviewWorkspace]:
+        return [
+            InterviewWorkspace(
+                interview=interview,
+                latest_session=self.latest_session(interview.id),
+                session=session,
+                summary=self.get_summary(session.id) if session else None,
+                prep=self.get_prep(interview.id),
+                marks=self.list_marks(session.id) if session else [],
+                recording=self.get_recording(session.id) if session else None,
+                report=self.get_report(interview.id),
+            )
+            for interview, session, _ in self.list_interviews(interviewer_id)
+        ]
 
     def add_session(self, session: Session) -> None:
         self._sessions[session.id] = deepcopy(session)

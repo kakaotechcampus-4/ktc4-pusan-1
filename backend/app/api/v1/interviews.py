@@ -32,7 +32,6 @@ from app.domain.models import (
     SessionSummary,
     SummaryStatus,
 )
-from app.domain.store import Store
 from app.schemas import (
     ContextDocResponse,
     CreateInterviewRequest,
@@ -41,6 +40,7 @@ from app.schemas import (
     InterviewListItem,
     InterviewListResponse,
     InterviewResponse,
+    InterviewSession,
     MarkResponse,
     MarkUpdateRequest,
     ReportCompetency,
@@ -65,12 +65,29 @@ router = APIRouter(prefix="/interviews", tags=["면접"])
 _NOT_FOUND = (404, "면접을 찾을 수 없음 (남의 면접 포함)")
 
 
-def _to_response(interview: Interview) -> InterviewResponse:
+def _session_response(session: Session | None) -> InterviewSession | None:
+    if session is None:
+        return None
+    return InterviewSession(
+        session_id=session.id,
+        status=session.status,
+        invite_url=f"{settings.frontend_origin}{settings.invite_path}/{session.id}",
+        created_at=session.created_at,
+    )
+
+
+def _to_response(
+    interview: Interview, session: Session | None = None
+) -> InterviewResponse:
     return InterviewResponse(
         interview_id=interview.id,
         interviewer_id=interview.interviewer_id,
         candidate_name=interview.candidate_name,
         created_at=interview.created_at,
+        memo=interview.memo,
+        review_status=interview.review_status,
+        reviewed_at=interview.reviewed_at,
+        latest_session=_session_response(session),
     )
 
 
@@ -123,39 +140,50 @@ def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListRespo
     role = store.ensure_context(Context(owner_id=user.id)).role
     interviewer = InterviewerSummary(nickname=user.nickname)
     items = []
-    for interview, session, summary in store.list_interviews(user.id):
-        shown, counts = (
-            (summary, None)
-            if session is None
-            else _list_summary(store, interview, session, summary)
+    for workspace in store.list_interview_workspaces(user.id):
+        interview, session, summary = (
+            workspace.interview,
+            workspace.session,
+            workspace.summary,
         )
-        items.append(
-            _to_list_item(interview, session, shown, counts, role, interviewer)
+        shown = summary.shown_status(settings.summary_timeout) if summary else None
+        counts = (
+            ReviewCounts.model_validate(
+                build_review(workspace.prep, summary, workspace.marks).counts()
+            )
+            if summary and shown is SummaryStatus.READY
+            else None
         )
+        item = _to_list_item(interview, session, shown, counts, role, interviewer)
+        item.memo = interview.memo
+        item.latest_session = _session_response(workspace.latest_session)
+        item.review_session_id = session.id if session else None
+        item.findings_status = (
+            (
+                FindingsStatus.FAILED
+                if summary.overdue(settings.summary_timeout)
+                else summary.findings_status
+                or (
+                    FindingsStatus.COMPLETED
+                    if summary.findings
+                    else FindingsStatus.EMPTY
+                )
+            )
+            if summary and shown is not SummaryStatus.PROCESSING
+            else None
+        )
+        item.recording_status = (
+            workspace.recording.status if workspace.recording else None
+        )
+        if workspace.report:
+            item.report_status = (
+                SummaryStatus.FAILED
+                if workspace.report.overdue(settings.report_timeout)
+                else workspace.report.status
+            )
+            item.report_session_id = workspace.report.session_id
+        items.append(item)
     return InterviewListResponse(items=items)
-
-
-def _list_summary(
-    store: Store, interview: Interview, session: Session, status: SummaryStatus | None
-) -> tuple[SummaryStatus | None, ReviewCounts | None]:
-    """보여 줄 요약 상태와 집계. 집계는 READY 일 때만, 상세와 같은 계산으로.
-
-    한도를 넘긴 PROCESSING 은 FAILED 로 **보여 줄 뿐** 쓰지 않는다
-    (`SessionSummary.shown_status`). 판정과 저장은 요약 · 상세 조회가 한다.
-    """
-    # ponytail: READY 한 줄마다 쿼리 3개(N+1). 수백 건이면 LATERAL 로 한 번에 읽는다.
-    if status is not SummaryStatus.PROCESSING and status is not SummaryStatus.READY:
-        return status, None
-    summary = store.get_summary(session.id)
-    if summary is None:
-        return status, None
-    shown = summary.shown_status(settings.summary_timeout)
-    if shown is not SummaryStatus.READY:
-        return shown, None
-    counts = build_review(
-        store.get_prep(interview.id), summary, store.list_marks(session.id)
-    ).counts()
-    return shown, ReviewCounts.model_validate(counts)
 
 
 def _timing(session: Session | None) -> tuple[datetime | None, int | None]:
@@ -200,9 +228,9 @@ def _to_list_item(
     summary="면접 조회",
     responses=responses(LOGIN_REQUIRED, _NOT_FOUND),
 )
-def get_interview(interview: OwnedInterviewDep) -> InterviewResponse:
+def get_interview(interview: OwnedInterviewDep, store: StoreDep) -> InterviewResponse:
     """생성된 면접의 기본 정보를 조회한다."""
-    return _to_response(interview)
+    return _to_response(interview, store.latest_session(interview.id))
 
 
 @router.patch(

@@ -855,7 +855,12 @@ async def test_the_sample_interview_s_suggestions_reach_the_agreed_route(
         assert request.method == "POST"
         assert request.url.path == "/internal/v1/sessions/ses_sample_01/suggestions"
         body = json.loads(request.content)
-        assert set(body) == {"suggestionId", "content", "evidenceUtteranceIds"}
+        assert set(body) == {
+            "suggestionId",
+            "content",
+            "evidenceUtteranceIds",
+            "reason",
+        }
         assert body["suggestionId"] == question.question_id
         assert body["content"] == question.content
         assert body["evidenceUtteranceIds"] == question.evidence_utterance_ids

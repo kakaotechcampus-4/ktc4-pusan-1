@@ -75,17 +75,30 @@ from irya_ai.config import Settings, get_settings
 from irya_ai.findings import ExtractiveFindingsGenerator, FindingsAgent
 from irya_ai.openai_findings import OpenAIFindingsGenerator
 from irya_ai.openai_prep import OpenAIPrepGenerator
+from irya_ai.openai_report import OpenAIReportGenerator
 from irya_ai.openai_summary import OpenAISummarizer
 from irya_ai.openai_timeline import OpenAITimelineGenerator
 from irya_ai.prep import ExtractivePrepGenerator, PrepAgent
+from irya_ai.report import ExtractiveReportGenerator, ReportAgent
 from irya_ai.schemas.analysis import Finding
 from irya_ai.schemas.context import InterviewContext
-from irya_ai.schemas.jobs import JOB_KIND_PREP, JOB_KIND_REVIEW, PendingJob
+from irya_ai.schemas.jobs import (
+    JOB_KIND_PREP,
+    JOB_KIND_REPORT,
+    JOB_KIND_REVIEW,
+    PendingJob,
+)
 from irya_ai.schemas.prep import PrepResult
+from irya_ai.schemas.report import ReportContext, ReportResult
 from irya_ai.schemas.summary import AnalysisError, AnalysisResult
 from irya_ai.schemas.timeline import TimelineResult
 from irya_ai.schemas.transcript import TranscriptSnapshot, TranscriptStage, Utterance
-from irya_ai.schemas.wire import ReviewPayload, review_payload
+from irya_ai.schemas.wire import (
+    ReportPayload,
+    ReviewPayload,
+    report_payload,
+    review_payload,
+)
 from irya_ai.stt.http_logging import protect_base_url
 from irya_ai.summarize import ExtractiveSummarizer
 from irya_ai.timeline import ExtractiveTimelineGenerator, ReviewTimelineAgent
@@ -158,7 +171,7 @@ class Pass:
 
     outcome: Outcome
     job: PendingJob | None = None
-    result: PrepResult | ReviewPayload | None = None
+    result: PrepResult | ReviewPayload | ReportPayload | None = None
     code: str | None = None
 
 
@@ -393,6 +406,7 @@ class PrepPoller:
         agent: PrepAgent,
         *,
         review: ReviewAgents | None = None,
+        report: ReportAgent | None = None,
         poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
         retry_after_seconds: float = DEFAULT_RETRY_AFTER_SECONDS,
         give_up_seconds: float = DEFAULT_GIVE_UP_SECONDS,
@@ -411,6 +425,7 @@ class PrepPoller:
         self.backend = backend
         self.agent = agent
         self.review = review
+        self.report = report
         self.poll_interval_seconds = poll_interval_seconds
         self.retry_after_seconds = retry_after_seconds
         self.give_up_seconds = give_up_seconds
@@ -466,6 +481,8 @@ class PrepPoller:
                 return await self._run_prep(job)
             if job.kind == JOB_KIND_REVIEW and self.review is not None:
                 return await self._run_review(job)
+            if job.kind == JOB_KIND_REPORT and self.report is not None:
+                return await self._run_report(job)
         except Exception as exc:  # noqa: BLE001 - one job must not stall the loop
             # A failure outside the agents, which store their own. Without a
             # hold the next poll would hand out the same job at the poll rate.
@@ -548,6 +565,87 @@ class PrepPoller:
                 result.error.code,
             )
         return Pass("stored", job=job, result=result)
+
+    async def _run_report(self, job: PendingJob) -> Pass:
+        """REPORT도 기존 저장·재시도·오래된 응답 폐기 경로를 사용한다."""
+        assert self.report is not None
+        started = perf_counter()
+        requested = datetime.fromisoformat(job.requested_at)
+        remaining = (
+            self.report.timeout_seconds
+            - (self._wall_clock() - requested).total_seconds()
+        )
+        result: ReportResult | None = None
+        fallback_overview = ""
+        try:
+            raw = await self.backend.get_report_context(job.interview_id)
+            context = ReportContext.model_validate(raw)
+            fallback_overview = context.summary.overview
+            if (
+                context.interview_id != job.interview_id
+                or context.session_id != job.session_id
+            ):
+                raise PollerError("CONTEXT_SESSION_MISMATCH", retryable=False)
+            remaining = (
+                self.report.timeout_seconds
+                - (self._wall_clock() - requested).total_seconds()
+            )
+            if remaining <= 0:
+                raise TimeoutError
+            async with asyncio.timeout(remaining):
+                result = await self.report.run(context)
+        except (BackendError, PollerError) as exc:
+            remaining = (
+                self.report.timeout_seconds
+                - (self._wall_clock() - requested).total_seconds()
+            )
+            if exc.retryable and remaining > self.retry_after_seconds:
+                self._hold(job, self.retry_after_seconds)
+                return Pass("held", job=job, code=exc.code)
+            result = ReportResult(
+                interview_id=job.interview_id,
+                status="failed",
+                model=self.report.model,
+                error=AnalysisError(code=exc.code, retryable=False),
+            )
+        except (ValidationError, TimeoutError) as exc:
+            code = (
+                "LLM_TIMEOUT" if isinstance(exc, TimeoutError) else "CONTEXT_MALFORMED"
+            )
+            result = ReportResult(
+                interview_id=job.interview_id,
+                status="failed",
+                model=self.report.model,
+                error=AnalysisError(code=code, retryable=False),
+            )
+        assert result is not None
+        elapsed = (self._wall_clock() - requested).total_seconds()
+        if (
+            result.error
+            and result.error.retryable
+            and self.report.timeout_seconds - elapsed > self.retry_after_seconds
+        ):
+            self._hold(job, self.retry_after_seconds)
+            return Pass("held", job=job, code=result.error.code)
+        payload = report_payload(
+            result, requested_at=job.requested_at, fallback_overview=fallback_overview
+        )
+        refused = await self._store(
+            job, self.backend.put_report(job.interview_id, payload), payload, started
+        )
+        if refused is not None:
+            return refused
+        logger.info(
+            "report job interview=%s status=%s competencies=%d "
+            "sentences=%d rejected=%d total=%dms",
+            job.interview_id,
+            result.status,
+            len(result.competencies),
+            sum(len(c.confirmed) + len(c.unconfirmed) for c in result.competencies),
+            len(result.rejections),
+            elapsed_ms(started),
+        )
+        return Pass("stored", job=job, result=payload)
 
     async def _run_review(self, job: PendingJob) -> Pass:
         assert self.review is not None
@@ -693,7 +791,7 @@ class PrepPoller:
         self,
         job: PendingJob,
         put: Awaitable[None],
-        result: PrepResult | ReviewPayload,
+        result: PrepResult | ReviewPayload | ReportPayload,
         started: float,
     ) -> Pass | None:
         """Await one ``PUT``; ``None`` when stored, the pass to report when not."""
@@ -886,10 +984,18 @@ async def serve(settings: Settings, stop: asyncio.Event) -> None:
 
     backend = build_backend_client(settings)
     agent, review, llm_client = build_agents(settings)
+    report = ReportAgent(
+        OpenAIReportGenerator(llm_client, model=settings.llm_model)
+        if llm_client is not None
+        else ExtractiveReportGenerator(),
+        model=settings.llm_model if llm_client is not None else "extractive",
+        timeout_seconds=settings.report_timeout_seconds,
+    )
     poller = PrepPoller(
         backend,
         agent,
         review=review,
+        report=report,
         poll_interval_seconds=settings.prep_poll_interval_seconds,
         retry_after_seconds=settings.prep_retry_after_seconds,
         review_deadline_seconds=settings.review_deadline_seconds,
@@ -902,6 +1008,7 @@ async def serve(settings: Settings, stop: asyncio.Event) -> None:
         poller.review_deadline_seconds,
         agent.model,
     )
+    logger.info("report model=%s timeout=%.0fs", report.model, report.timeout_seconds)
     try:
         await poller.run_forever(stop)
     finally:

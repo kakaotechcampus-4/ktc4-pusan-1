@@ -80,7 +80,7 @@ from pydantic import Field, model_validator
 
 from irya_ai.schemas.analysis import Finding, SuggestedQuestion
 from irya_ai.schemas.base import CamelModel
-from irya_ai.schemas.report import CompetencyReport, ReportResult
+from irya_ai.schemas.report import OVERVIEW_MAX_CHARS, CompetencyReport, ReportResult
 from irya_ai.schemas.summary import AnalysisResult
 from irya_ai.schemas.timeline import Moment, TimelineResult
 from irya_ai.schemas.transcript import SpeakerRole, Utterance
@@ -158,6 +158,8 @@ class SuggestionPayload(CamelModel):
     content: str = Field(min_length=1)
     evidence_utterance_ids: list[str] = Field(min_length=1, examples=[["utt_001"]])
 
+    reason: str | None = None
+
 
 def suggestion_payload(question: SuggestedQuestion) -> SuggestionPayload:
     """Translate one verified ``SuggestedQuestion`` into the agreed payload.
@@ -172,6 +174,7 @@ def suggestion_payload(question: SuggestedQuestion) -> SuggestionPayload:
     return SuggestionPayload(
         suggestion_id=question.question_id,
         content=question.content,
+        reason=question.reason,
         evidence_utterance_ids=question.evidence_utterance_ids,
     )
 
@@ -245,14 +248,25 @@ class ReportPayload(CamelModel):
     model: str = ""
 
 
-def report_payload(result: ReportResult, *, requested_at: str) -> ReportPayload:
+def report_payload(
+    result: ReportResult, *, requested_at: str, fallback_overview: str = ""
+) -> ReportPayload:
     """The agent's result as the agreed row; nothing but sentences on failure."""
 
-    usable = result.status in ("completed", "partial")
+    status = result.status
+    overview = result.overview.strip()
+    if (
+        status in ("completed", "partial")
+        and not 0 < len(overview) <= OVERVIEW_MAX_CHARS
+    ):
+        # 생성 개요가 없으면 기존 요약을 쓰고, 그것도 없으면 일반 실패로 끝낸다.
+        overview = fallback_overview.strip()
+        status = "partial" if 0 < len(overview) <= OVERVIEW_MAX_CHARS else "failed"
+    usable = status in ("completed", "partial")
     return ReportPayload(
-        status=result.status,
+        status=status,
         requested_at=requested_at,
-        overview=result.overview if usable else "",
+        overview=overview if usable else "",
         competencies=list(result.competencies) if usable else [],
         model=result.model,
     )
