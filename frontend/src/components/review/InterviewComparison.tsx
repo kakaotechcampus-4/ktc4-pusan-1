@@ -138,7 +138,11 @@ function ComparisonCard({ interviewId }: { interviewId: string }) {
       )}
       {(review || owner.data?.memo !== undefined) && (
         <div className="mt-4">
-          <ReviewNotes interviewId={interviewId} memo={review?.memo ?? owner.data?.memo ?? ''} />
+          <ReviewNotes
+            interviewId={interviewId}
+            ownerId={owner.data?.interviewerId}
+            memo={review?.memo ?? owner.data?.memo ?? ''}
+          />
         </div>
       )}
       <div className="mt-4">

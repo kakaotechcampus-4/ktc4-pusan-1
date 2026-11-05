@@ -132,7 +132,11 @@ export function InterviewWorkspacePanel({
                     현재 서버에서 저장된 메모를 조회할 수 없습니다. 면접 기록에서 확인해 주세요.
                   </p>
                 ) : (
-                  <ReviewNotes interviewId={interviewId} memo={owner.data.memo} />
+                  <ReviewNotes
+                    interviewId={interviewId}
+                    ownerId={owner.data.interviewerId}
+                    memo={owner.data.memo}
+                  />
                 )}
               </div>
             )}
