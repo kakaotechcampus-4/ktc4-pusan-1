@@ -2,7 +2,6 @@ import { MemoConflictNotice } from '../review/MemoConflictNotice';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { getInterview } from '../../api/interview';
-import { memoDraftKey, readMemoDraft, writeMemoDraft } from '../../lib/memoDraft';
 import { MEMO_MAX, useMemoAutosave } from '../../hooks/useMemoAutosave';
 
 export function MemoPanel({ interviewId }: { interviewId: string | null }) {
@@ -11,28 +10,15 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
     queryFn: () => getInterview(interviewId!),
     enabled: Boolean(interviewId),
   });
-  const { memo, setMemo, state, flush, hydrated, serverMemo, readConflict, reapply, restoreDraft } =
+  const { memo, setMemo, state, flush, hydrated, serverMemo, readConflict, reapply } =
     useMemoAutosave({
       interviewId,
+      ownerId: owner.data?.interviewerId,
       initial: owner.data?.memo,
     });
   const [open, setOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const input = useRef<HTMLTextAreaElement>(null);
-  const restored = useRef<string | null>(null);
-  const draftKey =
-    owner.data && interviewId ? memoDraftKey(owner.data.interviewerId, interviewId) : null;
-  const ready = owner.data?.memo !== undefined && hydrated;
-  useEffect(() => {
-    if (!ready || !draftKey) return;
-    if (restored.current !== draftKey) {
-      restored.current = draftKey;
-      const draft = readMemoDraft(draftKey);
-      if (draft !== null && draft !== owner.data?.memo) restoreDraft(draft);
-      else if (draft !== null) writeMemoDraft(draftKey, null);
-    } else if (state === 'saved' && readMemoDraft(draftKey) === memo) {
-      writeMemoDraft(draftKey, null);
-    }
-  }, [ready, draftKey, owner.data?.memo, state, memo, restoreDraft]);
+  const ready = Boolean(owner.data?.interviewerId) && owner.data?.memo !== undefined && hydrated;
   useEffect(() => {
     if (ready && open && window.matchMedia('(min-width: 768px)').matches)
       input.current?.focus({ preventScroll: true });
@@ -77,7 +63,6 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
             value={memo}
             onChange={(event) => {
               const value = event.target.value.replaceAll('\0', '').slice(0, MEMO_MAX);
-              if (draftKey) writeMemoDraft(draftKey, value);
               setMemo(value);
             }}
             onBlur={() => void flush()}
@@ -105,7 +90,7 @@ export function MemoPanel({ interviewId }: { interviewId: string | null }) {
               onClick={() => void flush()}
               className="text-warning mt-1 text-left text-xs underline"
             >
-              입력은 보관 중입니다. 다시 저장
+              입력은 현재 화면에 남아 있습니다. 다시 저장
             </button>
           )}
         </div>
