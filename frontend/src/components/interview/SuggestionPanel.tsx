@@ -24,7 +24,7 @@ export function SuggestionPanel() {
   const suggestions = useInterviewStore((s) => s.suggestions);
   const togglePin = useInterviewStore((s) => s.toggleSuggestionPin);
 
-  const [showQuestions, setShowQuestions] = useState(false);
+  const [showReasons, setShowReasons] = useState(false);
   const expanded = useInterviewStore((s) => s.questionsExpanded);
   const toggleExpanded = useInterviewStore((s) => s.toggleQuestionsExpanded);
   const hidden = useInterviewStore((s) => s.hiddenSuggestionIds);
@@ -87,10 +87,10 @@ export function SuggestionPanel() {
       <label className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-xs focus-within:outline-2 focus-within:outline-offset-2">
         <input
           type="checkbox"
-          checked={showQuestions}
-          onChange={(event) => setShowQuestions(event.target.checked)}
+          checked={showReasons}
+          onChange={(event) => setShowReasons(event.target.checked)}
         />
-        질문 문장 보기
+        근거 보기
       </label>
       {lastHidden && (
         <div role="status" className="flex items-center justify-between gap-2 px-4 py-2 text-xs">
@@ -165,10 +165,10 @@ export function SuggestionPanel() {
                     s.pinned ? 'font-semibold' : ''
                   }`}
                 >
-                  {s.reason || s.content}
-                  {s.reason && showQuestions && (
+                  {s.content}
+                  {s.reason && showReasons && (
                     <span className="text-ink-muted mt-1 block text-sm font-normal">
-                      {s.content}
+                      {s.reason}
                     </span>
                   )}
                 </span>
