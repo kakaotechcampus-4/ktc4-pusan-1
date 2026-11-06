@@ -601,6 +601,13 @@ class PrepPoller:
             )
             if exc.retryable and remaining > self.retry_after_seconds:
                 self._hold(job, self.retry_after_seconds)
+                logger.warning(
+                    "report job interview=%s session=%s held code=%s since_request=%ss",
+                    job.interview_id,
+                    job.session_id,
+                    exc.code,
+                    _whole(self.report.timeout_seconds - remaining),
+                )
                 return Pass("held", job=job, code=exc.code)
             result = ReportResult(
                 interview_id=job.interview_id,
@@ -626,6 +633,13 @@ class PrepPoller:
             and self.report.timeout_seconds - elapsed > self.retry_after_seconds
         ):
             self._hold(job, self.retry_after_seconds)
+            logger.warning(
+                "report job interview=%s session=%s held code=%s since_request=%ss",
+                job.interview_id,
+                job.session_id,
+                result.error.code,
+                _whole(elapsed),
+            )
             return Pass("held", job=job, code=result.error.code)
         payload = report_payload(
             result, requested_at=job.requested_at, fallback_overview=fallback_overview
@@ -636,15 +650,23 @@ class PrepPoller:
         if refused is not None:
             return refused
         logger.info(
-            "report job interview=%s status=%s competencies=%d "
-            "sentences=%d rejected=%d total=%dms",
+            "report job interview=%s session=%s status=%s competencies=%d "
+            "sentences=%d rejected=%d total=%dms since_request=%ss",
             job.interview_id,
+            job.session_id,
             result.status,
             len(result.competencies),
             sum(len(c.confirmed) + len(c.unconfirmed) for c in result.competencies),
             len(result.rejections),
             elapsed_ms(started),
+            _whole(elapsed),
         )
+        if result.error is not None:
+            logger.warning(
+                "report job interview=%s stored as failed code=%s",
+                job.interview_id,
+                result.error.code,
+            )
         return Pass("stored", job=job, result=payload)
 
     async def _run_review(self, job: PendingJob) -> Pass:
