@@ -595,10 +595,8 @@ class PrepPoller:
             async with asyncio.timeout(remaining):
                 result = await self.report.run(context)
         except (BackendError, PollerError) as exc:
-            remaining = (
-                self.report.timeout_seconds
-                - (self._wall_clock() - requested).total_seconds()
-            )
+            since = (self._wall_clock() - requested).total_seconds()
+            remaining = self.report.timeout_seconds - since
             if exc.retryable and remaining > self.retry_after_seconds:
                 self._hold(job, self.retry_after_seconds)
                 logger.warning(
@@ -606,7 +604,7 @@ class PrepPoller:
                     job.interview_id,
                     job.session_id,
                     exc.code,
-                    _whole(self.report.timeout_seconds - remaining),
+                    _whole(since),
                 )
                 return Pass("held", job=job, code=exc.code)
             result = ReportResult(
