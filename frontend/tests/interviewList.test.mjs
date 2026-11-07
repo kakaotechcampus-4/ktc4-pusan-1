@@ -59,3 +59,17 @@ test('1분 미만을 0분으로 적지 않는다', () => {
   assert.equal(durationLabel(90), '2분');
   assert.equal(durationLabel(1800), '30분');
 });
+
+test('검토 기준 세션이 없어도 현재 세션의 진행 상태를 표시한다', () => {
+  assert.equal(
+    pendingReason(
+      row({
+        counts: null,
+        summaryStatus: null,
+        interviewedAt: null,
+        latestSession: { status: 'INTERVIEWING' },
+      }),
+    ),
+    '진행 중',
+  );
+});

@@ -1,0 +1,46 @@
+name: infra CI
+
+# Caddyfile 문법 검사.
+#
+# 여기서 걸러내지 못하면 배포가 `docker compose restart caddy` 를 하는 순간
+# Caddy 가 뜨지 못해 irya.cloud 전체가 내려간다 — 프론트뿐 아니라 API 와
+# 면접방 시그널링(/rtc*)까지 같이 죽는다. CD 는 /health 를 60초 기다렸다
+# 실패로 끝나지만, 그동안 사이트는 멈춰 있고 고칠 때까지 돌아오지 않는다.
+#
+# ⭐ 이미지를 운영과 같은 2.10 으로 못 박는다 (infra/docker-compose.yml).
+#   latest 로 검사하면 "CI 는 통과했는데 2.10 에서는 안 되는" 틈이 생긴다.
+#   docker-compose.yml 의 태그를 올릴 때 여기도 같이 올려야 한다.
+#
+# ⭐ 이 검사가 잡는 것은 문법과 모듈 구성까지다. 포트 충돌 · 인증서 발급 ·
+#   업스트림 연결은 보지 않고, 문법은 맞는데 값이 틀린 설정(프록시 대상 오타,
+#   매처 오타)도 통과한다. 머지한 뒤 실제 주소를 한 번 눌러 보는 일은 남는다.
+
+on:
+  pull_request:
+    paths:
+      - "infra/Caddyfile"
+      - ".github/workflows/infra-ci.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "infra/Caddyfile"
+      - ".github/workflows/infra-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  caddyfile:
+    name: Caddyfile 문법 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: caddy validate
+        run: |
+          docker run --rm \
+            -v "$PWD/infra/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.10 \
+            caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile

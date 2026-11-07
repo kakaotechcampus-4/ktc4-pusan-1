@@ -48,7 +48,7 @@ from irya_ai.suggestions import DEFAULT_MAX_PER_ROUND, RoundHistory, SuggestionE
 
 ReasoningEffort = Literal["none", "low", "medium", "high"]
 
-PROMPT_VERSION = "suggestion-v2"
+PROMPT_VERSION = "suggestion-v3"
 
 SYSTEM_PROMPT = f"""\
 당신은 진행 중인 면접에서 면접관에게 다음 질문을 제안하는 도구입니다.
@@ -65,11 +65,14 @@ maxSuggestions개 이하로 제안하세요. 확인할 지점이 없으면 sugge
 억지로 채우지 마세요.
 
 - content: 면접관에게 건네는 한 줄. 한국어 {CONTENT_MAX_CHARS}자 이내.
-  예) "말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요."
+  예) "캐시 무효화는 어떻게 검증했나요?"
+  면접관이 바로 읽을 수 있는 짧은 존댓말 질문으로 쓰세요.
+  "질문해보세요" 같은 안내는 빼세요.
   지원자가 말하지 않은 사실을 전제로 깔지 마세요. 수치는 지원자나 면접관이
   말한 표기를 그대로 쓰고, 새로운 수치를 만들지 마세요.
   평가, 점수, 합격 판단, 성격·감정 추론은 넣지 마세요.
-- reason: 왜 지금 물어볼 만한지 한 줄. {REASON_MAX_CHARS}자 이내.
+- reason: 확인할 핵심 주제를 짧은 명사구로 쓰세요. 예) "캐시 무효화 검증 방법".
+  새 사실이나 평가를 추가하지 마세요. {REASON_MAX_CHARS}자 이내.
 - evidence: 그 제안이 딛고 선 지원자 발화의 utteranceId와 quote.
   utteranceId는 qa.answer에 있는 값만 쓰세요. quote는 그 발화 text의 연속된
   부분 문자열이어야 하며 영문 대소문자, 띄어쓰기, 표기를 글자 그대로 유지하세요.

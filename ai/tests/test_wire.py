@@ -165,15 +165,16 @@ def test_the_suggestion_payload_serialises_to_the_agreed_keys() -> None:
         "suggestionId": "sug_001",
         "content": "말씀하신 캐시 무효화 전략을 어떻게 검증했는지 질문해보세요.",
         "evidenceUtteranceIds": ["utt_001", "utt_002"],
+        "reason": question().reason,
     }
 
 
 def test_the_suggestion_payload_leaves_the_pipeline_s_own_fields_at_home() -> None:
-    """``reason`` is for the interviewer; ``status`` is Backend's to keep."""
+    """확인 포인트는 보내고 서버 상태와 파이프라인 내부 값은 제외한다."""
 
     keys = set(suggestion_payload(question()).model_dump())
 
-    assert keys.isdisjoint({"reason", "status", "qa_id", "session_id", "asked_at"})
+    assert keys.isdisjoint({"status", "qa_id", "session_id", "asked_at"})
 
 
 def test_a_suggestion_without_evidence_cannot_be_put_on_the_wire() -> None:

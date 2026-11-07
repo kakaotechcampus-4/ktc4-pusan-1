@@ -45,7 +45,7 @@ from irya_ai.config import Settings
 from irya_ai.schemas.base import CamelModel
 from irya_ai.schemas.jobs import PendingJob
 from irya_ai.schemas.prep import PrepResult
-from irya_ai.schemas.wire import ReviewPayload, SuggestionPayload
+from irya_ai.schemas.wire import ReportPayload, ReviewPayload, SuggestionPayload
 from irya_ai.stt.http_logging import protect_host
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,24 @@ class BackendClient:
         except ValidationError:
             logger.warning("Backend pending job did not match the contract")
             raise BackendError("BACKEND_MALFORMED_RESPONSE", retryable=False) from None
+
+    async def get_report_context(self, interview_id: str) -> dict[str, Any]:
+        """리포트 생성 요청에 고정된 세션과 선택한 항목을 읽는다."""
+        body = await self.request_json(
+            "GET",
+            f"/internal/v1/interviews/{path_segment(interview_id)}/report/context",
+        )
+        if not isinstance(body, dict):
+            raise BackendError("BACKEND_MALFORMED_RESPONSE", retryable=False)
+        return body
+
+    async def put_report(self, interview_id: str, payload: ReportPayload) -> None:
+        """요청 시각을 보존한 생성 결과를 저장한다."""
+        await self.send(
+            "PUT",
+            f"/internal/v1/interviews/{path_segment(interview_id)}/report",
+            payload,
+        )
 
     async def get_context(self, session_id: str) -> dict[str, Any]:
         """Read ``GET /internal/v1/sessions/{sessionId}/context`` as it is.

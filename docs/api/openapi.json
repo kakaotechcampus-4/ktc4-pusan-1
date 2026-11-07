@@ -436,6 +436,16 @@
             ],
             "title": "Durationsec"
           },
+          "findingsStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindingsStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "interviewId": {
             "title": "Interviewid",
             "type": "string"
@@ -455,6 +465,63 @@
           },
           "interviewer": {
             "$ref": "#/components/schemas/InterviewerSummary"
+          },
+          "latestSession": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterviewSession"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memo": {
+            "default": "",
+            "title": "Memo",
+            "type": "string"
+          },
+          "recordingStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reportSessionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reportsessionid"
+          },
+          "reportStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewSessionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewsessionid"
           },
           "reviewStatus": {
             "$ref": "#/components/schemas/ReviewStatus"
@@ -531,6 +598,37 @@
           "interviewerId": {
             "title": "Interviewerid",
             "type": "string"
+          },
+          "latestSession": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterviewSession"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memo": {
+            "default": "",
+            "title": "Memo",
+            "type": "string"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus",
+            "default": "PENDING"
+          },
+          "reviewedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewedat"
           }
         },
         "required": [
@@ -540,6 +638,34 @@
           "createdAt"
         ],
         "title": "InterviewResponse",
+        "type": "object"
+      },
+      "InterviewSession": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "inviteUrl": {
+            "title": "Inviteurl",
+            "type": "string"
+          },
+          "sessionId": {
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "required": [
+          "sessionId",
+          "status",
+          "inviteUrl",
+          "createdAt"
+        ],
+        "title": "InterviewSession",
         "type": "object"
       },
       "InterviewerSummary": {
@@ -1361,6 +1487,19 @@
       "ReviewUpdateRequest": {
         "description": "`PATCH /interviews/{interviewId}` — 검토 상태 · 메모 (#137 1-3). 둘 다 선택이다.\n\nnull 은 보내지 않은 것과 같다. 메모를 비우려면 빈 문자열을 보낸다. 길이와 NUL 은\n경계에서 막는다 — PostgreSQL TEXT 는 NUL 을 못 넣어 500 이 된다.",
         "properties": {
+          "expectedMemo": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "pattern": "^[^\\x00]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expectedmemo"
+          },
           "memo": {
             "anyOf": [
               {
@@ -1584,6 +1723,17 @@
             },
             "title": "Evidenceutteranceids",
             "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           },
           "status": {
             "$ref": "#/components/schemas/SuggestionStatus"
@@ -2651,6 +2801,16 @@
               }
             },
             "description": "면접을 찾을 수 없음 (남의 면접 포함)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "메모가 다른 창에서 변경됨"
           },
           "422": {
             "content": {

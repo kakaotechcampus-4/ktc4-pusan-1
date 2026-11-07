@@ -22,7 +22,16 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     # `interviewerId` 가 없다.
     ("post", "/api/v1/interviews"): {
         "request": {"candidateName"},
-        "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
+        "response": {
+            "interviewId",
+            "interviewerId",
+            "candidateName",
+            "createdAt",
+            "memo",
+            "reviewStatus",
+            "reviewedAt",
+            "latestSession",
+        },
         "statuses": {"201", "401", "422"},
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-1 이다.
@@ -43,15 +52,24 @@ SPEC: dict[tuple[str, str], dict[str, Any]] = {
     },
     ("get", "/api/v1/interviews/{interviewId}"): {
         "path_params": ["interviewId"],
-        "response": {"interviewId", "interviewerId", "candidateName", "createdAt"},
+        "response": {
+            "interviewId",
+            "interviewerId",
+            "candidateName",
+            "createdAt",
+            "memo",
+            "reviewStatus",
+            "reviewedAt",
+            "latestSession",
+        },
         "statuses": {"200", "401", "404"},
     },
     # ⚠️ Notion 명세에 없다. 모양은 #137 1-3 이다.
     ("patch", "/api/v1/interviews/{interviewId}"): {
         "path_params": ["interviewId"],
-        "request": {"reviewStatus", "memo"},
+        "request": {"reviewStatus", "memo", "expectedMemo"},
         "response": {"reviewStatus", "reviewedAt", "memo"},
-        "statuses": {"200", "401", "404"},
+        "statuses": {"200", "401", "404", "409"},
     },
     # ⚠️ Notion 명세에 없다. 기획 F12 (#246). 204 라 "response" 를 적지 않는다 —
     # 본문이 없다는 사실 자체를 잠근다.
