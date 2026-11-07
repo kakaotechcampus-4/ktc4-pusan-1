@@ -1,4 +1,18 @@
 irya.cloud {
+	# 보안 헤더. 지금까지 아무 헤더도 없어서, 아무 사이트나 irya.cloud 를 iframe
+	# 으로 끼워 넣어 자기 화면인 척할 수 있었습니다(클릭재킹). frame-ancestors
+	# 'self' 는 우리 자신만 허용합니다 — /presentation/ 도 같은 오리진이라
+	# 영향을 받지 않습니다.
+	#
+	# HSTS 는 일부러 넣지 않았습니다. 한 번 보내면 브라우저가 max-age 동안 이
+	# 도메인의 HTTP 를 거부해서, 잘못 넣으면 되돌리는 데 시간이 걸립니다.
+	# 발표가 끝난 뒤에 따로 정하세요.
+	header {
+		Content-Security-Policy "frame-ancestors 'self'"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
 	# handle 블록은 작성 순서가 아니라 매처 기준으로 정렬되고, 매처 없는 블록이
 	# fallback 이 됩니다. 그래서 위치가 아니라 "같은 단계의 handle 로 나누는 것"이
 	# 요점입니다. 정적 파일 지시어는 fallback 블록 안에 두어야 지시어 정렬 때문에
@@ -61,6 +75,17 @@ irya.cloud {
 	# 밖에서 확인하려면 인증 없는 경로가 하나 필요합니다.
 	handle /health {
 		reverse_proxy backend:8000
+	}
+
+	# 최종 발표자료. SPA 가 아니라 정적 문서 한 벌이라 아래 fallback 의
+	# try_files 를 타지 않게 따로 잡습니다. 여기서 빼면 경로를 한 글자 틀렸을 때
+	# 404 가 아니라 SPA 의 index.html 이 돌아와서, 깨진 걸 한참 뒤에 압니다.
+	# 발표 당일에 그걸 알고 싶지 않습니다.
+	handle /presentation* {
+		root * /site
+		encode zstd gzip
+		header Cache-Control "no-cache"
+		file_server
 	}
 
 	handle {
