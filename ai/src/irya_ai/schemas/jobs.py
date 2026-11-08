@@ -19,6 +19,7 @@ from irya_ai.schemas.base import CamelModel
 
 JOB_KIND_PREP = "PREP"
 JOB_KIND_REVIEW = "REVIEW"
+JOB_KIND_REPORT = "REPORT"
 
 
 class PendingJob(CamelModel):
@@ -31,7 +32,7 @@ class PendingJob(CamelModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    kind: str = Field(examples=[JOB_KIND_PREP, JOB_KIND_REVIEW])
+    kind: str = Field(examples=[JOB_KIND_PREP, JOB_KIND_REVIEW, JOB_KIND_REPORT])
     session_id: str = Field(examples=["ses_123"])
     interview_id: str = Field(examples=["int_123"])
     requested_at: str = Field(examples=["2026-10-06T00:00:00.123456Z"])

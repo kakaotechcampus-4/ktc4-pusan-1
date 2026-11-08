@@ -76,3 +76,12 @@ test('한글 본문이 바이트를 거쳐도 그대로이고, 깨진 바이트�
   // UTF-8 이 아닌 바이트. 대체 문자로 조용히 통과하면 안 된다.
   assert.equal(readSuggestionPacket(new Uint8Array([0xff, 0xfe, 0x00]), SUGGESTION_TOPIC), null);
 });
+
+test('확인 포인트는 선택적으로 받고 과거 질문도 계속 읽는다', () => {
+  assert.equal(
+    parseSuggestion(JSON.stringify({ ...packet, reason: '캐시 검증 방법' })).reason,
+    '캐시 검증 방법',
+  );
+  assert.equal(parseSuggestion(JSON.stringify(packet)).reason, undefined);
+  assert.equal(parseSuggestion(JSON.stringify({ ...packet, reason: '' })).reason, undefined);
+});

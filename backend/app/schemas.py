@@ -43,11 +43,27 @@ class CreateInterviewRequest(Schema):
     )
 
 
+class InterviewSession(Schema):
+    session_id: str = Field(serialization_alias="sessionId")
+    status: SessionStatus
+    invite_url: str = Field(serialization_alias="inviteUrl")
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+
 class InterviewResponse(Schema):
     interview_id: str = Field(serialization_alias="interviewId")
     interviewer_id: str = Field(serialization_alias="interviewerId")
     candidate_name: str | None = Field(serialization_alias="candidateName")
     created_at: datetime = Field(serialization_alias="createdAt")
+
+    memo: str = ""
+    review_status: ReviewStatus = Field(
+        default=ReviewStatus.PENDING, serialization_alias="reviewStatus"
+    )
+    reviewed_at: datetime | None = Field(default=None, serialization_alias="reviewedAt")
+    latest_session: InterviewSession | None = Field(
+        default=None, serialization_alias="latestSession"
+    )
 
 
 class InterviewerSummary(Schema):
@@ -89,6 +105,26 @@ class InterviewListItem(Schema):
     )
     counts: ReviewCounts | None = Field(
         description="검토 항목 집계. 요약이 READY 가 아니면 null 이다 (#137 1-1)."
+    )
+
+    memo: str = ""
+    latest_session: InterviewSession | None = Field(
+        default=None, serialization_alias="latestSession"
+    )
+    review_session_id: str | None = Field(
+        default=None, serialization_alias="reviewSessionId"
+    )
+    findings_status: FindingsStatus | None = Field(
+        default=None, serialization_alias="findingsStatus"
+    )
+    recording_status: SummaryStatus | None = Field(
+        default=None, serialization_alias="recordingStatus"
+    )
+    report_status: SummaryStatus | None = Field(
+        default=None, serialization_alias="reportStatus"
+    )
+    report_session_id: str | None = Field(
+        default=None, serialization_alias="reportSessionId"
     )
 
 
@@ -235,6 +271,8 @@ class SuggestionResponse(Schema):
     status: SuggestionStatus
     created_at: datetime = Field(serialization_alias="createdAt")
 
+    reason: str | None = None
+
 
 class SuggestionListResponse(Schema):
     items: list[SuggestionResponse] = Field(description="도착한 순서대로.")
@@ -349,6 +387,15 @@ class ReviewUpdateRequest(Schema):
 
     review_status: ReviewStatus | None = Field(default=None, alias="reviewStatus")
     memo: str | None = Field(default=None, max_length=4000, pattern=r"^[^\x00]*$")
+    expected_memo: str | None = Field(
+        default=None, alias="expectedMemo", max_length=4000, pattern=r"^[^\x00]*$"
+    )
+
+    @model_validator(mode="after")
+    def _memo_needs_the_value_read(self) -> "ReviewUpdateRequest":
+        if self.memo is not None and self.expected_memo is None:
+            raise ValueError("메모를 저장하려면 처음 읽은 expectedMemo가 필요합니다.")
+        return self
 
 
 class ReviewUpdateResponse(Schema):

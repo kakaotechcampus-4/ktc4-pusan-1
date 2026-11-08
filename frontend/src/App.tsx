@@ -26,11 +26,11 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
-import ConsentPage from './pages/ConsentPage';
 import ContextSettingsPage from './pages/ContextSettingsPage';
 import InterviewCreatePage from './pages/InterviewCreatePage';
 import InterviewSummaryPage from './pages/InterviewSummaryPage';
 import JoinPage from './pages/JoinPage';
+import ConsentPage from './pages/ConsentPage';
 import KakaoCallbackPage from './pages/KakaoCallbackPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -50,6 +50,7 @@ const InterviewRoom = lazy(() => import('./pages/InterviewRoom'));
 const InterviewListPage = lazy(() => import('./pages/InterviewListPage'));
 const DeviceCheckPage = lazy(() => import('./pages/DeviceCheckPage'));
 const ReviewTimelinePage = lazy(() => import('./pages/ReviewTimelinePage'));
+const InterviewReportPage = lazy(() => import('./pages/InterviewReportPage'));
 const TermsPage = lazy(() => import('./pages/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 
@@ -120,9 +121,7 @@ function InterviewFlow() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const [session, setSession] = useState<JoinSessionResponse | null>(null);
-  // 지원자가 이 화면에서 동의를 마쳤는가. 서버에도 남지만 여기서는 다음 단계로
-  // 넘어가도 되는지만 본다 — 상태를 다시 조회하는 왕복을 끼우지 않는다 (#245).
-  const [agreed, setAgreed] = useState(false);
+  const [agreedSession, setAgreedSession] = useState<string | null>(null);
 
   // 명세상 role 은 클라이언트가 선언한다 (인증 도입 전 임시 구조).
   // 초대 링크로 들어오면 지원자, `?role=interviewer` 면 면접관이다.
@@ -136,14 +135,16 @@ function InterviewFlow() {
 
   if (!sessionId) return <Navigate to="/" replace />;
 
-  // 동의 → 입장 → 기기 점검 → 면접 화면. 동의가 맨 앞이다 — 녹화는 방에 트랙이
-  // 올라올 때 시작하므로, 여기서 멈춰 있는 동안에는 아무것도 올라가지 않는다.
-  // 면접관에게는 묻지 않는다. 동의는 녹화되는 사람에게 받는 것이다.
-  if (role === 'CANDIDATE' && !agreed) {
-    return <ConsentPage sessionId={sessionId} onAgreed={() => setAgreed(true)} />;
+  if (role === 'CANDIDATE' && agreedSession !== sessionId) {
+    return (
+      <ConsentPage
+        key={sessionId}
+        sessionId={sessionId}
+        onAgreed={() => setAgreedSession(sessionId)}
+      />
+    );
   }
-
-  if (!session) {
+  if (!session || session.sessionId !== sessionId) {
     return <JoinPage role={role} onJoined={setSession} />;
   }
 
@@ -154,7 +155,6 @@ function InterviewFlow() {
       { replace: true },
     );
     setSession(null);
-    // 동의는 그대로 둔다 — 같은 면접에 다시 들어오는 길이라 또 물을 일이 아니다.
   };
 
   return (
@@ -317,6 +317,14 @@ export default function App() {
             <Suspense fallback={<ChunkFallback />}>
               <ReviewTimelinePage />
             </Suspense>
+          </InterviewerPage>
+        }
+      />
+      <Route
+        path="/report/:interviewId"
+        element={
+          <InterviewerPage>
+            <InterviewReportPage />
           </InterviewerPage>
         }
       />

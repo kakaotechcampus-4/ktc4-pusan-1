@@ -122,3 +122,25 @@ def test_list_item_matches_the_live_packet(
     [item] = client.get(f"/api/v1/sessions/{session_id}/suggestions").json()["items"]
 
     assert item == json.loads(media.sent[0][1])
+
+
+def test_optional_focus_point_is_identical_in_packet_and_reconnected_list(
+    client, session_id, media
+):
+    assert (
+        post(client, session_id, {**SUGGESTION, "reason": "담당 범위"}).status_code
+        == 204
+    )
+    packet = json.loads(media.sent[0][1])
+    item = client.get(f"/api/v1/sessions/{session_id}/suggestions").json()["items"][0]
+    assert item["reason"] == packet["reason"] == "담당 범위"
+
+
+def test_old_suggestion_without_focus_point_still_works(client, session_id):
+    assert post(client, session_id).status_code == 204
+    assert (
+        client.get(f"/api/v1/sessions/{session_id}/suggestions").json()["items"][0][
+            "reason"
+        ]
+        is None
+    )

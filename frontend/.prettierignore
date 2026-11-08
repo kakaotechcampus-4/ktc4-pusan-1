@@ -2,3 +2,7 @@ dist
 node_modules
 package-lock.json
 .omc
+
+# 발표자료는 손으로 고치는 소스가 아니라 통째로 갈아끼우는 산출물이다.
+# Prettier 가 다시 써 버리면 다음에 새 판을 넣을 때마다 매번 diff 가 난다.
+public/presentation

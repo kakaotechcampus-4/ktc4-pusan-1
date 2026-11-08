@@ -1,5 +1,5 @@
 /**
- * AI 평가. 합격 여부는 판단하지 않고, 근거가 된 자료만 서술한다.
+ * 면접 요약. 합격 여부는 판단하지 않고, 근거가 된 자료만 서술한다.
  *
  * 요약이 없을 수 있다 — 한도를 넘기면 서버가 FAILED 로 준다. 그때 빈 칸을 두면
  * 「AI 가 할 말이 없었다」로 읽히므로, 왜 비었는지를 적는다.
@@ -21,8 +21,8 @@ export function AiReview({ summary, status, failureReason, waiting }: AiReviewPr
     <section className="border-border-base bg-surface-panel shadow-card rounded-2xl border p-4 sm:p-5">
       <div className="border-border-base flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b pb-4">
         <span aria-hidden className="bg-brand-soft h-1.5 w-1.5 rounded-full" />
-        <h2 className="text-ink text-[15px] font-semibold">AI 평가</h2>
-        <span className="text-ink-dim text-[13px]">전사 · 지원서 · JD 를 근거로 작성</span>
+        <h2 className="text-ink text-[15px] font-semibold">면접 요약</h2>
+        <span className="text-ink-dim text-[13px]">면접 기록과 지원서 요약</span>
       </div>
 
       {summary ? (

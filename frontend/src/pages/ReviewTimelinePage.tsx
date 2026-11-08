@@ -17,7 +17,7 @@
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getReview, putMark } from '../api/review';
 import { ApiError } from '../api/client';
@@ -31,6 +31,7 @@ import { ReviewNotes } from '../components/review/ReviewNotes';
 import { ReviewPlayer } from '../components/review/ReviewPlayer';
 import { ReviewStatusBar } from '../components/review/ReviewStatusBar';
 import { Timeline } from '../components/review/Timeline';
+import { ReportPanel } from '../components/review/ReportPanel';
 import { useRecordingPlayer } from '../hooks/useRecordingPlayer';
 import { FALLBACK_CANDIDATE } from '../lib/candidateName';
 import { Badge } from '../components/ui/Badge';
@@ -44,15 +45,19 @@ import type { MarkUpdate, Moment, Review, ReviewResponse } from '../types/interv
 type Tab = 'record' | 'ai' | 'memo';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'record', label: '영상 · 문답' },
-  { id: 'ai', label: 'AI 검토' },
+  { id: 'ai', label: '면접 요약' },
   { id: 'memo', label: '메모' },
 ];
 
 /** 준비 중일 때 다시 물어보는 간격 */
 const POLL_INTERVAL_MS = 3000;
 
-export default function ReviewTimelinePage() {
-  const { interviewId } = useParams<{ interviewId: string }>();
+export default function ReviewTimelinePage({
+  interviewId: providedId,
+  embedded = false,
+}: { interviewId?: string; embedded?: boolean } = {}) {
+  const { interviewId: routeId } = useParams<{ interviewId: string }>();
+  const interviewId = providedId ?? routeId;
   const navigate = useNavigate();
   const { data, isError, error, isFetching, refetch } = useQuery({
     queryKey: ['review', interviewId],
@@ -104,7 +109,7 @@ export default function ReviewTimelinePage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(true);
   // 좁은 화면에서 보이는 묶음. 넓은 화면은 셋을 한꺼번에 보여 주므로 쓰지 않는다.
-  const [tab, setTab] = useState<Tab>('record');
+  const [tab, setTab] = useState<Tab>(embedded ? 'ai' : 'record');
 
   const activeIndex = review?.moments.findIndex((m) => m.id === activeId) ?? -1;
   const active = activeIndex >= 0 ? review?.moments[activeIndex] : undefined;
@@ -114,8 +119,8 @@ export default function ReviewTimelinePage() {
     seekTo(moment.atSec);
   };
 
-  // 표시를 저장하지 못했을 때 보여 줄 한 줄. 다시 눌러 되는 실패와 확정 때문에 막힌
-  // 것을 구분한다 — 확정 뒤에는 다시 눌러도 같은 409 다 (#247).
+  const pendingMarks = useRef(new Set<string>());
+  const [pendingMarkIds, setPendingMarkIds] = useState<Set<string>>(new Set());
   const [markFailed, setMarkFailed] = useState<string | null>(null);
   const patchReview = (change: Partial<Review> | ((r: Review) => Review)) =>
     queryClient.setQueryData<ReviewResponse>(['review', interviewId], (prev) =>
@@ -128,20 +133,26 @@ export default function ReviewTimelinePage() {
 
   const mark = (itemId: string, next: MarkUpdate) => {
     const before = review && currentMark(review, itemId, next);
-    if (!before) return;
+    if (!before || pendingMarks.current.has(itemId)) return;
+    pendingMarks.current.add(itemId);
+    setPendingMarkIds(new Set(pendingMarks.current));
     setMarkFailed(null);
     patchReview((r) => applyMark(r, itemId, next));
-    putMark(interviewId!, itemId, next).catch((e: unknown) => {
-      patchReview((r) => applyMark(r, itemId, before));
-      const locked = e instanceof ApiError && e.code === 'REVIEW_CONFIRMED';
-      setMarkFailed(
-        locked
-          ? '검토가 확정되어 바꾸지 못했습니다. 아래에서 「검토 중」으로 돌린 뒤 다시 눌러주세요.'
-          : '표시를 저장하지 못해 되돌렸습니다. 다시 눌러주세요.',
-      );
-      // 다른 창에서 확정했을 수 있다 — 버튼도 같이 잠기게 상태를 다시 읽는다.
-      if (locked) void queryClient.invalidateQueries({ queryKey: ['review', interviewId] });
-    });
+    putMark(interviewId!, itemId, next)
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.code === 'REVIEW_CONFIRMED') void refetch();
+        patchReview((r) => applyMark(r, itemId, before));
+        setMarkFailed(
+          error instanceof ApiError && error.code === 'REVIEW_CONFIRMED'
+            ? '검토가 확정되어 표시를 저장하지 못했습니다. 검토 확정을 먼저 해제하세요.'
+            : '표시를 저장하지 못해 되돌렸습니다. 다시 눌러주세요.',
+        );
+      })
+      .finally(() => {
+        pendingMarks.current.delete(itemId);
+        setPendingMarkIds(new Set(pendingMarks.current));
+        void queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      });
   };
 
   if (isError) {
@@ -229,12 +240,22 @@ export default function ReviewTimelinePage() {
   const openFindings = review.findings.filter((f) => f.state === 'PROPOSED').length;
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 pt-6 pb-36 sm:px-6 lg:px-8 lg:pb-28">
+    <div
+      className={
+        embedded
+          ? 'w-full p-4'
+          : 'mx-auto w-full max-w-[1400px] px-4 pt-6 pb-36 sm:px-6 lg:px-8 lg:pb-28'
+      }
+    >
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Link
           to="/candidates"
           aria-label="지원자 목록으로"
-          className="text-ink-muted hover:bg-surface-bright hover:text-ink -ml-2 rounded-lg p-2"
+          className={
+            embedded
+              ? 'hidden'
+              : 'text-ink-muted hover:bg-surface-bright hover:text-ink -ml-2 rounded-lg p-2'
+          }
         >
           <span aria-hidden className="material-symbols-outlined text-[22px]">
             arrow_back
@@ -255,9 +276,17 @@ export default function ReviewTimelinePage() {
           interviewId={interviewId!}
           candidateName={candidateName}
           // 지운 면접의 기록 화면에 남아 있을 수 없다. 목록으로 내보낸다.
-          onDeleted={() => void navigate('/candidates')}
+          onDeleted={() => {
+            if (!embedded) void navigate('/candidates');
+          }}
         />
       </header>
+
+      {!embedded && (
+        <div className="mt-4">
+          <ReportPanel interviewId={interviewId!} compact />
+        </div>
+      )}
 
       {/* 이 화면이 무엇을 하는 곳인지 먼저 적는다 — 시안의 첫 줄이다. */}
       <p className="text-ink-muted mt-3 text-[13px] leading-relaxed">
@@ -341,15 +370,17 @@ export default function ReviewTimelinePage() {
               coverage={review.coverage}
               findings={review.findings}
               findingsStatus={review.findingsStatus}
+              locked={review.reviewStatus === 'CONFIRMED'}
+              pendingIds={pendingMarkIds}
               onMark={(id, state) => mark(id, { state })}
               onSeek={seekTo}
-              locked={review.reviewStatus === 'CONFIRMED'}
             />
           </div>
 
           <div className={tab === 'memo' ? '' : 'hidden lg:block'}>
             <ReviewNotes
               interviewId={review.interviewId}
+              ownerId={interview?.interviewerId}
               memo={review.memo}
               onSaved={patchReview}
             />
@@ -358,12 +389,18 @@ export default function ReviewTimelinePage() {
       </div>
 
       <ReviewStatusBar
+        embedded={embedded}
         interviewId={review.interviewId}
         reviewStatus={review.reviewStatus}
         reviewedAt={review.reviewedAt}
         openFindings={openFindings}
         findingsFailed={review.findingsStatus === 'FAILED'}
-        onSaved={patchReview}
+        onSaved={(next) => {
+          patchReview(next);
+          void queryClient.invalidateQueries({ queryKey: ['interviews'] });
+          void queryClient.invalidateQueries({ queryKey: ['report', interviewId] });
+          void refetchInterview();
+        }}
       />
     </div>
   );
