@@ -260,7 +260,7 @@ def update_review(
             raise ApiError(
                 ErrorCode.INTERVIEW_NOT_FOUND, 404, "면접을 찾을 수 없습니다."
             )
-        raise ApiError("MEMO_CONFLICT", 409, "다른 창에서 메모가 바뀌었습니다.")
+        raise ApiError(ErrorCode.MEMO_CONFLICT, 409, "다른 창에서 메모가 바뀌었습니다.")
     return ReviewUpdateResponse(
         review_status=updated.review_status,
         reviewed_at=updated.reviewed_at,
@@ -456,7 +456,7 @@ def put_mark(
         # 리포트 근거가 그 시각의 채택을 전제한다. 되돌리기도 같이 막힌다. 북마크는
         # 근거도 지표도 아니라서 그대로 둔다.
         raise ApiError(
-            "REVIEW_CONFIRMED", 409, "확정한 검토는 채택을 바꿀 수 없습니다."
+            ErrorCode.REVIEW_CONFIRMED, 409, "확정한 검토는 채택을 바꿀 수 없습니다."
         )
 
     # 보낸 것만 한 문장으로 바꾼다.
@@ -493,7 +493,9 @@ def post_report(
     3. 이미 만들고 있다 — 한도(`report_timeout`)를 넘기면 다시 누를 수 있다
     """
     if interview.review_status is not ReviewStatus.CONFIRMED:
-        raise ApiError("REVIEW_NOT_CONFIRMED", 409, "검토를 먼저 확정해 주세요.")
+        raise ApiError(
+            ErrorCode.REVIEW_NOT_CONFIRMED, 409, "검토를 먼저 확정해 주세요."
+        )
 
     # 채택 여부는 리포트 전체에서 한 함수만 센다 (#238). 여기서 센 것과 AI 가 받는
     # 것이 다르면 「채택했는데 리포트에 없다」가 된다.
@@ -504,7 +506,9 @@ def post_report(
         or summary is None
         or not adopted_findings(summary, store.list_marks(session.id))
     ):
-        raise ApiError("NO_ADOPTED_FINDING", 409, "근거를 1개 이상 채택해 주세요.")
+        raise ApiError(
+            ErrorCode.NO_ADOPTED_FINDING, 409, "근거를 1개 이상 채택해 주세요."
+        )
 
     # 기준 세션을 리포트에 박아 둔다. 조회도 AI 입력도 이 세션만 본다 — 나중에 세션이
     # 하나 더 끝나도 이미 만든 리포트의 근거 시각이 흔들리지 않는다.
@@ -513,7 +517,9 @@ def post_report(
         settings.report_timeout,
     )
     if not opened:
-        raise ApiError("REPORT_IN_PROGRESS", 409, "이미 리포트를 만들고 있습니다.")
+        raise ApiError(
+            ErrorCode.REPORT_IN_PROGRESS, 409, "이미 리포트를 만들고 있습니다."
+        )
     return ReviewProcessingResponse()
 
 

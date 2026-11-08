@@ -248,7 +248,7 @@ def put_report(
         if fresh.requested_at != body.requested_at:
             # 면접관이 그 사이 다시 누른 것이다. 폴러는 다음 조회에서 새 작업을
             # 받는다. 공개 API 가 아니라 공개 명세의 ErrorCode 에 넣지 않는다.
-            raise ApiError("REPORT_OUTDATED", 409, "더 새로운 요청이 있습니다.")
+            raise ApiError(ErrorCode.REPORT_OUTDATED, 409, "더 새로운 요청이 있습니다.")
         # 같은 요청의 실패 보고가 READY 를 덮지 않은 것이다.
 
     # 본문은 남기지 않는다. 지원자 발화와 지원서 문장이 들어 있다.
@@ -297,7 +297,7 @@ def put_prep(interview_id: InterviewIdPath, body: PrepUpsert, store: StoreDep) -
         if stored.requested_at != body.requested_at:
             # 이력서를 다시 올리는 사이 늦게 온 옛 결과다. 폴러는 다음 조회에서 새
             # 작업을 받는다. 공개 API 가 아니라 공개 명세의 ErrorCode 에 넣지 않는다.
-            raise ApiError("PREP_OUTDATED", 409, "더 새로운 요청이 있습니다.")
+            raise ApiError(ErrorCode.PREP_OUTDATED, 409, "더 새로운 요청이 있습니다.")
         # 같은 요청의 실패 보고가 READY 를 덮지 않은 것이다.
 
     # 역량 · 주장 본문은 남기지 않는다. 주장은 지원자 이력서의 문장이다.
