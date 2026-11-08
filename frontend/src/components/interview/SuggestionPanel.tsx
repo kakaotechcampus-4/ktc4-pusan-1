@@ -71,7 +71,9 @@ export function SuggestionPanel() {
       <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
         <h2 className="text-ink text-[15px] font-semibold">꼬리질문</h2>
         {/* 누를 수 있다는 것을 글로 밝힌다. 아이콘만으로는 눈으로도 소리로도 모른다 */}
-        <span className="text-ink-dim text-[12px]">누르면 고정</span>
+        <span id="suggestion-pin-hint" className="text-ink-dim text-[12px]">
+          누르면 고정
+        </span>
         <span className="flex-1" />
         <button
           type="button"
@@ -161,6 +163,8 @@ export function SuggestionPanel() {
                 type="button"
                 onClick={() => togglePin(s.id)}
                 aria-pressed={s.pinned}
+                // 화면낭독기에서 「전환 버튼」만 들리지 않게 무엇을 켜는지 함께 알린다
+                aria-describedby="suggestion-pin-hint"
                 className={`flex min-w-0 flex-1 animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 ${
                   s.pinned
                     ? 'border-brand/40 bg-brand-tint'
@@ -197,7 +201,8 @@ export function SuggestionPanel() {
                 aria-label={`지우기: ${s.content}`}
                 className="text-ink-muted shrink-0 self-center rounded-lg px-2 py-3 text-xs hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2"
               >
-                지우기
+                {/* 이름은 aria-label 이 준다. 새 질문 안내(aria-live)에 「지우기」가 섞여 읽히지 않게 숨긴다 */}
+                <span aria-hidden>지우기</span>
               </button>
             </div>
           ))
