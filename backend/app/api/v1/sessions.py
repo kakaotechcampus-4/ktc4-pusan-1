@@ -4,9 +4,11 @@
 그 면접의 주인만 부른다 (#130). 남의 세션은 없는 것과 같이 404 다.
 """
 
+import json
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, status
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -31,6 +33,7 @@ from app.domain.store import Store
 from app.schemas import (
     ConsentRequest,
     ConsentResponse,
+    DemoUtteranceRequest,
     EndSessionResponse,
     JoinRequest,
     JoinResponse,
@@ -45,6 +48,8 @@ from app.schemas import (
 )
 from app.services import recording as recording_module
 from app.services.review import failure_reason
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["세션"])
 
@@ -411,6 +416,80 @@ def list_suggestions(
             for s in store.list_suggestions(session.id)
         ]
     )
+
+
+#: Agent 가 듣는 토픽 (`irya_ai.demo_injection.DEMO_TOPIC`). 자막·꼬리질문 토픽과
+#: 겹치지 않게 따로 둔다.
+DEMO_TOPIC = "irya.demo.v1"
+
+
+@router.post(
+    "/{sessionId}/demo/utterance",
+    status_code=status.HTTP_204_NO_CONTENT,
+    # 공개 명세에 싣지 않는다. 제품 기능이 아니라 발표 데모용 경로다.
+    include_in_schema=False,
+)
+async def inject_demo_utterance(
+    session: OwnedSessionDep, body: DemoUtteranceRequest, media: MediaDep
+) -> None:
+    """준비한 답변을 지원자 발화로 Agent 에 보낸다 (최종 발표 데모).
+
+    무대에는 지원자가 없다. 그래서 「지원자가 소리를 냈다」는 사실 하나만 대신하고,
+    그 답변이 들어간 뒤의 자막 · 발화 저장 · 질문·답변 짝짓기 · 꼬리질문 생성 ·
+    근거 접지 검사는 **전부 실제 경로가 그대로 돈다.** 인용이 그 답변의 글자 그대로가
+    아닌 꼬리질문은 면접에서와 똑같이 버려진다.
+
+    ## 어느 세션에 넣을 수 있나
+
+    `DEMO_INJECTION_SESSIONS` 에 적힌 세션만이다. 플래그만 켜는 것으로는 아무
+    세션도 열리지 않는다 — 그래야 데모를 켜 둔 동안 같은 서버의 다른 면접관이
+    실제 지원자의 전사에 대본을 넣을 수 없다. 목록에 없으면 404 다.
+
+    ## 왜 브라우저가 방에 직접 못 넣나
+
+    사람 토큰에는 `canPublishData` 가 없다 (`services/media.py`). **이게 실제로 이
+    경로를 막는 것이다.** Agent 쪽은 방 안의 참가자가 보낸 패킷을 거부하지만, 그건
+    패킷에 서명을 요구하는 게 아니라 「이 방 사람이 쓴 게 아니다」라는 정도의 확인이다.
+
+    꺼져 있을 때 404 를 주는 것은 이 경로를 제품 API 에서 숨기려는 것이고, 없는
+    경로와 **완전히** 구분되지 않는다 — 로그인하지 않으면 401 이 먼저 나간다.
+    """
+    if session.id not in settings.demo_injection_session_ids or not (
+        settings.demo_injection_enabled
+    ):
+        raise ApiError(ErrorCode.NOT_FOUND, 404, "없는 경로입니다.")
+    if session.status is not SessionStatus.INTERVIEWING:
+        raise ApiError(
+            ErrorCode.INVALID_SESSION_STATE,
+            409,
+            "면접이 진행 중일 때만 주입할 수 있습니다.",
+        )
+    # 보낼 곳을 적지 않는다. Agent 는 방에 숨어 있고(`hidden=True`) identity 를
+    # 미리 알 수 없다. 그래서 방 전체로 간다 — 지원자 쪽 SDK 도 이 패킷을 받는다.
+    # 듣는 코드가 없을 뿐이고, 그건 접근 통제가 아니다. 목록에 오른 데모 세션에만
+    # 쓰는 이유 중 하나다.
+    try:
+        await media.send_data(
+            session.room_name,
+            json.dumps(
+                {"type": "demo.utterance", "content": body.content},
+                ensure_ascii=False,
+            ).encode(),
+            topic=DEMO_TOPIC,
+            to=[],
+        )
+    except Exception as exc:
+        # 꺼져 있을 때의 404 와 **다른** 코드를 준다. 무대에서 둘을 구분할 수 있어야
+        # 한다 — 「플래그를 안 켰다」와 「LiveKit 이 안 받는다」는 손쓸 방법이 다르다.
+        logger.warning("데모 발화 전달 실패 session_id=%s", session.id, exc_info=True)
+        raise ApiError(
+            ErrorCode.INTERNAL_ERROR,
+            503,
+            "방에 전달하지 못했습니다.",
+            retryable=True,
+        ) from exc
+    # 본문은 남기지 않는다. 주입이든 아니든 면접 발화이고, 발화는 로그에 두지 않는다.
+    logger.info("데모 발화 주입 session_id=%s 길이=%d", session.id, len(body.content))
 
 
 def _duration_sec(session: Session) -> int:
