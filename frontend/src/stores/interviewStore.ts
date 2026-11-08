@@ -61,6 +61,8 @@ interface InterviewState {
   suggestionFloor: number;
   /** 받은 적 있는 질문의 도착 순번. 잘라낸 질문이 재조회로 되살아나지 않게 한다 */
   suggestionSeq: Record<string, number>;
+  /** 새로고침 전 큐의 시작 질문 id. 조회로 그 질문이 다시 오면 floor 를 거기로 맞춘다 */
+  restoredFloorId: string | null;
 
   setSession: (id: string) => void;
   setConnection: (s: RoomConnectionState) => void;
@@ -102,6 +104,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
   frozenSuggestionIds: null,
   suggestionFloor: 0,
   suggestionSeq: {},
+  restoredFloorId: null,
 
   // 이 탭에서 지우고 고정해 둔 것을 되살린다. 질문은 뒤이어 조회 · 패킷으로 채워진다.
   setSession: (sessionId) =>
@@ -111,6 +114,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
         sessionId,
         hiddenSuggestionIds: marks.hidden,
         pinnedSuggestionIds: marks.pinned,
+        restoredFloorId: marks.floor,
       };
     }),
   setConnection: (connection) => set({ connection }),
@@ -201,16 +205,11 @@ export const useInterviewStore = create<InterviewState>((set) => ({
         pinnedSuggestionIds: s.pinnedSuggestionIds.filter((x) => x !== id),
         suggestions: s.suggestions.map((x) => (x.id === id ? { ...x, pinned: false } : x)),
       };
-      writeMarks(s.sessionId, {
-        hidden: next.hiddenSuggestionIds,
-        pinned: next.pinnedSuggestionIds,
-      });
       return settle(s, next);
     }),
   undoDismissSuggestion: () =>
     set((s) => {
       const hidden = s.hiddenSuggestionIds.filter((id) => id !== s.lastHiddenSuggestionId);
-      writeMarks(s.sessionId, { hidden, pinned: s.pinnedSuggestionIds });
       return settle(s, { hiddenSuggestionIds: hidden, lastHiddenSuggestionId: null });
     }),
 
@@ -227,7 +226,6 @@ export const useInterviewStore = create<InterviewState>((set) => ({
       const pinnedSuggestionIds = s.pinnedSuggestionIds.includes(id)
         ? s.pinnedSuggestionIds.filter((x) => x !== id)
         : [...s.pinnedSuggestionIds, id];
-      writeMarks(s.sessionId, { hidden: s.hiddenSuggestionIds, pinned: pinnedSuggestionIds });
       return settle(s, {
         pinnedSuggestionIds,
         suggestions: s.suggestions.map((x) =>
@@ -252,6 +250,7 @@ export const useInterviewStore = create<InterviewState>((set) => ({
       frozenSuggestionIds: null,
       suggestionFloor: 0,
       suggestionSeq: {},
+      restoredFloorId: null,
     }),
 }));
 
@@ -269,13 +268,28 @@ export const queueOf = (s: InterviewState): SuggestionQueue => ({
   frozen: s.frozenSuggestionIds,
 });
 
-/** 바뀐 상태에 큐 규칙을 적용한다 — 넘친 만큼 floor 를 옮기고 보관 범위 밖은 잘라낸다 */
+/**
+ * 바뀐 상태에 큐 규칙을 적용한다 — 넘친 만큼 floor 를 옮기고 보관 범위 밖은 잘라낸다.
+ * 지우기 · 고정 · floor 는 이 탭에 남겨 새로고침 뒤에도 같은 큐를 보이게 한다.
+ */
 function settle(
   s: InterviewState,
   patch: Partial<InterviewState>,
   floorOf: (q: SuggestionQueue) => number = raiseFloor,
 ): Partial<InterviewState> {
-  const q = queueOf({ ...s, ...patch });
-  const floor = floorOf(q);
-  return { ...patch, suggestionFloor: floor, suggestions: trimSuggestions({ ...q, floor }) };
+  const next = { ...s, ...patch };
+  const q = queueOf(next);
+  const restored = next.restoredFloorId === null ? undefined : q.seq[next.restoredFloorId];
+  const floor = Math.max(floorOf(q), restored ?? -Infinity);
+  writeMarks(next.sessionId, {
+    hidden: next.hiddenSuggestionIds,
+    pinned: next.pinnedSuggestionIds,
+    floor: Object.keys(q.seq).find((id) => q.seq[id] === floor) ?? null,
+  });
+  return {
+    ...patch,
+    suggestionFloor: floor,
+    suggestions: trimSuggestions({ ...q, floor }),
+    ...(restored === undefined ? {} : { restoredFloorId: null }),
+  };
 }

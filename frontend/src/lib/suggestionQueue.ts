@@ -71,6 +71,8 @@ export function trimSuggestions(q: SuggestionQueue): Suggestion[] {
 export interface SuggestionMarks {
   hidden: string[];
   pinned: string[];
+  /** 큐에 남은 가장 오래된 질문 id. 새로고침 뒤에도 밀려난 질문이 되살아나지 않게 한다 */
+  floor: string | null;
 }
 
 const marksKey = (sessionId: string) => `irya.suggestions.${sessionId}`;
@@ -85,9 +87,10 @@ const strings = (value: unknown) =>
 export function readMarks(sessionId: string): SuggestionMarks {
   try {
     const saved = JSON.parse(globalThis.sessionStorage?.getItem(marksKey(sessionId)) ?? 'null');
-    return { hidden: strings(saved?.hidden), pinned: strings(saved?.pinned) };
+    const floor = typeof saved?.floor === 'string' ? saved.floor : null;
+    return { hidden: strings(saved?.hidden), pinned: strings(saved?.pinned), floor };
   } catch {
-    return { hidden: [], pinned: [] };
+    return { hidden: [], pinned: [], floor: null };
   }
 }
 
