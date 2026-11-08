@@ -45,7 +45,8 @@ export function ReportContent({ report }: { report: ReportDocument }) {
         </h2>
         <p className="text-ink-muted mt-2 text-sm">
           {[
-            `현재 설정 직무: ${report.candidate.role}`,
+            // 면접 당시 직무다 (#272). 이 값이 생기기 전 면접은 비어 있어 줄에서 빠진다.
+            report.candidate.role && `직무: ${report.candidate.role}`,
             report.interviewer.nickname,
             report.interviewedAt && new Date(report.interviewedAt).toLocaleString('ko-KR'),
           ]

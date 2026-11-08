@@ -154,6 +154,13 @@ def test_a_ready_review_carries_the_computed_parts(
     assert body["sessionId"] == session_id
     assert "recording" not in body
     assert body["candidate"] == {"name": "김도현", "role": "백엔드 개발자"}
+    # 설정에서 직무를 바꿔도 이 면접의 직무는 안 움직인다 (#272).
+    context.role = "프론트엔드 개발자"
+    store.save_context(context)
+    assert get_review(client, interview_id).json()["candidate"] == {
+        "name": "김도현",
+        "role": "백엔드 개발자",
+    }
     assert body["interviewer"] == {"nickname": owner.nickname}
     assert (body["reviewStatus"], body["reviewedAt"], body["memo"]) == (
         "PENDING",

@@ -134,6 +134,26 @@ def test_interview_can_have_multiple_sessions(client: TestClient):
     assert first != second
 
 
+def test_changing_the_setting_later_leaves_past_interviews_alone(client: TestClient):
+    """설정에서 직무를 바꿔도 지난 면접의 직무는 그대로다 (#272).
+
+    면접은 「이 직무로 이 사람을 봤다」는 기록이라, 생성 시점의 값을 들고 있다.
+    """
+    context_id = client.get("/api/v1/contexts/current").json()["id"]
+    client.patch(f"/api/v1/contexts/{context_id}", json={"role": "백엔드 개발자"})
+    old = client.post("/api/v1/interviews", json={"candidateName": "가"}).json()
+
+    client.patch(f"/api/v1/contexts/{context_id}", json={"role": "프론트엔드 개발자"})
+    new = client.post("/api/v1/interviews", json={"candidateName": "나"}).json()
+
+    items = {
+        i["interviewId"]: i["role"]
+        for i in client.get("/api/v1/interviews").json()["items"]
+    }
+    assert items[old["interviewId"]] == "백엔드 개발자"
+    assert items[new["interviewId"]] == "프론트엔드 개발자"
+
+
 # ── 내 면접 목록 (#137 1-1) ─────────────────────────────
 
 

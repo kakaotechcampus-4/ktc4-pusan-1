@@ -116,9 +116,14 @@ def create_interview(
     면접의 주인(`interviewerId`)은 토큰의 사용자다. 요청 본문으로 받으면 아무 이름으로나
     면접을 만들 수 있어, 그 면접을 주인만 다룬다는 판단이 서지 않는다.
     """
+    # 지금 설정의 회사 · 직무를 면접에 박아 둔다 (#272). 나중에 설정을 바꿔도 이
+    # 면접의 기록은 안 움직인다.
+    context = store.ensure_context(Context(owner_id=user.id))
     interview = Interview(
         interviewer_id=user.id,
         candidate_name=_clean_candidate_name(body.candidate_name),
+        company=context.company,
+        role=context.role,
     )
     store.add_interview(interview)
     return _to_response(interview)
@@ -133,11 +138,10 @@ def create_interview(
 def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListResponse:
     """내가 만든 면접을 최신순으로 준다. 필터 · 정렬은 FE 가 한다 (#137 1-1).
 
-    면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 내 컨텍스트에서 온다.
+    면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 면접 당시 값이다 (#272).
     """
     # ponytail: 페이지네이션 없음. 면접관 한 명의 면접이 수백 건을 넘으면
     # cursor 를 붙인다.
-    role = store.ensure_context(Context(owner_id=user.id)).role
     interviewer = InterviewerSummary(nickname=user.nickname)
     items = []
     for workspace in store.list_interview_workspaces(user.id):
@@ -154,7 +158,7 @@ def list_interviews(user: CurrentUserDep, store: StoreDep) -> InterviewListRespo
             if summary and shown is SummaryStatus.READY
             else None
         )
-        item = _to_list_item(interview, session, shown, counts, role, interviewer)
+        item = _to_list_item(interview, session, shown, counts, interviewer)
         item.memo = interview.memo
         item.latest_session = _session_response(workspace.latest_session)
         item.review_session_id = session.id if session else None
@@ -205,14 +209,15 @@ def _to_list_item(
     session: Session | None,
     summary: SummaryStatus | None,
     counts: ReviewCounts | None,
-    role: str,
     interviewer: InterviewerSummary,
 ) -> InterviewListItem:
     began, duration = _timing(session)
     return InterviewListItem(
         interview_id=interview.id,
         candidate_name=interview.candidate_name,
-        role=role,
+        # 면접 당시 값이다 (#272). 이 컬럼이 생기기 전 면접은 비어 있고, FE 가
+        # 「직무 기록 없음」으로 그린다 — 현재 설정으로 채우지 않는다.
+        role=interview.role,
         interviewer=interviewer,
         interviewed_at=began,
         duration_sec=duration,
@@ -388,7 +393,7 @@ def get_review(
         session_id=session.id,
         candidate=ReviewCandidate(
             name=interview.candidate_name,
-            role=store.ensure_context(Context(owner_id=user.id)).role,
+            role=interview.role,
         ),
         interviewer=InterviewerSummary(nickname=user.nickname),
         interviewed_at=began,
@@ -580,7 +585,7 @@ def get_report(
         review_status=interview.review_status,
         candidate=ReviewCandidate(
             name=interview.candidate_name,
-            role=store.ensure_context(Context(owner_id=user.id)).role,
+            role=interview.role,
         ),
         interviewer=InterviewerSummary(nickname=user.nickname),
         interviewed_at=began,
