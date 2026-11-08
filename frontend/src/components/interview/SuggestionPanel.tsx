@@ -6,30 +6,65 @@ import { preserveMemoFocus } from '../../lib/memoFocus';
  * 문장만 둔다 — 근거 발화·도착 시각·상태는 넣지 않는다. 고를 것이 적어야 눈이
  * 한 번에 끝난다.
  *
- * 누르면 고정된다. 고정한 것은 위로 올라가고, 그 뒤에 새 꼬리질문이 와도 자리가
- * 밀리지 않는다 — 묻기 직전에 질문이 어디로 갔는지 찾게 되는 것이 이 화면에서
- * 가장 나쁘다. 서버에는 고정을 적는 API 가 없어 새로고침하면 풀린다.
+ * 질문은 큐로 흐른다. 고정하지 않은 질문은 최신 6개(또는 10개)만 두고, 새 질문이 오면
+ * 가장 오래된 것이 빠진다. 누르면 고정되어 큐 밖 위쪽에 남고, 풀면 원래 순서 자리로
+ * 돌아간다 — 그 자리가 이미 지났으면 사라진다. 지운 칸은 다음 질문이 채운다.
+ * 지우기 · 고정은 서버에 적는 API 가 없어 이 탭에만 남는다(새로고침해도 유지).
  *
  * 꼬리질문이 없을 때도 패널을 그린다. aria-live 영역은 내용이 바뀌기 전에 이미
  * DOM 에 있어야 읽힌다 — 상자째 나타나면 스크린리더가 놓친다.
  */
 
-import { useState } from 'react';
-import { useInterviewStore } from '../../stores/interviewStore';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { queueOf, useInterviewStore } from '../../stores/interviewStore';
+import { SUGGESTION_LIMITS, visibleSuggestions } from '../../lib/suggestionQueue';
 
 export function SuggestionPanel() {
+  const root = useRef<HTMLElement>(null);
+  const nextFocus = useRef<string | null>(null);
   const suggestions = useInterviewStore((s) => s.suggestions);
   const togglePin = useInterviewStore((s) => s.toggleSuggestionPin);
 
   const [showReasons, setShowReasons] = useState(false);
   const expanded = useInterviewStore((s) => s.questionsExpanded);
   const toggleExpanded = useInterviewStore((s) => s.toggleQuestionsExpanded);
-  // 고정한 것을 위로 올린다. sort 가 안정적이라 그 안에서는 도착 순서가 유지된다.
-  const ordered = [...suggestions].sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  const limit = useInterviewStore((s) => s.suggestionLimit);
+  const setLimit = useInterviewStore((s) => s.setSuggestionLimit);
+  const frozen = useInterviewStore((s) => s.frozenSuggestionIds);
+  const togglePaused = useInterviewStore((s) => s.toggleSuggestionsPaused);
+  const hidden = useInterviewStore((s) => s.hiddenSuggestionIds);
+  const dismiss = useInterviewStore((s) => s.dismissSuggestion);
+  const undo = useInterviewStore((s) => s.undoDismissSuggestion);
+  const lastHidden = useInterviewStore((s) => s.lastHiddenSuggestionId);
+  const ordered = useInterviewStore(useShallow((s) => visibleSuggestions(queueOf(s))));
+
+  // 지운 카드 · 취소 버튼이 사라져도 키보드 포커스가 body 로 빠지지 않게 옮긴다.
+  useLayoutEffect(() => {
+    if (!nextFocus.current) return;
+    const target =
+      root.current?.querySelector<HTMLElement>(nextFocus.current) ??
+      root.current?.querySelector<HTMLButtonElement>('button');
+    target?.focus({ preventScroll: true });
+    nextFocus.current = null;
+  }, [hidden, suggestions]);
+  const hide = (id: string) => {
+    const item = root.current?.querySelector(`[data-suggestion-id="${CSS.escape(id)}"]`);
+    nextFocus.current = item?.contains(document.activeElement) ? '[data-suggestion-undo]' : null;
+    dismiss(id);
+  };
+  const restore = () => {
+    nextFocus.current =
+      lastHidden && root.current?.querySelector('[data-suggestion-undo]') === document.activeElement
+        ? `[data-suggestion-id="${CSS.escape(lastHidden)}"] button`
+        : null;
+    undo();
+  };
 
   return (
     // 영상 위에서도 기본 상태부터 글자를 읽을 수 있게 한다.
     <section
+      ref={root}
       onMouseDown={preserveMemoFocus}
       className="glass interview-readable flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl"
     >
@@ -46,21 +81,70 @@ export function SuggestionPanel() {
         >
           {expanded ? '줄이기' : '확대'}
         </button>
-        {suggestions.length > 0 && (
+        {ordered.length > 0 && (
           <span className="bg-brand-tint text-brand-strong rounded-full px-2 py-0.5 text-[12px] font-semibold tabular-nums">
-            {suggestions.length}
+            {ordered.length}
           </span>
         )}
       </div>
 
-      <label className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-xs focus-within:outline-2 focus-within:outline-offset-2">
-        <input
-          type="checkbox"
-          checked={showReasons}
-          onChange={(event) => setShowReasons(event.target.checked)}
-        />
-        근거 보기
-      </label>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 pb-1.5 text-xs">
+        <label className="flex min-h-11 items-center gap-2 rounded-lg focus-within:outline-2 focus-within:outline-offset-2">
+          <input
+            type="checkbox"
+            checked={showReasons}
+            onChange={(event) => setShowReasons(event.target.checked)}
+          />
+          근거 보기
+        </label>
+        <span className="flex-1" />
+        <div
+          role="group"
+          aria-label="표시 개수"
+          className="flex gap-0.5 rounded-lg bg-white/10 p-0.5"
+        >
+          {SUGGESTION_LIMITS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={limit === n}
+              onClick={() => setLimit(n)}
+              className={`min-h-9 rounded-md px-2.5 font-semibold tabular-nums transition focus-visible:outline-2 focus-visible:-outline-offset-2 ${
+                limit === n
+                  ? 'bg-surface-panel text-ink shadow-card'
+                  : 'text-ink-muted hover:text-ink'
+              }`}
+            >
+              {n}개
+            </button>
+          ))}
+        </div>
+        {/* 자동으로 바뀌는 영역은 멈출 수 있어야 한다 (KWCAG 정지 기능) */}
+        <button
+          type="button"
+          aria-pressed={frozen !== null}
+          onClick={togglePaused}
+          className="text-ink-muted hover:text-ink inline-flex min-h-9 items-center gap-1 rounded-lg px-2 font-semibold focus-visible:outline-2 focus-visible:-outline-offset-2"
+        >
+          <span aria-hidden className="material-symbols-outlined text-[16px]">
+            {frozen ? 'play_arrow' : 'pause'}
+          </span>
+          {frozen ? '다시 흐르기' : '일시정지'}
+        </button>
+      </div>
+      {lastHidden && (
+        <div role="status" className="flex items-center justify-between gap-2 px-4 py-1 text-xs">
+          <span>질문을 지웠습니다.</span>
+          <button
+            type="button"
+            data-suggestion-undo
+            onClick={restore}
+            className="min-h-11 px-2 underline focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
+            취소
+          </button>
+        </div>
+      )}
       {/* 꼬리질문은 소리로는 오지 않고 화면에만 있다. 그래서 읽어 주는 것이 맞다 */}
       <div
         aria-live="polite"
@@ -72,38 +156,50 @@ export function SuggestionPanel() {
           </p>
         ) : (
           ordered.map((s) => (
-            <button
-              type="button"
-              key={s.id}
-              onClick={() => togglePin(s.id)}
-              aria-pressed={s.pinned}
-              className={`flex shrink-0 animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                s.pinned
-                  ? 'border-brand/40 bg-brand-tint'
-                  : 'border-border-base bg-surface-panel hover:bg-surface-container'
-              }`}
-            >
-              <span
-                aria-hidden
-                className={`material-symbols-outlined mt-0.5 text-[18px] ${
-                  s.pinned ? 'text-brand' : 'text-ink-dim'
-                }`}
-                style={s.pinned ? { fontVariationSettings: "'FILL' 1" } : undefined}
-              >
-                push_pin
-              </span>
-              {/* 질문 글자는 고정 여부와 무관하게 가장 진한 색을 쓴다 — 읽어야 하는 것이다 */}
-              <span
-                className={`text-ink flex-1 text-[15px] leading-relaxed ${
-                  s.pinned ? 'font-semibold' : ''
+            <div key={s.id} data-suggestion-id={s.id} className="flex shrink-0 gap-1">
+              <button
+                type="button"
+                onClick={() => togglePin(s.id)}
+                aria-pressed={s.pinned}
+                className={`flex min-w-0 flex-1 animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                  s.pinned
+                    ? 'border-brand/40 bg-brand-tint'
+                    : 'border-border-base bg-surface-panel hover:bg-surface-container'
                 }`}
               >
-                {s.content}
-                {s.reason && showReasons && (
-                  <span className="text-ink-muted mt-1 block text-sm font-normal">{s.reason}</span>
-                )}
-              </span>
-            </button>
+                <span
+                  aria-hidden
+                  className={`material-symbols-outlined mt-0.5 text-[18px] ${
+                    s.pinned ? 'text-brand' : 'text-ink-dim'
+                  }`}
+                  style={s.pinned ? { fontVariationSettings: "'FILL' 1" } : undefined}
+                >
+                  push_pin
+                </span>
+                {/* 질문 글자는 고정 여부와 무관하게 가장 진한 색을 쓴다 — 읽어야 하는 것이다 */}
+                <span
+                  className={`text-ink flex-1 text-[15px] leading-relaxed ${
+                    s.pinned ? 'font-semibold' : ''
+                  }`}
+                >
+                  {s.content}
+                  {s.reason && showReasons && (
+                    <span className="text-ink-muted mt-1 block text-sm font-normal">
+                      {s.reason}
+                    </span>
+                  )}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => hide(s.id)}
+                // 보이는 글자를 이름 앞에 둔다 (KWCAG 레이블과 네임)
+                aria-label={`지우기: ${s.content}`}
+                className="text-ink-muted shrink-0 self-center rounded-lg px-2 py-3 text-xs hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                지우기
+              </button>
+            </div>
           ))
         )}
       </div>
