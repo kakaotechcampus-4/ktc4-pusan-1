@@ -9,7 +9,7 @@ export default function InterviewReportPage() {
       <Link to={`/review/${interviewId}`} className="text-brand mb-6 inline-block text-sm">
         ← 면접 기록
       </Link>
-      <ReportPanel interviewId={interviewId} />
+      <ReportPanel interviewId={interviewId} exportable />
     </div>
   );
 }

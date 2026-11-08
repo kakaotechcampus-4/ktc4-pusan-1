@@ -6,14 +6,18 @@ import { getReview } from '../../api/review';
 import { reportBlockReason, reportIsStale } from '../../lib/reportState';
 import { buttonClass } from '../ui/buttonClass';
 import { ReportContent } from './ReportContent';
+import { ReportExportActions } from './ReportExportActions';
 import { flushMemosForRead } from '../../hooks/useMemoAutosave';
 
 export function ReportPanel({
   interviewId,
   compact = false,
+  exportable = false,
 }: {
   interviewId: string;
   compact?: boolean;
+  /** 인계 문서로 쓰는 리포트 화면에서만 내보내기를 둔다 */
+  exportable?: boolean;
 }) {
   const client = useQueryClient();
   const report = useQuery({
@@ -89,7 +93,10 @@ export function ReportPanel({
         리포트 보기
       </Link>
     ) : (
-      <ReportContent report={data} />
+      <>
+        {exportable && <ReportExportActions report={data} />}
+        <ReportContent report={data} />
+      </>
     );
   }
   return (
