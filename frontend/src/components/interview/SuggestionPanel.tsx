@@ -38,6 +38,7 @@ export function SuggestionPanel() {
   const undo = useInterviewStore((s) => s.undoDismissSuggestion);
   const lastHidden = useInterviewStore((s) => s.lastHiddenSuggestionId);
   const ordered = useInterviewStore(useShallow((s) => visibleSuggestions(queueOf(s))));
+  const newest = frozen ? undefined : ordered.find((s) => !s.pinned);
 
   // 지운 카드 · 취소 버튼이 사라져도 키보드 포커스가 body 로 빠지지 않게 옮긴다.
   useLayoutEffect(() => {
@@ -147,11 +148,12 @@ export function SuggestionPanel() {
           </button>
         </div>
       )}
-      {/* 꼬리질문은 소리로는 오지 않고 화면에만 있다. 그래서 읽어 주는 것이 맞다 */}
-      <div
-        aria-live="polite"
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pb-3"
-      >
+      {/* 꼬리질문은 소리로는 오지 않고 화면에만 있다. 그래서 새로 온 질문 문장만 읽어 준다.
+          목록 전체에 aria-live 를 걸면 지우기 버튼 이름까지 섞여 두 번 읽힌다 */}
+      <p aria-live="polite" className="sr-only">
+        {newest ? `새 꼬리질문: ${newest.content}` : ''}
+      </p>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pb-3">
         {ordered.length === 0 ? (
           <p className="text-ink-muted px-1.5 py-1 text-[14px]">
             대화가 이어지면 여기에 올라옵니다.
@@ -201,8 +203,7 @@ export function SuggestionPanel() {
                 aria-label={`지우기: ${s.content}`}
                 className="text-ink-muted shrink-0 self-center rounded-lg px-2 py-3 text-xs hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2"
               >
-                {/* 이름은 aria-label 이 준다. 새 질문 안내(aria-live)에 「지우기」가 섞여 읽히지 않게 숨긴다 */}
-                <span aria-hidden>지우기</span>
+                지우기
               </button>
             </div>
           ))
