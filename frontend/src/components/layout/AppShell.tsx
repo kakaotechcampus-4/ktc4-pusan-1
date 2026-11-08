@@ -18,6 +18,7 @@ import { buttonClass } from '../ui/buttonClass';
 import { Logo } from '../ui/Logo';
 import { Sheet } from '../ui/Sheet';
 import { InterviewNavigationDialog } from './InterviewNavigationDialog';
+import { SkipLink } from './SkipLink';
 
 type Shortcut = 'room' | 'summary' | 'review';
 
@@ -48,6 +49,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="bg-surface min-h-full">
+      <SkipLink />
       {/* ── 넓은 화면: 사이드바 ── */}
       <aside className="border-border-base bg-surface-panel fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r px-4 py-5 lg:flex">
         <Link to="/" aria-label="IRYA 홈" className="px-2">
@@ -123,7 +125,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         </button>
       </header>
 
-      <main className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0 lg:pl-64">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] outline-none lg:pb-0 lg:pl-64"
+      >
         {children}
       </main>
 

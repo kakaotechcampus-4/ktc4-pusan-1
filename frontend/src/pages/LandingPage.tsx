@@ -16,6 +16,7 @@ import interviewIcon from '../assets/illustrations/flow-interview.webp';
 import reviewIcon from '../assets/illustrations/flow-review.webp';
 import heroImg from '../assets/illustrations/hero.webp';
 import { buttonClass } from '../components/ui/buttonClass';
+import { SkipLink } from '../components/layout/SkipLink';
 import { Logo } from '../components/ui/Logo';
 
 const REPO_URL = 'https://github.com/kakaotechcampus-4/ktc4-pusan-1';
@@ -74,6 +75,7 @@ const STEPS = [
 export default function LandingPage() {
   return (
     <div className="bg-surface-panel text-ink min-h-full">
+      <SkipLink />
       <header className="border-border-base/70 bg-surface-panel/80 sticky top-0 z-30 border-b backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-4 sm:px-6">
           <Link to="/" aria-label="IRYA 홈">
@@ -97,7 +99,7 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <main>
+      <main id="main-content" tabIndex={-1} className="outline-none">
         {/* 히어로 — 그림 왼쪽이 비어 있어 글을 그 위에 얹는다. 좁은 화면에서는 글 아래로 내린다. */}
         <section className="from-brand-tint via-surface-panel relative overflow-hidden bg-gradient-to-br to-[#effbf8]">
           <div className="mx-auto grid max-w-6xl items-center gap-8 px-4 pt-14 pb-10 sm:px-6 lg:grid-cols-[1fr_1.15fr] lg:pt-20 lg:pb-16">
