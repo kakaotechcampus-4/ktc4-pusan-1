@@ -49,7 +49,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="bg-surface min-h-full">
       {/* ── 넓은 화면: 사이드바 ── */}
-      <aside className="border-border-base bg-surface-panel fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r px-4 py-5 lg:flex">
+      <aside
+        data-print-hide
+        className="border-border-base bg-surface-panel fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r px-4 py-5 lg:flex"
+      >
         <Link to="/" aria-label="IRYA 홈" className="px-2">
           <Logo />
         </Link>
@@ -108,7 +111,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       {/* ── 좁은 화면: 위 막대 ── */}
-      <header className="border-border-base bg-surface-panel/90 sticky top-0 z-30 flex h-14 items-center border-b px-4 backdrop-blur-xl lg:hidden">
+      <header
+        data-print-hide
+        className="border-border-base bg-surface-panel/90 sticky top-0 z-30 flex h-14 items-center border-b px-4 backdrop-blur-xl lg:hidden"
+      >
         <Link to="/" aria-label="IRYA 홈">
           <Logo size="sm" />
         </Link>
@@ -129,6 +135,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* ── 좁은 화면: 아래 탭. 가운데가 가장 자주 하는 일(새 면접)이다 ── */}
       <nav
+        data-print-hide
         aria-label="면접관 메뉴"
         className="border-border-base bg-surface-panel/95 fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden"
       >

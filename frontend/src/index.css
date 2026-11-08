@@ -258,3 +258,23 @@ body {
     grid-template-rows: minmax(96px, 1fr) minmax(0, 1fr);
   }
 }
+
+/* 리포트 PDF 저장 (#240). 앱 메뉴는 빼고 A4 한 장 폭에 리포트만 남긴다. */
+@media print {
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+  html,
+  body,
+  .bg-surface {
+    background: #fff !important;
+  }
+  [data-print-hide] {
+    display: none !important;
+  }
+  /* 메뉴 자리로 비워 둔 여백도 지운다 */
+  main {
+    padding: 0 !important;
+  }
+}
