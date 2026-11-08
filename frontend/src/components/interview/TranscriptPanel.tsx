@@ -34,7 +34,8 @@ export function TranscriptPanel() {
         onClick={toggleTranscript}
         onMouseDown={preserveMemoFocus}
         aria-expanded={transcriptOpen}
-        className="glass-dim flex w-full shrink-0 items-center gap-2 px-4 py-2.5 text-left"
+        // 패널이 overflow-hidden 이라 바깥 테두리는 잘린다. 초점 테두리를 안쪽에 그린다 (KWCAG 초점 표시)
+        className="glass-dim flex w-full shrink-0 items-center gap-2 rounded-t-3xl px-4 py-2.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-4"
       >
         <span className="h-2 w-2 animate-pulse rounded-full bg-[#ff5a63]" />
         <span className="text-ink text-[14px] font-semibold">실시간 자막</span>
