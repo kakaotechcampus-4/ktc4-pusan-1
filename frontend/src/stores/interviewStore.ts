@@ -35,10 +35,6 @@ interface InterviewState {
   suggestions: Suggestion[];
   questionsExpanded: boolean;
   toggleQuestionsExpanded: () => void;
-  hiddenSuggestionIds: string[];
-  lastHiddenSuggestionId: string | null;
-  dismissSuggestion: (id: string) => void;
-  undoDismissSuggestion: () => void;
 
   setSession: (id: string) => void;
   setConnection: (s: RoomConnectionState) => void;
@@ -63,8 +59,6 @@ export const useInterviewStore = create<InterviewState>((set) => ({
   suggestions: [],
   questionsExpanded: false,
   toggleQuestionsExpanded: () => set((s) => ({ questionsExpanded: !s.questionsExpanded })),
-  hiddenSuggestionIds: [],
-  lastHiddenSuggestionId: null,
 
   setSession: (sessionId) => set({ sessionId }),
   setConnection: (connection) => set({ connection }),
@@ -143,17 +137,6 @@ export const useInterviewStore = create<InterviewState>((set) => ({
       };
     }),
 
-  dismissSuggestion: (id) =>
-    set((s) => ({
-      hiddenSuggestionIds: [...new Set([...s.hiddenSuggestionIds, id])],
-      lastHiddenSuggestionId: id,
-    })),
-  undoDismissSuggestion: () =>
-    set((s) => ({
-      hiddenSuggestionIds: s.hiddenSuggestionIds.filter((id) => id !== s.lastHiddenSuggestionId),
-      lastHiddenSuggestionId: null,
-    })),
-
   /** 면접관이 「이걸 묻겠다」고 눌렀다 · 눌렀던 것을 풀었다 */
   toggleSuggestionPin: (id) =>
     set((s) => ({
@@ -170,7 +153,5 @@ export const useInterviewStore = create<InterviewState>((set) => ({
       transcriptDegraded: false,
       suggestions: [],
       questionsExpanded: false,
-      hiddenSuggestionIds: [],
-      lastHiddenSuggestionId: null,
     }),
 }));
