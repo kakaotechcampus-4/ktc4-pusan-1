@@ -114,3 +114,30 @@ test('같은 탭에서 다시 들어오면 지운 질문과 고정이 유지되�
     store.getState().reset();
   }
 });
+
+test('새로고침 뒤에도 지운 칸을 밀려난 질문으로 채우지 않는다', () => {
+  const memory = new Map();
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: (k) => memory.get(k) ?? null, setItem: (k, v) => memory.set(k, v) },
+  });
+  try {
+    store.getState().reset();
+    store.getState().setSession('ses_floor');
+    store.getState().mergeSuggestions(range(0, 10));
+    store.getState().dismissSuggestion('7');
+    assert.deepEqual(shown(), ['9', '8', '6', '5', '4']);
+
+    store.getState().reset();
+    store.getState().setSession('ses_floor');
+    store.getState().mergeSuggestions(range(0, 10));
+    assert.deepEqual(shown(), ['9', '8', '6', '5', '4']);
+    push(10, 11);
+    assert.deepEqual(shown(), ['10', '9', '8', '6', '5', '4']);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'sessionStorage', original);
+    else delete globalThis.sessionStorage;
+    store.getState().reset();
+  }
+});
