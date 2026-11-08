@@ -212,21 +212,15 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* 원래 유리판 배경을 유지하고 밝은 영상에서도 글자 윤곽을 구분한다. */
+/* 흰 벽 · 밝은 조명 영상에서는 거의 투명한 유리 위의 흰 글씨가 묻힌다. 어두운 유리를 깔아
+   영상 밝기와 상관없이 흰 바탕 위에서도 글자 대비를 지킨다. 흐림(blur)은 그대로 둔다.
+   바탕이 대비를 맡으므로 글자 그림자는 쓰지 않는다 — 번져 보여 오히려 읽기 어렵다. */
 .interview-readable {
   --color-ink-muted: rgb(255 255 255 / 0.96);
   --color-ink-dim: rgb(255 255 255 / 0.9);
-  text-shadow:
-    0 1px 1px rgb(3 7 18 / 0.95),
-    0 0 3px rgb(3 7 18 / 0.95),
-    0 2px 6px rgb(3 7 18 / 0.8);
-}
-
-/* 흰 벽 · 밝은 조명 영상에서는 거의 투명한 유리 위의 흰 글씨가 묻힌다. 어두운 유리를 깔아
-   영상 밝기와 상관없이 흰 바탕 위에서도 글자 대비를 지킨다. 흐림(blur)은 그대로 둔다. */
-.interview-readable {
   background: rgb(11 14 28 / 0.72);
   border-color: rgb(255 255 255 / 0.2);
+  text-shadow: none;
 }
 .interview-readable:hover,
 .interview-readable:focus-within {
@@ -235,13 +229,6 @@ body {
 /* 지난 자막처럼 흐리게 두는 줄도 어두운 유리 위에서 읽힐 만큼만 흐린다. */
 .interview-readable .glass-dim {
   opacity: 0.8;
-}
-
-/* 기본 폼 스타일이 유리판의 글자 그림자를 지우지 않게 한다. */
-.interview-readable button,
-.interview-readable input,
-.interview-readable textarea {
-  text-shadow: inherit;
 }
 
 .interview-panels {
