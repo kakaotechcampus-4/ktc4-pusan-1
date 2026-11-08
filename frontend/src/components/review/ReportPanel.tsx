@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ApiError } from '../../api/client';
 import { createReport, getReport } from '../../api/report';
 import { getReview } from '../../api/review';
-import { reportBlockReason, reportIsStale } from '../../lib/reportState';
+import { reportBlockReason, reportStaleNotice } from '../../lib/reportState';
 import { buttonClass } from '../ui/buttonClass';
 import { ReportContent } from './ReportContent';
 import { flushMemosForRead } from '../../hooks/useMemoAutosave';
@@ -82,7 +82,7 @@ export function ReportPanel({
         <p className="mt-2">이 화면을 나가도 작업은 계속됩니다. 완료되면 자동으로 표시합니다.</p>
       </div>
     );
-  const stale = data.status === 'READY' && reportIsStale(data, review);
+  const stale = data.status === 'READY' ? reportStaleNotice(data, review) : null;
   if (data.status === 'READY' && !stale) {
     return compact ? (
       <Link to={`/report/${interviewId}`} className={buttonClass('secondary')}>
@@ -96,7 +96,7 @@ export function ReportPanel({
     <div>
       {stale && (
         <p role="status" className="text-warning mb-3 text-sm">
-          현재 검토와 리포트의 기준이 다릅니다. 검토를 확정한 뒤 다시 만들어 주세요.
+          {stale}
         </p>
       )}
       {data.status === 'FAILED' && (
