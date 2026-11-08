@@ -388,8 +388,11 @@ export default function InterviewListPage() {
           >
             열 표시·순서
           </button>
+          <label htmlFor="candidate-export-range" className="sr-only">
+            내보낼 범위
+          </label>
           <select
-            aria-label="내보낼 범위"
+            id="candidate-export-range"
             className={FIELD}
             value={exportRange}
             onChange={(event) => setExportRange(event.target.value)}
@@ -487,15 +490,23 @@ export default function InterviewListPage() {
           ))}
         </div>
         <div className="flex flex-wrap gap-2">
+          {/* 보이는 제목이 없는 입력도 label 을 for · id 로 연결한다 (KWCAG 레이블 제공) */}
+          <label htmlFor="candidate-search" className="sr-only">
+            지원자 이름 검색
+          </label>
           <input
-            aria-label="지원자 이름 검색"
+            id="candidate-search"
+            type="search"
             placeholder="이름 검색"
             className={FIELD}
             value={search}
             onChange={(event) => setFilter('q', event.target.value)}
           />
+          <label htmlFor="candidate-summary" className="sr-only">
+            정리 상태
+          </label>
           <select
-            aria-label="정리 상태"
+            id="candidate-summary"
             className={FIELD}
             value={summary}
             onChange={(event) => setFilter('summary', event.target.value)}
@@ -599,6 +610,7 @@ export default function InterviewListPage() {
                   44 + visibleColumns.reduce((total, column) => total + widths[column.key], 0),
               }}
             >
+              <caption className="sr-only">지원자 목록. 열 제목 버튼으로 정렬합니다.</caption>
               <colgroup>
                 <col style={{ width: 44 }} />
                 {visibleColumns.map((column) => (
@@ -607,7 +619,10 @@ export default function InterviewListPage() {
               </colgroup>
               <thead>
                 <tr>
-                  <th className="border-border-base bg-surface-container sticky top-0 left-0 z-30 border-b p-3">
+                  <th
+                    scope="col"
+                    className="border-border-base bg-surface-container sticky top-0 left-0 z-30 border-b p-3"
+                  >
                     <input
                       type="checkbox"
                       aria-label="현재 페이지 선택"
@@ -630,6 +645,7 @@ export default function InterviewListPage() {
                   {visibleColumns.map((column) => (
                     <th
                       key={column.key}
+                      scope="col"
                       className={`border-border-base bg-surface-container sticky top-0 z-20 border-b px-3 py-3 text-xs font-medium ${column.key === 'name' ? 'left-11 z-30' : ''}`}
                       aria-sort={
                         sort[0]?.key === column.key
