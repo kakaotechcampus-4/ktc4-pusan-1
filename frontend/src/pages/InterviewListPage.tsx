@@ -36,6 +36,7 @@ const COLUMNS = [
 type ColumnKey = (typeof COLUMNS)[number]['key'];
 const SORTABLE = new Set<string>(['name', 'date', 'needsReview']);
 const REPORT_LABEL = { PROCESSING: '생성 중', READY: '완료', FAILED: '실패' };
+const REVIEW_TABS = ['all', 'PENDING', 'IN_REVIEW', 'CONFIRMED'] as const;
 const FIELD =
   'border-border-input bg-surface-input text-ink focus:ring-brand min-h-10 rounded-lg border px-3 text-sm focus:ring-2';
 const dateLabel = (value: string | null) =>
@@ -469,16 +470,35 @@ export default function InterviewListPage() {
         </section>
       )}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        {/* 아래 목록을 바꾸는 탭이다 (KWCAG 웹 애플리케이션 접근성). 화살표로 옮기면 바로 고른다 */}
         <div
-          role="group"
+          role="tablist"
           aria-label="검토 상태"
           className="bg-surface-bright flex flex-wrap gap-1 rounded-xl p-1"
+          onKeyDown={(event) => {
+            const at = REVIEW_TABS.indexOf(review);
+            const next = {
+              ArrowRight: at + 1,
+              ArrowLeft: at - 1,
+              Home: 0,
+              End: REVIEW_TABS.length - 1,
+            }[event.key];
+            if (next === undefined) return;
+            event.preventDefault();
+            const status = REVIEW_TABS[(next + REVIEW_TABS.length) % REVIEW_TABS.length];
+            setFilter('status', status);
+            document.getElementById(`review-tab-${status}`)?.focus();
+          }}
         >
-          {(['all', 'PENDING', 'IN_REVIEW', 'CONFIRMED'] as const).map((status) => (
+          {REVIEW_TABS.map((status) => (
             <button
               key={status}
+              id={`review-tab-${status}`}
               type="button"
-              aria-pressed={review === status}
+              role="tab"
+              aria-selected={review === status}
+              aria-controls="review-tabpanel"
+              tabIndex={review === status ? 0 : -1}
               onClick={() => setFilter('status', status)}
               className={`rounded-lg px-3 py-2 text-sm ${review === status ? 'bg-surface-panel text-ink shadow-card font-semibold' : 'text-ink-muted'}`}
             >
@@ -590,228 +610,230 @@ export default function InterviewListPage() {
           </button>
         </div>
       )}
-      {query.isLoading && <Skeleton className="mt-5 h-64" />}
-      {query.isError && (
-        <div role="alert" className="text-danger mt-5 text-sm">
-          목록을 불러오지 못했습니다.{' '}
-          <button type="button" onClick={() => void query.refetch()} className="underline">
-            다시 확인
-          </button>
-        </div>
-      )}
-      {comparing && <InterviewComparison ids={comparing} onBack={() => setComparing(null)} />}
-      {query.data && !query.isError && !comparing && (
-        <div className="border-border-base bg-surface-panel shadow-card mt-4 overflow-hidden rounded-2xl border">
-          <div ref={scrollContainer} className="max-h-[70dvh] overflow-auto">
-            <table
-              className="w-full table-fixed border-separate border-spacing-0 text-left text-sm"
-              style={{
-                minWidth:
-                  44 + visibleColumns.reduce((total, column) => total + widths[column.key], 0),
-              }}
-            >
-              <caption className="sr-only">지원자 목록. 열 제목 버튼으로 정렬합니다.</caption>
-              <colgroup>
-                <col style={{ width: 44 }} />
-                {visibleColumns.map((column) => (
-                  <col key={column.key} style={{ width: widths[column.key] }} />
-                ))}
-              </colgroup>
-              <thead>
-                <tr>
-                  <th
-                    scope="col"
-                    className="border-border-base bg-surface-container sticky top-0 left-0 z-30 border-b p-3"
-                  >
-                    <input
-                      type="checkbox"
-                      aria-label="현재 페이지 선택"
-                      checked={
-                        pageItems.length > 0 &&
-                        pageItems.every((item) => selection.has(item.interviewId))
-                      }
-                      onChange={(event) =>
-                        selectRows((old) => {
-                          const next = new Set(old);
-                          for (const item of pageItems) {
-                            if (event.target.checked) next.add(item.interviewId);
-                            else next.delete(item.interviewId);
-                          }
-                          return next;
-                        })
-                      }
-                    />
-                  </th>
+      <div role="tabpanel" id="review-tabpanel" aria-labelledby={`review-tab-${review}`}>
+        {query.isLoading && <Skeleton className="mt-5 h-64" />}
+        {query.isError && (
+          <div role="alert" className="text-danger mt-5 text-sm">
+            목록을 불러오지 못했습니다.{' '}
+            <button type="button" onClick={() => void query.refetch()} className="underline">
+              다시 확인
+            </button>
+          </div>
+        )}
+        {comparing && <InterviewComparison ids={comparing} onBack={() => setComparing(null)} />}
+        {query.data && !query.isError && !comparing && (
+          <div className="border-border-base bg-surface-panel shadow-card mt-4 overflow-hidden rounded-2xl border">
+            <div ref={scrollContainer} className="max-h-[70dvh] overflow-auto">
+              <table
+                className="w-full table-fixed border-separate border-spacing-0 text-left text-sm"
+                style={{
+                  minWidth:
+                    44 + visibleColumns.reduce((total, column) => total + widths[column.key], 0),
+                }}
+              >
+                <caption className="sr-only">지원자 목록. 열 제목 버튼으로 정렬합니다.</caption>
+                <colgroup>
+                  <col style={{ width: 44 }} />
                   {visibleColumns.map((column) => (
-                    <th
-                      key={column.key}
-                      scope="col"
-                      className={`border-border-base bg-surface-container sticky top-0 z-20 border-b px-3 py-3 text-xs font-medium ${column.key === 'name' ? 'left-11 z-30' : ''}`}
-                      aria-sort={
-                        sort[0]?.key === column.key
-                          ? sort[0].descending
-                            ? 'descending'
-                            : 'ascending'
-                          : undefined
-                      }
-                    >
-                      <div className="flex items-center gap-1">
-                        {SORTABLE.has(column.key) ? (
-                          <button
-                            type="button"
-                            onClick={(event) => changeSort(column.key as SortKey, event.shiftKey)}
-                            className="text-ink-muted min-h-9 flex-1 text-left"
-                          >
-                            {column.title}
-                            {sort.some((rule) => rule.key === column.key)
-                              ? sort.find((rule) => rule.key === column.key)!.descending
-                                ? ' ↓'
-                                : ' ↑'
-                              : ''}
-                          </button>
-                        ) : (
-                          <span className="text-ink-muted flex-1">{column.title}</span>
-                        )}
-                        <span
-                          role="separator"
-                          aria-label={`${column.title} 열 너비`}
-                          aria-orientation="vertical"
-                          aria-valuemin={88}
-                          aria-valuemax={480}
-                          aria-valuenow={widths[column.key]}
-                          tabIndex={0}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            resize(column.key, event.clientX);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-                              event.preventDefault();
-                              setWidths((old) => ({
-                                ...old,
-                                [column.key]: Math.max(
-                                  88,
-                                  Math.min(
-                                    480,
-                                    old[column.key] + (event.key === 'ArrowRight' ? 16 : -16),
-                                  ),
-                                ),
-                              }));
-                            }
-                          }}
-                          className="border-border-input h-7 w-2 cursor-col-resize border-r"
-                        />
-                      </div>
-                    </th>
+                    <col key={column.key} style={{ width: widths[column.key] }} />
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pageItems.map((item) => (
-                  <Fragment key={item.interviewId}>
-                    <tr
-                      key={item.interviewId}
-                      className={selection.has(item.interviewId) ? 'bg-brand-tint' : ''}
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th
+                      scope="col"
+                      className="border-border-base bg-surface-container sticky top-0 left-0 z-30 border-b p-3"
                     >
-                      <td
-                        className={`border-border-base sticky left-0 z-10 border-b p-3 ${selection.has(item.interviewId) ? 'bg-brand-tint' : 'bg-surface-panel'}`}
+                      <input
+                        type="checkbox"
+                        aria-label="현재 페이지 선택"
+                        checked={
+                          pageItems.length > 0 &&
+                          pageItems.every((item) => selection.has(item.interviewId))
+                        }
+                        onChange={(event) =>
+                          selectRows((old) => {
+                            const next = new Set(old);
+                            for (const item of pageItems) {
+                              if (event.target.checked) next.add(item.interviewId);
+                              else next.delete(item.interviewId);
+                            }
+                            return next;
+                          })
+                        }
+                      />
+                    </th>
+                    {visibleColumns.map((column) => (
+                      <th
+                        key={column.key}
+                        scope="col"
+                        className={`border-border-base bg-surface-container sticky top-0 z-20 border-b px-3 py-3 text-xs font-medium ${column.key === 'name' ? 'left-11 z-30' : ''}`}
+                        aria-sort={
+                          sort[0]?.key === column.key
+                            ? sort[0].descending
+                              ? 'descending'
+                              : 'ascending'
+                            : undefined
+                        }
                       >
-                        <input
-                          type="checkbox"
-                          aria-label={`${item.candidateName || '이름 없는 지원자'} 선택`}
-                          readOnly
-                          checked={selection.has(item.interviewId)}
-                          onClick={(event) => selectOne(item.interviewId, event.shiftKey)}
-                        />
-                      </td>
-                      {visibleColumns.map((column) => (
+                        <div className="flex items-center gap-1">
+                          {SORTABLE.has(column.key) ? (
+                            <button
+                              type="button"
+                              onClick={(event) => changeSort(column.key as SortKey, event.shiftKey)}
+                              className="text-ink-muted min-h-9 flex-1 text-left"
+                            >
+                              {column.title}
+                              {sort.some((rule) => rule.key === column.key)
+                                ? sort.find((rule) => rule.key === column.key)!.descending
+                                  ? ' ↓'
+                                  : ' ↑'
+                                : ''}
+                            </button>
+                          ) : (
+                            <span className="text-ink-muted flex-1">{column.title}</span>
+                          )}
+                          <span
+                            role="separator"
+                            aria-label={`${column.title} 열 너비`}
+                            aria-orientation="vertical"
+                            aria-valuemin={88}
+                            aria-valuemax={480}
+                            aria-valuenow={widths[column.key]}
+                            tabIndex={0}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              resize(column.key, event.clientX);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                                event.preventDefault();
+                                setWidths((old) => ({
+                                  ...old,
+                                  [column.key]: Math.max(
+                                    88,
+                                    Math.min(
+                                      480,
+                                      old[column.key] + (event.key === 'ArrowRight' ? 16 : -16),
+                                    ),
+                                  ),
+                                }));
+                              }
+                            }}
+                            className="border-border-input h-7 w-2 cursor-col-resize border-r"
+                          />
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageItems.map((item) => (
+                    <Fragment key={item.interviewId}>
+                      <tr
+                        key={item.interviewId}
+                        className={selection.has(item.interviewId) ? 'bg-brand-tint' : ''}
+                      >
                         <td
-                          key={column.key}
-                          className={`border-border-base border-b px-3 py-3 ${column.key === 'name' ? `sticky left-11 z-10 ${selection.has(item.interviewId) ? 'bg-brand-tint' : 'bg-surface-panel'}` : ''}`}
+                          className={`border-border-base sticky left-0 z-10 border-b p-3 ${selection.has(item.interviewId) ? 'bg-brand-tint' : 'bg-surface-panel'}`}
                         >
-                          {cell(item, column.key)}
-                        </td>
-                      ))}
-                    </tr>
-                    {expanded === item.interviewId && (
-                      <tr>
-                        <td colSpan={visibleColumns.length + 1}>
-                          <InterviewWorkspacePanel
-                            key={item.interviewId}
-                            item={item}
-                            onClose={() => openId(null)}
-                            onPrevious={
-                              filtered.findIndex(
-                                (entry) => entry.interviewId === item.interviewId,
-                              ) > 0
-                                ? () =>
-                                    openId(
-                                      filtered[
-                                        filtered.findIndex(
-                                          (entry) => entry.interviewId === item.interviewId,
-                                        ) - 1
-                                      ].interviewId,
-                                    )
-                                : undefined
-                            }
-                            onNext={
-                              filtered.findIndex(
-                                (entry) => entry.interviewId === item.interviewId,
-                              ) +
-                                1 <
-                              filtered.length
-                                ? () =>
-                                    openId(
-                                      filtered[
-                                        filtered.findIndex(
-                                          (entry) => entry.interviewId === item.interviewId,
-                                        ) + 1
-                                      ].interviewId,
-                                    )
-                                : undefined
-                            }
+                          <input
+                            type="checkbox"
+                            aria-label={`${item.candidateName || '이름 없는 지원자'} 선택`}
+                            readOnly
+                            checked={selection.has(item.interviewId)}
+                            onClick={(event) => selectOne(item.interviewId, event.shiftKey)}
                           />
                         </td>
+                        {visibleColumns.map((column) => (
+                          <td
+                            key={column.key}
+                            className={`border-border-base border-b px-3 py-3 ${column.key === 'name' ? `sticky left-11 z-10 ${selection.has(item.interviewId) ? 'bg-brand-tint' : 'bg-surface-panel'}` : ''}`}
+                          >
+                            {cell(item, column.key)}
+                          </td>
+                        ))}
                       </tr>
-                    )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-            {filtered.length === 0 && (
-              <p className="text-ink-muted p-10 text-center">
-                {items.length ? '조건에 맞는 지원자가 없습니다.' : '아직 만든 면접이 없습니다.'}{' '}
-                <Link to="/interviews/new" className="text-brand underline">
-                  면접 만들기
-                </Link>
-              </p>
-            )}
-          </div>
-          <div className="text-ink-muted flex flex-wrap items-center justify-between gap-3 p-3 text-xs">
-            <span>
-              {filtered.length}건 · {currentPage + 1}/{pageCount}페이지
-            </span>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                disabled={currentPage === 0}
-                onClick={() => setPage(currentPage - 1)}
-                className="min-h-10 px-3 disabled:opacity-40"
-              >
-                이전
-              </button>
-              <button
-                type="button"
-                disabled={currentPage + 1 >= pageCount}
-                onClick={() => setPage(currentPage + 1)}
-                className="min-h-10 px-3 disabled:opacity-40"
-              >
-                다음
-              </button>
+                      {expanded === item.interviewId && (
+                        <tr>
+                          <td colSpan={visibleColumns.length + 1}>
+                            <InterviewWorkspacePanel
+                              key={item.interviewId}
+                              item={item}
+                              onClose={() => openId(null)}
+                              onPrevious={
+                                filtered.findIndex(
+                                  (entry) => entry.interviewId === item.interviewId,
+                                ) > 0
+                                  ? () =>
+                                      openId(
+                                        filtered[
+                                          filtered.findIndex(
+                                            (entry) => entry.interviewId === item.interviewId,
+                                          ) - 1
+                                        ].interviewId,
+                                      )
+                                  : undefined
+                              }
+                              onNext={
+                                filtered.findIndex(
+                                  (entry) => entry.interviewId === item.interviewId,
+                                ) +
+                                  1 <
+                                filtered.length
+                                  ? () =>
+                                      openId(
+                                        filtered[
+                                          filtered.findIndex(
+                                            (entry) => entry.interviewId === item.interviewId,
+                                          ) + 1
+                                        ].interviewId,
+                                      )
+                                  : undefined
+                              }
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+              {filtered.length === 0 && (
+                <p className="text-ink-muted p-10 text-center">
+                  {items.length ? '조건에 맞는 지원자가 없습니다.' : '아직 만든 면접이 없습니다.'}{' '}
+                  <Link to="/interviews/new" className="text-brand underline">
+                    면접 만들기
+                  </Link>
+                </p>
+              )}
+            </div>
+            <div className="text-ink-muted flex flex-wrap items-center justify-between gap-3 p-3 text-xs">
+              <span>
+                {filtered.length}건 · {currentPage + 1}/{pageCount}페이지
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={currentPage === 0}
+                  onClick={() => setPage(currentPage - 1)}
+                  className="min-h-10 px-3 disabled:opacity-40"
+                >
+                  이전
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage + 1 >= pageCount}
+                  onClick={() => setPage(currentPage + 1)}
+                  className="min-h-10 px-3 disabled:opacity-40"
+                >
+                  다음
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
