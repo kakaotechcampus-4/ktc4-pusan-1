@@ -7,7 +7,7 @@ import { preserveMemoFocus } from '../../lib/memoFocus';
  * 목록은 늘 마지막 줄을 따라 내려간다. 마지막 줄은 지금 오가는 말이므로 왼쪽에 화자 색 띠를 붙여 눈이 먼저 가게 한다.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fmt } from '../../lib/format';
 import { useInterviewStore } from '../../stores/interviewStore';
 import { SPEAKER_STYLE } from './speakerStyle';
@@ -19,12 +19,19 @@ export function TranscriptPanel() {
   const toggleTranscript = useInterviewStore((s) => s.toggleTranscript);
 
   // 새 줄이 오거나 지금 줄이 길어지면 맨 아래를 보인다. 자막을 읽다가 스크롤을 찾게 되면 늦는다.
+  // 다만 지난 줄을 읽으려고 위로 올리면 따라 내려가기를 멈춘다 (KWCAG 정지 기능).
   const listRef = useRef<HTMLDivElement>(null);
+  const [following, setFollowing] = useState(true);
   const last = utterances.at(-1);
-  useEffect(() => {
+  const toBottom = () => {
     const list = listRef.current;
-    if (list) list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' });
-  }, [last?.id, last?.text, transcriptOpen]);
+    if (!list) return;
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    list.scrollTo({ top: list.scrollHeight, behavior: still ? 'auto' : 'smooth' });
+  };
+  useEffect(() => {
+    if (following) toBottom();
+  }, [last?.id, last?.text, transcriptOpen, following]);
 
   return (
     <section className="glass interview-readable flex h-full min-h-0 flex-col overflow-hidden rounded-3xl">
@@ -49,9 +56,38 @@ export function TranscriptPanel() {
         </span>
       </button>
 
+      {transcriptOpen && !following && (
+        <button
+          type="button"
+          onClick={() => setFollowing(true)}
+          onMouseDown={preserveMemoFocus}
+          className="text-ink-muted hover:text-ink mx-auto mt-1 flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-[12px] font-semibold focus-visible:outline-2 focus-visible:-outline-offset-2"
+        >
+          <span aria-hidden className="material-symbols-outlined text-[16px]">
+            arrow_downward
+          </span>
+          최신 자막으로
+        </button>
+      )}
+
       {transcriptOpen && (
         <div
           ref={listRef}
+          // 멈춤은 사람이 위로 올릴 때만 건다. 자동으로 내려가는 중의 scroll 이벤트로는 멈추지 않는다.
+          onWheel={(event) => event.deltaY < 0 && setFollowing(false)}
+          onTouchMove={() => setFollowing(false)}
+          onKeyDown={(event) =>
+            ['ArrowUp', 'PageUp', 'Home'].includes(event.key) && setFollowing(false)
+          }
+          // 다시 맨 아래까지 내리면 따라가기를 잇는다.
+          onScroll={(event) => {
+            const list = event.currentTarget;
+            if (list.scrollHeight - list.scrollTop - list.clientHeight < 24) setFollowing(true);
+          }}
+          // 키보드로도 지난 자막을 올려 읽을 수 있게 초점을 받는다
+          tabIndex={0}
+          role="region"
+          aria-label="실시간 자막 기록"
           className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-2.5 pb-3"
         >
           {transcriptDegraded && (
