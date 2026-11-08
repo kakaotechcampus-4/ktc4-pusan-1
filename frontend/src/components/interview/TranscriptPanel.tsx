@@ -50,7 +50,7 @@ export function TranscriptPanel() {
         <span className="text-ink-muted text-[12px]">{transcriptOpen ? '접기' : '펼치기'}</span>
         {/* 버튼 안이라 실제 button 을 겹쳐 쓰지 못한다. 모양만 시안의 동그란 컨트롤을 따른다 */}
         <span className="text-ink-muted bg-surface-bright flex h-6 w-6 items-center justify-center rounded-full">
-          <span className="material-symbols-outlined text-[16px]">
+          <span aria-hidden className="material-symbols-outlined text-[16px]">
             {transcriptOpen ? 'expand_more' : 'expand_less'}
           </span>
         </span>
