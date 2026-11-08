@@ -647,7 +647,9 @@ body.js .feat-card.reveal.in { opacity: 0 }
 body.js .feat-card.reveal.in.settled { opacity: 1 }
 
 .kicker--xl { font-size: clamp(30px, 5vw, 58px); line-height: 1.22; max-width: 24ch }
-.cyc { color: var(--brand-strong); display: inline-block; min-width: 2.2em }
+.cyc { color: var(--brand-strong); display: inline-block }
+.feat-end b { font-size: 1.16em }
+.feat-end .cyc { font-size: 1.3em; font-weight: 800; letter-spacing: -.02em }
 
 /* 핵심 기능 — 구간 하나씩 가운데에 띄웠다가, 넘기면 제자리에 깔린다.
    가운데에는 카드가 둘 뜬다. 왼쪽은 아래 줄에 깔릴 그 카드와 같은 모양·같은 글이고,
@@ -980,6 +982,12 @@ body.screen-real .live-room.room-easy { display: none }
      그대로 옮겼다. preflight 은 들이지 않는다 — 발표자료 본문의 CSS 가 깨지기 때문에
      .irya-app 안쪽에만 필요한 만큼 다시 깐다. -->
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.3/dist/index.global.js"></script>
+<style>
+/* hidden 은 hidden 이어야 한다. Tailwind 의 flex · md:flex 는 상세도가 같거나 높아
+   브라우저 기본값 [hidden]{display:none} 을 눌러 버린다 — 그래서 「질문을 지웠습니다」
+   막대(#d3undo)와 검토 겹창(#d5overlay)이 숨긴 채로 계속 떠 있었다. */
+[hidden] { display: none !important; }
+</style>
 <style type="text/tailwindcss">
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
@@ -1139,7 +1147,154 @@ body.screen-real .live-room.room-easy { display: none }
 }
 .glass:hover, .glass:focus-within { background: rgb(255 255 255 / 0.16); border-color: rgb(255 255 255 / 0.32) }
 .glass:hover .glass-dim, .glass:focus-within .glass-dim { opacity: 1 }
-</style>
+
+/* ── 4페이지 다시 짜기 ───────────────────────────────────────────
+   카드를 2×2 로 크게 깔고, 가운데 뜨는 짝은 「오른쪽 화면이 주인공」이 되게
+   비율을 바꾼다. 작은 글씨가 많은 제품 화면이라, 크게 띄우지 않으면 무슨
+   화면인지 알아볼 수 없다. */
+
+/* 네 칸을 2×2 로. 가로 넷이면 칸마다 좁아 글씨가 눌린다. */
+.feat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(18px, 2.2vw, 34px);
+  max-width: 1180px; margin: 0 auto }
+.feat-row .feat-card { min-height: clamp(190px, 21vh, 260px); padding: clamp(22px, 2.4vw, 34px);
+  border-radius: 20px }
+/* 카드 안쪽이 208px 뿐이라, 29px 이면 「지금 우리의 상황을」(261px)이 못 들어가
+   <br> 앞에서 한 번 더 접혀 세 줄이 됐다. 26px 이면 <br> 자리에서만 끊긴다.
+   (카드를 넓히는 쪽도 해 봤는데 .wrap 이 1180px 이라 .feat-row 를 키워도 안 먹는다.) */
+.feat-row .fc-text h3 { font-size: clamp(20px, 1.75vw, 26px); line-height: 1.3 }
+.feat-row .fc-text p { font-size: clamp(15px, 1.35vw, 18px) }
+.feat-row .fc-text .tag { font-size: clamp(14px, 1.3vw, 17px); padding: 6px 14px }
+
+/* ── 4페이지 카드 다듬기 ──────────────────────────────────────────
+   셋(태그 · 제목 · 한 줄)이 붙어 있어 덩어리로 보였다. 사이를 띄우고,
+   카드 뒤에 깔리던 화면은 뺀다 — 글자 뒤에 흐린 그림이 있으면 둘 다 진다. */
+.fc-text { display: flex; flex-direction: column; align-items: flex-start;
+  gap: clamp(12px, 1.3vw, 20px) }
+.fc-text h3 { margin: 0 }
+/* 한 줄 마무리는 설명문이 아니라 꼬리표다. 제목과 같은 무게로 읽히면 안 된다. */
+.fc-text .fc-sub { margin: 0; color: var(--ink-muted); font-weight: 600;
+  letter-spacing: -.01em }
+.feat-row .fc-text .fc-sub { font-size: clamp(14px, 1.25vw, 17px) }
+/* 아랫줄은 카드 바닥에 맞춘다. 제목이 한 줄인 카드와 두 줄인 카드가 섞여 있어,
+   제목 바로 아래에 두면 넷의 높이가 제각각으로 보인다. */
+.feat-row .feat-card { display: flex }
+.feat-row .fc-text { flex: 1 }
+.feat-row .fc-text .fc-sub { margin-top: auto; padding-top: clamp(10px, 1.2vw, 18px) }
+/* 제목은 <br> 로 끊은 자리에서 끊고, 그 안에서는 알아서 접히게 둔다.
+   nowrap 을 걸었더니 긴 제목(「실시간 자막과 꼬리질문」)이 카드 밖으로 잘려 나갔다.
+   balance 는 br 로 나뉜 토막을 또 고르게 쪼개려 들어 세 줄이 된다 — 둘 다 아니다. */
+.feat-row .fc-text h3 { text-wrap: wrap }
+
+/* 카드 뒤 화면을 뺀다. 가운데에 뜨는 짝(.spot-zoom)에서는 그대로 쓴다 —
+   거기서는 화면이 주인공이고, 여기서는 글이 주인공이다. */
+.feat-row .feat-card .fc-bg,
+.feat-row .feat-card.settled .fc-bg { display: none }
+
+/* 마무리 한 줄. 가운데에 두고 줄을 쪼개지 않는다 — 「4 단계를 / 한 흐름으로」로
+   끊기면 세는 말이 아니라 두 문장처럼 읽힌다.
+   ⚠️ `.s-feat` 를 앞에 붙여 상세도를 올린다. 그냥 `.feat-end` 로 쓰면
+   `.kicker--xl { max-width: 24ch }` 와 상세도가 같아 순서로 갈리는데, 이 블록은
+   Tailwind 스타일 안에 있어서 순서가 보이는 대로가 아니다 — 실제로 24ch 가 이겨
+   한 줄로 둔 문구가 칸(835px)보다 넓어져(900px) 삐져나왔다. */
+.s-feat .feat-end { max-width: none; text-align: center; text-wrap: nowrap }
+/* 폭이 모자라면 한 줄을 고집하지 않는다. 삐져나오는 것보다 두 줄이 낫다. */
+@media (max-width: 900px) { .s-feat .feat-end { text-wrap: balance } }
+
+/* 가운데 짝 — 왼쪽은 말, 오른쪽은 화면. 오른쪽이 주인공이라 훨씬 크게 잡는다. */
+.spot-card { width: min(27vw, 390px); aspect-ratio: auto; min-height: clamp(300px, 36vh, 430px);
+  position: relative; padding-top: clamp(62px, 6.4vw, 84px) }
+.spot-zoom { width: min(58vw, 940px) }
+.spot-zoom.two { width: min(42vw, 660px) }
+.spot-pair { gap: clamp(18px, 2.6vw, 44px); padding: 0 2.6vw }
+
+/* 단계 태그를 카드 왼쪽 위 모퉁이로. 안쪽에 묻혀 있으면 몇 번째인지 안 읽힌다. */
+.spot-card .tag { position: absolute; left: clamp(18px, 2vw, 28px); top: clamp(18px, 2vw, 28px);
+  margin: 0; font-size: clamp(17px, 1.9vw, 24px); font-weight: 800; padding: 9px 20px;
+  letter-spacing: -.01em; box-shadow: 0 6px 18px rgb(75 79 224 / .18) }
+.spot-card h3 { font-size: clamp(23px, 2.5vw, 34px) }
+.spot-card p { font-size: clamp(15px, 1.4vw, 19px) }
+
+@media (max-width: 1100px) {
+  .spot-card { width: min(34vw, 360px) }
+  .spot-zoom { width: min(52vw, 700px) }
+}
+
+
+/* ── 6페이지 · 근거 접지 검문소 ──────────────────────────────────
+   「근거가 붙는다」가 아니라 「근거 없으면 버린다」를 그린다. 붙는 건 누구나
+   한다. 못 찾았을 때 버리는 쪽이 설계다. */
+.gate { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 1240px; margin: 0 auto }
+.gate-head { display: grid; grid-template-columns: 1.55fr 1fr .5fr; gap: clamp(14px, 2vw, 32px);
+  padding: 0 clamp(18px, 2vw, 28px); font-size: 17px; font-weight: 700; color: var(--ink-dim);
+  letter-spacing: -.01em }
+.gate-row { display: grid; grid-template-columns: 1.55fr 1fr .5fr; gap: clamp(14px, 2vw, 32px);
+  align-items: center; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: clamp(14px, 1.6vw, 20px) clamp(18px, 2vw, 28px);
+  box-shadow: 0 1px 2px rgb(20 24 38 / .04), 0 6px 20px rgb(20 24 38 / .05) }
+.gate-row.pass { border-left: 5px solid var(--accent) }
+.gate-row.drop { border-left: 5px solid var(--danger); background: var(--danger-tint) }
+.g-said { font-size: clamp(19px, 1.9vw, 25px); line-height: 1.45; color: var(--ink); margin: 0 }
+.gate-row.drop .g-said { color: var(--ink-dim); text-decoration: line-through;
+  text-decoration-color: rgb(196 52 58 / .6); text-decoration-thickness: 2px }
+.g-src { font-size: clamp(15px, 1.4vw, 18px); color: var(--ink-muted); margin: 0; line-height: 1.5 }
+.g-src b { display: block; color: var(--ink); font-size: clamp(16px, 1.5vw, 19px) }
+.g-mark { margin: 0; text-align: right }
+.g-mark span { display: inline-block; border-radius: 999px; padding: 9px 20px;
+  font-size: clamp(17px, 1.7vw, 22px); font-weight: 800; letter-spacing: -.01em }
+.g-mark .ok { background: var(--accent-tint); color: var(--accent-strong) }
+.g-mark .no { background: var(--danger); color: #fff }
+
+.gate-rule { max-width: 1240px; margin: 0 auto; border-top: 1px solid var(--line);
+  padding-top: clamp(13px, 1.5vw, 18px); display: flex; flex-direction: column; gap: 7px }
+.gate-rule p { font-size: clamp(15px, 1.3vw, 18px); line-height: 1.52; color: var(--ink-muted); margin: 0 }
+.gate-rule p b { color: var(--ink) }
+.gate-rule .gate-why { color: var(--ink) }
+
+@media (max-width: 900px) {
+  .gate-head { display: none }
+  .gate-row { grid-template-columns: 1fr; gap: 10px }
+  .g-mark { text-align: left }
+}
+\n
+/* ── 7페이지 · 에이전트 구조도 ──────────────────────────────────
+   상자 셋을 옆으로 늘어놓은 건 구조가 아니라 목록이었다. 줄(큐)과 폴러와
+   도구와 실패 경로가 보여야 「에이전트」로 읽힌다. 가짜 로그는 뺐다 —
+   읽히지도 않고, 읽힌들 증거가 못 된다. */
+.agx { width: 100%; max-width: 1240px; margin: 0 auto }
+.agx svg { width: 100%; height: auto; display: block }
+.agx text { font-family: inherit; text-anchor: middle; fill: var(--ink) }
+.ax-t1 { font-size: 23px; font-weight: 800; letter-spacing: -.02em }
+.ax-t1.sm { font-size: 20px }
+.ax-t2 { font-size: 16px; font-weight: 700; fill: var(--brand-strong) }
+.ax-t2.dim { font-size: 13px; font-weight: 600; fill: var(--ink-dim) }
+.ax-t2.g { fill: var(--danger) }
+.ax-t3 { font-size: 15px; fill: var(--ink-muted); font-weight: 500 }
+.agx .ax-t4 { font-size: 14px; fill: var(--ink-dim); font-weight: 600; text-anchor: start }
+.agx .ax-t4.g { fill: var(--danger); text-anchor: middle }
+.agx .ax-t4.b { fill: var(--brand-strong); text-anchor: middle }
+
+.agx rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.5 }
+.ax-h rect { fill: var(--panel-2) }
+.ax-b rect { fill: var(--panel) }
+.ax-q rect { fill: var(--brand-tint); stroke: none }
+.ax-q rect.ax-q-dim { fill: var(--panel-2) }
+.ax-tool rect { fill: var(--panel-2); stroke: var(--line); stroke-width: 1 }
+.ax-gate rect { fill: var(--danger-tint); stroke: rgb(196 52 58 / .35) }
+.ax-s rect { fill: var(--accent-tint); stroke: rgb(46 196 166 / .4) }
+.ax-w rect { stroke: var(--brand); stroke-width: 2 }
+.ax-r rect { fill: var(--panel-2) }
+.ax-l { stroke: #8f96ad; stroke-width: 2; fill: none }
+.ax-l.b { stroke: var(--brand); stroke-width: 2.5 }
+.ax-div { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 6 7 }
+
+.agx-note { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(16px, 2vw, 30px); max-width: 1240px; margin: 0 auto }
+.agx-note div { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: clamp(16px, 1.8vw, 24px) }
+.agx-note b { display: block; font-size: clamp(18px, 1.7vw, 23px); margin-bottom: 7px }
+.agx-note span { font-size: clamp(15px, 1.4vw, 18px); color: var(--ink-muted); line-height: 1.55 }
+@media (max-width: 900px) { .agx-note { grid-template-columns: 1fr } }
+\n</style>
 
 
 <div class="progress" aria-hidden="true"><i id="bar"></i></div>
@@ -2735,9 +2890,8 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">핵심 기능</p>
-      <h2 class="title">면접의 앞뒤를 한 흐름으로</h2>
     </div>
-    <div class="grid g4" id="featRow">
+    <div class="grid g4 feat-row" id="featRow">
       <div class="card feat-card reveal" data-f="0"><span class="fc-bg live-bg"><div class="live live-resume" aria-hidden="true">
   <div class="border-border-base bg-surface-panel shadow-card rounded-2xl border p-5">
     <div class="mb-4 flex items-start gap-3">
@@ -2762,7 +2916,7 @@ body.screen-real .live-room.room-easy { display: none }
       <svg class="lz-cursor" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2l14 10-6.2 1.2L16 20l-3 1.3-3.2-6.6L5 19Z"/></svg>
     </div>
   </div>
-</div></span><div class="fc-text"><span class="tag ">면접 전</span><h3>이력서와 직무를 미리 읽어 둡니다</h3><p>회사 · 직무 · 인재상을 이력서와 함께 읽어 확인할 거리를 정리해 둡니다.</p></div></div>
+</div></span><div class="fc-text"><span class="tag ">면접 전</span><h3>지금 우리의 상황을<br>미리 읽어 둡니다.</h3><p class="fc-sub">회사 · 직무 · 인재상 + 이력서</p></div></div>
       <div class="card feat-card reveal" data-f="1"><span class="fc-bg live-bg"><div class="live live-room room-easy" aria-hidden="true">
   <div class="roomcard">
     <section class="glass interview-readable flex flex-col overflow-hidden rounded-3xl">
@@ -2839,7 +2993,7 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
     </section>
   </div>
-</div></span><div class="fc-text"><span class="tag ">면접 중</span><h3>실시간 자막과 꼬리질문</h3><p>대화를 받아 적고, 더 물어볼 질문을 면접관 화면에만 올립니다.</p></div></div>
+</div></span><div class="fc-text"><span class="tag ">면접 중</span><h3>실시간 자막과 꼬리질문</h3><p class="fc-sub">STT + LLM</p></div></div>
       <div class="card feat-card reveal" data-f="2"><span class="fc-bg live-bg"><div class="live live-sum" aria-hidden="true">
   <div class="border-border-base bg-surface-panel shadow-card rounded-2xl border p-5">
     <h3 class="text-ink text-[16px] font-semibold">전체 요약</h3>
@@ -2852,7 +3006,7 @@ body.screen-real .live-room.room-easy { display: none }
       <li class="kp kp3 text-ink flex items-start gap-2 text-[13.5px]"><span class="bg-brand mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"></span>장애 재발 방지는 언급 없음</li>
     </ul>
   </div>
-</div></span><div class="fc-text"><span class="tag mint">면접 후</span><h3>근거가 연결된 면접 기록</h3><p>요약 항목마다 근거가 된 발화와 녹화 시점이 붙습니다.</p></div></div>
+</div></span><div class="fc-text"><span class="tag mint">면접 후</span><h3>근거가 연결된 면접 기록</h3><p class="fc-sub">Review Timeline</p></div></div>
       <div class="card feat-card reveal" data-f="3"><span class="fc-bg live-bg"><div class="live live-rev" aria-hidden="true">
   <div class="border-border-base bg-surface-panel shadow-card rounded-2xl border p-5">
     <div class="flex items-center gap-2">
@@ -2873,9 +3027,9 @@ body.screen-real .live-room.room-easy { display: none }
       <svg class="rv-cursor" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2l14 10-6.2 1.2L16 20l-3 1.3-3.2-6.6L5 19Z"/></svg>
     </div>
   </div>
-</div></span><div class="fc-text"><span class="tag mint">검토</span><h3>판단은 면접관이</h3><p>리포트에 넣을지 뺄지 면접관이 고릅니다.</p></div></div>
+</div></span><div class="fc-text"><span class="tag mint">검토</span><h3>판단은 면접관이</h3><p class="fc-sub">Interview Report</p></div></div>
     </div>
-    <p class="kicker kicker--xl reveal" data-featend><b><span class="cyc" id="featCyc">네</span> 구간이 한 흐름으로 이어집니다.</b></p>
+    <p class="kicker kicker--xl feat-end reveal" data-featend><b><span class="cyc" id="featCyc">4</span> 단계를 한 흐름으로</b></p>
   </div>
   <div class="trybar" id="featFlag" aria-label="화면 시안 고르기">
     <span class="tb-h">화면</span>
@@ -2883,7 +3037,7 @@ body.screen-real .live-room.room-easy { display: none }
   </div>
   <div class="spot" id="featSpot" aria-hidden="true">
     <div class="spot-pair" data-f="0">
-      <div class="spot-card"><span class="tag ">면접 전</span><h3>이력서와 직무를 미리 읽어 둡니다</h3><p>회사 · 직무 · 인재상을 이력서와 함께 읽어 확인할 거리를 정리해 둡니다.</p></div>
+      <div class="spot-card"><span class="tag ">면접 전</span><h3>지금 우리의 상황을<br>미리 읽어 둡니다.</h3><p class="fc-sub">회사 · 직무 · 인재상 + 이력서</p></div>
       <div class="spot-zoom"><div class="live live-resume" aria-hidden="true">
   <div class="border-border-base bg-surface-panel shadow-card rounded-2xl border p-5">
     <div class="mb-4 flex items-start gap-3">
@@ -2921,7 +3075,7 @@ body.screen-real .live-room.room-easy { display: none }
 </div></div></div>
     </div>
     <div class="spot-pair" data-f="1">
-      <div class="spot-card"><span class="tag ">면접 중</span><h3>실시간 자막과 꼬리질문</h3><p>대화를 받아 적고, 더 물어볼 질문을 면접관 화면에만 올립니다.</p></div>
+      <div class="spot-card"><span class="tag ">면접 중</span><h3>실시간 자막과 꼬리질문</h3><p class="fc-sub">STT + LLM</p></div>
       <div class="spot-zoom"><div class="live live-room room-easy" aria-hidden="true">
   <div class="roomcard">
     <section class="glass interview-readable flex flex-col overflow-hidden rounded-3xl">
@@ -3002,7 +3156,7 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
     </div>
     <div class="spot-pair" data-f="2">
-      <div class="spot-card"><span class="tag mint">면접 후</span><h3>근거가 연결된 면접 기록</h3><p>요약 항목마다 근거가 된 발화와 녹화 시점이 붙습니다.</p></div>
+      <div class="spot-card"><span class="tag mint">면접 후</span><h3>근거가 연결된 면접 기록</h3><p class="fc-sub">Review Timeline</p></div>
       <div class="spot-zoom"><div class="live live-sum" aria-hidden="true">
   <div class="border-border-base bg-surface-panel shadow-card rounded-2xl border p-5">
     <h3 class="text-ink text-[16px] font-semibold">전체 요약</h3>
@@ -3019,7 +3173,7 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
     </div>
     <div class="spot-pair" data-f="3">
-      <div class="spot-card"><span class="tag mint">검토</span><h3>판단은 면접관이</h3><p>리포트에 넣을지 뺄지 면접관이 고릅니다.</p></div>
+      <div class="spot-card"><span class="tag mint">검토</span><h3>판단은 면접관이</h3><p class="fc-sub">Interview Report</p></div>
       <div class="spot-zoom"><div class="live live-rev" aria-hidden="true">
   <div class="border-border-base bg-surface-panel shadow-card rounded-2xl border p-5">
     <div class="flex items-center gap-2">
@@ -3210,7 +3364,14 @@ body.screen-real .live-room.room-easy { display: none }
             <!-- ── 03 면접 진행 (면접관 화면) ───────────────────── -->
             <div class="screen" data-s="2">
               <div class="relative h-full w-full overflow-hidden bg-[radial-gradient(120%_90%_at_20%_0%,#2b2f7a_0%,#141836_45%,#0b0e1c_100%)] text-white">
+                <!-- 지원자 화면. 시연용으로 찍어 둔 영상이고, 그 위에 얹힌 것은
+                     전부 실제 제품 화면이다. 영상이 못 뜨면 뒤의 .mockcam 이 그대로
+                     보인다 — 빈 검은 판이 아니라 원래의 실루엣으로 떨어진다. -->
                 <div class="mockcam absolute inset-0" aria-hidden="true"></div>
+                <video class="absolute inset-0 h-full w-full object-cover" id="d3vid"
+                       src="vid/room-candidate.mp4" muted loop playsinline autoplay
+                       preload="auto" tabindex="-1" aria-hidden="true"
+                       disablepictureinpicture disableremoteplayback></video>
                 <div aria-hidden="true" class="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/45"></div>
 
                 <header class="glass absolute inset-x-3 top-3 z-10 flex items-center gap-3 rounded-2xl px-3 py-2 sm:inset-x-4 sm:top-4 sm:px-4">
@@ -3247,6 +3408,16 @@ body.screen-real .live-room.room-easy { display: none }
                 <span class="glass absolute top-[72px] left-3 rounded-full px-3 py-1 text-[13px] font-medium sm:top-[80px] sm:left-4">김민준</span>
 
                 <div class="interview-panels" data-expanded="false" id="d3panels">
+                  <!-- 면접관 자기 화면. 제품의 LocalPreview 와 같은 자리(preview)·같은
+                       크기·같은 테두리이고, 거울처럼 좌우를 뒤집는 것까지 같다. -->
+                  <div class="pointer-events-none w-28 self-start justify-self-end [grid-area:preview] md:w-48">
+                    <div class="relative aspect-video w-full overflow-hidden rounded-2xl bg-black/60 shadow-[0_12px_32px_rgba(6,8,20,.35)] ring-1 ring-white/40">
+                      <video class="h-full w-full -scale-x-100 object-cover" id="d3vidme"
+                             src="vid/room-interviewer.mp4" muted loop playsinline autoplay
+                             preload="auto" tabindex="-1" aria-hidden="true"
+                             disablepictureinpicture disableremoteplayback></video>
+                    </div>
+                  </div>
                   <div class="pointer-events-auto flex min-h-0 flex-col gap-2 [grid-area:questions]">
                     <div class="min-h-0 flex-1">
                       <section class="glass interview-readable flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl">
@@ -3413,7 +3584,13 @@ body.screen-real .live-room.room-easy { display: none }
 
                       <section class="border-border-base bg-surface-panel shadow-card overflow-hidden rounded-2xl border">
                         <div class="relative aspect-video w-full bg-black">
+                          <!-- 같은 면접의 녹화다. 재생기라서 멈춰 둔다 — 질문을
+                               고르면 그 시각의 프레임으로 옮긴다. -->
                           <div class="mockvid" aria-hidden="true"></div>
+                          <video class="absolute inset-0 h-full w-full object-cover" id="d5vid"
+                                 src="vid/room-candidate.mp4" muted playsinline preload="auto"
+                                 tabindex="-1" aria-hidden="true"
+                                 disablepictureinpicture disableremoteplayback></video>
                           <span class="pointer-events-none absolute top-4 left-4 flex items-center gap-2 rounded-full bg-black/50 px-3 py-1 text-[12px] text-white/90 backdrop-blur-sm">
                             <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full border border-white/70"></span>
                             원본 녹화 · 김민준
@@ -3568,35 +3745,41 @@ body.screen-real .live-room.room-easy { display: none }
 <section class="band band--panel" id="s-evidence" data-label="근거 연결">
   <div class="wrap stack">
     <div class="reveal">
-      <p class="eyebrow" style="color:var(--accent-strong)">여기가 핵심입니다 · 눌러보세요</p>
-      <h2 class="title">요약을 눌러 그 말을 들을 수 있습니다</h2>
+      <p class="eyebrow" style="color:var(--danger)">근거 접지</p>
+      <h2 class="title">근거를 못 찾은 문장은 버립니다</h2>
     </div>
-    <div class="ev reveal">
-      <div class="ev-list" role="tablist" aria-label="AI 가 올린 검토 항목">
-        <button class="ev-btn" type="button" role="tab" aria-selected="true" data-i="0">
-          <span class="tag mint">서비스 설계 · 확인</span>
-          <h3>캐시 · 비동기 큐 적용 경험</h3>
-        </button>
-        <button class="ev-btn" type="button" role="tab" aria-selected="false" data-i="1">
-          <span class="tag warn">성능 개선 · 일부</span>
-          <h3>처리량 수치의 측정 근거 부족</h3>
-        </button>
-        <button class="ev-btn" type="button" role="tab" aria-selected="false" data-i="2">
-          <span class="tag" style="background:var(--danger-tint);color:var(--danger)">장애 대응 · 없음</span>
-          <h3>장애 재발 방지는 언급 없음</h3>
-        </button>
+
+    <div class="gate reveal">
+      <div class="gate-head">
+        <span>AI 가 쓴 문장</span><span>원문 대조</span><span>판정</span>
       </div>
-      <div class="ev-panel">
-        <p class="num" id="evLabel">근거가 된 발화</p>
-        <blockquote class="quote"><span class="who" id="evWho">지원자</span><span id="evQuote"></span></blockquote>
-        <div class="scrub">
-          <div class="scrub-bar"><span class="scrub-fill" id="evFill"></span><span class="scrub-head" id="evHead"></span></div>
-          <div class="scrub-row"><span>00:00</span><span class="scrub-now" id="evNow">00:00</span><span>10:34</span></div>
-        </div>
-        <p class="verdict"><span>이 항목을 어떻게 할지는 면접관이 정합니다 —</span> <span class="tag mint">근거로 채택</span> <span class="tag warn">반려</span></p>
+
+      <div class="gate-row pass reveal" data-g="0">
+        <p class="g-said">“적중률이 80% 쯤 나올 거라 보고 TTL 을 5분으로 잡았습니다.”</p>
+        <p class="g-src"><b>면접 자막 02:29</b><span>에 글자 그대로 있음</span></p>
+        <p class="g-mark"><span class="ok">통과</span></p>
+      </div>
+
+      <div class="gate-row pass reveal" data-g="1">
+        <p class="g-said">“Redis 캐시 도입으로 응답 시간 400ms → 90ms”</p>
+        <p class="g-src"><b>지원서 · 경력</b><span>에 글자 그대로 있음</span></p>
+        <p class="g-mark"><span class="ok">통과</span></p>
+      </div>
+
+      <div class="gate-row drop reveal" data-g="2">
+        <p class="g-said">“전반적으로 성장 가능성이 높은 지원자로 보입니다.”</p>
+        <p class="g-src"><b>어디에도 없음</b><span>지원서에도, 자막에도</span></p>
+        <p class="g-mark"><span class="no">버림</span></p>
       </div>
     </div>
-    <div class="statement reveal">AI 는 항목을 <b>제안</b>만 합니다. 채택과 반려는 면접관이 하고, 검토를 확정하면 그 시점의 채택이 잠깁니다 — 리포트의 근거가 확정 당시의 판단을 가리키게 하기 위해서입니다.</div>
+
+    <p class="kicker kicker--xl reveal"><b>고치지 않습니다. <span style="color:var(--danger)">버립니다.</span></b></p>
+
+    <div class="gate-rule reveal">
+      <p><b>통과 기준은 하나뿐입니다 — 인용문이 원문의 부분 문자열인가.</b></p>
+      <p>비교할 때 유니코드 정규화와 공백만 정리합니다. 대소문자도 접지 않고, 뜻이 비슷한 말도 통과시키지 않습니다. 모델이 바꿔 써 놓고도 통과하기 때문입니다.</p>
+      <p class="gate-why">그래서 「AI 가 그럴듯하게 썼는데 지원자는 그런 말을 한 적이 없다」가 구조적으로 안 생깁니다. 환각을 줄인 게 아니라, <b>근거 없는 문장이 화면까지 오지 못합니다.</b></p>
+    </div>
   </div>
 </section>
 
@@ -3605,18 +3788,100 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">Agentic</p>
-      <h2 class="title">이력서 한 번 올리면, 여기까지 혼자 갑니다</h2>
+      <h2 class="title">줄에 쌓고, 한 건씩 가져갑니다</h2>
     </div>
-    <div class="pipe reveal" id="pipe">
-      <div class="node" data-n="0"><span class="k">PREP</span><h3>면접 전 가공</h3><p>이력서 본문을 뽑고, 회사 · 직무 · 인재상과 함께 읽어 확인할 거리를 만듭니다.</p><span class="state">대기</span></div>
-      <div class="node" data-n="1"><span class="k">LIVE</span><h3>면접 중 워커</h3><p>방마다 작업 프로세스를 띄워 마이크를 전사하고, 꼬리질문을 만들어 보냅니다.</p><span class="state">대기</span></div>
-      <div class="node" data-n="2"><span class="k">REVIEW</span><h3>면접 후 정리</h3><p>요약 · 타임라인 · 근거를 동시에 만들어 저장합니다. 사람이 부르지 않습니다.</p><span class="state">대기</span></div>
+
+    <div class="agx reveal">
+      <svg viewBox="0 132 1240 418" role="img" aria-label="IRYA 에이전트 구조도">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 10 5 0 10z" fill="#8f96ad"/>
+          </marker>
+          <marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0 0 10 5 0 10z" fill="#4b4fe0"/>
+          </marker>
+        </defs>
+
+        <!-- 사람 -->
+        <g class="ax-h">
+          <rect x="14" y="196" width="178" height="118" rx="16"/>
+          <text x="103" y="236" class="ax-t1">사람</text>
+          <text x="103" y="266" class="ax-t3">이력서를 올린다</text>
+          <text x="103" y="290" class="ax-t3">면접을 끝낸다</text>
+        </g>
+        <path class="ax-l" d="M196 255 H268" marker-end="url(#ah)"/>
+
+        <!-- 백엔드 + 큐 -->
+        <g class="ax-b">
+          <rect x="272" y="150" width="236" height="210" rx="16"/>
+          <text x="390" y="186" class="ax-t1">백엔드</text>
+          <text x="390" y="212" class="ax-t3">할 일을 줄에 쌓는다</text>
+        </g>
+        <g class="ax-q">
+          <rect x="298" y="232" width="184" height="36" rx="9"/><text x="390" y="256" class="ax-t2">PREP</text>
+          <rect x="298" y="276" width="184" height="36" rx="9"/><text x="390" y="300" class="ax-t2">REVIEW</text>
+          <rect x="298" y="320" width="184" height="30" rx="9" class="ax-q-dim"/><text x="390" y="341" class="ax-t2 dim">REPORT · 사람이 눌러야 들어감</text>
+        </g>
+
+        <path class="ax-l b" d="M512 236 H604" marker-end="url(#ahb)"/>
+        <text x="558" y="222" class="ax-t4 b">한 건씩 가져감</text>
+        <path class="ax-l" d="M604 330 H512" marker-end="url(#ah)"/>
+        <text x="516" y="382" class="ax-t4">결과를 돌려줌</text>
+
+        <!-- 워커 -->
+        <g class="ax-w">
+          <rect x="608" y="150" width="268" height="210" rx="16"/>
+          <text x="742" y="186" class="ax-t1">AI 워커</text>
+          <text x="742" y="212" class="ax-t3">폴러가 한 건씩 집어 처리</text>
+        </g>
+        <g class="ax-tool">
+          <rect x="632" y="236" width="104" height="42" rx="10"/><text x="684" y="263" class="ax-t2">OpenAI</text>
+          <rect x="748" y="236" width="104" height="42" rx="10"/><text x="800" y="262" class="ax-t2">Deepgram</text>
+        </g>
+        <g class="ax-gate">
+          <rect x="632" y="292" width="220" height="48" rx="10"/>
+          <text x="742" y="315" class="ax-t2 g">근거 게이트</text>
+          <text x="742" y="333" class="ax-t4 g">원문에 없으면 버림</text>
+        </g>
+
+        <path class="ax-l" d="M880 255 H956" marker-end="url(#ah)"/>
+        <g class="ax-s">
+          <rect x="960" y="196" width="178" height="118" rx="16"/>
+          <text x="1049" y="236" class="ax-t1">저장</text>
+          <text x="1049" y="266" class="ax-t3">요약 · 타임라인</text>
+          <text x="1049" y="290" class="ax-t3">확인할 내용</text>
+        </g>
+
+        <!-- 면접 중은 다른 레인 -->
+        <line class="ax-div" x1="14" y1="408" x2="1226" y2="408"/>
+        <text x="14" y="434" class="ax-t4">면접 중은 줄을 타지 않습니다 — 방 하나가 작업 하나입니다</text>
+
+        <g class="ax-r">
+          <rect x="14" y="450" width="200" height="86" rx="14"/>
+          <text x="114" y="484" class="ax-t1 sm">LiveKit 방</text>
+          <text x="114" y="510" class="ax-t3">면접관 · 지원자</text>
+        </g>
+        <path class="ax-l" d="M218 493 H290" marker-end="url(#ah)"/>
+        <g class="ax-w">
+          <rect x="294" y="450" width="262" height="86" rx="14"/>
+          <text x="425" y="484" class="ax-t1 sm">방 에이전트</text>
+          <text x="425" y="510" class="ax-t3">음성을 받아 전사하고 꼬리질문을 만든다</text>
+        </g>
+        <path class="ax-l" d="M560 493 H632" marker-end="url(#ah)"/>
+        <g class="ax-s">
+          <rect x="636" y="450" width="222" height="86" rx="14"/>
+          <text x="747" y="484" class="ax-t1 sm">면접관 화면</text>
+          <text x="747" y="510" class="ax-t3">자막 · 꼬리질문</text>
+        </g>
+        <text x="880" y="488" class="ax-t4">지원자에게는 가지 않습니다.</text>
+        <text x="880" y="512" class="ax-t4">꼬리질문은 면접관 화면에만 있습니다.</text>
+      </svg>
     </div>
-    <div class="pipe-log" id="pipeLog" aria-live="polite" aria-label="에이전트 실행 기록"></div>
-    <p class="reveal" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button class="btn" type="button" id="pipeBtn">다시 돌려보기</button>
-      <span class="num">세 단계 어디에도 사람의 조작이 없습니다. 면접관은 다 끝난 뒤 채택만 누릅니다.</span>
-    </p>
+
+    <div class="agx-note reveal">
+      <div><b>실패를 전제로 둡니다.</b><span>REVIEW 는 시간 상한을 두고 재시도하다가, 상한에 닿으면 그때까지 된 것만 저장하고 넘어갑니다. 모르는 종류가 들어오면 처리하지 않고 보류합니다.</span></div>
+      <div><b>사람이 누르는 자리는 하나입니다.</b><span>PREP 과 REVIEW 는 사람이 부르지 않습니다. REPORT 만 면접관이 검토를 확정해야 줄에 들어갑니다.</span></div>
+    </div>
   </div>
 </section>
 
@@ -4004,85 +4269,10 @@ body.screen-real .live-room.room-easy { display: none }
   }
   if (reduce) { renderAll(); } else { renderAll(); later(playRoom, 500); }
 
-  /* 근거 고르기 ─────────────────────────────── */
-  var EV = [
-    { who: '지원자 · 00:07', q: '네, 저는 3년차 백엔드 개발자입니다. 최근에는 실시간 스트리밍 파이프라인을 맡아 초당 2만 건 처리까지 끌어올렸습니다.', at: 7, label: '근거가 된 발화' },
-    { who: '면접관 · 02:01', q: '초당 2만 건은 어떤 병목을 해결해서 나온 수치인가요? — 이 질문 뒤의 답변에서 측정 방법이 나오지 않았습니다.', at: 121, label: '근거가 모자란 자리' },
-    { who: '전사 전체에서 못 찾음', q: '장애 뒤 재발 방지에 대한 발언이 면접 전체에 없습니다. 다음 면접에서 확인할 거리로 남습니다.', at: 0, label: '언급이 없던 항목' }
-  ];
-  var TOTAL = 634; // 10:34
-  var evBtns = [].slice.call(document.querySelectorAll('.ev-btn'));
-  var evQuote = document.getElementById('evQuote');
-  var evWho = document.getElementById('evWho');
-  var evLabel = document.getElementById('evLabel');
-  var evFill = document.getElementById('evFill');
-  var evHead = document.getElementById('evHead');
-  var evNow = document.getElementById('evNow');
-  function mmss(s) { var m = Math.floor(s / 60); var r = s % 60; return (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r; }
-  function pickEv(i) {
-    var e = EV[i];
-    evBtns.forEach(function (b, n) { b.setAttribute('aria-selected', n === i ? 'true' : 'false'); });
-    evQuote.textContent = e.q;
-    evWho.textContent = e.who;
-    evLabel.textContent = e.label;
-    var pct = (e.at / TOTAL) * 100;
-    evFill.style.width = pct + '%';
-    evHead.style.left = pct + '%';
-    evNow.textContent = mmss(e.at);
-  }
-  evBtns.forEach(function (b) { b.addEventListener('click', function () { pickEv(+b.dataset.i); }); });
-  pickEv(0);
-
-  /* 에이전트 파이프라인 ─────────────────────── */
-  var nodes = [].slice.call(document.querySelectorAll('#pipe .node'));
-  var log = document.getElementById('pipeLog');
-  var LOG = [
-    { n: 0, d: 0,    t: 'PREP    job=pending  →  폴러가 집어 감' },
-    { n: 0, d: 650,  t: 'PREP    문서 본문 추출 · 이력서 1건' },
-    { n: 0, d: 1300, t: 'PREP    LLM 호출 · 회사 · 직무 · 인재상 함께 읽음' },
-    { n: 0, d: 2000, t: 'PREP    <b>done</b>  확인할 거리 6개 저장  1,842ms' },
-    { n: 1, d: 2600, t: 'LIVE    방 입장 · 마이크 트랙 2개 구독' },
-    { n: 1, d: 3200, t: 'LIVE    전사 FINAL  "초당 2만 건 처리까지…"' },
-    { n: 1, d: 3800, t: 'LIVE    꼬리질문 생성 → 면접관 화면으로 전송' },
-    { n: 1, d: 4500, t: 'LIVE    <b>done</b>  면접 종료 · 녹화 저장' },
-    { n: 2, d: 5100, t: 'REVIEW  job=pending  →  폴러가 집어 감' },
-    { n: 2, d: 5700, t: 'REVIEW  요약 · 타임라인 · 근거 동시 실행' },
-    { n: 2, d: 6400, t: 'REVIEW  <i>근거 생성 실패 · 재시도 1/3</i>' },
-    { n: 2, d: 7100, t: 'REVIEW  근거 6개 생성  성공' },
-    { n: 2, d: 7700, t: 'REVIEW  <b>done</b>  요약 2 · 타임라인 8 · 근거 6  13.5s' },
-    { n: -1, d: 8400, t: '사람이 손댄 곳: 없음.  다음은 면접관의 채택 한 번.' }
-  ];
-  var pipeTimers = [];
-  function runPipe() {
-    pipeTimers.forEach(clearTimeout);
-    pipeTimers = [];
-    log.innerHTML = '';
-    nodes.forEach(function (n) { n.className = 'node'; n.querySelector('.state').textContent = '대기'; });
-    LOG.forEach(function (row) {
-      pipeTimers.push(setTimeout(function () {
-        if (row.n >= 0) {
-          nodes.forEach(function (n, i) {
-            if (i < row.n) { n.className = 'node done'; n.querySelector('.state').textContent = '완료'; }
-            else if (i === row.n) { n.className = 'node run'; n.querySelector('.state').textContent = '진행'; }
-          });
-          if (row.t.indexOf('done') > -1) {
-            nodes[row.n].className = 'node done';
-            nodes[row.n].querySelector('.state').textContent = '완료';
-          }
-        }
-        var line = document.createElement('div');
-        line.innerHTML = row.t;
-        log.appendChild(line);
-        log.scrollTop = log.scrollHeight;
-      }, reduce ? 0 : row.d));
-    });
-  }
-  function fillPipe() {
-    nodes.forEach(function (n) { n.className = 'node done'; n.querySelector('.state').textContent = '완료'; });
-    log.innerHTML = LOG.map(function (r) { return '<div>' + r.t + '</div>'; }).join('');
-  }
-  fillPipe();
-  document.getElementById('pipeBtn').addEventListener('click', runPipe);
+  /* 근거 연결 · 에이전트 파이프라인 자바스크립트는 지웠다.
+     6페이지는 누르는 목록 대신 접지 검문소로, 7페이지는 가짜 로그 대신
+     구조도로 바뀌어 둘 다 움직이는 부분이 없다. 남겨 두면 없는 요소를
+     찾다가 null 참조로 아래 코드가 통째로 멈춘다. */
 
   /* 계산기 ──────────────────────────────────── */
   var AUDIO_PER = 60;      // 30분 면접 × 마이크 2개
@@ -4233,15 +4423,8 @@ body.screen-real .live-room.room-easy { display: none }
 
   /* 「네 구간」의 「네」 자리가 네 구간 이름으로 번갈아 바뀐다 */
   (function cycFour() {
-    var el = document.getElementById('featCyc');
-    if (!el || reduce) return;
-    var WORDS = ['네', '면접 전', '면접 중', '면접 후', '검토'];
-    var i = 0;
-    setInterval(function () {
-      i = (i + 1) % WORDS.length;
-      el.style.opacity = '0';
-      setTimeout(function () { el.textContent = WORDS[i]; el.style.opacity = '1'; }, 180);
-    }, 1400);
+    /* 예전에는 이 자리의 낱말이 면접 전 · 중 · 후 · 검토로 돌았다. 숫자로 바꾼
+       뒤로는 돌리지 않는다 — 「면접 중 단계를 한 흐름으로」가 되어 말이 안 된다. */
     el.style.transition = 'opacity .18s ease';
   })();
 
@@ -4403,17 +4586,15 @@ body.screen-real .live-room.room-easy { display: none }
      단계를 켜고 끄는 것과 상관없이 그 띠에 오면 돌아야 한다. */
   if ('IntersectionObserver' in window) {
 
-    var pipeIo = new IntersectionObserver(function (entries) {
-      entries.forEach(function (en) {
-        if (en.isIntersecting && !reduce) { runPipe(); pipeIo.unobserve(en.target); }
-      });
-    }, { threshold: 0.4 });
-    pipeIo.observe(document.getElementById('pipe'));
-
-    var roomIo = new IntersectionObserver(function (entries) {
-      entries.forEach(function (en) { if (en.isIntersecting && !reduce) playRoom(); else clearTimers(); });
-    }, { threshold: 0.5 });
-    roomIo.observe(document.querySelector('.room'));
+    /* 파이프라인 감시자는 지웠다 — 7페이지가 구조도로 바뀌어 #pipe 가 없다.
+       없는 요소를 observe 하면 TypeError 가 나고, 그 아래 코드가 전부 멈춘다. */
+    var roomEl = document.querySelector('.room');
+    if (roomEl) {
+      var roomIo = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) { if (en.isIntersecting && !reduce) playRoom(); else clearTimers(); });
+      }, { threshold: 0.5 });
+      roomIo.observe(roomEl);
+    }
   }
 })();
 </script>
@@ -4443,13 +4624,13 @@ body.screen-real .live-room.room-easy { display: none }
       note: '체크해야 입장 버튼이 열립니다 — 제품도 같고, 서버도 동의 없는 입장을 403 으로 막습니다. 문구는 lib/consent.ts 그대로입니다.'
     },
     {
-      note: '자막 · 꼬리질문 · 시간 · 메모는 실제로 움직입니다. 꼬리질문을 눌러 고정해 보세요. 가운데 영상만 시연용 정지 화면입니다 — 제품에서는 LiveKit 영상이 들어옵니다.'
+      note: '자막 · 꼬리질문 · 시간 · 메모는 실제로 움직입니다. 꼬리질문을 눌러 고정해 보세요. 영상 두 자리만 시연용으로 찍어 둔 것이고 — 제품에서는 LiveKit 으로 들어옵니다 — 그 위에 얹힌 것은 전부 실제 화면입니다.'
     },
     {
       note: '요약을 기다리는 상태부터 완성까지 제품과 같은 순서로 보여줍니다. 요약 내용은 시연 데이터입니다.'
     },
     {
-      note: '타임라인 · 문답 · 검토 항목 · 검토 상태가 전부 눌립니다. 영상만 정지 화면이고, 재생 위치는 고른 질문의 시각으로 바뀝니다.'
+      note: '타임라인 · 문답 · 검토 항목 · 검토 상태가 전부 눌립니다. 영상만 시연용이고, 재생 위치는 고른 질문의 시각으로 바뀝니다.'
     }
   ];
 
@@ -4624,8 +4805,19 @@ body.screen-real .live-room.room-easy { display: none }
     if (l.sug) l.sug.forEach(function (q) { addSuggestion(q[0], q[1]); });
   };
 
+  /* 시연 영상 둘. 띠가 화면 밖이면 세운다 — 발표용 노트북에서 보이지도 않는
+     영상 두 개를 계속 디코딩할 이유가 없다. autoplay 가 막히면(정책이 바뀌거나
+     저전력 모드) play() 가 거절되는데, 그건 데모를 세울 일이 아니라 뒤의
+     .mockcam 이 그대로 보이면 되는 일이라 조용히 넘긴다. */
+  var roomVids = [].slice.call(document.querySelectorAll('#d3vid, #d3vidme'));
+  var playVids = function () {
+    roomVids.forEach(function (v) { var p = v.play(); if (p && p.catch) p.catch(function () {}); });
+  };
+  var pauseVids = function () { roomVids.forEach(function (v) { v.pause(); }); };
+
   var stopRoom = function () {
     if (roomTimer) { clearInterval(roomTimer); roomTimer = null; }
+    pauseVids();
   };
   var resetRoom = function () {
     stopRoom();
@@ -4643,6 +4835,8 @@ body.screen-real .live-room.room-easy { display: none }
   var startRoom = function () {
     resetRoom();
     replay.hidden = false;
+    roomVids.forEach(function (v) { v.currentTime = 0; });
+    playVids();
     /* 시연 시간은 4배로 흘린다. 화면에 적히는 시각은 실제 전사 시각 그대로다 */
     roomTimer = setInterval(function () {
       tick += 1;
@@ -4722,6 +4916,9 @@ body.screen-real .live-room.room-easy { display: none }
   var findList = document.getElementById('d5findings');
   var nowEl = document.getElementById('d5now');
   var needle = document.getElementById('d5needle');
+  var revVid = document.getElementById('d5vid');
+  /* 길이를 알기 전에 고른 질문이 있으면 그 자리로 한 번 더 맞춘다. */
+  if (revVid) revVid.addEventListener('loadedmetadata', function () { paintSelection(); });
   var overlay = document.getElementById('d5overlay');
   var marks = [].slice.call(document.querySelectorAll('#d5marks button'));
   var activeQ = -1, atSec = 0, locked = false, reviewStatus = 'IN_REVIEW';
@@ -4784,6 +4981,12 @@ body.screen-real .live-room.room-easy { display: none }
       hint.hidden = false; pick.hidden = true; pick2.hidden = true;
     }
     nowEl.textContent = fmt(atSec);
+    /* 녹화를 그 시각의 프레임으로 옮긴다. 타임라인에 쓰는 pct 를 그대로 재서,
+       바늘이 선 자리와 화면이 같은 비율을 가리킨다. metadata 가 아직이면
+       duration 이 NaN 이라 건드리지 않는다 — 그때는 로드된 뒤 다시 칠한다. */
+    if (revVid && revVid.duration) {
+      revVid.currentTime = (parseFloat(pct(atSec)) / 100) * revVid.duration;
+    }
   };
 
   var select = function (i) { activeQ = i; atSec = MOMENTS[i].at; paintSelection(); };
