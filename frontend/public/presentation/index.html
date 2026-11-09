@@ -1227,125 +1227,97 @@ body.screen-real .live-room.room-easy { display: none }
 /* ── 6페이지 · 근거 접지 검문소 ──────────────────────────────────
    「근거가 붙는다」가 아니라 「근거 없으면 버린다」를 그린다. 붙는 건 누구나
    한다. 못 찾았을 때 버리는 쪽이 설계다. */
-.gate { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 1240px; margin: 0 auto }
-.gate-head { display: grid; grid-template-columns: 1.55fr 1fr .5fr; gap: clamp(14px, 2vw, 32px);
-  padding: 0 clamp(18px, 2vw, 28px); font-size: 17px; font-weight: 700; color: var(--ink-dim);
-  letter-spacing: -.01em }
-.gate-row { display: grid; grid-template-columns: 1.55fr 1fr .5fr; gap: clamp(14px, 2vw, 32px);
-  align-items: center; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 16px; padding: clamp(14px, 1.6vw, 20px) clamp(18px, 2vw, 28px);
-  box-shadow: 0 1px 2px rgb(20 24 38 / .04), 0 6px 20px rgb(20 24 38 / .05) }
-.gate-row.pass { border-left: 5px solid var(--accent) }
-.gate-row.drop { border-left: 5px solid var(--danger); background: var(--danger-tint) }
-.g-said { font-size: clamp(19px, 1.9vw, 25px); line-height: 1.45; color: var(--ink); margin: 0 }
-.gate-row.drop .g-said { color: var(--ink-dim); text-decoration: line-through;
-  text-decoration-color: rgb(196 52 58 / .6); text-decoration-thickness: 2px }
-.g-src { font-size: clamp(15px, 1.4vw, 18px); color: var(--ink-muted); margin: 0; line-height: 1.5 }
-.g-src b { display: block; color: var(--ink); font-size: clamp(16px, 1.5vw, 19px) }
-.g-mark { margin: 0; text-align: right }
-.g-mark span { display: inline-block; border-radius: 999px; padding: 9px 20px;
-  font-size: clamp(17px, 1.7vw, 22px); font-weight: 800; letter-spacing: -.01em }
-.g-mark .ok { background: var(--accent-tint); color: var(--accent-strong) }
-.g-mark .no { background: var(--danger); color: #fff }
-
 /* ── 6페이지 · 「막는 쪽」이 아니라 「지키는 쪽」 ─────────────────
-   LLM 이 쓴 문장이 왼쪽에서 날아온다. 근거가 있는 둘은 그냥 지나가고,
-   없는 하나만 방패에 맞고 튕겨 나간다. 방패는 벽 앞이 아니라 면접관
-   앞에 선다 — 3페이지에서 한 「최종 결정은 면접관이」가 여기서 지켜진다.
+   이 페이지의 본문은 이 장면 하나다. LLM 이 오른쪽에서 문장을 던지고,
+   근거가 있는 둘은 그냥 지나가 왼쪽 면접관에게 닿는다. 없는 하나만
+   방패에 맞고 튕겨 나간다. 방패는 벽 앞이 아니라 면접관 앞에 선다 —
+   3페이지에서 한 「최종 결정은 면접관이」가 여기서 지켜진다.
    움직임을 끈 기기에서는 끝난 자리를 그대로 보여 준다. */
 .guard { max-width: 1240px; margin: 0 auto; width: 100% }
 .guard-stage {
-  position: relative; height: clamp(190px, 25vh, 268px);
-  border-radius: 20px; background: var(--panel-2);
+  position: relative; height: clamp(300px, 47vh, 540px);
+  border-radius: 24px; background: var(--panel-2);
   border: 1px solid var(--line); overflow: hidden;
 }
 .g-end, .g-llm { position: absolute; top: 50%; transform: translateY(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 7px }
-.g-llm { left: clamp(14px, 3%, 34px) }
-.g-end { right: clamp(14px, 3%, 34px) }
-.g-tag { font-size: clamp(11px, .95vw, 13px); font-weight: 700; letter-spacing: .02em;
+  display: flex; flex-direction: column; align-items: center; gap: 10px }
+.g-llm { right: clamp(16px, 3.4%, 40px) }
+.g-end { left:  clamp(16px, 3.4%, 40px) }
+.g-tag { font-size: clamp(13px, 1.25vw, 18px); font-weight: 700; letter-spacing: .02em;
   color: var(--ink-dim); white-space: nowrap }
 .g-llm .g-tag { color: var(--brand-strong) }
-.g-chip { width: clamp(52px, 6vw, 74px); height: clamp(52px, 6vw, 74px);
-  border-radius: 18px; display: grid; place-items: center;
+.g-chip { width: clamp(74px, 8.4vw, 110px); height: clamp(74px, 8.4vw, 110px);
+  border-radius: 26px; display: grid; place-items: center;
   background: var(--brand-tint); color: var(--brand-strong);
-  font-weight: 800; font-size: clamp(13px, 1.2vw, 17px) }
-.g-judge { width: clamp(54px, 6.2vw, 78px); height: auto; color: var(--ink-muted) }
+  font-weight: 800; font-size: clamp(18px, 1.75vw, 25px) }
+.g-judge { width: clamp(78px, 8.8vw, 116px); height: auto; color: var(--ink-muted) }
 
-/* 가운데 — 경찰 모자를 쓴 IRYA 와 방패 */
-.g-cop { position: absolute; left: 47%; top: 50%; width: clamp(96px, 11vw, 142px);
-  height: auto; transform: translate(-50%, -50%) }
+/* 가운데 — 경찰 모자를 쓴 IRYA 와 방패 (오른쪽에서 오는 문장을 본다) */
+.g-cop { position: absolute; left: 53%; top: 50%; width: clamp(150px, 17vw, 232px);
+  height: auto; transform: translate(-50%, -50%) scaleX(-1) }
 .guard.run .g-cop { animation: copBrace .5s ease-out 2.75s both }
-@keyframes copBrace { 0%,100% { transform: translate(-50%,-50%) } 36% { transform: translate(-54%,-50%) scale(1.04) } }
-.g-ring { position: absolute; left: 43.5%; top: 50%; width: clamp(60px, 7vw, 92px);
+@keyframes copBrace {
+  0%,100% { transform: translate(-50%,-50%) scaleX(-1) }
+  36%     { transform: translate(-46%,-50%) scaleX(-1) scale(1.04) }
+}
+.g-ring { position: absolute; left: 56.5%; top: 50%; width: clamp(92px, 11vw, 150px);
   aspect-ratio: 1; border-radius: 50%; transform: translate(-50%,-50%) scale(.4);
-  border: 3px solid var(--danger); opacity: 0 }
+  border: 4px solid var(--danger); opacity: 0 }
 .guard.run .g-ring { animation: copRing .62s ease-out 2.82s both }
 @keyframes copRing { 0% { opacity: .85; transform: translate(-50%,-50%) scale(.4) }
   100% { opacity: 0; transform: translate(-50%,-50%) scale(1.45) } }
 
-/* 날아오는 문장 */
-.fly { position: absolute; left: 13%; max-width: min(21%, 260px);
-  padding: 8px 12px; border-radius: 12px; font-style: normal;
-  font-size: clamp(11px, 1.02vw, 14.5px); line-height: 1.35;
+/* 날아오는 문장 — 오른쪽에서 왼쪽으로 */
+.fly { position: absolute; right: 13%; max-width: min(27%, 360px);
+  padding: 12px 17px; border-radius: 15px; font-style: normal;
+  font-size: clamp(15px, 1.55vw, 23px); line-height: 1.4;
   background: var(--panel); border: 1px solid var(--line);
-  box-shadow: 0 6px 18px rgb(12 16 30 / .07); opacity: 0;
+  box-shadow: 0 8px 26px rgb(12 16 30 / .09); opacity: 0;
   white-space: normal }
-.fly.ok { border-left: 4px solid var(--accent) }
-.fly.bad { border-left: 4px solid var(--danger) }
-.f1 { top: 16% } .f2 { top: 60% } .f3 { top: 37% }
+.fly.ok { border-right: 5px solid var(--accent) }
+.fly.bad { border-right: 5px solid var(--danger) }
+.f1 { top: 11% } .f2 { top: 70% } .f3 { top: 38% }
 .guard.run .f1 { animation: flyThru 2.5s cubic-bezier(.4,.05,.3,1) .15s both }
 .guard.run .f2 { animation: flyThru 2.5s cubic-bezier(.4,.05,.3,1) 1.05s both }
 .guard.run .f3 { animation: flyBounce 2.1s cubic-bezier(.35,.05,.3,1) 2.1s both }
-/* 가로 이동은 left 로 준다 — 무대 폭이 화면마다 달라서 px 로 두면 어긋난다 */
+/* 가로 이동은 right 로 준다 — 무대 폭이 화면마다 달라서 px 로 두면 어긋난다 */
 @keyframes flyThru {
-  0%   { opacity: 0; left: 11% }
-  14%  { opacity: 1; left: 13% }
-  100% { opacity: 1; left: 63% }
+  0%   { opacity: 0; right: 11% }
+  14%  { opacity: 1; right: 13% }
+  100% { opacity: 1; right: 62% }
 }
 @keyframes flyBounce {
-  0%   { opacity: 0; left: 11% }
-  16%  { opacity: 1; left: 13% }
-  38%  { opacity: 1; left: 20%; transform: rotate(0) }
-  50%  { opacity: 1; left: 15%; transform: rotate(-8deg) }
-  100% { opacity: 0; left: 6%; transform: translateY(-58px) rotate(-24deg) }
+  0%   { opacity: 0; right: 11% }
+  16%  { opacity: 1; right: 13% }
+  38%  { opacity: 1; right: 18%; transform: rotate(0) }
+  50%  { opacity: 1; right: 14%; transform: rotate(8deg) }
+  100% { opacity: 0; right: 5%;  transform: translateY(-62px) rotate(24deg) }
 }
 /* 통과한 문장이 면접관 쪽에 닿았다는 표시 */
-.g-got { position: absolute; right: clamp(14px, 3%, 34px); top: 50%;
+.g-got { position: absolute; left: clamp(16px, 3.4%, 40px); top: 50%;
   transform: translate(0,-50%); opacity: 0 }
 .guard.run .g-got { animation: gotIn .5s ease-out 3.5s both }
 @keyframes gotIn { from { opacity: 0 } to { opacity: 1 } }
 
-.guard-cap { max-width: 1240px; margin: 14px auto 0; text-align: center;
-  font-size: clamp(15px, 1.35vw, 19px); line-height: 1.5; color: var(--ink-muted) }
+.guard-cap { max-width: 1100px; margin: clamp(16px, 2vw, 26px) auto 0; text-align: center;
+  font-size: clamp(17px, 1.6vw, 23px); line-height: 1.55; color: var(--ink-muted) }
 .guard-cap b { color: var(--ink) }
 .guard-cap .gc-motto { color: var(--brand-strong); font-weight: 700 }
 
 @media (max-width: 760px) {
-  .fly { max-width: 38%; font-size: 11px }
-  .g-tag { font-size: 10.5px }
+  .fly { max-width: 44%; font-size: 13px; padding: 9px 12px }
+  .g-tag { font-size: 12px }
+  .guard-stage { height: clamp(260px, 42vh, 340px) }
 }
 /* 움직임을 끈 기기 — 끝난 자리를 그대로 보여 준다 */
 @media (prefers-reduced-motion: reduce) {
   .fly { opacity: 1 }
-  .f1, .f2 { left: 63% }
-  .f3 { opacity: .5; text-decoration: line-through; left: 20% }
+  .f1, .f2 { right: 62% }
+  .f3 { opacity: .5; text-decoration: line-through; right: 18% }
   .g-got { opacity: 1 }
   .guard.run .f1, .guard.run .f2, .guard.run .f3,
   .guard.run .g-cop, .guard.run .g-ring, .guard.run .g-got { animation: none }
 }
-.gate-rule { max-width: 1240px; margin: 0 auto; border-top: 1px solid var(--line);
-  padding-top: clamp(13px, 1.5vw, 18px); display: flex; flex-direction: column; gap: 7px }
-.gate-rule p { font-size: clamp(15px, 1.3vw, 18px); line-height: 1.52; color: var(--ink-muted); margin: 0 }
-.gate-rule p b { color: var(--ink) }
-.gate-rule .gate-why { color: var(--ink) }
-
-@media (max-width: 900px) {
-  .gate-head { display: none }
-  .gate-row { grid-template-columns: 1fr; gap: 10px }
-  .g-mark { text-align: left }
-}
-\n
 /* ── 7페이지 · 에이전트 구조도 ──────────────────────────────────
    상자 셋을 옆으로 늘어놓은 건 구조가 아니라 목록이었다. 줄(큐)과 폴러와
    도구와 실패 경로가 보여야 「에이전트」로 읽힌다. 가짜 로그는 뺐다 —
@@ -3839,37 +3811,13 @@ body.screen-real .live-room.room-easy { display: none }
       <h2 class="title">근거를 못 찾은 문장은 버립니다</h2>
     </div>
 
-    <div class="gate reveal">
-      <div class="gate-head">
-        <span>AI가 쓴 문장</span><span>원문 대조</span><span>판정</span>
-      </div>
-
-      <div class="gate-row pass reveal" data-g="0">
-        <p class="g-said">“적중률이 80% 쯤 나올 거라 보고 TTL을 5분으로 잡았습니다.”</p>
-        <p class="g-src"><b>면접 자막 02:29</b><span>에 글자 그대로 있음</span></p>
-        <p class="g-mark"><span class="ok">통과</span></p>
-      </div>
-
-      <div class="gate-row pass reveal" data-g="1">
-        <p class="g-said">“Redis 캐시 도입으로 응답 시간 400ms → 90ms”</p>
-        <p class="g-src"><b>지원서 · 경력</b><span>에 글자 그대로 있음</span></p>
-        <p class="g-mark"><span class="ok">통과</span></p>
-      </div>
-
-      <div class="gate-row drop reveal" data-g="2">
-        <p class="g-said">“전반적으로 성장 가능성이 높은 지원자로 보입니다.”</p>
-        <p class="g-src"><b>어디에도 없음</b><span>지원서에도, 자막에도</span></p>
-        <p class="g-mark"><span class="no">버림</span></p>
-      </div>
-    </div>
-
     <div class="guard reveal">
       <div class="guard-stage" aria-hidden="true">
         <span class="g-llm"><span class="g-chip">LLM</span><span class="g-tag">쓴 문장</span></span>
 
         <i class="fly ok f1">“…TTL을 5분으로 잡았습니다”</i>
         <i class="fly ok f2">“400ms → 90ms”</i>
-        <i class="fly bad f3">“성장 가능성이 높은 지원자로 보입니다”</i>
+        <i class="fly bad f3">“훌륭한 인재 같은데요?”</i>
 
         <span class="g-ring"></span>
         <svg class="g-cop" viewBox="0 0 150 120" aria-hidden="true">
@@ -3886,8 +3834,10 @@ body.screen-real .live-room.room-easy { display: none }
           <!-- 방패 — 날아오는 쪽을 보고 선다 -->
           <path d="M40 24c11 4 22 5 31 5 0 33-6 53-31 64-25-11-31-31-31-64 9 0 20-1 31-5Z"
                 fill="var(--brand-tint)" stroke="var(--brand-strong)" stroke-width="3.6" stroke-linejoin="round"/>
-          <path d="M27 62l9 9 20-21" fill="none" stroke="var(--accent-strong)"
-                stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- 바깥에서 좌우를 뒤집으므로, 체크 표시만 한 번 더 뒤집어 바로 보이게 한다 -->
+        <path d="M27 62l9 9 20-21" fill="none" stroke="var(--accent-strong)"
+                stroke-width="5" stroke-linecap="round" stroke-linejoin="round"
+                transform="translate(80,0) scale(-1,1)"/>
         </svg>
 
         <span class="g-end">
