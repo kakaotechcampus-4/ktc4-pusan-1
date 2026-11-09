@@ -130,6 +130,24 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
    띠가 화면을 넘지 않는다. 그래서 origin 을 위쪽에 두고 높이를 직접 준다. */
 .band > .wrap { transform: scale(var(--fit, 1)); transform-origin: top center }
 
+/* 임시 쪽지 — 정해지면 이 규칙과 .wipflag 블록을 같이 지운다 */
+.wipflag { position: absolute; z-index: 9; top: clamp(14px, 2.2vh, 30px); right: clamp(14px, 2vw, 34px);
+  max-width: min(320px, 42vw); text-align: right;
+  padding: clamp(10px, 1.2vw, 16px) clamp(13px, 1.5vw, 20px);
+  background: #fff6d9; border: 2px dashed #d9a327; border-radius: 13px;
+  box-shadow: 0 10px 30px rgb(140 100 10 / .16); rotate: 1.4deg }
+.wipflag b { display: block; font-size: clamp(15px, 1.5vw, 20px); font-weight: 800;
+  color: #8a5a00; letter-spacing: -.01em }
+.wipflag span { display: block; margin-top: 3px; font-size: clamp(12px, 1.15vw, 15px);
+  line-height: 1.45; color: #9a6d16; font-weight: 600 }
+@media (prefers-reduced-motion: no-preference) {
+  .wipflag { animation: wipPulse 2.6s ease-in-out infinite }
+}
+@keyframes wipPulse {
+  0%, 100% { box-shadow: 0 10px 30px rgb(140 100 10 / .16) }
+  50% { box-shadow: 0 10px 30px rgb(140 100 10 / .16), 0 0 0 7px rgb(217 163 39 / .17) }
+}
+
 /* 확장성 — 한 점에서 네 갈래로 뻗는다. 목록이면 「못 한 것 네 개」로 읽히고,
    갈래로 그리면 「여기서 어디로 갈 수 있는지」로 읽힌다. 내용은 같다. */
 .fan { display: grid; grid-template-columns: auto clamp(54px, 7vw, 104px) minmax(0, 1fr);
@@ -4716,7 +4734,12 @@ body.screen-real .live-room.room-easy { display: none }
 </section>
 
 <!-- 남은 것 ──────────────────────────────── -->
-<section class="band band--deep" id="s-next" data-label="남은 것">
+<section class="band band--deep" id="s-next" data-label="확장성">
+  <!-- 임시 쪽지 — 이 장을 넣을지 정하면 이 블록과 .wipflag CSS 를 지운다 -->
+  <aside class="wipflag">
+    <b>이 장 뺄지 고민 중</b>
+    <span>의견 주세요 — 확장성(현장 ⑥ 6점)이 13페이지와 겹칩니다</span>
+  </aside>
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">확장성</p>
