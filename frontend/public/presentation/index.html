@@ -148,6 +148,30 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
   50% { box-shadow: 0 10px 30px rgb(140 100 10 / .16), 0 0 0 7px rgb(217 163 39 / .17) }
 }
 
+/* 사업성 — 누구에게 무엇이 달라지는지, 그리고 왜 팔릴 수 있는지.
+   시장 규모 수치는 쓰지 않았다. 찾아본 국내 자료가 대부분 블로그 2차
+   인용이라 출처를 댈 수 없었고, 못 대는 숫자는 안 쓰는 편이 낫다. */
+.who { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(12px, 1.5vw, 22px); width: 100%; max-width: 1240px; margin: 0 auto }
+.who-c { background: var(--panel); border: 1px solid var(--line); border-radius: 15px;
+  padding: clamp(15px, 1.8vw, 26px) clamp(16px, 1.9vw, 26px) }
+.who-k { display: inline-block; font-size: clamp(12px, 1.15vw, 15px); font-weight: 800;
+  letter-spacing: .02em; color: var(--brand-strong); background: var(--brand-tint);
+  border-radius: 999px; padding: 4px 12px }
+.who-c h3 { margin: 10px 0 6px; font-size: clamp(18px, 1.8vw, 25px); font-weight: 800;
+  letter-spacing: -.015em; line-height: 1.3 }
+.who-c p { margin: 0; font-size: clamp(14px, 1.33vw, 18px); line-height: 1.55; color: var(--ink-muted) }
+.sell { display: grid; grid-template-columns: .8fr 1fr 1.35fr;
+  gap: clamp(12px, 1.5vw, 24px); width: 100%; max-width: 1240px; margin: 0 auto;
+  padding-top: clamp(12px, 1.5vw, 20px); border-top: 1px solid var(--line) }
+.sell-i { display: flex; align-items: baseline; gap: clamp(9px, 1.1vw, 15px) }
+.sell-i b { font-family: var(--font-mono); font-size: clamp(20px, 2.1vw, 30px); font-weight: 700;
+  color: var(--accent-strong); letter-spacing: -.02em; white-space: nowrap }
+.sell-i span { font-size: clamp(14px, 1.3vw, 18px); font-weight: 700; color: var(--ink); line-height: 1.35 }
+.sell-i em { display: block; margin-top: 3px; font-style: normal; font-weight: 500;
+  font-size: clamp(12px, 1.15vw, 15.5px); color: var(--ink-dim); line-height: 1.45 }
+@media (max-width: 860px) { .who, .sell { grid-template-columns: 1fr } }
+
 /* 확장성 — 한 점에서 네 갈래로 뻗는다. 목록이면 「못 한 것 네 개」로 읽히고,
    갈래로 그리면 「여기서 어디로 갈 수 있는지」로 읽힌다. 내용은 같다. */
 .fan { display: grid; grid-template-columns: auto clamp(54px, 7vw, 104px) minmax(0, 1fr);
@@ -4702,11 +4726,45 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">사업성과 시장성</p>
-      <h2 class="title">면접 건당으로 과금하는 게 자연스럽습니다</h2>
-      <p class="lede">우리 비용은 사람 수가 아니라 <b>음성이 흐른 시간</b>을 따라갑니다. 그래서 좌석당이 아니라 면접 건당 가격이 원가와 맞습니다.</p>
+      <h2 class="title">도입을 막는 단계가 없습니다</h2>
+      <p class="lede">면접관은 쓰던 대로 면접을 보고, 지원자는 링크를 엽니다. <b>설치도 가입도 없고</b>, 기존 채용 절차를 바꾸지 않아도 됩니다.</p>
     </div>
 
-    <div class="calc reveal">
+    <div class="who reveal">
+      <div class="who-c">
+        <span class="who-k">면접관</span>
+        <h3>면접만 보면 됩니다</h3>
+        <p>적느라 못 듣는 일이 없어집니다. 정리는 끝나고 나서 근거가 붙은 채로 돌아옵니다.</p>
+      </div>
+      <div class="who-c">
+        <span class="who-k">지원자</span>
+        <h3>링크만 열면 됩니다</h3>
+        <p>설치도 가입도 없습니다. 무엇을 저장하고 언제 지우는지 먼저 보고, 동의해야 녹화가 시작됩니다.</p>
+      </div>
+      <div class="who-c">
+        <span class="who-k">회사</span>
+        <h3>기준이 쌓입니다</h3>
+        <p>면접관이 확정한 근거가 「우리 회사는 무엇을 왜 보는가」로 남습니다. 쓸수록 두꺼워집니다.</p>
+      </div>
+    </div>
+
+    <div class="sell reveal">
+      <div class="sell-i">
+        <b>0</b>
+        <span>지원자가 깔아야 하는 것<em>링크 하나면 들어옵니다</em></span>
+      </div>
+      <div class="sell-i">
+        <b>건당</b>
+        <span>쓴 만큼만 내는 구조<em>비용이 사람 수가 아니라 음성 시간을 따라갑니다</em></span>
+      </div>
+      <div class="sell-i">
+        <b>0.19 → 0.42</b>
+        <span>구조화하면 더 맞힙니다<em>채용 결정이 입사 후 성과를 맞히는 정도 · 2페이지와 같은 출처</em></span>
+      </div>
+    </div>
+
+    <details class="fine calcfold reveal"><summary>원가와 과금 — 한 달 면접 건수로 계산해 봅니다</summary>
+    <div class="calc">
       <div class="calc-head">
         <label for="vol">한 달에 보는 면접</label>
         <output id="volOut" for="vol">60건</output>
@@ -4719,17 +4777,7 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
       <details class="fine"><summary>출처와 단서</summary><p class="src">계산 근거 — 면접 1건을 30분, 마이크 2개로 보아 음성 60분으로 잡았습니다. 전사 단가는 공개된 Deepgram Nova-3 스트리밍 요금 분당 $0.0077 을 썼습니다(<a href="https://convertaudiototext.com/blog/deepgram-nova-3-explained">출처</a>, 공식 페이지 아님 · 프로모션가는 더 쌉니다). <b>정리 시간 건당 20분은 아직 측정하지 못한 가정입니다</b> — 시범 운영에서 시범 운영에서 측정해 바꿀 숫자입니다. LLM · 서버 · 저장소 비용은 빠져 있습니다.</p></details>
     </div>
-
-    <div class="grid g3 reveal">
-      <div class="card"><span class="tag">왜 쓰나</span><p style="color:var(--ink);font-size:15.5px">면접 한 건마다 들던 정리 시간이 사라집니다. 면접관은 면접만 보면 됩니다.</p></div>
-      <div class="card"><span class="tag">왜 들어오나</span><p style="color:var(--ink);font-size:15.5px">지원자는 링크만 열면 됩니다. 설치도 가입도 없어서 도입을 막는 단계가 없습니다.</p></div>
-      <div class="card"><span class="tag">왜 남나</span><p style="color:var(--ink);font-size:15.5px">확정한 검토가 쌓입니다. 쓸수록 그 회사가 무엇을 왜 보는지가 자산이 됩니다.</p></div>
-    </div>
-    <div class="grid g3 reveal">
-      <div class="card" style="background:var(--brand-tint);border-color:transparent"><h3>같은 직무 지원자 비교</h3><p>같은 근거 틀로 여러 명을 나란히 놓아, 면접관마다 다른 기준을 맞춥니다.</p></div>
-      <div class="card" style="background:var(--brand-tint);border-color:transparent"><h3>면접관 교육</h3><p>채택된 근거와 반려된 근거가 그대로 「우리 회사의 면접 기준」 교재가 됩니다.</p></div>
-      <div class="card" style="background:var(--brand-tint);border-color:transparent"><h3>조직 단위로</h3><p>직무와 사내 문서를 이미 읽고 있어, 팀 · 부서 단위로 넓히기 쉽습니다.</p></div>
-    </div>
+    </details>
   </div>
 </section>
 
