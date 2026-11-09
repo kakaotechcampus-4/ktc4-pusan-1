@@ -647,7 +647,7 @@ body.js .feat-card.reveal.in { opacity: 0 }
 body.js .feat-card.reveal.in.settled { opacity: 1 }
 
 .kicker--xl { font-size: clamp(30px, 5vw, 58px); line-height: 1.22; max-width: 24ch }
-.cyc { color: var(--brand-strong); display: inline-block }
+.cyc { color: var(--brand-strong); display: inline-block; min-width: 2.2em }
 .feat-end b { font-size: 1.16em }
 .feat-end .cyc { font-size: 1.3em; font-weight: 800; letter-spacing: -.02em }
 
@@ -1108,18 +1108,20 @@ body.screen-real .live-room.room-easy { display: none }
 }
 .glass-dim { opacity: 0.5; transition: opacity 0.3s ease }
 
-/* 원래 유리판 배경을 유지하고 밝은 영상에서도 글자 윤곽을 구분한다. */
+/* 흰 벽 · 밝은 조명 영상에서는 거의 투명한 유리 위의 흰 글씨가 묻힌다. 어두운 유리를 깔아
+   영상 밝기와 상관없이 흰 바탕 위에서도 글자 대비를 지킨다. 흐림(blur)은 그대로 둔다.
+   바탕이 대비를 맡으므로 글자 그림자는 쓰지 않는다 — 번져 보여 오히려 읽기 어렵다. */
 .interview-readable {
   --color-ink-muted: rgb(255 255 255 / 0.96);
   --color-ink-dim: rgb(255 255 255 / 0.9);
-  text-shadow:
-    0 1px 1px rgb(3 7 18 / 0.95),
-    0 0 3px rgb(3 7 18 / 0.95),
-    0 2px 6px rgb(3 7 18 / 0.8);
+  background: rgb(11 14 28 / 0.72);
+  border-color: rgb(255 255 255 / 0.2);
+  text-shadow: none;
 }
-.interview-readable button,
-.interview-readable input,
-.interview-readable textarea { text-shadow: inherit }
+.interview-readable:hover,
+.interview-readable:focus-within { background: rgb(11 14 28 / 0.8) }
+/* 지난 자막처럼 흐리게 두는 줄도 어두운 유리 위에서 읽힐 만큼만 흐린다. */
+.interview-readable .glass-dim { opacity: 0.8 }
 
 .interview-panels {
   position: absolute;
@@ -4422,11 +4424,22 @@ body.screen-real .live-room.room-easy { display: none }
     apply(v);
   })();
 
-  /* 예전에는 「네 구간」의 「네」 자리가 면접 전 · 중 · 후 · 검토로 돌았다. 숫자로
-     바꾼 뒤로는 돌리지 않는다 — 「면접 중 단계를 한 흐름으로」가 되어 말이 안 된다.
-     돌리는 코드를 지울 때 el.style.transition 한 줄이 남아 있었다. el 이 없으니
-     여기서 ReferenceError 가 났고, 이 스크립트의 아래가 전부 멈췄다. 띠마다 글이
-     안 뜨고 「단계」 버튼이 먹지 않던 게 그 때문이다. */
+  /* 「4 단계」의 「4」 자리가 네 구간 이름으로 번갈아 바뀐다.
+     한 바퀴 돌면 숫자로 돌아온다 — 세는 수와 그 넷이 무엇인지를 한 자리에서 말한다.
+     (이 블록을 지웠을 때 el.style.transition 한 줄이 남아 ReferenceError 가 났고,
+      그 아래 코드가 전부 멈춰 띠마다 글이 안 떴다. el 을 먼저 찾고 없으면 나간다.) */
+  (function cycFour() {
+    var el = document.getElementById('featCyc');
+    if (!el || reduce) return;
+    var WORDS = ['4', '면접 전', '면접 중', '면접 후', '검토'];
+    var i = 0;
+    el.style.transition = 'opacity .18s ease';
+    setInterval(function () {
+      i = (i + 1) % WORDS.length;
+      el.style.opacity = '0';
+      setTimeout(function () { el.textContent = WORDS[i]; el.style.opacity = '1'; }, 180);
+    }, 1400);
+  })();
 
   /* 구간 하나가 가운데에 떴다가 제자리로 들어가는 동작.
      들어가는 동안에는 블러를 먼저 푼다 — 뒤가 흐린 채로 카드가 깔리면 어디로 가는지 안 보인다.
