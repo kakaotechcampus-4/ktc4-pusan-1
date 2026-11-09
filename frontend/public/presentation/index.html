@@ -126,9 +126,37 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 }
 
 /* 어떤 화면에서도 한 띠가 한 화면 안에 들어오게 — 넘치면 그만큼 줄인다 */
-.band > .wrap { transform: scale(var(--fit, 1)); transform-origin: center center }
+/* 줄이기는 transform 이라 자리는 그대로 차지한다 — 줄인 만큼 높이도 같이 줄여야
+   띠가 화면을 넘지 않는다. 그래서 origin 을 위쪽에 두고 높이를 직접 준다. */
+.band > .wrap { transform: scale(var(--fit, 1)); transform-origin: top center }
 
-/* 확장성 — 「넓힌다」를 목록이 아니라 바깥으로 커지는 테두리로 그린다.
+/* 확장성 — 한 점에서 네 갈래로 뻗는다. 목록이면 「못 한 것 네 개」로 읽히고,
+   갈래로 그리면 「여기서 어디로 갈 수 있는지」로 읽힌다. 내용은 같다. */
+.fan { display: grid; grid-template-columns: auto clamp(54px, 7vw, 104px) minmax(0, 1fr);
+  align-items: stretch; gap: 0; width: 100%; max-width: 1240px; margin: 0 auto }
+.fan-core { align-self: center; text-align: center; border-radius: 18px; background: var(--brand); color: #fff;
+  padding: clamp(16px, 2vw, 28px) clamp(14px, 1.7vw, 24px); min-width: clamp(118px, 13vw, 180px) }
+.fan-core b { display: block; font-size: clamp(22px, 2.4vw, 34px); font-weight: 800; letter-spacing: -.02em }
+.fan-core em { display: block; margin-top: 6px; font-style: normal; line-height: 1.45;
+  font-size: clamp(12.5px, 1.2vw, 16px); color: rgb(255 255 255 / .8); font-weight: 600 }
+.fan-link { width: 100%; height: 100%; align-self: stretch }
+.fan-link path { fill: none; stroke: var(--line); stroke-width: 2.5; vector-effect: non-scaling-stroke }
+.fan-list { display: flex; flex-direction: column; gap: clamp(7px, .9vw, 12px) }
+.fan-item { background: var(--panel); border: 1px solid var(--line); border-radius: 13px;
+  padding: clamp(9px, 1.1vw, 15px) clamp(13px, 1.5vw, 20px) }
+.fan-item.key { border-color: var(--accent); background: var(--accent-tint) }
+.fan-k { display: inline-block; font-size: clamp(11.5px, 1.1vw, 15px); font-weight: 700;
+  color: var(--brand-strong); letter-spacing: .01em }
+.fan-item.key .fan-k { color: var(--accent-strong) }
+.fan-item h3 { margin: 1px 0 3px; font-size: clamp(16px, 1.6vw, 22px); font-weight: 800;
+  letter-spacing: -.01em; line-height: 1.3 }
+.fan-item p { margin: 0; font-size: clamp(13px, 1.27vw, 17px); line-height: 1.5; color: var(--ink-muted) }
+@media (max-width: 820px) {
+  .fan { grid-template-columns: 1fr; gap: 12px }
+  .fan-link { display: none }
+}
+
+/* (쓰지 않음) 커지는 테두리 — 확장을 겹으로 그린 안.
    안쪽이 지금 되는 것, 바깥으로 갈수록 넓어지는 자리. 각 테두리에 왜
    그게 가능한지를 한 줄씩 붙인다 — 넓힐 수 있다는 말만으로는 근거가 없다. */
 .xpd { width: 100%; max-width: 1240px; margin: 0 auto }
@@ -4656,33 +4684,11 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">사업성과 시장성</p>
-      <h2 class="title">한 건에서 조직까지, 같은 틀로 넓힙니다</h2>
-      <p class="lede">면접 한 건에서 시작해 바깥으로 나갑니다. <b>새로 만들 것이 거의 없어서</b> 넓힐 수 있습니다 — 이미 직무와 사내 문서를 읽고 있고, 근거 틀이 같기 때문입니다.</p>
+      <h2 class="title">면접 건당으로 과금하는 게 자연스럽습니다</h2>
+      <p class="lede">우리 비용은 사람 수가 아니라 <b>음성이 흐른 시간</b>을 따라갑니다. 그래서 좌석당이 아니라 면접 건당 가격이 원가와 맞습니다.</p>
     </div>
 
-
-    <div class="grid g3 reveal">
-      <div class="card"><span class="tag">왜 쓰나</span><p style="color:var(--ink);font-size:15.5px">면접 한 건마다 들던 정리 시간이 사라집니다. 면접관은 면접만 보면 됩니다.</p></div>
-      <div class="card"><span class="tag">왜 들어오나</span><p style="color:var(--ink);font-size:15.5px">지원자는 링크만 열면 됩니다. 설치도 가입도 없어서 도입을 막는 단계가 없습니다.</p></div>
-      <div class="card"><span class="tag">왜 남나</span><p style="color:var(--ink);font-size:15.5px">확정한 검토가 쌓입니다. 쓸수록 그 회사가 무엇을 왜 보는지가 자산이 됩니다.</p></div>
-    </div>
-    <div class="xpd reveal">
-      <div class="xp-ring r3">
-        <span class="xp-lab"><b>조직 단위로</b><em>직무와 사내 문서를 이미 읽고 있습니다</em></span>
-        <div class="xp-ring r2">
-          <span class="xp-lab"><b>팀 · 부서로</b><em>채택·반려가 그대로 「우리 회사의 면접 기준」 교재가 됩니다</em></span>
-          <div class="xp-ring r1">
-            <span class="xp-lab"><b>같은 직무 여러 명</b><em>같은 근거 틀로 나란히 놓아 면접관마다 다른 기준을 맞춥니다</em></span>
-            <div class="xp-core">
-              <b>면접 한 건</b>
-              <em>지금 되는 것</em>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <details class="fine calcfold reveal"><summary>원가와 과금 — 비용이 사람 수가 아니라 음성 시간을 따라갑니다</summary>
-    <div class="calc">
+    <div class="calc reveal">
       <div class="calc-head">
         <label for="vol">한 달에 보는 면접</label>
         <output id="volOut" for="vol">60건</output>
@@ -4695,7 +4701,17 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
       <details class="fine"><summary>출처와 단서</summary><p class="src">계산 근거 — 면접 1건을 30분, 마이크 2개로 보아 음성 60분으로 잡았습니다. 전사 단가는 공개된 Deepgram Nova-3 스트리밍 요금 분당 $0.0077 을 썼습니다(<a href="https://convertaudiototext.com/blog/deepgram-nova-3-explained">출처</a>, 공식 페이지 아님 · 프로모션가는 더 쌉니다). <b>정리 시간 건당 20분은 아직 측정하지 못한 가정입니다</b> — 시범 운영에서 시범 운영에서 측정해 바꿀 숫자입니다. LLM · 서버 · 저장소 비용은 빠져 있습니다.</p></details>
     </div>
-    </details>
+
+    <div class="grid g3 reveal">
+      <div class="card"><span class="tag">왜 쓰나</span><p style="color:var(--ink);font-size:15.5px">면접 한 건마다 들던 정리 시간이 사라집니다. 면접관은 면접만 보면 됩니다.</p></div>
+      <div class="card"><span class="tag">왜 들어오나</span><p style="color:var(--ink);font-size:15.5px">지원자는 링크만 열면 됩니다. 설치도 가입도 없어서 도입을 막는 단계가 없습니다.</p></div>
+      <div class="card"><span class="tag">왜 남나</span><p style="color:var(--ink);font-size:15.5px">확정한 검토가 쌓입니다. 쓸수록 그 회사가 무엇을 왜 보는지가 자산이 됩니다.</p></div>
+    </div>
+    <div class="grid g3 reveal">
+      <div class="card" style="background:var(--brand-tint);border-color:transparent"><h3>같은 직무 지원자 비교</h3><p>같은 근거 틀로 여러 명을 나란히 놓아, 면접관마다 다른 기준을 맞춥니다.</p></div>
+      <div class="card" style="background:var(--brand-tint);border-color:transparent"><h3>면접관 교육</h3><p>채택된 근거와 반려된 근거가 그대로 「우리 회사의 면접 기준」 교재가 됩니다.</p></div>
+      <div class="card" style="background:var(--brand-tint);border-color:transparent"><h3>조직 단위로</h3><p>직무와 사내 문서를 이미 읽고 있어, 팀 · 부서 단위로 넓히기 쉽습니다.</p></div>
+    </div>
   </div>
 </section>
 
@@ -4703,14 +4719,43 @@ body.screen-real .live-room.room-easy { display: none }
 <section class="band band--deep" id="s-next" data-label="남은 것">
   <div class="wrap stack">
     <div class="reveal">
-      <p class="eyebrow">다음 단계</p>
-      <h2 class="title">앞으로 개선할 것</h2>
+      <p class="eyebrow">확장성</p>
+      <h2 class="title">여기서 네 갈래로 넓힙니다</h2>
+      <p class="lede">면접 한 건이 끝까지 도는 지금이 출발점입니다. 네 갈래 모두 <b>아직 안 된 것</b>이고, 무엇을 해서 무엇을 바꾸는지까지 적었습니다.</p>
     </div>
-    <div class="grid reveal" style="gap:9px">
-      <div class="step"><span class="pill" style="background:var(--accent-strong)">01</span><h3>지원자에게는 자막이 없습니다</h3><p>AI가 받아 적은 자막이 면접관 화면에만 뜹니다. 청각장애가 있는 지원자는 지금 이 서비스로 면접을 볼 수 없습니다. 다음에 할 일은 이것입니다.</p></div>
-      <div class="step b"><span class="pill">02</span><h3>리포트 생성 연결</h3><p>서버와 생성기는 올라가 있고, 작업을 집어 가는 마지막 한 단계가 남았습니다.</p></div>
-      <div class="step b"><span class="pill">03</span><h3>몰릴 때의 처리 시간</h3><p>면접이 동시에 여러 건 돌 때와 이력서가 길 때를 측정해, 서버 한 대로 몇 건까지 되는지 확인하겠습니다. 지금은 한 건 기준 값만 있습니다.</p></div>
-      <div class="step b"><span class="pill">04</span><h3>실사용 수치</h3><p>정리 시간이 실제로 얼마나 줄었는지는 시범 운영에서 측정해 20분 가정을 실제 값으로 바꾸겠습니다.</p></div>
+    <div class="fan reveal">
+      <div class="fan-core">
+        <b>지금</b>
+        <em>면접 한 건이<br>끝까지 돕니다</em>
+      </div>
+      <svg class="fan-link" viewBox="0 0 120 320" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M2 160 C62 160 62 40 118 40"/>
+        <path d="M2 160 C62 160 62 120 118 120"/>
+        <path d="M2 160 C62 160 62 200 118 200"/>
+        <path d="M2 160 C62 160 62 280 118 280"/>
+      </svg>
+      <div class="fan-list">
+        <div class="fan-item key">
+          <span class="fan-k">대상을 넓힌다</span>
+          <h3>지원자에게도 자막을</h3>
+          <p>지금은 면접관 화면에만 뜹니다. 청각장애가 있는 지원자는 아직 이 서비스로 면접을 볼 수 없습니다.</p>
+        </div>
+        <div class="fan-item">
+          <span class="fan-k">기능을 잇는다</span>
+          <h3>리포트 생성 연결</h3>
+          <p>서버와 생성기는 올라가 있고, 작업을 집어 가는 마지막 한 단계가 남았습니다.</p>
+        </div>
+        <div class="fan-item">
+          <span class="fan-k">규모를 넓힌다</span>
+          <h3>서버 한 대로 몇 건까지</h3>
+          <p>동시에 여러 건 돌 때와 이력서가 길 때를 재겠습니다. 지금은 한 건 기준 값만 있습니다.</p>
+        </div>
+        <div class="fan-item">
+          <span class="fan-k">숫자를 채운다</span>
+          <h3>정리 시간 실측</h3>
+          <p>20분은 아직 가정입니다. 시범 운영에서 재서 실제 값으로 바꾸겠습니다.</p>
+        </div>
+      </div>
     </div>
     <div class="reveal" style="display:flex;align-items:center;gap:15px;flex-wrap:wrap">
       <svg viewBox="0 0 40 40" width="42" height="42" aria-hidden="true">
@@ -5271,11 +5316,17 @@ body.screen-real .live-room.room-easy { display: none }
     if (band.classList.contains('band--app')) return;
     var w = band.querySelector('.wrap');
     if (!w || w.parentNode !== band) return;
-    var avail = document.documentElement.clientHeight - 8;
+    /* 띠의 위아래 여백도 화면을 먹는다 — 그만큼 빼야 실제로 안 잘린다 */
+    var cs = getComputedStyle(band);
+    var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+            + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    var avail = document.documentElement.clientHeight - pad - 6;
+    w.style.height = '';
     var need = w.scrollHeight;
     if (!need || avail <= 0) return;
     var k = need > avail ? Math.max(0.5, avail / need) : 1;
     w.style.setProperty('--fit', k.toFixed(4));
+    w.style.height = k < 1 ? Math.ceil(need * k) + 'px' : '';
   }
   function fitAll() { bands.forEach(fitBand); }
   var fitT = null;
