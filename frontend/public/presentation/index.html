@@ -110,7 +110,8 @@ body.chrome-off .band { min-height: 100svh }
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
-.eyebrow { font-family: var(--font-mono); font-size: 15px; font-weight: 500; letter-spacing: .09em; text-transform: uppercase; color: var(--brand) }
+.eyebrow { font-family: var(--font-mono); font-size: clamp(16px, 1.45vw, 21px); font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--brand) }
 h2.title { font-size: clamp(32px, 5.2vw, 57px); font-weight: 700; line-height: 1.14; margin-top: 10px }
 .lede { font-size: clamp(19px, 2.5vw, 27px); color: var(--ink-muted); max-width: 46ch; margin-top: 18px; line-height: 1.5 }
 .stack { display: flex; flex-direction: column; gap: 18px }
@@ -1247,6 +1248,92 @@ body.screen-real .live-room.room-easy { display: none }
 .g-mark .ok { background: var(--accent-tint); color: var(--accent-strong) }
 .g-mark .no { background: var(--danger); color: #fff }
 
+/* ── 6페이지 · 「막는 쪽」이 아니라 「지키는 쪽」 ─────────────────
+   LLM 이 쓴 문장이 왼쪽에서 날아온다. 근거가 있는 둘은 그냥 지나가고,
+   없는 하나만 방패에 맞고 튕겨 나간다. 방패는 벽 앞이 아니라 면접관
+   앞에 선다 — 3페이지에서 한 「최종 결정은 면접관이」가 여기서 지켜진다.
+   움직임을 끈 기기에서는 끝난 자리를 그대로 보여 준다. */
+.guard { max-width: 1240px; margin: 0 auto; width: 100% }
+.guard-stage {
+  position: relative; height: clamp(190px, 25vh, 268px);
+  border-radius: 20px; background: var(--panel-2);
+  border: 1px solid var(--line); overflow: hidden;
+}
+.g-end, .g-llm { position: absolute; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 7px }
+.g-llm { left: clamp(14px, 3%, 34px) }
+.g-end { right: clamp(14px, 3%, 34px) }
+.g-tag { font-size: clamp(11px, .95vw, 13px); font-weight: 700; letter-spacing: .02em;
+  color: var(--ink-dim); white-space: nowrap }
+.g-llm .g-tag { color: var(--brand-strong) }
+.g-chip { width: clamp(52px, 6vw, 74px); height: clamp(52px, 6vw, 74px);
+  border-radius: 18px; display: grid; place-items: center;
+  background: var(--brand-tint); color: var(--brand-strong);
+  font-weight: 800; font-size: clamp(13px, 1.2vw, 17px) }
+.g-judge { width: clamp(54px, 6.2vw, 78px); height: auto; color: var(--ink-muted) }
+
+/* 가운데 — 경찰 모자를 쓴 IRYA 와 방패 */
+.g-cop { position: absolute; left: 47%; top: 50%; width: clamp(96px, 11vw, 142px);
+  height: auto; transform: translate(-50%, -50%) }
+.guard.run .g-cop { animation: copBrace .5s ease-out 2.75s both }
+@keyframes copBrace { 0%,100% { transform: translate(-50%,-50%) } 36% { transform: translate(-54%,-50%) scale(1.04) } }
+.g-ring { position: absolute; left: 43.5%; top: 50%; width: clamp(60px, 7vw, 92px);
+  aspect-ratio: 1; border-radius: 50%; transform: translate(-50%,-50%) scale(.4);
+  border: 3px solid var(--danger); opacity: 0 }
+.guard.run .g-ring { animation: copRing .62s ease-out 2.82s both }
+@keyframes copRing { 0% { opacity: .85; transform: translate(-50%,-50%) scale(.4) }
+  100% { opacity: 0; transform: translate(-50%,-50%) scale(1.45) } }
+
+/* 날아오는 문장 */
+.fly { position: absolute; left: 13%; max-width: min(21%, 260px);
+  padding: 8px 12px; border-radius: 12px; font-style: normal;
+  font-size: clamp(11px, 1.02vw, 14.5px); line-height: 1.35;
+  background: var(--panel); border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgb(12 16 30 / .07); opacity: 0;
+  white-space: normal }
+.fly.ok { border-left: 4px solid var(--accent) }
+.fly.bad { border-left: 4px solid var(--danger) }
+.f1 { top: 16% } .f2 { top: 60% } .f3 { top: 37% }
+.guard.run .f1 { animation: flyThru 2.5s cubic-bezier(.4,.05,.3,1) .15s both }
+.guard.run .f2 { animation: flyThru 2.5s cubic-bezier(.4,.05,.3,1) 1.05s both }
+.guard.run .f3 { animation: flyBounce 2.1s cubic-bezier(.35,.05,.3,1) 2.1s both }
+/* 가로 이동은 left 로 준다 — 무대 폭이 화면마다 달라서 px 로 두면 어긋난다 */
+@keyframes flyThru {
+  0%   { opacity: 0; left: 11% }
+  14%  { opacity: 1; left: 13% }
+  100% { opacity: 1; left: 63% }
+}
+@keyframes flyBounce {
+  0%   { opacity: 0; left: 11% }
+  16%  { opacity: 1; left: 13% }
+  38%  { opacity: 1; left: 20%; transform: rotate(0) }
+  50%  { opacity: 1; left: 15%; transform: rotate(-8deg) }
+  100% { opacity: 0; left: 6%; transform: translateY(-58px) rotate(-24deg) }
+}
+/* 통과한 문장이 면접관 쪽에 닿았다는 표시 */
+.g-got { position: absolute; right: clamp(14px, 3%, 34px); top: 50%;
+  transform: translate(0,-50%); opacity: 0 }
+.guard.run .g-got { animation: gotIn .5s ease-out 3.5s both }
+@keyframes gotIn { from { opacity: 0 } to { opacity: 1 } }
+
+.guard-cap { max-width: 1240px; margin: 14px auto 0; text-align: center;
+  font-size: clamp(15px, 1.35vw, 19px); line-height: 1.5; color: var(--ink-muted) }
+.guard-cap b { color: var(--ink) }
+.guard-cap .gc-motto { color: var(--brand-strong); font-weight: 700 }
+
+@media (max-width: 760px) {
+  .fly { max-width: 38%; font-size: 11px }
+  .g-tag { font-size: 10.5px }
+}
+/* 움직임을 끈 기기 — 끝난 자리를 그대로 보여 준다 */
+@media (prefers-reduced-motion: reduce) {
+  .fly { opacity: 1 }
+  .f1, .f2 { left: 63% }
+  .f3 { opacity: .5; text-decoration: line-through; left: 20% }
+  .g-got { opacity: 1 }
+  .guard.run .f1, .guard.run .f2, .guard.run .f3,
+  .guard.run .g-cop, .guard.run .g-ring, .guard.run .g-got { animation: none }
+}
 .gate-rule { max-width: 1240px; margin: 0 auto; border-top: 1px solid var(--line);
   padding-top: clamp(13px, 1.5vw, 18px); display: flex; flex-direction: column; gap: 7px }
 .gate-rule p { font-size: clamp(15px, 1.3vw, 18px); line-height: 1.52; color: var(--ink-muted); margin: 0 }
@@ -3776,12 +3863,46 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
     </div>
 
-    <p class="kicker kicker--xl reveal"><b>고치지 않습니다. <span style="color:var(--danger)">버립니다.</span></b></p>
+    <div class="guard reveal">
+      <div class="guard-stage" aria-hidden="true">
+        <span class="g-llm"><span class="g-chip">LLM</span><span class="g-tag">쓴 문장</span></span>
 
-    <div class="gate-rule reveal">
-      <p><b>통과 기준은 하나뿐입니다 — 인용문이 원문에 글자 그대로 들어 있는가.</b></p>
-      <p>비교할 때 유니코드 정규화와 공백만 정리합니다. 대소문자도 그대로 구분하고, 뜻이 비슷한 말도 통과시키지 않습니다. 모델이 바꿔 써 놓고도 통과하기 때문입니다.</p>
-      <p class="gate-why">그래서 「AI가 그럴듯하게 썼는데 지원자는 그런 말을 한 적이 없다」가 구조적으로 안 생깁니다. 환각을 줄이는 데서 그치지 않고, <b>근거 없는 문장이 화면까지 오지 못하게 막습니다.</b></p>
+        <i class="fly ok f1">“…TTL을 5분으로 잡았습니다”</i>
+        <i class="fly ok f2">“400ms → 90ms”</i>
+        <i class="fly bad f3">“성장 가능성이 높은 지원자로 보입니다”</i>
+
+        <span class="g-ring"></span>
+        <svg class="g-cop" viewBox="0 0 150 120" aria-hidden="true">
+          <!-- IRYA 말풍선 — 뒤에 선다 -->
+          <rect x="74" y="36" width="62" height="47" rx="15" fill="var(--brand)"/>
+          <path d="M84 78 81 103 100 83Z" fill="var(--brand)"/>
+          <rect x="90" y="52" width="7" height="16" rx="3.5" fill="#fff"/>
+          <rect x="101" y="46" width="7" height="28" rx="3.5" fill="var(--accent)"/>
+          <rect x="112" y="52" width="7" height="16" rx="3.5" fill="#fff"/>
+          <!-- 경찰 모자 -->
+          <path d="M76 35c0-12 11-20 29-20s29 8 29 20Z" fill="var(--brand-strong)"/>
+          <rect x="70" y="33" width="70" height="9" rx="4.5" fill="var(--ink)"/>
+          <rect x="98" y="19" width="14" height="11" rx="2.6" fill="var(--accent)"/>
+          <!-- 방패 — 날아오는 쪽을 보고 선다 -->
+          <path d="M40 24c11 4 22 5 31 5 0 33-6 53-31 64-25-11-31-31-31-64 9 0 20-1 31-5Z"
+                fill="var(--brand-tint)" stroke="var(--brand-strong)" stroke-width="3.6" stroke-linejoin="round"/>
+          <path d="M27 62l9 9 20-21" fill="none" stroke="var(--accent-strong)"
+                stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+
+        <span class="g-end">
+          <svg class="g-judge" viewBox="0 0 60 70" aria-hidden="true">
+            <circle cx="30" cy="18" r="13" fill="currentColor"/>
+            <path d="M4 66c0-15 12-25 26-25s26 10 26 25Z" fill="currentColor"/>
+          </svg>
+          <span class="g-tag">면접관</span>
+        </span>
+      </div>
+
+      <p class="guard-cap">
+        근거가 붙은 문장만 면접관에게 갑니다. 나머지는 고치지 않고 버립니다.<br>
+        <span class="gc-motto">최종 결정은 면접관이 합니다.</span>
+      </p>
     </div>
   </div>
 </section>
@@ -4499,7 +4620,7 @@ body.screen-real .live-room.room-easy { display: none }
     setTimeout(function () { if (featOpen < 0) featSpot.classList.remove('on'); }, DOCK_MS + 40);
   }
 
-  var ANIM = '.gallop, .vanish, .stay, .bigword';
+  var ANIM = '.gallop, .vanish, .stay, .bigword, .guard';
   function runAnims(scope) {
     if (!scope) return;
     if (scope.matches && scope.matches(ANIM)) scope.classList.add('run');
