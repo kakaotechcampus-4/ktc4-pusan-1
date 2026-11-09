@@ -128,6 +128,34 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 /* 어떤 화면에서도 한 띠가 한 화면 안에 들어오게 — 넘치면 그만큼 줄인다 */
 .band > .wrap { transform: scale(var(--fit, 1)); transform-origin: center center }
 
+/* 11페이지 — 두 축 위에 점을 찍는다. 표의 칸이 아니라 자리가 보이게.
+   가로는 「무엇을 읽고 들어오는가」, 세로는 「언제 들어오는가」다. */
+.pmap { width: 100%; max-width: 1080px; margin: 0 auto;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px clamp(10px, 1.2vw, 18px) }
+.pm-ylab { grid-area: 1 / 1; margin: 0; display: flex; flex-direction: column; justify-content: space-between;
+  text-align: right; padding: 10px 0; font-size: clamp(13px, 1.25vw, 17px); font-weight: 700;
+  color: var(--ink-dim); line-height: 1.3; max-width: 7.5em }
+.pm-box { grid-area: 1 / 2; position: relative; height: clamp(230px, 34vh, 380px);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px }
+.pm-mid { position: absolute; background: var(--line) }
+.pm-mid.v { left: 50%; top: 8px; bottom: 8px; width: 1px }
+.pm-mid.h { top: 50%; left: 8px; right: 8px; height: 1px }
+.pm-dot { position: absolute; left: var(--x); bottom: var(--y); transform: translate(-50%, 50%);
+  display: flex; flex-direction: column; align-items: center; gap: 7px }
+.pm-dot i { display: block; width: clamp(11px, 1.1vw, 15px); aspect-ratio: 1; border-radius: 50%;
+  background: var(--ink-dim) }
+.pm-dot em { font-style: normal; white-space: nowrap; font-weight: 700;
+  font-size: clamp(13px, 1.3vw, 18px); color: var(--ink-muted) }
+.pm-dot.us i { width: clamp(18px, 1.8vw, 24px); background: var(--brand);
+  box-shadow: 0 0 0 clamp(6px, .7vw, 10px) rgb(75 79 224 / .16) }
+.pm-dot.us em { color: var(--brand-strong); font-size: clamp(17px, 1.8vw, 25px); font-weight: 800 }
+.pm-xlab { grid-area: 2 / 2; margin: 0; display: flex; justify-content: space-between;
+  font-size: clamp(12.5px, 1.2vw, 16px); font-weight: 600; color: var(--ink-dim) }
+.pm-xlab span:nth-child(2) { text-align: center }
+.pm-xlab span:last-child { text-align: right }
+.pm-note { grid-area: 3 / 2; margin: 2px 0 0; font-size: clamp(12px, 1.15vw, 15px); color: var(--ink-dim) }
+.cmp summary { font-weight: 700 }
+
 /* 9페이지 — 10페이지와 같은 방식. 레인 하나가 가운데 커다랗게 뜨고 뒤는
    흐려진다. 다음을 누르면 그 레인이 원래 쌓인 자리로 내려앉는다. */
 .s-tech.spot-on .wrap { filter: blur(9px) }
@@ -1572,10 +1600,11 @@ body.screen-real .live-room.room-easy { display: none }
           </div>
         </div>
       </div>
-      <details class="fine"><summary>출처와 단서</summary><p class="src">Sackett, Zhang, Berry &amp; Lievens (2022), <i>Journal of Applied Psychology</i> 107(11) 의 재추정값입니다. 저희가 원문을 직접 확인하지 못했고 2차 출처를 통해 인용했습니다. 상관계수이고, 높을수록 잘 맞는다는 뜻입니다.</p></details>
+      <div class="note-mint reveal"><b>타겟 —</b> 같은 직무로 여러 명을 보는 실무 면접관. 채용이 본업이 아닌 사람입니다.</div>
+    <details class="fine"><summary>출처와 단서</summary><p class="src">Sackett, Zhang, Berry &amp; Lievens (2022), <i>Journal of Applied Psychology</i> 107(11) 의 재추정값입니다. 저희가 원문을 직접 확인하지 못했고 2차 출처를 통해 인용했습니다. 상관계수이고, 높을수록 잘 맞는다는 뜻입니다.</p></details>
     </div>
 
-    <div class="note-mint reveal"><b>타겟 —</b> 같은 직무로 여러 명을 보는 실무 면접관. 채용이 본업이 아닌 사람입니다.</div>
+
   </div>
 </section>
 
@@ -4480,53 +4509,28 @@ body.screen-real .live-room.room-easy { display: none }
     <div class="reveal">
       <p class="eyebrow">차별점</p>
       <h2 class="title">결론을 만들지 않습니다<br>근거만 만듭니다</h2>
-      <p class="lede">비슷한 서비스는 대부분 AI가 결론 비슷한 것을 만들어 줍니다 — <b>점수를 내거나, 평가표를 미리 채워 줍니다.</b> 저희는 선을 다른 데 그었습니다. 아래 자리 분류는 저희가 공개 자료를 읽고 나눈 것이고, 점수를 매겨 비교한 것은 아닙니다.</p>
+      <p class="lede">비슷한 서비스는 대부분 AI가 결론 비슷한 것을 만들어 줍니다 — <b>점수를 내거나, 평가표를 미리 채워 줍니다.</b> 저희는 선을 다른 데 그었습니다.</p>
     </div>
     <div class="stack reveal" style="gap:16px">
-      <div class="matrix">
-        <span></span>
-        <span class="mx-col">아무 맥락도 안 읽음</span>
-        <span class="mx-col">직무기술서를 읽음</span>
-        <span class="mx-col">그 지원자의 이력서까지 읽음</span>
-
-        <span class="mx-row">면접이<br>도는<br>중에</span>
-        <div class="cell">
-          <span class="q">면접 중</span>
-          <span class="nmx">클로바노트</span>
-          <span class="cap">녹음 · 전사 · 화자 구분 · 요약. 받아 적지만, 무엇을 더 물어야 할지는 모릅니다.</span>
+      <div class="pmap">
+        <p class="pm-ylab"><span>면접이 도는 중에</span><span>면접 전후에만</span></p>
+        <div class="pm-box">
+          <i class="pm-mid v"></i><i class="pm-mid h"></i>
+          <span class="pm-dot" style="--x:11%;--y:74%"><i></i><em>클로바노트</em></span>
+          <span class="pm-dot" style="--x:50%;--y:82%"><i></i><em>BrightHire</em></span>
+          <span class="pm-dot us up" style="--x:88%;--y:88%"><em>IRYA</em><i></i></span>
+          <span class="pm-dot" style="--x:11%;--y:18%"><i></i><em>잡다 · 뷰인터</em></span>
+          <span class="pm-dot" style="--x:50%;--y:26%"><i></i><em>Metaview</em></span>
+          <span class="pm-dot" style="--x:88%;--y:14%"><i></i><em>마이다스인</em></span>
         </div>
-        <div class="cell">
-          <span class="q">면접 중 · 직무 기반</span>
-          <span class="nmx">BrightHire</span>
-          <span class="cap">면접 중에 가이드를 띄웁니다. 질문은 <b>직무기술서의 역량</b>에서 뽑는다고 적혀 있고, 그 지원자의 이력서를 읽는다는 말은 없습니다.</span>
-        </div>
-        <div class="cell us">
-          <span class="q">면접 중 · 지원자 기반</span>
-          <span class="nmx">IRYA</span>
-          <span class="cap">그 지원자의 이력서 · 직무 · 인재상을 읽은 상태로 들어가, <b>그 순간의 발화에서</b> 꼬리질문을 만듭니다.</span>
-        </div>
-
-        <span class="mx-row">면접<br>전후에만</span>
-        <div class="cell">
-          <span class="q">면접 전후</span>
-          <span class="nmx">잡다 역량검사 · 뷰인터</span>
-          <span class="cap">지원자가 혼자 녹화하면 AI가 분석해 점수를 냅니다. 판단을 AI가 합니다.</span>
-        </div>
-        <div class="cell">
-          <span class="q">면접 전후 · 직무 기반</span>
-          <span class="nmx">Metaview</span>
-          <span class="cap">직무기술서로 이상적 후보 프로필을 만들고 녹화 · 노트 · 스코어카드를 처리합니다. 면접 중 개입은 적혀 있지 않습니다.</span>
-        </div>
-        <div class="cell">
-          <span class="q">면접 전후 · 지원자 기반</span>
-          <span class="nmx">마이다스인 AI 면접 가이드</span>
-          <span class="cap">서류와 영상 답변을 읽고 면접관에게 물어볼 질문을 만들어 줍니다. 면접이 도는 중에는 들어오지 않습니다.</span>
-        </div>
+        <p class="pm-xlab"><span>아무 맥락도 안 읽음</span><span>직무기술서를 읽음</span><span>그 지원자의 이력서까지</span></p>
+        <p class="pm-note">자리는 공개 자료를 읽고 저희가 나눈 것이고, 점수를 매겨 잰 것이 아닙니다.</p>
       </div>
       <div class="note-warn">
         <strong>가장 가까운 곳은 BrightHire 입니다 — 겹치는 것을 먼저 말씀드립니다</strong>
         <p>2026-11-04 에 brighthire.com을 직접 읽었습니다. <b>녹화 · 전사 · 요약은 물론이고, 핵심 장면을 클립으로 만들어 「그 순간으로」 연결하는 것까지 합니다.</b> 스코어카드 자동 작성, 구조화 면접 가이드, 면접관 코칭도 있습니다 — 셋 다 저희에게 없습니다. 지원 언어는 「30개 이상」이라고만 하고 목록이 없어 <b>한국어 포함 여부는 알 수 없습니다.</b> 가격은 비공개이고 회사 규모 기준입니다.</p>
       </div>
+      <details class="fine cmp"><summary>서비스별 비교표 · 무엇이 다른가</summary>
       <div class="tablewrap">
         <table>
           <thead><tr><th scope="col">무엇을 하는가</th><th scope="col">면접 중</th><th scope="col">한국어</th><th scope="col">판단 주체</th></tr></thead>
@@ -4540,8 +4544,9 @@ body.screen-real .live-room.room-easy { display: none }
           </tbody>
         </table>
       </div>
+      <div class="note-mint" style="margin-top:14px"><b>기능 목록은 겹칩니다.</b> 실시간 가이드도, 장면을 그 시점에 연결하는 것도 BrightHire가 합니다. 저희가 실제로 다른 것은 <b>지운다는 것</b>입니다 — 인용이 실제 발화의 글자 그대로의 부분 문자열이 아니면 그 항목을 저장하지 않고 버립니다. 꼬리질문은 <b>그 안에 들어간 숫자까지</b> 검사해서, 지원자가 말하지 않은 숫자가 들어가면 질문 자체가 뜨지 않습니다. 비교할 때 대소문자를 무시하거나 비슷한 말을 통과시키지 않습니다 — 그러면 모델이 바꿔 써 놓고도 통과하기 때문입니다. 그리고 <b>사람이 채택하기 전에는 아무것도 근거가 되지 않습니다.</b></div>
+      </details>
     </div>
-    <div class="note-mint reveal"><b>기능 목록은 겹칩니다.</b> 실시간 가이드도, 장면을 그 시점에 연결하는 것도 BrightHire가 합니다. 저희가 실제로 다른 것은 <b>지운다는 것</b>입니다 — 인용이 실제 발화의 글자 그대로의 부분 문자열이 아니면 그 항목을 저장하지 않고 버립니다. 꼬리질문은 <b>그 안에 들어간 숫자까지</b> 검사해서, 지원자가 말하지 않은 숫자가 들어가면 질문 자체가 뜨지 않습니다. 비교할 때 대소문자를 무시하거나 비슷한 말을 통과시키지 않습니다 — 그러면 모델이 바꿔 써 놓고도 통과하기 때문입니다. 그리고 <b>사람이 채택하기 전에는 아무것도 근거가 되지 않습니다.</b></div>
     <details class="fine"><summary>출처와 단서</summary><p class="src reveal">출처: <a href="https://www.socialtalent.com/blog/recruiting/top-12-interview-intelligence-platforms">SocialTalent 인터뷰 인텔리전스 비교</a> · <a href="https://bestrecruitingtools.com/blog/brighthire-vs-metaview-ai-interview-intelligence-2026">BrightHire vs Metaview (2026)</a> · <a href="https://www.dailysecu.com/news/articleView.html?idxno=161188">마이다스그룹 AI 면접 가이드 보도</a> · <a href="https://viewinter.ai/">뷰인터</a> · <a href="https://help.worksmobile.com/ko/use-guides/clovanote/overview/">클로바노트 안내</a>. 대부분 벤더 자료이거나 비교 블로그라 편향이 있을 수 있고, 가격과 세부 기능은 공개되지 않은 곳이 많습니다. BrightHire · Metaview의 한국어 실시간 지원 여부는 확인하지 못했습니다.</p></details>
   </div>
 </section>
