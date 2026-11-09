@@ -727,7 +727,8 @@ body.js .feat-card.reveal.in.settled { opacity: 1 }
 @keyframes nudge { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(4px) } }
 
 /* 면접 화면 흉내 */
-.room { background: #10131c; border-radius: 20px; padding: 14px; box-shadow: var(--shadow); color: #fff; display: flex; flex-direction: column; gap: 10px; min-width: 0 }
+.room { background: radial-gradient(120% 90% at 20% 0%, #2b2f7a 0%, #141836 45%, #0b0e1c 100%);
+  border-radius: 20px; padding: 14px; box-shadow: var(--shadow); color: #fff; display: flex; flex-direction: column; gap: 10px; min-width: 0 }
 .room-top { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: rgb(255 255 255 / .72) }
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff5a63 }
 @media (prefers-reduced-motion: no-preference) { .live-dot { animation: blip 1.5s ease-in-out infinite } }
