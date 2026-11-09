@@ -1279,19 +1279,24 @@ body.screen-real .live-room.room-easy { display: none }
 .f1 { top: 11% } .f2 { top: 70% } .f3 { top: 38% }
 .guard.run .f1 { animation: flyThru 2.5s cubic-bezier(.4,.05,.3,1) .15s both }
 .guard.run .f2 { animation: flyThru 2.5s cubic-bezier(.4,.05,.3,1) 1.05s both }
-.guard.run .f3 { animation: flyBounce 2.1s cubic-bezier(.35,.05,.3,1) 2.1s both }
+.guard.run .f3 { animation: flyBounce 2.7s cubic-bezier(.3,.02,.5,1) 2.1s both }
 /* 가로 이동은 right 로 준다 — 무대 폭이 화면마다 달라서 px 로 두면 어긋난다 */
 @keyframes flyThru {
   0%   { opacity: 0; right: 11% }
   14%  { opacity: 1; right: 13% }
   100% { opacity: 1; right: 62% }
 }
+/* 막힌 문장은 사라지지 않는다 — 튕겨서 바닥에 떨어진 채로 남는다.
+   「버린다」는 말은 없앤다는 뜻이 아니라, 면접관에게 보내지 않는다는 뜻이다. */
 @keyframes flyBounce {
-  0%   { opacity: 0; right: 11% }
-  16%  { opacity: 1; right: 13% }
-  38%  { opacity: 1; right: 18%; transform: rotate(0) }
-  50%  { opacity: 1; right: 14%; transform: rotate(8deg) }
-  100% { opacity: 0; right: 5%;  transform: translateY(-62px) rotate(24deg) }
+  0%   { opacity: 0;   right: 11%;   top: 38%; transform: rotate(0) }
+  15%  { opacity: 1;   right: 13%;   top: 38%; transform: rotate(0) }
+  34%  { opacity: 1;   right: 18%;   top: 38%; transform: rotate(0) }
+  44%  { opacity: 1;   right: 14.5%; top: 41%; transform: rotate(-7deg); text-decoration: line-through }
+  62%  { opacity: .92; right: 11.5%; top: 56%; transform: rotate(-13deg); text-decoration: line-through }
+  78%  { opacity: .78; right: 10%;   top: 74%; transform: rotate(-8deg);  text-decoration: line-through }
+  89%  { opacity: .7;  right: 10%;   top: 69%; transform: rotate(-12deg); text-decoration: line-through }
+  100% { opacity: .62; right: 10%;   top: 73%; transform: rotate(-10deg); text-decoration: line-through }
 }
 /* 통과한 문장이 면접관 쪽에 닿았다는 표시 */
 .g-got { position: absolute; left: clamp(16px, 3.4%, 40px); top: 50%;
@@ -1313,7 +1318,7 @@ body.screen-real .live-room.room-easy { display: none }
 @media (prefers-reduced-motion: reduce) {
   .fly { opacity: 1 }
   .f1, .f2 { right: 62% }
-  .f3 { opacity: .5; text-decoration: line-through; right: 18% }
+  .f3 { opacity: .62; text-decoration: line-through; right: 10%; top: 73%; transform: rotate(-10deg) }
   .g-got { opacity: 1 }
   .guard.run .f1, .guard.run .f2, .guard.run .f3,
   .guard.run .g-cop, .guard.run .g-ring, .guard.run .g-got { animation: none }
