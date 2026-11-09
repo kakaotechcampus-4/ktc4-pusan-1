@@ -11,7 +11,7 @@ img{max-width:100%}
 [hidden]{display:none!important}
 </style>
 </head>
-<body>
+<body class="chrome-off">
 <title>IRYA 최종 발표</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -61,7 +61,8 @@ img{max-width:100%}
 
 * { box-sizing: border-box }
 h1, h2, h3, .lede, .kicker, .bigpoints li, .card p, .step p { word-break: keep-all; overflow-wrap: break-word }
-html { scroll-behavior: smooth; scroll-padding-top: 64px; scroll-snap-type: y proximity }
+html { scroll-behavior: smooth; scroll-padding-top: 0; scroll-snap-type: y proximity }
+html:not(.has-chrome) { scroll-padding-top: 0 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; scroll-snap-type: none } }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
@@ -110,6 +111,22 @@ b { font-weight: 700 }
    화면에 다 안 들어와 살짝 스크롤해야 했다 — 발표에서는 그게 바로 티가 난다. */
 .band { scroll-snap-align: start; display: flex; flex-direction: column; justify-content: center; min-height: calc(100svh - 64px); border-bottom: 1px solid var(--line); position: relative; overflow: hidden }
 body.chrome-off .band { min-height: 100svh }
+
+/* 한 장씩 ─ 같은 칸에 포개 두고 현재 것만 보인다. 칸 높이는 제일 큰 장에
+   맞춰지니 넘길 때마다 글이 위아래로 튀지 않는다. */
+.solos { display: grid; width: 100% }
+.solos > .solo { grid-area: 1 / 1; align-self: center }
+/* 뒤쪽의 `body.js .reveal.in { opacity: 1 }` 과 같은 무게면 나중에 선언된 쪽이
+   이긴다. 띠 클래스를 하나 더 붙여 무게를 올린다. */
+body.js .band--solo .solos > .solo { opacity: 0; transform: translateY(12px);
+  transition: opacity .42s ease, transform .42s ease; pointer-events: none }
+body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-events: auto }
+@media (prefers-reduced-motion: reduce) {
+  body.js .band--solo .solos > .solo { transition: none; transform: none }
+}
+
+/* 어떤 화면에서도 한 띠가 한 화면 안에 들어오게 — 넘치면 그만큼 줄인다 */
+.band > .wrap { transform: scale(var(--fit, 1)); transform-origin: center center }
 .band:last-of-type { border-bottom: 0 }
 .wrap {
   width: 100%; max-width: 1180px; margin-inline: auto; padding-block: 40px;
@@ -4124,14 +4141,15 @@ body.screen-real .live-room.room-easy { display: none }
 </section>
 
 <!-- 기술 개요 ────────────────────────────── -->
-<section class="band" id="s-tech" data-label="기술 개요">
+<section class="band band--solo" id="s-tech" data-label="기술 개요">
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">기술 개요</p>
       <h2 class="title">서버 한 대에서 컨테이너 여덟 개가 함께 돕니다</h2>
       <p class="lede">영상과 음성은 서버를 거치지 않고 브라우저가 화상 서버에 직접 연결합니다. 프록시를 지나는 건 연결을 맺는 신호뿐입니다.</p>
     </div>
-    <div class="lanes reveal">
+    <div class="solos">
+      <div class="lanes reveal solo">
       <div class="lane">
         <p class="lane-h"><b>① 화면과 기록</b> <span>평범한 웹 요청이 지나는 길</span></p>
         <div class="flowrow">
@@ -4147,6 +4165,9 @@ body.screen-real .live-room.room-easy { display: none }
         </div>
       </div>
 
+      </div>
+
+      <div class="lanes reveal solo">
       <div class="lane key">
         <p class="lane-h"><b>② 면접 중</b> <span>영상과 음성은 우리 서버를 거치지 않습니다</span></p>
         <div class="flowrow">
@@ -4171,6 +4192,9 @@ body.screen-real .live-room.room-easy { display: none }
         </div>
       </div>
 
+      </div>
+
+      <div class="lanes reveal solo">
       <div class="lane">
         <p class="lane-h"><b>③ 면접 전후</b> <span>사람 손 없이 자동으로 도는 구간 — 폴러가 작업을 가져갑니다</span></p>
         <div class="flowrow">
@@ -4183,12 +4207,13 @@ body.screen-real .live-room.room-easy { display: none }
           <div class="nodebox brand"><span class="nm">API 서버</span><span class="rl">실패하면 재시도 · 부분 저장</span></div>
         </div>
       </div>
-    </div>
-    <details class="fine"><summary>출처와 단서</summary><p class="src reveal">컨테이너는 모두 여덟 개이고 한 인스턴스에 함께 떠 있습니다. 밖에서 닿는 포트는 네 개뿐이고, 내부 API는 열려 있지 않습니다.</p></details>
-    <div class="grid g3 reveal">
+      </div>
+
+      <div class="grid g3 reveal solo">
       <div class="figure"><span class="v" data-count="1851" data-suffix="">0</span><p>자동 테스트. 서버 827 · AI 989 · 화면 35 가 CI 에서 돕니다.</p></div>
       <div class="figure"><span class="v" data-count="0.64" data-suffix="초" data-dec="2">0</span><p>말을 마치고 자막이 확정되기까지의 중앙값. 꼬리질문이 늦지 않으려면 필요했습니다.</p></div>
       <div class="figure"><span class="v" data-count="13.5" data-suffix="초" data-dec="1">0</span><p>면접이 끝나고 요약 2개 · 타임라인 8개 · 근거 6개가 만들어지기까지.</p></div>
+      </div>
     </div>
   </div>
 </section>
@@ -4755,7 +4780,38 @@ body.screen-real .live-room.room-easy { display: none }
     revealEls.forEach(function (el) { io.observe(el); });
   }
 
+  /* 한 장씩 보이는 띠 — 마지막으로 켜진 장만 남긴다 */
+  function soloSync() {
+    [].slice.call(document.querySelectorAll('.band--solo')).forEach(function (b) {
+      var list = [].slice.call(b.querySelectorAll('.solos > .solo'));
+      var last = null;
+      list.forEach(function (el) { if (el.classList.contains('in')) last = el; });
+      if (!last && list.length) last = list[0];
+      list.forEach(function (el) { el.classList.toggle('cur', el === last); });
+    });
+  }
+
+  /* 어떤 화면에서도 한 띠가 한 화면에 들어오게 — 넘치는 만큼만 줄인다.
+     발표장 화면이 우리 노트북보다 낮아도 잘리지 않는다. */
+  function fitBand(band) {
+    if (band.classList.contains('band--app')) return;
+    var w = band.querySelector('.wrap');
+    if (!w || w.parentNode !== band) return;
+    var avail = document.documentElement.clientHeight - 8;
+    var need = w.scrollHeight;
+    if (!need || avail <= 0) return;
+    var k = need > avail ? Math.max(0.5, avail / need) : 1;
+    w.style.setProperty('--fit', k.toFixed(4));
+  }
+  function fitAll() { bands.forEach(fitBand); }
+  var fitT = null;
+  function fitSoon() { clearTimeout(fitT); fitT = setTimeout(fitAll, 70); }
+  window.addEventListener('resize', fitSoon, { passive: true });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitAll);
+
   function paintStepN() {
+    soloSync();
+    fitSoon();
     if (!stepN) return;
     if (!stepsOn) { stepN.textContent = ''; return; }
     var list = stepsIn(bands[current]);
@@ -4810,6 +4866,9 @@ body.screen-real .live-room.room-easy { display: none }
     });
   }
   applySteps(stepsOn);
+  soloSync();
+  fitAll();
+  setTimeout(fitAll, 400);
   /* 표지는 열자마자 보이는 자리라 관찰자를 기다리지 않는다. */
   runAnims(bands[0]);
   enterBand(current);
@@ -5368,7 +5427,7 @@ body.screen-real .live-room.room-easy { display: none }
   bare.addEventListener('click', function () {
     setBare(!document.body.classList.contains('chrome-off'), true);
   });
-  try { if (localStorage.getItem('irya.deck.bare') === '1') setBare(true, false); } catch (e) { /* 무시 */ }
+  setBare(document.body.classList.contains('chrome-off'), false);
 
   /* 전체 화면 — 발표장에서 글씨를 키운다 */
   var full = document.getElementById('dfull');
