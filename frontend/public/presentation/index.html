@@ -259,7 +259,13 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 .pm-ylab { grid-area: 1 / 1; margin: 0; display: flex; flex-direction: column; justify-content: space-between;
   text-align: right; padding: 10px 0; font-size: clamp(13px, 1.25vw, 17px); font-weight: 700;
   color: var(--ink-dim); line-height: 1.3; max-width: 7.5em }
-.pm-box { grid-area: 1 / 2; position: relative; height: clamp(230px, 34vh, 380px);
+/* 「그 사람을 읽고, 면접 중에」 사분면 — 글자를 쓰면 점과 겹쳐서 색으로만 표시 */
+.pm-ours { position: absolute; left: 50%; right: 0; top: 0; bottom: 50%;
+  background: rgb(75 79 224 / .07); border-radius: 0 13px 0 0; pointer-events: none }
+.pm-dot em small { display: block; margin-top: 1px; font-size: .78em; font-weight: 600;
+  color: var(--ink-dim); letter-spacing: 0 }
+.pm-dot.up { flex-direction: column }
+.pm-box { grid-area: 1 / 2; position: relative; height: clamp(250px, 37vh, 400px);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px }
 .pm-mid { position: absolute; background: var(--line) }
 .pm-mid.v { left: 50%; top: 8px; bottom: 8px; width: 1px }
@@ -4683,18 +4689,21 @@ body.screen-real .live-room.room-easy { display: none }
     </div>
     <div class="stack reveal" style="gap:16px">
       <div class="pmap">
-        <p class="pm-ylab"><span>면접이 도는 중에</span><span>면접 전후에만</span></p>
+        <p class="pm-ylab"><span>면접이<br>도는 중에</span><span>면접<br>전후에만</span></p>
         <div class="pm-box">
           <i class="pm-mid v"></i><i class="pm-mid h"></i>
-          <span class="pm-dot" style="--x:11%;--y:74%"><i></i><em>클로바노트</em></span>
-          <span class="pm-dot" style="--x:50%;--y:82%"><i></i><em>BrightHire</em></span>
-          <span class="pm-dot us up" style="--x:88%;--y:88%"><em>IRYA</em><i></i></span>
-          <span class="pm-dot" style="--x:11%;--y:18%"><i></i><em>잡다 · 뷰인터</em></span>
-          <span class="pm-dot" style="--x:50%;--y:26%"><i></i><em>Metaview</em></span>
-          <span class="pm-dot" style="--x:88%;--y:14%"><i></i><em>마이다스인</em></span>
+          <i class="pm-ours"></i>
+
+          <span class="pm-dot" style="--x:9%;--y:70%"><i></i><em>클로바노트</em></span>
+          <span class="pm-dot" style="--x:56%;--y:84%"><i></i><em>BrightHire<small>by Zoom</small></em></span>
+          <span class="pm-dot us up" style="--x:87%;--y:82%"><em>IRYA</em><i></i></span>
+          <span class="pm-dot" style="--x:34%;--y:41%"><i></i><em>HireVue</em></span>
+          <span class="pm-dot up" style="--x:52%;--y:30%"><em>Metaview</em><i></i></span>
+          <span class="pm-dot" style="--x:86%;--y:24%"><i></i><em>마이다스인<small>AI 면접 가이드</small></em></span>
+          <span class="pm-dot" style="--x:11%;--y:16%"><i></i><em>잡다 · 뷰인터</em></span>
         </div>
         <p class="pm-xlab"><span>아무 맥락도 안 읽음</span><span>직무기술서를 읽음</span><span>그 지원자의 이력서까지</span></p>
-        <p class="pm-note">자리는 공개 자료를 읽고 저희가 나눈 것이고, 점수를 매겨 잰 것이 아닙니다.</p>
+        <p class="pm-note">2026-11-04 · 11-10 에 각 서비스의 공개 자료를 읽고 저희가 놓은 자리입니다. 점수를 매겨 잰 것이 아닙니다.</p>
       </div>
       <div class="note-warn">
         <strong>가장 가까운 곳은 BrightHire 입니다 — 겹치는 것을 먼저 말씀드립니다</strong>
