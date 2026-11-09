@@ -7,6 +7,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../ui/Logo';
+import { SkipLink } from './SkipLink';
 
 const REPO_ISSUES_URL = 'https://github.com/kakaotechcampus-4/ktc4-pusan-1/issues';
 
@@ -21,6 +22,7 @@ export function LegalLayout({
 }) {
   return (
     <div className="bg-surface min-h-full">
+      <SkipLink />
       <header className="border-border-base bg-surface-panel border-b">
         <div className="mx-auto flex h-16 max-w-3xl items-center gap-4 px-4 sm:px-6">
           <Link to="/" aria-label="IRYA 홈">
@@ -38,7 +40,11 @@ export function LegalLayout({
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="mx-auto max-w-3xl px-4 py-12 outline-none sm:px-6"
+      >
         <h1 className="text-ink text-[30px] font-bold tracking-tight">{title}</h1>
         <p className="text-ink-dim mt-2 text-[14px]">시행일 {effectiveDate}</p>
         <p className="bg-brand-tint text-brand-strong mt-6 rounded-xl px-4 py-3 text-[14px] leading-relaxed">

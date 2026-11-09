@@ -18,6 +18,7 @@ import { buttonClass } from '../ui/buttonClass';
 import { Logo } from '../ui/Logo';
 import { Sheet } from '../ui/Sheet';
 import { InterviewNavigationDialog } from './InterviewNavigationDialog';
+import { SkipLink } from './SkipLink';
 
 type Shortcut = 'room' | 'summary' | 'review';
 
@@ -48,6 +49,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="bg-surface min-h-full">
+      <SkipLink />
       {/* ── 넓은 화면: 사이드바 ── */}
       <aside
         data-print-hide
@@ -129,7 +131,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         </button>
       </header>
 
-      <main className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0 lg:pl-64">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] outline-none lg:pb-0 lg:pl-64"
+      >
         {children}
       </main>
 
@@ -256,7 +262,9 @@ function Avatar({ me }: { me: User | undefined }) {
       aria-hidden
       className="bg-brand-tint text-brand flex h-8 w-8 items-center justify-center rounded-full"
     >
-      <span className="material-symbols-outlined text-[18px]">person</span>
+      <span aria-hidden className="material-symbols-outlined text-[18px]">
+        person
+      </span>
     </span>
   );
 }

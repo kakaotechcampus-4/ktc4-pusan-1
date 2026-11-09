@@ -191,11 +191,16 @@ export default function InterviewCreatePage() {
             desc="면접관 화면에만 표시됩니다."
           >
             <label htmlFor="candidate-name" className="text-ink text-[14px] font-semibold">
-              지원자 이름 <span className="text-danger">*</span>
+              지원자 이름 {/* 별표만으로는 화면낭독기가 필수인지 모른다. 숨김 글로 함께 알린다 */}
+              <span aria-hidden className="text-danger">
+                *
+              </span>
+              <span className="sr-only">(필수입력)</span>
             </label>
             <div className="relative mt-1.5">
               <input
                 id="candidate-name"
+                aria-required="true"
                 value={candidateName}
                 onChange={(e) => setCandidateName(e.target.value)}
                 placeholder="성명을 입력하세요"
