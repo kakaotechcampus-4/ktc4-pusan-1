@@ -38,7 +38,7 @@ function Statements({ title, items }: { title: string; items: ReportStatement[] 
 
 export function ReportContent({ report }: { report: ReportDocument }) {
   return (
-    <article className="text-ink">
+    <article data-report className="text-ink">
       <header className="border-border-base border-b pb-4">
         <h2 className="text-xl font-bold">
           {report.candidate.name || '이름 없는 지원자'} · 면접 리포트
@@ -69,7 +69,7 @@ export function ReportContent({ report }: { report: ReportDocument }) {
         {report.competencies.map((competency, index) => (
           <section
             key={`${competency.name}-${index}`}
-            className={`border-border-base rounded-xl border p-4 ${competency.state === 'MISSING' ? 'bg-surface-bright' : 'bg-surface-panel'}`}
+            className={`border-border-base rounded-xl border p-4 print:break-inside-avoid ${competency.state === 'MISSING' ? 'bg-surface-bright' : 'bg-surface-panel'}`}
           >
             <h3 className="flex flex-wrap items-center gap-2 font-semibold">
               {competency.name}
