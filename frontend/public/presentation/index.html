@@ -148,6 +148,12 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
   50% { box-shadow: 0 10px 30px rgb(140 100 10 / .16), 0 0 0 7px rgb(217 163 39 / .17) }
 }
 
+.pageno { position: fixed; right: clamp(14px, 1.8vw, 28px); bottom: clamp(12px, 1.6vh, 22px);
+  z-index: 8; font-family: var(--font-mono); font-size: clamp(12px, 1.15vw, 15px);
+  font-weight: 600; color: var(--ink-dim); opacity: .62; pointer-events: none;
+  letter-spacing: .02em }
+@media print { .pageno { display: none } }
+
 /* 사업성 — 누구에게 무엇이 달라지는지, 그리고 왜 팔릴 수 있는지.
    시장 규모 수치는 쓰지 않았다. 찾아본 국내 자료가 대부분 블로그 2차
    인용이라 출처를 댈 수 없었고, 못 대는 숫자는 안 쓰는 편이 낫다. */
@@ -292,6 +298,8 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 .s-tech .lanewrap, .s-tech .grid.g3 { transition: opacity .45s ease }
 body.js .s-tech .lanewrap.reveal.in,
 body.js .s-tech .grid.g3.reveal.in { opacity: 0 }
+/* 내려앉지 않는 장은 자리도 차지하지 않는다 */
+.s-tech [data-nodock] { display: none }
 body.js .s-tech .lanewrap.reveal.in.settled,
 body.js .s-tech .grid.g3.reveal.in.settled { opacity: 1 }
 .tspot .spot-pair { padding: 0 3vw }
@@ -1590,7 +1598,7 @@ body.screen-real .live-room.room-easy { display: none }
    상자 셋을 옆으로 늘어놓은 건 구조가 아니라 목록이었다. 줄(큐)과 폴러와
    도구와 실패 경로가 보여야 「에이전트」로 읽힌다. 가짜 로그는 뺐다 —
    읽히지도 않고, 읽힌들 증거가 못 된다. */
-.agx { width: 100%; max-width: 1240px; margin: 0 auto }
+.agx { width: 100%; max-width: min(1400px, 96vw); margin: 0 auto }
 .agx svg { width: 100%; height: auto; display: block }
 .agx text { font-family: inherit; text-anchor: middle; fill: var(--ink) }
 .ax-t1 { font-size: 23px; font-weight: 800; letter-spacing: -.02em }
@@ -1621,6 +1629,21 @@ body.screen-real .live-room.room-easy { display: none }
   gap: clamp(16px, 2vw, 30px); width: 100%; max-width: 1240px; margin: 0 auto }
 .agx-note > .axn { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
   padding: clamp(15px, 1.7vw, 22px) clamp(17px, 2vw, 26px) }
+.s-qual .barrow { transition: opacity .45s ease }
+.gr-line { width: 100%; max-width: 1240px; margin: 0 auto; text-align: center;
+  font-size: clamp(14px, 1.35vw, 19px); line-height: 1.7; color: var(--ink-muted) }
+.gr-line b { color: var(--ink); font-weight: 800 }
+/* 가드레일에서는 두 칸을 크게 쓴다 — 이 장의 본문이다 */
+#s-guardrail .agx-note > .axn { padding: clamp(22px, 2.6vw, 38px) clamp(24px, 2.8vw, 40px) }
+#s-guardrail .axn-h { font-size: clamp(22px, 2.3vw, 32px); margin-bottom: clamp(20px, 2.4vw, 32px) }
+#s-guardrail .axn-name { font-size: clamp(17px, 1.7vw, 24px) }
+#s-guardrail .axn-row { margin-bottom: clamp(16px, 2vw, 26px) }
+#s-guardrail .axn-bar { height: clamp(11px, 1.15vw, 17px) }
+#s-guardrail .axn-end .material-symbols-outlined { font-size: clamp(26px, 2.5vw, 36px) }
+#s-guardrail .axn-i { width: clamp(16px, 1.6vw, 23px) }
+#s-guardrail .axn-cap { font-size: clamp(15px, 1.5vw, 21px) }
+#s-guardrail .axn-cap b { font-size: clamp(22px, 2.2vw, 31px) }
+#s-guardrail .axn-row.k .axn-name.mono { font-size: clamp(14px, 1.35vw, 19px) }
 .axn-h { display: block; font-size: clamp(17px, 1.6vw, 22px); margin-bottom: clamp(12px, 1.4vw, 18px);
   letter-spacing: -.01em }
 .axn-row { display: grid; grid-template-columns: clamp(64px, 7vw, 98px) 1fr clamp(66px, 7.4vw, 96px);
@@ -1679,6 +1702,8 @@ body.screen-real .live-room.room-easy { display: none }
 <nav class="rail" id="rail" aria-label="섹션 이동"></nav>
 
 <main>
+<!-- 쪽번호 — 위 안내 띠를 없앤 뒤로 몇 쪽인지 볼 데가 없었다 -->
+<div class="pageno" id="pageNo" aria-hidden="true"></div>
 
 <!-- 표지 ─────────────────────────────────── -->
 <section class="band hero hero-bg" id="s-hero" data-label="표지">
@@ -4318,6 +4343,16 @@ body.screen-real .live-room.room-easy { display: none }
       </svg>
     </div>
 
+  </div>
+</section>
+
+<!-- 가드레일 ─────────────────────────────── -->
+<section class="band band--panel" id="s-guardrail" data-label="가드레일">
+  <div class="wrap stack">
+    <div class="reveal">
+      <p class="eyebrow" style="color:var(--warn)">가드레일과 예외</p>
+      <h2 class="title">틀릴 수 있다는 전제로 지었습니다</h2>
+    </div>
     <div class="agx-note reveal">
 
       <div class="axn">
@@ -4362,23 +4397,7 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
 
     </div>
-  </div>
-</section>
-
-<!-- 가드레일 ─────────────────────────────── -->
-<section class="band band--panel" id="s-guardrail" data-label="가드레일">
-  <div class="wrap stack">
-    <div class="reveal">
-      <p class="eyebrow" style="color:var(--warn)">가드레일과 예외</p>
-      <h2 class="title">틀릴 수 있다는 전제로 지었습니다</h2>
-    </div>
-    <div class="grid g2 reveal">
-      <div class="card"><h3>AI의 말은 제안까지만</h3><p>AI가 만든 항목은 「제안」 상태로만 저장됩니다. 사람이 채택하기 전에는 어떤 근거도 되지 않습니다.</p></div>
-      <div class="card"><h3>한 조각이 실패해도 버리지 않음</h3><p>요약 · 타임라인 · 근거를 나눠 만듭니다. 하나가 계속 실패하면 재시도 상한에서 멈추고, 성공한 것만 저장합니다.</p></div>
-      <div class="card"><h3>끊겨도 기록은 이어집니다</h3><p>전사 연결이 끊겨도 저장은 계속하고, 외부 호출이 실패해도 사용량은 남깁니다. 기한을 넘기면 실패로 바꿔 화면에 알립니다.</p></div>
-      <div class="card"><h3>동의 없이는 한 조각도 안 올라감</h3><p>화면만 막지 않고 서버가 입장을 거부합니다. 녹화는 방에 들어와야 시작되므로, 동의 전에는 영상도 음성도 올라가지 않습니다.</p></div>
-    </div>
-    <p class="lede reveal">분석 로그에는 상태와 개수와 걸린 시간만 남기고, 요약 본문과 인용 원문은 남기지 않습니다.</p>
+    <p class="gr-line reveal"><b>AI의 말은 제안까지만</b> 사람이 채택하기 전에는 어떤 근거도 되지 않습니다. &nbsp;·&nbsp; <b>동의 없이는 한 조각도 안 올라감</b> 화면만 막지 않고 서버가 입장을 거부합니다.</p>
   </div>
 </section>
 
@@ -4455,7 +4474,7 @@ body.screen-real .live-room.room-easy { display: none }
         </div>
       </div>
     </div>
-    <div class="grid g3 reveal" data-t="3">
+    <div class="grid g3 reveal" data-t="3" data-nodock>
       <div class="figure"><span class="v" data-count="1851" data-suffix="">0</span><p>자동 테스트. 서버 827 · AI 989 · 화면 35 가 CI 에서 돕니다.</p></div>
       <div class="figure"><span class="v" data-count="0.64" data-suffix="초" data-dec="2">0</span><p>말을 마치고 자막이 확정되기까지의 중앙값. 꼬리질문이 늦지 않으려면 필요했습니다.</p></div>
       <div class="figure"><span class="v" data-count="13.5" data-suffix="초" data-dec="1">0</span><p>면접이 끝나고 요약 2개 · 타임라인 8개 · 근거 6개가 만들어지기까지.</p></div>
@@ -4560,20 +4579,13 @@ body.screen-real .live-room.room-easy { display: none }
           </div>
         </div>
         <div class="barrow reveal" data-q="1">
-          <span class="lbl">느린 쪽 5%<br><span class="num">p95 · 낮을수록 좋음</span></span>
-          <div class="bartrack">
-            <div class="bar a"><span class="fill" data-w="86"></span><span>2,629ms </span></div>
-            <div class="bar b"><span class="fill" data-w="52"></span><span>1,596ms </span></div>
-          </div>
-        </div>
-        <div class="barrow reveal" data-q="2">
           <span class="lbl">사실 항목을 맞춘 개수<br><span class="num">195개 중 · 높을수록 좋음</span></span>
           <div class="bartrack">
             <div class="bar a"><span class="fill" data-w="71"></span><span>162 / 195 </span></div>
             <div class="bar b"><span class="fill" data-w="80"></span><span>182 / 195 </span></div>
           </div>
         </div>
-        <div class="barrow reveal" data-q="3">
+        <div class="barrow reveal" data-q="2">
           <span class="lbl">글자 오류율<br><span class="num">CER · 낮을수록 좋음</span></span>
           <div class="bartrack">
             <div class="bar a"><span class="fill" data-w="86"></span><span>0.077 </span></div>
@@ -4757,21 +4769,6 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
     </div>
 
-    <div class="sell reveal">
-      <div class="sell-i">
-        <b>0</b>
-        <span>지원자가 깔아야 하는 것<em>링크 하나면 들어옵니다</em></span>
-      </div>
-      <div class="sell-i">
-        <b>건당</b>
-        <span>쓴 만큼만 내는 구조<em>비용이 사람 수가 아니라 음성 시간을 따라갑니다</em></span>
-      </div>
-      <div class="sell-i">
-        <b>0.19 → 0.42</b>
-        <span>구조화하면 더 맞힙니다<em>채용 결정이 입사 후 성과를 맞히는 정도 · 2페이지와 같은 출처</em></span>
-      </div>
-    </div>
-
     <details class="fine calcfold reveal"><summary>원가와 과금 — 한 달 면접 건수로 계산해 봅니다</summary>
     <div class="calc">
       <div class="calc-head">
@@ -4877,6 +4874,8 @@ body.screen-real .live-room.room-easy { display: none }
   function setActive(i) {
     dots.forEach(function (d, n) { d.setAttribute('aria-current', n === i ? 'true' : 'false'); });
     where.textContent = (i + 1) + ' / ' + bands.length + '  ' + bands[i].dataset.label;
+    var pn = document.getElementById('pageNo');
+    if (pn) pn.textContent = (i + 1) + ' / ' + bands.length;
   }
   setActive(0);
 
@@ -5202,7 +5201,8 @@ body.screen-real .live-room.room-easy { display: none }
   function tSlot(i) { return tBand && tBand.querySelector('.wrap [data-t="' + i + '"]'); }
   function tSettle(i) {
     var el = tSlot(i);
-    if (el && !el.classList.contains('settled')) { el.classList.add('settled'); fillBars(el); }
+    if (!el || el.hasAttribute('data-nodock')) return;   /* 내려앉지 않는 장 */
+    if (!el.classList.contains('settled')) { el.classList.add('settled'); fillBars(el); }
   }
   function tShow(i) {
     var pair = tPair(i);
@@ -5218,6 +5218,17 @@ body.screen-real .live-room.room-easy { display: none }
     if (!pair || !slot) return;
     tBand.classList.remove('spot-on');
     tSettle(i);
+    /* 내려앉을 자리가 없는 장은 그 자리에서 사라진다 */
+    if (slot.hasAttribute('data-nodock')) {
+      if (reduce) { pair.classList.remove('on'); return; }
+      pair.style.transform = 'translateY(18px) scale(.94)';
+      pair.style.opacity = '0';
+      setTimeout(function () {
+        pair.classList.remove('on');
+        pair.style.transform = ''; pair.style.opacity = '';
+      }, DOCK_MS);
+      return;
+    }
     if (reduce) { pair.classList.remove('on'); return; }
     var from = pair.firstElementChild.getBoundingClientRect();
     var to = slot.getBoundingClientRect();
@@ -5260,8 +5271,6 @@ body.screen-real .live-room.room-easy { display: none }
   var QM = [
     { h: '말을 마치고 자막 확정까지', sub: '중앙값 · 낮을수록 좋음',
       a: '1,065', ua: 'ms', b: '642',   ub: 'ms', ha: 100, hb: 61, d: '40% 빨라짐' },
-    { h: '느린 쪽 5%',              sub: 'p95 · 낮을수록 좋음',
-      a: '2,629', ua: 'ms', b: '1,596', ub: 'ms', ha: 100, hb: 61, d: '39% 빨라짐' },
     { h: '사실 항목을 맞춘 개수',     sub: '195개 중 · 높을수록 좋음',
       a: '162',   ua: '/195', b: '182', ub: '/195', ha: 83, hb: 93, d: '20개 더 맞힘' },
     { h: '글자 오류율',              sub: 'CER · 낮을수록 좋음',
