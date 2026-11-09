@@ -150,7 +150,7 @@ export function InterviewRoomView({
       )}
 
       {/* 위 — 상대, 진행 상태, 종료 */}
-      <header className="glass absolute inset-x-3 top-3 z-10 flex items-center gap-3 rounded-2xl px-3 py-2 sm:inset-x-4 sm:top-4 sm:px-4">
+      <header className="glass interview-readable absolute inset-x-3 top-3 z-10 flex items-center gap-3 rounded-2xl px-3 py-2 sm:inset-x-4 sm:top-4 sm:px-4">
         <div className="glass-dim flex min-w-0 flex-1 items-center gap-3">
           {/* 좁은 화면에서는 상대 이름 · 시간이 먼저라 로고를 뺀다 */}
           <span className="hidden sm:block">
@@ -202,7 +202,7 @@ export function InterviewRoomView({
 
       {/* 상대 이름표 — 영상이 보일 때만 */}
       {remoteJoined && !error && (
-        <span className="glass absolute top-[72px] left-3 rounded-full px-3 py-1 text-[13px] font-medium sm:top-[80px] sm:left-4">
+        <span className="glass interview-readable absolute top-[72px] left-3 rounded-full px-3 py-1 text-[13px] font-medium sm:top-[80px] sm:left-4">
           {remoteName}
         </span>
       )}
