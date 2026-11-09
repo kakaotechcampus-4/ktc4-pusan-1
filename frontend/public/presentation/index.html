@@ -1360,11 +1360,40 @@ body.screen-real .live-room.room-easy { display: none }
 .ax-div { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 6 7 }
 
 .agx-note { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(16px, 2vw, 30px); max-width: 1240px; margin: 0 auto }
-.agx-note div { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  padding: clamp(16px, 1.8vw, 24px) }
-.agx-note b { display: block; font-size: clamp(18px, 1.7vw, 23px); margin-bottom: 7px }
-.agx-note span { font-size: clamp(15px, 1.4vw, 18px); color: var(--ink-muted); line-height: 1.55 }
+  gap: clamp(16px, 2vw, 30px); width: 100%; max-width: 1240px; margin: 0 auto }
+.agx-note > .axn { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: clamp(15px, 1.7vw, 22px) clamp(17px, 2vw, 26px) }
+.axn-h { display: block; font-size: clamp(17px, 1.6vw, 22px); margin-bottom: clamp(12px, 1.4vw, 18px);
+  letter-spacing: -.01em }
+.axn-row { display: grid; grid-template-columns: clamp(64px, 7vw, 98px) 1fr clamp(66px, 7.4vw, 96px);
+  align-items: center; gap: clamp(10px, 1.2vw, 16px); margin-bottom: clamp(9px, 1.1vw, 14px) }
+.axn-name { font-size: clamp(14px, 1.3vw, 18px); font-weight: 700; color: var(--ink) }
+.axn-name.mono { font-family: var(--font-mono); font-size: clamp(12.5px, 1.15vw, 16px);
+  font-weight: 700; color: var(--brand-strong) }
+.axn-bar { display: block; height: clamp(7px, .72vw, 10px); border-radius: 99px;
+  background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden }
+.axn-bar i { display: block; height: 100%; border-radius: 99px }
+.axn-bar.ok i { background: var(--accent) }
+.axn-bar.bad i { background: var(--danger) }
+.axn-end { display: flex; align-items: center; gap: 4px; justify-content: flex-start }
+.axn-end .material-symbols-outlined { font-size: clamp(22px, 2.1vw, 30px) }
+.axn-end.ok { color: var(--accent-strong) }
+.axn-end.hand { color: var(--brand-strong) }
+.axn-i { width: clamp(14px, 1.35vw, 19px); height: auto; fill: var(--danger); flex: none }
+.axn-i.hr { fill: var(--ink-dim) }
+.axn-row.k { grid-template-columns: clamp(78px, 8.4vw, 116px) 1fr; align-items: center;
+  padding: clamp(7px, .8vw, 11px) clamp(10px, 1.1vw, 15px); border-radius: 10px;
+  margin-bottom: clamp(6px, .7vw, 10px) }
+.axn-row.k.hit { background: var(--brand-tint) }
+.axn-row.k .axn-name.mono { color: var(--ink-dim) }
+.axn-row.k.hit .axn-name.mono { color: var(--brand-strong) }
+.axn-dash { display: block; width: clamp(18px, 1.9vw, 26px); height: 3px; border-radius: 2px;
+  background: var(--line) }
+.axn-cap { margin: clamp(12px, 1.4vw, 18px) 0 0; font-size: clamp(14px, 1.3vw, 18px);
+  color: var(--ink-dim); font-weight: 600 }
+.axn-cap b { font-family: var(--font-mono); font-size: clamp(19px, 1.9vw, 26px);
+  color: var(--ink); margin-right: 2px }
+.axn-cap span { margin-left: 8px; color: var(--ink-muted) }
 @media (max-width: 900px) { .agx-note { grid-template-columns: 1fr } }
 \n</style>
 
@@ -4031,8 +4060,48 @@ body.screen-real .live-room.room-easy { display: none }
     </div>
 
     <div class="agx-note reveal">
-      <div><b>실패를 전제로 둡니다.</b><span>REVIEW는 시간 상한을 두고 재시도하다가, 상한에 닿으면 그때까지 된 것만 저장하고 넘어갑니다. 처리할 수 없는 작업 종류가 들어오면 처리하지 않고 보류합니다.</span></div>
-      <div><b>사람이 누르는 자리는 하나입니다.</b><span>PREP과 REVIEW는 사람이 실행하지 않아도 자동으로 돕니다. REPORT만 면접관이 검토를 확정해야 줄에 들어갑니다.</span></div>
+
+      <div class="axn">
+        <b class="axn-h">실패를 전제로</b>
+        <div class="axn-row">
+          <span class="axn-name">요약</span>
+          <span class="axn-bar ok"><i style="width:100%"></i></span>
+          <span class="axn-end ok"><span class="material-symbols-outlined">check_circle</span></span>
+        </div>
+        <div class="axn-row">
+          <span class="axn-name">타임라인</span>
+          <span class="axn-bar ok"><i style="width:100%"></i></span>
+          <span class="axn-end ok"><span class="material-symbols-outlined">check_circle</span></span>
+        </div>
+        <div class="axn-row">
+          <span class="axn-name">근거</span>
+          <span class="axn-bar bad"><i style="width:34%"></i></span>
+          <span class="axn-end bad">
+            <svg class="axn-i" viewBox="0 0 16 16" aria-hidden="true"><path d="M14.9547 7.98576 15.0711 7.99552C15.6179 8.07328 15.9981 8.57957 15.9204 9.12636 15.6826 10.7983 14.9218 12.3522 13.747 13.5654 12.5721 14.7785 11.0435 15.5888 9.37999 15.8801 7.7165 16.1714 6.00349 15.9288 4.48631 15.187 3.77335 14.8385 3.12082 14.3881 2.5472 13.8537L1.70711 14.6938C1.07714 15.3238 0 14.8776 0 13.9867L0 9.99998 3.98673 9.99998C4.87763 9.99998 5.3238 11.0771 4.69383 11.7071L3.9626 12.4383C4.38006 12.8181 4.85153 13.1394 5.36475 13.3903 6.50264 13.9466 7.78739 14.1285 9.03501 13.9101 10.2826 13.6916 11.4291 13.0839 12.3102 12.174 13.1914 11.2641 13.762 10.0988 13.9403 8.84476 14.0181 8.29798 14.5244 7.91776 15.0711 7.99552L14.9547 7.98576ZM11.5137 0.812976C12.2279 1.16215 12.8814 1.61349 13.4558 2.14905L14.2929 1.31193C14.9229 0.681961 16 1.12813 16 2.01904L16 6.00001 12.019 6.00001C11.1281 6.00001 10.6819 4.92287 11.3119 4.29291L12.0404 3.56441C11.6222 3.18346 11.1497 2.86125 10.6353 2.60973 9.49736 2.05342 8.21261 1.87146 6.96499 2.08994 5.71737 2.30841 4.57089 2.91611 3.68976 3.82599 2.80862 4.73586 2.23802 5.90125 2.05969 7.15524 1.98193 7.70202 1.47564 8.08224 0.928858 8.00448 0.382075 7.92672 0.00185585 7.42043 0.0796146 6.87364 0.31739 5.20166 1.07818 3.64782 2.25303 2.43465 3.42788 1.22148 4.95652 0.411217 6.62001 0.119916 8.2835 -0.171384 9.99651 0.0712178 11.5137 0.812976Z"/></svg>
+            <svg class="axn-i" viewBox="0 0 16 16" aria-hidden="true"><path d="M14.9547 7.98576 15.0711 7.99552C15.6179 8.07328 15.9981 8.57957 15.9204 9.12636 15.6826 10.7983 14.9218 12.3522 13.747 13.5654 12.5721 14.7785 11.0435 15.5888 9.37999 15.8801 7.7165 16.1714 6.00349 15.9288 4.48631 15.187 3.77335 14.8385 3.12082 14.3881 2.5472 13.8537L1.70711 14.6938C1.07714 15.3238 0 14.8776 0 13.9867L0 9.99998 3.98673 9.99998C4.87763 9.99998 5.3238 11.0771 4.69383 11.7071L3.9626 12.4383C4.38006 12.8181 4.85153 13.1394 5.36475 13.3903 6.50264 13.9466 7.78739 14.1285 9.03501 13.9101 10.2826 13.6916 11.4291 13.0839 12.3102 12.174 13.1914 11.2641 13.762 10.0988 13.9403 8.84476 14.0181 8.29798 14.5244 7.91776 15.0711 7.99552L14.9547 7.98576ZM11.5137 0.812976C12.2279 1.16215 12.8814 1.61349 13.4558 2.14905L14.2929 1.31193C14.9229 0.681961 16 1.12813 16 2.01904L16 6.00001 12.019 6.00001C11.1281 6.00001 10.6819 4.92287 11.3119 4.29291L12.0404 3.56441C11.6222 3.18346 11.1497 2.86125 10.6353 2.60973 9.49736 2.05342 8.21261 1.87146 6.96499 2.08994 5.71737 2.30841 4.57089 2.91611 3.68976 3.82599 2.80862 4.73586 2.23802 5.90125 2.05969 7.15524 1.98193 7.70202 1.47564 8.08224 0.928858 8.00448 0.382075 7.92672 0.00185585 7.42043 0.0796146 6.87364 0.31739 5.20166 1.07818 3.64782 2.25303 2.43465 3.42788 1.22148 4.95652 0.411217 6.62001 0.119916 8.2835 -0.171384 9.99651 0.0712178 11.5137 0.812976Z"/></svg>
+            <svg class="axn-i hr" viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M13 2H14V0H2V2H3V4.41421L6.58579 8L3 11.5858V14H2V16H14V14H13V11.5858L9.41421 8L13 4.41421V2ZM5 3.58579V2H11V3.58579L8 6.58579L5 3.58579Z"/></svg>
+          </span>
+        </div>
+        <p class="axn-cap"><b>2</b> / 3 <span>된 것만 저장</span></p>
+      </div>
+
+      <div class="axn">
+        <b class="axn-h">사람이 누르는 자리</b>
+        <div class="axn-row k">
+          <span class="axn-name mono">PREP</span>
+          <span class="axn-dash"></span>
+        </div>
+        <div class="axn-row k">
+          <span class="axn-name mono">REVIEW</span>
+          <span class="axn-dash"></span>
+        </div>
+        <div class="axn-row k hit">
+          <span class="axn-name mono">REPORT</span>
+          <span class="axn-end hand"><span class="material-symbols-outlined">left_click</span></span>
+        </div>
+        <p class="axn-cap"><b>1</b> / 3 <span>여기만 사람</span></p>
+      </div>
+
     </div>
   </div>
 </section>
