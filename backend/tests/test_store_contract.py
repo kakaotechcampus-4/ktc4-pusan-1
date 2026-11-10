@@ -100,6 +100,34 @@ def test_interview_roundtrip(subject: Store):
     assert found.created_at == interview.created_at
 
 
+def test_interview_keeps_the_company_and_role_of_its_day(subject: Store):
+    """면접 당시 회사 · 직무는 면접에 남는다 (#272). 검토를 고쳐도 안 지워진다."""
+    interview = Interview(
+        interviewer_id="user_123", company="카카오", role="백엔드 개발자"
+    )
+    subject.add_interview(interview)
+
+    found = subject.get_interview(interview.id)
+    noted = subject.update_review(interview.id, None, "메모")
+    [(listed, _, _)] = subject.list_interviews("user_123")
+
+    assert found is not None and noted is not None
+    assert (found.company, found.role) == ("카카오", "백엔드 개발자")
+    assert (noted.company, noted.role) == ("카카오", "백엔드 개발자")
+    assert (listed.company, listed.role) == ("카카오", "백엔드 개발자")
+
+
+def test_interview_made_before_this_column_is_empty(subject: Store):
+    """이 컬럼이 생기기 전 면접은 비어 있다 — 현재 설정으로 소급하지 않는다 (#272)."""
+    interview = Interview(interviewer_id="user_123")
+    subject.add_interview(interview)
+
+    found = subject.get_interview(interview.id)
+
+    assert found is not None
+    assert (found.company, found.role) == ("", "")
+
+
 def test_candidate_name_may_be_empty(subject: Store):
     interview = Interview(interviewer_id="user_123")
     subject.add_interview(interview)

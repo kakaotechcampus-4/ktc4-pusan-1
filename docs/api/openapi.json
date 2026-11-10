@@ -2477,7 +2477,7 @@
     },
     "/api/v1/interviews": {
       "get": {
-        "description": "내가 만든 면접을 최신순으로 준다. 필터 · 정렬은 FE 가 한다 (#137 1-1).\n\n면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 내 컨텍스트에서 온다.",
+        "description": "내가 만든 면접을 최신순으로 준다. 필터 · 정렬은 FE 가 한다 (#137 1-1).\n\n면접관은 늘 나라서 `interviewer` 는 토큰의 사용자고, 직무는 면접 당시 값이다 (#272).",
         "operationId": "list_interviews_api_v1_interviews_get",
         "parameters": [
           {

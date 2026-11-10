@@ -15,7 +15,7 @@ export function exportSheets(records: readonly ExportRecord[]): Record<string, C
       [
         '면접 ID',
         '지원자',
-        '현재 설정 직무',
+        '직무',
         '면접 일시',
         '길이(초)',
         '검토 상태',

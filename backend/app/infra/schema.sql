@@ -30,6 +30,11 @@ ALTER TABLE interview ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAU
 ALTER TABLE interview ADD COLUMN IF NOT EXISTS memo TEXT NOT NULL DEFAULT '';
 ALTER TABLE interview ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 
+-- 면접 당시 회사 · 직무 (#272). 생성 시점의 기업 컨텍스트에서 복사한다.
+-- 이 컬럼이 생기기 전 면접은 빈 문자열이다 — 현재 설정으로 소급하지 않는다.
+ALTER TABLE interview ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
+ALTER TABLE interview ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT '';
+
 CREATE TABLE IF NOT EXISTS session (
     id           TEXT        PRIMARY KEY,
     interview_id TEXT        NOT NULL REFERENCES interview (id) ON DELETE CASCADE,

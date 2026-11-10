@@ -65,7 +65,7 @@ def seed(store: Store, owner_id: str) -> int:
         summary = store.get_summary(_session_id(interview_id))
         if summary is not None and summary.status is SummaryStatus.READY:
             continue
-        _add(store, owner_id, interview_id, candidate, demo)
+        _add(store, owner_id, interview_id, candidate, demo, context)
         added += 1
     return added
 
@@ -76,6 +76,7 @@ def _add(
     interview_id: str,
     candidate: dict[str, Any],
     demo: dict[str, Any],
+    context: Context,
 ) -> None:
     """면접 하나를 끝까지 넣는다. 단계마다 이미 있으면 건너뛰어 반쪽도 마저 채운다."""
     began = datetime.fromisoformat(candidate["interviewedAt"])
@@ -87,6 +88,9 @@ def _add(
                 id=interview_id,
                 interviewer_id=owner_id,
                 candidate_name=candidate["name"],
+                # 데모 면접은 지금 설정을 당시 값으로 본다 (#272).
+                company=context.company,
+                role=context.role,
                 # 목록이 최신순이라 면접 시각을 만든 시각으로 둔다 — FE 목과 같은 순서.
                 created_at=began,
                 review_status=ReviewStatus(candidate["reviewStatus"]),
