@@ -228,34 +228,30 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 
 /* 접근성 검수 — 받은 지적과 고친 방법, 그리고 실제로 들어 본 문장 */
 .axq { width: 100%; max-width: 1240px; margin: 0 auto; text-align: center;
-  padding: clamp(16px, 2vw, 26px) clamp(18px, 2.4vw, 34px);
+  padding: clamp(24px, 3.4vw, 52px) clamp(20px, 2.8vw, 40px);
   background: var(--accent-tint); border: 1px solid rgb(46 196 166 / .4); border-radius: 16px }
-.axq p { margin: 0; font-size: clamp(18px, 1.9vw, 27px); font-weight: 700; line-height: 1.45;
+.axq p { margin: 0; font-size: clamp(22px, 2.5vw, 36px); font-weight: 700; line-height: 1.45;
   color: var(--ink); letter-spacing: -.01em }
 .axq p b { color: var(--accent-strong) }
-.axq span { display: block; margin-top: 6px; font-size: clamp(13px, 1.2vw, 16px);
+.axq span { display: block; margin-top: 10px; font-size: clamp(17px, 1.65vw, 23px);
   font-weight: 600; color: var(--ink-dim) }
-.axq .axq-n { display: block; margin-top: clamp(10px, 1.2vw, 16px); padding-top: clamp(10px, 1.2vw, 16px);
+.axq .axq-n { display: block; margin-top: clamp(14px, 1.6vw, 24px); padding-top: clamp(14px, 1.6vw, 24px);
   border-top: 1px solid rgb(46 196 166 / .35); font-style: normal;
-  font-size: clamp(14px, 1.35vw, 19px); font-weight: 600; color: var(--ink-muted) }
+  font-size: clamp(19px, 2vw, 28px); font-weight: 600; color: var(--ink-muted) }
 .axq .axq-n b { font-family: var(--font-mono); font-size: 1.25em; color: var(--accent-strong) }
+/* 숫자가 아닌 강조는 글꼴·크기·굵기를 본문과 같게 — 색만 다르다 */
+.axq .axq-n b.w { font-family: inherit; font-size: 1em; font-weight: inherit }
 .axg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: clamp(12px, 1.5vw, 22px); width: 100%; max-width: 1240px; margin: 0 auto }
+/* 카드는 아이콘 + 제목 한 줄만 — 설명은 말로 한다 */
 .axc { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  padding: clamp(14px, 1.7vw, 24px) clamp(16px, 1.9vw, 26px) }
-.axc .material-symbols-outlined { font-size: clamp(24px, 2.2vw, 32px); color: var(--brand) }
-.axc h3 { margin: 4px 0 6px; font-size: clamp(17px, 1.65vw, 23px); font-weight: 800;
-  letter-spacing: -.01em; line-height: 1.3 }
-.axc p { margin: 0; font-size: clamp(14px, 1.33vw, 18px); line-height: 1.55; color: var(--ink-muted) }
-.axc p b { color: var(--ink) }
+  padding: clamp(14px, 1.7vw, 24px) clamp(18px, 2.2vw, 32px); min-height: clamp(96px, 7.8vw, 150px);
+  display: flex; align-items: center; gap: clamp(12px, 1.3vw, 20px) }
+.axc .material-symbols-outlined { font-size: clamp(34px, 3.4vw, 52px); color: var(--brand); flex: none }
+.axc h3 { margin: 0; font-size: clamp(22px, 2.3vw, 34px); font-weight: 800;
+  letter-spacing: -.01em; line-height: 1.3; word-break: keep-all }
 .axc.hear { border-color: var(--brand); background: var(--brand-tint) }
 .axc.hear .material-symbols-outlined { color: var(--brand-strong) }
-.axc .axr { font-family: var(--font-mono); font-size: clamp(12.5px, 1.2vw, 16px);
-  line-height: 1.5; color: var(--ink-muted); margin-top: 7px }
-.axc .axr b { color: var(--brand-strong) }
-.axf { width: 100%; max-width: 1240px; margin: 0 auto; text-align: center;
-  font-size: clamp(13px, 1.25vw, 17px); color: var(--ink-dim); line-height: 1.6 }
-.axf code { font-family: var(--font-mono); font-size: .94em; color: var(--ink-muted) }
 @media (max-width: 860px) { .axg { grid-template-columns: 1fr } }
 
 /* 11페이지 — 두 축 위에 점을 찍는다. 표의 칸이 아니라 자리가 보이게.
@@ -271,7 +267,7 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 .pm-dot em small { display: block; margin-top: 1px; font-size: .78em; font-weight: 600;
   color: var(--ink-dim); letter-spacing: 0 }
 .pm-dot.up { flex-direction: column }
-.pm-box { grid-area: 1 / 2; position: relative; height: clamp(250px, 37vh, 400px);
+.pm-box { grid-area: 1 / 2; position: relative; height: clamp(300px, 46vh, 500px);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px }
 .pm-mid { position: absolute; background: var(--line) }
 .pm-mid.v { left: 50%; top: 8px; bottom: 8px; width: 1px }
@@ -443,6 +439,7 @@ details.fine[open] > summary { margin-bottom: 10px }
 .note-warn { background: var(--warn-tint); border-radius: 18px; padding: 18px 24px; display: flex; flex-direction: column; gap: 6px }
 .note-warn strong { color: var(--warn); font-size: 16px }
 .note-warn p { font-size: 19px; line-height: 1.5 }
+.note-warn ul { margin: 0; padding-left: 1.2em; font-size: 19px; line-height: 1.5 }
 
 .shot { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--panel); min-width: 0 }
 .shot img { width: 100% }
@@ -921,7 +918,9 @@ body.js .feat-card.reveal.in.settled { opacity: 1 }
 .kicker--xl { font-size: clamp(30px, 5vw, 58px); line-height: 1.22; max-width: 24ch }
 .cyc { color: var(--brand-strong); display: inline-block; min-width: 2.2em }
 .feat-end b { font-size: 1.16em }
-.feat-end .cyc { font-size: 1.3em; font-weight: 800; letter-spacing: -.02em }
+/* 자리는 가장 긴 단어만큼 잡아 두되, 글자는 오른쪽 「단계」 쪽에 붙인다.
+   가운데 정렬이면 「4」 하나일 때 뒤 글자와 사이가 크게 벌어진다. */
+.feat-end .cyc { font-size: 1.3em; font-weight: 800; letter-spacing: -.02em; text-align: right; position: relative; top: .06em }
 
 /* 핵심 기능 — 구간 하나씩 가운데에 띄웠다가, 넘기면 제자리에 깔린다.
    가운데에는 카드가 둘 뜬다. 왼쪽은 아래 줄에 깔릴 그 카드와 같은 모양·같은 글이고,
@@ -1124,17 +1123,18 @@ tbody tr.us td:first-child { font-weight: 700; color: var(--brand-strong) }
 .figure p { font-size: 17.5px; color: var(--ink-muted); line-height: 1.45 }
 
 /* 구조도 — 한 장에 다 그리면 안 읽힌다. 하는 일별로 세 줄로 나눈다 */
-.lanes { display: flex; flex-direction: column; gap: 13px }
-.lane { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; display: flex; flex-direction: column; gap: 13px }
+.lanes { display: flex; flex-direction: column; gap: 16px }
+.lane { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 16px }
 .lane.key { border-color: var(--accent); border-width: 2px }
 .lane-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap }
-.lane-h b { font-size: 22px; font-weight: 700 }
-.lane-h span { font-size: 17.5px; color: var(--ink-muted) }
+.lane-h b { font-size: 25px; font-weight: 700 }
+.lane-h span { font-size: 19.5px; color: var(--ink-muted) }
 .lane.key .lane-h span { color: var(--accent-strong); font-weight: 600 }
-.flowrow { display: flex; align-items: stretch; gap: 9px; flex-wrap: wrap }
-.nodebox { flex: 1 1 148px; min-width: 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: 13px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px }
-.nodebox .nm { font-size: 21px; font-weight: 700; line-height: 1.25 }
-.nodebox .rl { font-size: 16.5px; color: var(--ink-muted); line-height: 1.4 }
+.flowrow { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap }
+.nodebox { flex: 1 1 148px; min-width: 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: 13px; padding: 16px 14px; display: flex; flex-direction: column; gap: 4px;
+  word-break: keep-all }
+.nodebox .nm { font-size: 24px; font-weight: 700; line-height: 1.25 }
+.nodebox .rl { font-size: 18.5px; color: var(--ink-muted); line-height: 1.4 }
 .nodebox.brand { background: var(--brand-tint); border-color: transparent }
 .nodebox.brand .rl { color: var(--brand-strong) }
 .nodebox.mint { background: var(--accent-tint); border-color: transparent }
@@ -1142,7 +1142,7 @@ tbody tr.us td:first-child { font-weight: 700; color: var(--brand-strong) }
 .nodebox.out { background: transparent; border-style: dashed; border-color: var(--ink-dim) }
 .arr { flex: 0 0 auto; align-self: center; display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 56px }
 .arr i { font-style: normal; font-size: 30px; line-height: 1; color: var(--ink-dim) }
-.arr em { font-style: normal; font-size: 15px; line-height: 1.25; text-align: center; color: var(--ink-dim) }
+.arr em { font-style: normal; font-size: 16.5px; line-height: 1.25; text-align: center; color: var(--ink-dim) }
 .arr.strong i { color: var(--accent-strong); font-size: 26px }
 .arr.strong em { color: var(--accent-strong); font-weight: 700 }
 @media (max-width: 820px) {
@@ -1576,9 +1576,10 @@ body.screen-real .live-room.room-easy { display: none }
 @keyframes gotIn { from { opacity: 0 } to { opacity: 1 } }
 
 .guard-cap { max-width: 1100px; margin: clamp(16px, 2vw, 26px) auto 0; text-align: center;
-  font-size: clamp(17px, 1.6vw, 23px); line-height: 1.55; color: var(--ink-muted) }
+  font-size: clamp(20px, 2vw, 28px); line-height: 1.55; color: var(--ink-muted) }
 .guard-cap b { color: var(--ink) }
 .guard-cap .gc-motto { color: var(--brand-strong); font-weight: 700 }
+.guard-cap .gc-arrow { font-size: 1.3em; color: var(--brand); vertical-align: middle }
 
 @media (max-width: 760px) {
   .fly { max-width: 44%; font-size: 13px; padding: 9px 12px }
@@ -1601,13 +1602,14 @@ body.screen-real .live-room.room-easy { display: none }
 .agx { width: 100%; max-width: min(1400px, 96vw); margin: 0 auto }
 .agx svg { width: 100%; height: auto; display: block }
 .agx text { font-family: inherit; text-anchor: middle; fill: var(--ink) }
-.ax-t1 { font-size: 23px; font-weight: 800; letter-spacing: -.02em }
-.ax-t1.sm { font-size: 20px }
-.ax-t2 { font-size: 16px; font-weight: 700; fill: var(--brand-strong) }
-.ax-t2.dim { font-size: 13px; font-weight: 600; fill: var(--ink-dim) }
+.ax-t1 { font-size: 28px; font-weight: 800; letter-spacing: -.02em }
+.ax-t1.sm { font-size: 24px }
+.ax-t2 { font-size: 20px; font-weight: 700; fill: var(--brand-strong) }
 .ax-t2.g { fill: var(--danger) }
-.ax-t3 { font-size: 15px; fill: var(--ink-muted); font-weight: 500 }
-.agx .ax-t4 { font-size: 14px; fill: var(--ink-dim); font-weight: 600; text-anchor: start }
+.ax-q .ax-t2 { font-size: 24px }
+.ax-tool .ax-t2, .ax-gate .ax-t2 { font-size: 22px }
+.ax-t3 { font-size: 19px; fill: var(--ink-muted); font-weight: 500 }
+.agx .ax-t4 { font-size: 18px; fill: var(--ink-dim); font-weight: 600; text-anchor: start }
 .agx .ax-t4.g { fill: var(--danger); text-anchor: middle }
 .agx .ax-t4.b { fill: var(--brand-strong); text-anchor: middle }
 
@@ -1615,7 +1617,6 @@ body.screen-real .live-room.room-easy { display: none }
 .ax-h rect { fill: var(--panel-2) }
 .ax-b rect { fill: var(--panel) }
 .ax-q rect { fill: var(--brand-tint); stroke: none }
-.ax-q rect.ax-q-dim { fill: var(--panel-2) }
 .ax-tool rect { fill: var(--panel-2); stroke: var(--line); stroke-width: 1 }
 .ax-gate rect { fill: var(--danger-tint); stroke: rgb(196 52 58 / .35) }
 .ax-s rect { fill: var(--accent-tint); stroke: rgb(46 196 166 / .4) }
@@ -1630,9 +1631,6 @@ body.screen-real .live-room.room-easy { display: none }
 .agx-note > .axn { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
   padding: clamp(15px, 1.7vw, 22px) clamp(17px, 2vw, 26px) }
 .s-qual .barrow { transition: opacity .45s ease }
-.gr-line { width: 100%; max-width: 1240px; margin: 0 auto; text-align: center;
-  font-size: clamp(14px, 1.35vw, 19px); line-height: 1.7; color: var(--ink-muted) }
-.gr-line b { color: var(--ink); font-weight: 800 }
 /* 가드레일에서는 두 칸을 크게 쓴다 — 이 장의 본문이다 */
 #s-guardrail .agx-note > .axn { padding: clamp(22px, 2.6vw, 38px) clamp(24px, 2.8vw, 40px) }
 #s-guardrail .axn-h { font-size: clamp(22px, 2.3vw, 32px); margin-bottom: clamp(20px, 2.4vw, 32px) }
@@ -4131,7 +4129,7 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow" style="color:var(--danger)">LLM 규칙</p>
-      <h2 class="title">근거를 못 찾은 문장은 버립니다</h2>
+      <h2 class="title">근거를 못 찾은 문장은 과감하게 버리기</h2>
     </div>
 
     <div class="guard reveal">
@@ -4241,8 +4239,9 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
 
       <p class="guard-cap">
-        근거가 붙은 문장만 면접관에게 갑니다. 나머지는 고치지 않고 버립니다.<br>
-        <span class="gc-motto">최종 결정은 면접관이 합니다.</span>
+        근거가 확인된 문장만 면접관에게 보내고 나머지는 버립니다.<br>
+        <span class="material-symbols-outlined gc-arrow" aria-hidden="true">arrow_downward</span><br>
+        <span class="gc-motto">AI의 판단이나 환각을 최소화</span>
       </p>
     </div>
   </div>
@@ -4257,7 +4256,7 @@ body.screen-real .live-room.room-easy { display: none }
     </div>
 
     <div class="agx reveal">
-      <svg viewBox="0 132 1240 418" role="img" aria-label="IRYA 에이전트 구조도">
+      <svg viewBox="0 132 1240 458" role="img" aria-label="IRYA 에이전트 구조도">
         <defs>
           <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
             <path d="M0 0 10 5 0 10z" fill="#8f96ad"/>
@@ -4269,77 +4268,72 @@ body.screen-real .live-room.room-easy { display: none }
 
         <!-- 사람 -->
         <g class="ax-h">
-          <rect x="14" y="196" width="178" height="118" rx="16"/>
-          <text x="103" y="236" class="ax-t1">사람</text>
-          <text x="103" y="266" class="ax-t3">이력서를 올린다</text>
-          <text x="103" y="290" class="ax-t3">면접을 끝낸다</text>
+          <rect x="14" y="208" width="190" height="140" rx="16"/>
+          <text x="109" y="258" class="ax-t1">사람</text>
+          <text x="109" y="292" class="ax-t3">이력서를 올린다</text>
+          <text x="109" y="320" class="ax-t3">면접을 끝낸다</text>
         </g>
-        <path class="ax-l" d="M196 255 H268" marker-end="url(#ah)"/>
+        <path class="ax-l" d="M208 278 H262" marker-end="url(#ah)"/>
 
         <!-- 백엔드 + 큐 -->
         <g class="ax-b">
-          <rect x="272" y="150" width="236" height="210" rx="16"/>
-          <text x="390" y="186" class="ax-t1">백엔드</text>
-          <text x="390" y="212" class="ax-t3">할 일을 대기열에 쌓는다</text>
+          <rect x="266" y="150" width="270" height="256" rx="16"/>
+          <text x="401" y="192" class="ax-t1">백엔드</text>
+          <text x="401" y="222" class="ax-t3">할 일을 대기열에 쌓는다</text>
         </g>
         <g class="ax-q">
-          <rect x="298" y="232" width="184" height="36" rx="9"/><text x="390" y="256" class="ax-t2">PREP</text>
-          <rect x="298" y="276" width="184" height="36" rx="9"/><text x="390" y="300" class="ax-t2">REVIEW</text>
-          <rect x="298" y="320" width="184" height="30" rx="9" class="ax-q-dim"/><text x="390" y="341" class="ax-t2 dim">REPORT · 사람이 눌러야 들어감</text>
+          <rect x="286" y="244" width="230" height="65" rx="9"/><text x="401" y="285" class="ax-t2">PREP</text>
+          <rect x="286" y="321" width="230" height="65" rx="9"/><text x="401" y="362" class="ax-t2">REVIEW</text>
         </g>
 
-        <path class="ax-l b" d="M512 236 H604" marker-end="url(#ahb)"/>
-        <text x="558" y="222" class="ax-t4 b">한 건씩 가져감</text>
-        <path class="ax-l" d="M604 330 H512" marker-end="url(#ah)"/>
-        <text x="516" y="382" class="ax-t4">결과를 돌려줌</text>
+        <path class="ax-l b" d="M540 276 H654" marker-end="url(#ahb)"/>
+        <text x="597" y="262" class="ax-t4 b">한 건씩 가져감</text>
+        <path class="ax-l" d="M654 354 H540" marker-end="url(#ah)"/>
+        <text x="597" y="380" class="ax-t4" style="text-anchor: middle">결과를 돌려줌</text>
 
         <!-- 워커 -->
         <g class="ax-w">
-          <rect x="608" y="150" width="268" height="210" rx="16"/>
-          <text x="742" y="186" class="ax-t1">AI 워커</text>
-          <text x="742" y="212" class="ax-t3">한 건씩 가져와 처리</text>
+          <rect x="658" y="150" width="296" height="256" rx="16"/>
+          <text x="806" y="192" class="ax-t1">AI 워커</text>
+          <text x="806" y="222" class="ax-t3">한 건씩 가져와 처리</text>
         </g>
         <g class="ax-tool">
-          <rect x="632" y="236" width="104" height="42" rx="10"/><text x="684" y="263" class="ax-t2">OpenAI</text>
-          <rect x="748" y="236" width="104" height="42" rx="10"/><text x="800" y="262" class="ax-t2">Deepgram</text>
+          <rect x="672" y="244" width="127" height="65" rx="10"/><text x="736" y="284" class="ax-t2">OpenAI</text>
+          <rect x="813" y="244" width="127" height="65" rx="10"/><text x="876" y="284" class="ax-t2">Deepgram</text>
         </g>
         <g class="ax-gate">
-          <rect x="632" y="292" width="220" height="48" rx="10"/>
-          <text x="742" y="315" class="ax-t2 g">근거 게이트</text>
-          <text x="742" y="333" class="ax-t4 g">원문에 없으면 버림</text>
+          <rect x="672" y="321" width="268" height="65" rx="10"/>
+          <text x="806" y="361" class="ax-t2 g">근거 게이트</text>
         </g>
 
-        <path class="ax-l" d="M880 255 H956" marker-end="url(#ah)"/>
+        <path class="ax-l" d="M958 278 H1012" marker-end="url(#ah)"/>
         <g class="ax-s">
-          <rect x="960" y="196" width="178" height="118" rx="16"/>
-          <text x="1049" y="236" class="ax-t1">저장</text>
-          <text x="1049" y="266" class="ax-t3">요약 · 타임라인</text>
-          <text x="1049" y="290" class="ax-t3">확인할 내용</text>
+          <rect x="1016" y="208" width="190" height="140" rx="16"/>
+          <text x="1111" y="258" class="ax-t1">저장</text>
+          <text x="1111" y="292" class="ax-t3">요약 · 타임라인</text>
+          <text x="1111" y="320" class="ax-t3">확인할 내용</text>
         </g>
 
         <!-- 면접 중은 다른 레인 -->
-        <line class="ax-div" x1="14" y1="408" x2="1226" y2="408"/>
-        <text x="14" y="434" class="ax-t4">면접 중 작업은 대기열을 거치지 않습니다 — 방 하나가 작업 하나입니다</text>
+        <line class="ax-div" x1="14" y1="440" x2="1226" y2="440"/>
 
         <g class="ax-r">
-          <rect x="14" y="450" width="200" height="86" rx="14"/>
-          <text x="114" y="484" class="ax-t1 sm">LiveKit 방</text>
-          <text x="114" y="510" class="ax-t3">면접관 · 지원자</text>
+          <rect x="14" y="466" width="300" height="104" rx="14"/>
+          <text x="164" y="508" class="ax-t1 sm">LiveKit 방</text>
+          <text x="164" y="540" class="ax-t3">면접관 · 지원자</text>
         </g>
-        <path class="ax-l" d="M218 493 H290" marker-end="url(#ah)"/>
+        <path class="ax-l" d="M318 518 H372" marker-end="url(#ah)"/>
         <g class="ax-w">
-          <rect x="294" y="450" width="262" height="86" rx="14"/>
-          <text x="425" y="484" class="ax-t1 sm">방 에이전트</text>
-          <text x="425" y="510" class="ax-t3">음성을 받아 전사하고 꼬리질문을 만든다</text>
+          <rect x="376" y="466" width="468" height="104" rx="14"/>
+          <text x="610" y="508" class="ax-t1 sm">방 에이전트</text>
+          <text x="610" y="540" class="ax-t3">음성을 받아 전사하고 꼬리질문을 만든다</text>
         </g>
-        <path class="ax-l" d="M560 493 H632" marker-end="url(#ah)"/>
+        <path class="ax-l" d="M848 518 H902" marker-end="url(#ah)"/>
         <g class="ax-s">
-          <rect x="636" y="450" width="222" height="86" rx="14"/>
-          <text x="747" y="484" class="ax-t1 sm">면접관 화면</text>
-          <text x="747" y="510" class="ax-t3">자막 · 꼬리질문</text>
+          <rect x="906" y="466" width="300" height="104" rx="14"/>
+          <text x="1056" y="508" class="ax-t1 sm">면접관 화면</text>
+          <text x="1056" y="540" class="ax-t3">자막 · 꼬리질문</text>
         </g>
-        <text x="880" y="488" class="ax-t4">지원자에게는 가지 않습니다.</text>
-        <text x="880" y="512" class="ax-t4">꼬리질문은 면접관 화면에만 있습니다.</text>
       </svg>
     </div>
 
@@ -4350,8 +4344,8 @@ body.screen-real .live-room.room-easy { display: none }
 <section class="band band--panel" id="s-guardrail" data-label="가드레일">
   <div class="wrap stack">
     <div class="reveal">
-      <p class="eyebrow" style="color:var(--warn)">가드레일과 예외</p>
-      <h2 class="title">틀릴 수 있다는 전제로 지었습니다</h2>
+      <p class="eyebrow" style="color:var(--warn)">가드레일</p>
+      <h2 class="title">오류나 예외상황 대처방식</h2>
     </div>
     <div class="agx-note reveal">
 
@@ -4397,7 +4391,6 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
 
     </div>
-    <p class="gr-line reveal"><b>AI의 말은 제안까지만</b> 사람이 채택하기 전에는 어떤 근거도 되지 않습니다. &nbsp;·&nbsp; <b>동의 없이는 한 조각도 안 올라감</b> 화면만 막지 않고 서버가 입장을 거부합니다.</p>
   </div>
 </section>
 
@@ -4406,8 +4399,7 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">기술 개요</p>
-      <h2 class="title">서버 한 대에서 컨테이너 여덟 개가 함께 돕니다</h2>
-      <p class="lede">영상과 음성은 서버를 거치지 않고 브라우저가 화상 서버에 직접 연결합니다. 프록시를 지나는 건 연결을 맺는 신호뿐입니다.</p>
+      <h2 class="title">전체적인 서비스 기술 구성</h2>
     </div>
     <div class="lanes">
       <div class="lanewrap reveal" data-t="0">
@@ -4566,8 +4558,8 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">AI 품질 점검</p>
-      <h2 class="title">측정해 보고 엔진을 바꿨습니다</h2>
-      <p class="lede">음성 9종을 실시간 전사 엔진 두 개에 각각 3번씩 넣고, 같은 채점 기준으로 비교했습니다. 결과를 보고 운영 엔진을 바꿨습니다.</p>
+      <h2 class="title">전사 AI 결정 과정</h2>
+      <p class="lede">음성 9종을 실시간 전사 엔진 두 개에 각각 3번씩 넣고, 같은 채점 기준으로 비교했습니다.</p>
     </div>
     <div class="card" id="bench" style="gap:20px">
       <div class="bars">
@@ -4653,41 +4645,34 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">접근성 검수</p>
-      <h2 class="title">화면낭독기를 켜고 직접 들어 봤습니다</h2>
+      <h2 class="title">접근성 향상을 위한 팀의 노력</h2>
       <p class="lede">카카오 디지털접근성 팀 검수 · KWCAG 2.2 · 2026.10.22 ~ 10.30</p>
     </div>
 
     <div class="axq reveal">
       <p>“홈페이지 전반적으로 대체 텍스트가 제공되었으며 <b>명도대비가 높습니다.</b>”</p>
       <span>보고서 종합의견</span>
-      <i class="axq-n"><b>6</b>건 지적 · <b>전부</b> 반영 &nbsp;|&nbsp; 보고서에 없던 <b>3</b>건 더 찾아 고침</i>
+      <i class="axq-n"><b>6</b>건 지적 &nbsp;→&nbsp; <b class="w">전부</b> 반영 &nbsp;+&nbsp; 보고서에 없던 <b>3</b>건 더</i>
     </div>
 
     <div class="axg reveal">
       <div class="axc">
         <span class="material-symbols-outlined">keyboard_tab</span>
-        <h3>건너뛰기 링크</h3>
-        <p>Tab 을 누르면 가장 먼저 「본문 바로가기」가 잡힙니다. 주소는 그대로 두고 <b>초점만</b> 본문으로 옮깁니다.</p>
+        <h3>건너뛰기 링크 제공</h3>
       </div>
       <div class="axc">
         <span class="material-symbols-outlined">tab</span>
         <h3>버튼이 아니라 탭으로</h3>
-        <p>검토 상태 거르개를 <b>tablist</b> 로 바꿨습니다. ← → Home End 로 옮기고, Tab 은 선택된 탭에만 멈춥니다.</p>
       </div>
       <div class="axc">
         <span class="material-symbols-outlined">troubleshoot</span>
-        <h3>잘린 테두리는 증상이었습니다</h3>
-        <p>원인은 전역 초점 규칙이 <b>CSS 레이어 밖</b>에 있어 덮이지 않던 것. 규칙을 옮기고 테두리를 안쪽에 그렸습니다.</p>
+        <h3>잘린 테두리 부분 수정</h3>
       </div>
       <div class="axc hear">
         <span class="material-symbols-outlined">hearing</span>
-        <h3>NVDA 로 들어 봤습니다</h3>
-        <p class="axr">“검토 상태 탭 컨트롤 / 전체 2, 탭, <b>선택됨, 4개 중 1번째</b>”</p>
-        <p class="axr">“지원자 이름 <b>(필수입력)</b> 입력란 <b>필요함</b>”</p>
+        <h3>화면 낭독기로 직접 확인</h3>
       </div>
     </div>
-
-    <p class="axf reveal">보고서에 없던 셋 — 자막을 위로 올리면 자동 스크롤이 멈추고 「최신 자막으로」가 뜹니다 · 화면마다 문서 제목을 붙였습니다 · 지원자 표에 <code>caption</code> 과 <code>scope</code> 를 넣었습니다.</p>
   </div>
 </section>
 
@@ -4696,8 +4681,7 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">차별점</p>
-      <h2 class="title">결론을 만들지 않습니다<br>근거만 만듭니다</h2>
-      <p class="lede">비슷한 서비스는 대부분 AI가 결론 비슷한 것을 만들어 줍니다 — <b>점수를 내거나, 평가표를 미리 채워 줍니다.</b> 저희는 선을 다른 데 그었습니다.</p>
+      <h2 class="title">결정의 주체는 어디까지나 “사람”</h2>
     </div>
     <div class="stack reveal" style="gap:16px">
       <div class="pmap">
@@ -4718,8 +4702,8 @@ body.screen-real .live-room.room-easy { display: none }
         <p class="pm-note">2026-11-04 · 11-10 에 각 서비스의 공개 자료를 읽고 저희가 놓은 자리입니다. 점수를 매겨 잰 것이 아닙니다.</p>
       </div>
       <div class="note-warn">
-        <strong>가장 가까운 곳은 BrightHire 입니다 — 겹치는 것을 먼저 말씀드립니다</strong>
-        <p>2026-11-04 에 brighthire.com을 직접 읽었습니다. <b>녹화 · 전사 · 요약은 물론이고, 핵심 장면을 클립으로 만들어 「그 순간으로」 연결하는 것까지 합니다.</b> 스코어카드 자동 작성, 구조화 면접 가이드, 면접관 코칭도 있습니다 — 셋 다 저희에게 없습니다. 지원 언어는 「30개 이상」이라고만 하고 목록이 없어 <b>한국어 포함 여부는 알 수 없습니다.</b> 가격은 비공개이고 회사 규모 기준입니다.</p>
+        <strong>가장 비슷한 BrightHire와의 비교</strong>
+        <ul><li>스코어카드 작성을 대신 해 줌</li><li>한국어 지원 불가</li></ul>
       </div>
       <details class="fine cmp"><summary>서비스별 비교표 · 무엇이 다른가</summary>
       <div class="tablewrap">
@@ -4747,25 +4731,25 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">사업성과 시장성</p>
-      <h2 class="title">도입을 막는 단계가 없습니다</h2>
-      <p class="lede">면접관은 쓰던 대로 면접을 보고, 지원자는 링크를 엽니다. <b>설치도 가입도 없고</b>, 기존 채용 절차를 바꾸지 않아도 됩니다.</p>
+      <h2 class="title">뛰어난 접근성</h2>
+      <p class="lede"><b>별도의 설치 과정 없이</b> 하던 대로 면접을 진행하기만 하면 됩니다.</p>
     </div>
 
     <div class="who reveal">
       <div class="who-c">
         <span class="who-k">면접관</span>
         <h3>면접만 보면 됩니다</h3>
-        <p>적느라 못 듣는 일이 없어집니다. 정리는 끝나고 나서 근거가 붙은 채로 돌아옵니다.</p>
+        <p>면접에만 집중해서 진행하면 정리는 AI가 알아서 하고 근거도 연결.</p>
       </div>
       <div class="who-c">
         <span class="who-k">지원자</span>
         <h3>링크만 열면 됩니다</h3>
-        <p>설치도 가입도 없습니다. 무엇을 저장하고 언제 지우는지 먼저 보고, 동의해야 녹화가 시작됩니다.</p>
+        <p>설치도 가입도 없이 평소와 같이 면접을 보기만 하면 됨.</p>
       </div>
       <div class="who-c">
         <span class="who-k">회사</span>
         <h3>기준이 쌓입니다</h3>
-        <p>면접관이 확정한 근거가 「우리 회사는 무엇을 왜 보는가」로 남습니다. 쓸수록 두꺼워집니다.</p>
+        <p>면접관이 확정한 근거가 우리 회사가 보는 인재상에 대한 빅데이터가 됨.</p>
       </div>
     </div>
 
@@ -5121,18 +5105,25 @@ body.screen-real .live-room.room-easy { display: none }
   /* 「4 단계」의 「4」 자리가 네 구간 이름으로 번갈아 바뀐다.
      한 바퀴 돌면 숫자로 돌아온다 — 세는 수와 그 넷이 무엇인지를 한 자리에서 말한다.
      (이 블록을 지웠을 때 el.style.transition 한 줄이 남아 ReferenceError 가 났고,
-      그 아래 코드가 전부 멈춰 띠마다 글이 안 떴다. el 을 먼저 찾고 없으면 나간다.) */
+      그 아래 코드가 전부 멈춰 띠마다 글이 안 떴다. el 을 먼저 찾고 없으면 나간다.)
+     페이지를 열 때가 아니라 이 줄이 보일 때(showEl) 돌기 시작한다 — 미리 돌려 두면
+     스크롤해 내려왔을 때 「면접 중」 같은 중간 단어부터 보인다. 다시 보일 때마다 「4」부터. */
+  var featCycStart = function () {};
   (function cycFour() {
     var el = document.getElementById('featCyc');
     if (!el || reduce) return;
     var WORDS = ['4', '면접 전', '면접 중', '면접 후', '검토'];
-    var i = 0;
+    var i = 0, tick = null, swap = null;
     el.style.transition = 'opacity .18s ease';
-    setInterval(function () {
-      i = (i + 1) % WORDS.length;
-      el.style.opacity = '0';
-      setTimeout(function () { el.textContent = WORDS[i]; el.style.opacity = '1'; }, 180);
-    }, 1400);
+    featCycStart = function () {
+      clearInterval(tick); clearTimeout(swap);
+      i = 0; el.textContent = WORDS[0]; el.style.opacity = '1';
+      tick = setInterval(function () {
+        i = (i + 1) % WORDS.length;
+        el.style.opacity = '0';
+        swap = setTimeout(function () { el.textContent = WORDS[i]; el.style.opacity = '1'; }, 180);
+      }, 1400);
+    };
   })();
 
   /* 구간 하나가 가운데에 떴다가 제자리로 들어가는 동작.
@@ -5363,7 +5354,7 @@ body.screen-real .live-room.room-easy { display: none }
     else if (el.classList.contains('barrow') && el.dataset.q !== undefined) qStep(+el.dataset.q);
     else if (el.hasAttribute('data-qend')) qClose();
     else if (el.classList.contains('feat-card')) featStep(+el.dataset.f);
-    else if (el.hasAttribute('data-featend')) featClose();
+    else if (el.hasAttribute('data-featend')) { featClose(); featCycStart(); }
     else if (el.id === 'oneStage') oneStageStep(1);
     else if (el.dataset.onestep) oneStageStep(+el.dataset.onestep);
     return true;
