@@ -130,24 +130,6 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
    띠가 화면을 넘지 않는다. 그래서 origin 을 위쪽에 두고 높이를 직접 준다. */
 .band > .wrap { transform: scale(var(--fit, 1)); transform-origin: top center }
 
-/* 임시 쪽지 — 정해지면 이 규칙과 .wipflag 블록을 같이 지운다 */
-.wipflag { position: absolute; z-index: 9; top: clamp(14px, 2.2vh, 30px); right: clamp(14px, 2vw, 34px);
-  max-width: min(320px, 42vw); text-align: right;
-  padding: clamp(10px, 1.2vw, 16px) clamp(13px, 1.5vw, 20px);
-  background: #fff6d9; border: 2px dashed #d9a327; border-radius: 13px;
-  box-shadow: 0 10px 30px rgb(140 100 10 / .16); rotate: 1.4deg }
-.wipflag b { display: block; font-size: clamp(15px, 1.5vw, 20px); font-weight: 800;
-  color: #8a5a00; letter-spacing: -.01em }
-.wipflag span { display: block; margin-top: 3px; font-size: clamp(12px, 1.15vw, 15px);
-  line-height: 1.45; color: #9a6d16; font-weight: 600 }
-@media (prefers-reduced-motion: no-preference) {
-  .wipflag { animation: wipPulse 2.6s ease-in-out infinite }
-}
-@keyframes wipPulse {
-  0%, 100% { box-shadow: 0 10px 30px rgb(140 100 10 / .16) }
-  50% { box-shadow: 0 10px 30px rgb(140 100 10 / .16), 0 0 0 7px rgb(217 163 39 / .17) }
-}
-
 .pageno { position: fixed; right: clamp(14px, 1.8vw, 28px); bottom: clamp(12px, 1.6vh, 22px);
   z-index: 8; font-family: var(--font-mono); font-size: clamp(12px, 1.15vw, 15px);
   font-weight: 600; color: var(--ink-dim); opacity: .62; pointer-events: none;
@@ -203,28 +185,6 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
   .fan { grid-template-columns: 1fr; gap: 12px }
   .fan-link { display: none }
 }
-
-/* (쓰지 않음) 커지는 테두리 — 확장을 겹으로 그린 안.
-   안쪽이 지금 되는 것, 바깥으로 갈수록 넓어지는 자리. 각 테두리에 왜
-   그게 가능한지를 한 줄씩 붙인다 — 넓힐 수 있다는 말만으로는 근거가 없다. */
-.xpd { width: 100%; max-width: 1240px; margin: 0 auto }
-.xp-ring { border-radius: clamp(16px, 1.8vw, 26px); border: 1.5px solid var(--line);
-  padding: clamp(9px, 1.1vw, 15px) }
-.xp-ring.r3 { background: color-mix(in srgb, var(--brand-tint) 42%, transparent) }
-.xp-ring.r2 { background: color-mix(in srgb, var(--brand-tint) 70%, transparent) }
-.xp-ring.r1 { background: var(--brand-tint); border-color: rgb(75 79 224 / .28) }
-.xp-lab { display: flex; align-items: baseline; gap: clamp(8px, 1vw, 14px); flex-wrap: wrap;
-  padding: 0 clamp(6px, .8vw, 12px) clamp(8px, 1vw, 13px) }
-.xp-lab b { font-size: clamp(15px, 1.5vw, 21px); font-weight: 800; letter-spacing: -.01em;
-  color: var(--brand-strong); white-space: nowrap }
-.xp-lab em { font-style: normal; font-size: clamp(13px, 1.25vw, 17px); color: var(--ink-muted);
-  line-height: 1.45 }
-.xp-core { border-radius: clamp(12px, 1.4vw, 20px); background: var(--brand); color: #fff;
-  padding: clamp(14px, 1.8vw, 26px); text-align: center }
-.xp-core b { display: block; font-size: clamp(20px, 2.2vw, 32px); font-weight: 800; letter-spacing: -.02em }
-.xp-core em { display: block; margin-top: 4px; font-style: normal;
-  font-size: clamp(12.5px, 1.2vw, 16px); color: rgb(255 255 255 / .78); font-weight: 600 }
-@media (max-width: 760px) { .xp-lab b { white-space: normal } }
 
 /* 접근성 검수 — 받은 지적과 고친 방법, 그리고 실제로 들어 본 문장 */
 .axq { width: 100%; max-width: 1240px; margin: 0 auto; text-align: center;
@@ -298,8 +258,9 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 .s-tech .lanewrap, .s-tech .grid.g3 { transition: opacity .45s ease }
 body.js .s-tech .lanewrap.reveal.in,
 body.js .s-tech .grid.g3.reveal.in { opacity: 0 }
-/* 내려앉지 않는 장은 자리도 차지하지 않는다 */
-.s-tech [data-nodock] { display: none }
+/* 내려앉지 않는 장은 자리도 차지하지 않는다 — JS 가 안 돌면 세 숫자가
+   스포트라이트도 없이 사라지므로, 위 규칙들과 같이 body.js 로 묶는다 */
+body.js .s-tech [data-nodock] { display: none }
 body.js .s-tech .lanewrap.reveal.in.settled,
 body.js .s-tech .grid.g3.reveal.in.settled { opacity: 1 }
 .tspot .spot-pair { padding: 0 3vw }
@@ -1633,6 +1594,9 @@ body.screen-real .live-room.room-easy { display: none }
 .gr-line { width: 100%; max-width: 1240px; margin: 0 auto; text-align: center;
   font-size: clamp(14px, 1.35vw, 19px); line-height: 1.7; color: var(--ink-muted) }
 .gr-line b { color: var(--ink); font-weight: 800 }
+/* 세 번째 가드레일은 성격이 달라 한 줄 내려 쓴다 — 위 둘은 화면 정책,
+   이건 로그·개인정보다. 같은 문단 안이라 방향키 단계는 늘지 않는다. */
+.gr-line .gr-log { display: block; margin-top: .55em }
 /* 가드레일에서는 두 칸을 크게 쓴다 — 이 장의 본문이다 */
 #s-guardrail .agx-note > .axn { padding: clamp(22px, 2.6vw, 38px) clamp(24px, 2.8vw, 40px) }
 #s-guardrail .axn-h { font-size: clamp(22px, 2.3vw, 32px); margin-bottom: clamp(20px, 2.4vw, 32px) }
@@ -4397,7 +4361,7 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
 
     </div>
-    <p class="gr-line reveal"><b>AI의 말은 제안까지만</b> 사람이 채택하기 전에는 어떤 근거도 되지 않습니다. &nbsp;·&nbsp; <b>동의 없이는 한 조각도 안 올라감</b> 화면만 막지 않고 서버가 입장을 거부합니다.</p>
+    <p class="gr-line reveal"><b>AI의 말은 제안까지만</b> 사람이 채택하기 전에는 어떤 근거도 되지 않습니다. &nbsp;·&nbsp; <b>동의 없이는 한 조각도 안 올라감</b> 화면만 막지 않고 서버가 입장을 거부합니다.<span class="gr-log"><b>로그에 원문을 남기지 않음</b> 분석 로그에는 상태와 개수와 걸린 시간만 남고, 요약 본문과 인용 원문은 남지 않습니다.</span></p>
   </div>
 </section>
 
@@ -4769,7 +4733,7 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
     </div>
 
-    <details class="fine calcfold reveal"><summary>원가와 과금 — 한 달 면접 건수로 계산해 봅니다</summary>
+    <details class="fine reveal"><summary>원가와 과금 — 한 달 면접 건수로 계산해 봅니다</summary>
     <div class="calc">
       <div class="calc-head">
         <label for="vol">한 달에 보는 면접</label>
@@ -4789,11 +4753,6 @@ body.screen-real .live-room.room-easy { display: none }
 
 <!-- 남은 것 ──────────────────────────────── -->
 <section class="band band--deep" id="s-next" data-label="확장성">
-  <!-- 임시 쪽지 — 이 장을 넣을지 정하면 이 블록과 .wipflag CSS 를 지운다 -->
-  <aside class="wipflag">
-    <b>이 장 뺄지 고민 중</b>
-    <span>의견 주세요 — 확장성(현장 ⑥ 6점)이 13페이지와 겹칩니다</span>
-  </aside>
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">확장성</p>
