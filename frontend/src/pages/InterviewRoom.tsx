@@ -9,6 +9,7 @@
 
 import { useRef, useState } from 'react';
 import { InterviewRoomView } from '../components/interview/InterviewRoomView';
+import { useDemoScript } from '../hooks/useDemoScript';
 import { useInterviewRoom } from '../hooks/useInterviewRoom';
 import type { EndSessionResponse, Role } from '../types/interview';
 
@@ -55,6 +56,8 @@ export default function InterviewRoom({
     });
   const [endError, setEndError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
+  // 최종 발표 데모. `VITE_DEMO_SCRIPT=on` 이 아니면 아무것도 하지 않는다.
+  useDemoScript({ sessionId, role });
 
   const handleEnd = async () => {
     setEnding(true);

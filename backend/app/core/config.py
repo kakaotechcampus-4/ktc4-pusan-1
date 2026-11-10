@@ -99,6 +99,24 @@ class Settings(BaseSettings):
     # `parsing` 에 멈춘 문서도 결국 끝난다.
     doc_parse_timeout_seconds: float = Field(default=180, gt=0, le=1800)
 
+    # 최종 발표 데모용 발화 주입 (`POST /sessions/{id}/demo/utterance`).
+    #
+    # 무대에는 지원자가 없다. 그래서 준비한 답변을 Agent 에 보내 **지원자 발화로**
+    # 넣어 주고, 그 뒤 자막·저장·꼬리질문은 전부 실제 경로가 돌게 한다. 바꿔치는
+    # 것은 「지원자가 소리를 냈다」는 사실 하나뿐이다.
+    #
+    # 둘이 같이 있어야 하고, 그 둘이 통제 장치다 — 플래그는 이 배포에서 기능을
+    # 켜고, 목록은 **어느 세션**에 넣을 수 있는지를 정한다.
+    #
+    # ⚠️ 목록에 오른 세션의 전사에는 아무도 말하지 않은 문장이 들어갈 수 있다.
+    # 데모 세션만 적는다. 목록이 비면 아무 세션도 허용되지 않는다 — 플래그만 켜서
+    # 그 서버의 모든 면접을 열어 버리는 일이 없게 실패를 닫는 쪽으로 둔다.
+    # 쉼표로 구분한다. 예: ses_abc,ses_def
+    #
+    # AI 쪽 DEMO_INJECTION_ENABLED·DEMO_INJECTION_SESSIONS 도 같이 맞춰야 한다.
+    demo_injection_enabled: bool = False
+    demo_injection_sessions: str = ""
+
     # 녹화를 두는 S3 버킷 (#112). 비우면 녹화를 걸지 않는다 — 로컬과 테스트의 기본.
     # 자격증명은 받지 않는다. 운영은 인스턴스 역할을, 로컬은 AWS_* 환경변수를 쓴다.
     recording_bucket: str = ""
@@ -134,6 +152,27 @@ class Settings(BaseSettings):
     @property
     def doc_parse_timeout(self) -> timedelta:
         return timedelta(seconds=self.doc_parse_timeout_seconds)
+
+    @property
+    def demo_injection_session_ids(self) -> frozenset[str]:
+        """주입을 허용한 세션들. 비면 아무것도 허용하지 않는다.
+
+        쉼표로 구분하고, 둘러싼 대괄호·따옴표·공백은 떼어낸다. 데모의 브라우저 쪽은
+        JSON 배열(`["ses_abc"]`)을 받고 서버 env 는 맨 쉼표 목록을 받아서, 둘을 바꿔
+        붙여넣는 실수가 난다. 그냥 두면 **조용히** 닫힌다 — 아무것과도 안 맞는 id 한
+        개가 되어 404 만 나오고 이유가 안 보인다. 세션 id 에 이 글자들은 없으니 양쪽
+        모양을 다 받아도 잃는 게 없다.
+
+        ⚠️ Agent 의 `irya_ai.demo_injection.allowed_sessions` 와 **같은 식이어야
+        한다.** 한쪽만 고치면 BE 는 허용하는데 Agent 는 핸들러를 안 붙이는 조합이
+        생기고, 그때 BE 는 204 를 주면서 아무 일도 일어나지 않는다. 그 조합을
+        `tests/test_demo_injection.py` 가 두 쪽 같은 입력으로 못 박는다.
+        """
+        parts = (
+            part.strip("[]\"' \t\r\n")
+            for part in self.demo_injection_sessions.split(",")
+        )
+        return frozenset(part for part in parts if part)
 
     @property
     def cors_origin_list(self) -> list[str]:
