@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { reportBlockReason, reportIsStale } from '../src/lib/reportState.ts';
+import { reportBlockReason, reportIsStale, reportStaleNotice } from '../src/lib/reportState.ts';
 
 const review = {
   reviewStatus: 'CONFIRMED',
@@ -37,5 +37,15 @@ test('검토 항목 분석 실패와 실제 빈 목록을 구분하고 요약 �
   assert.equal(
     reportBlockReason({ ...review, summaryStatus: 'FAILED', findingsStatus: 'COMPLETED' }),
     null,
+  );
+});
+
+test('기준이 다른 사유마다 눌러야 할 것을 다르게 안내한다', () => {
+  assert.equal(reportStaleNotice(report, review), null);
+  assert.match(reportStaleNotice(report, { ...review, reviewStatus: 'IN_REVIEW' }), /확정/);
+  assert.match(reportStaleNotice(report, { ...review, sessionId: 'ses_2' }), /세션/);
+  assert.match(
+    reportStaleNotice(report, { ...review, reviewedAt: '2026-10-30T10:02:00Z' }),
+    /최신/,
   );
 });

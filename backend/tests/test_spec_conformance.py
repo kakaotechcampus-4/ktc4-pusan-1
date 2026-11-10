@@ -278,6 +278,15 @@ ERROR_CODE = {
     "ROOM_FULL",
     # ⚠️ Notion 명세에 없다 (#245). 지원자가 아직 동의하지 않아 입장을 막았다.
     "CONSENT_REQUIRED",
+    # ⚠️ Notion 명세에 없다 (#293). 전부터 응답으로 나가던 코드인데
+    # enum 에만 빠져 있었다.
+    "MEMO_CONFLICT",
+    "REVIEW_CONFIRMED",
+    "REVIEW_NOT_CONFIRMED",
+    "NO_ADOPTED_FINDING",
+    "REPORT_IN_PROGRESS",
+    "REPORT_OUTDATED",
+    "PREP_OUTDATED",
     "UNAUTHORIZED",
     "ROLE_NOT_ALLOWED",
     "KAKAO_AUTH_FAILED",
