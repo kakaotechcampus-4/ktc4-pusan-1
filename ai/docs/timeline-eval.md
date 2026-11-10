@@ -10,8 +10,8 @@ STT 청크(`Utterance` JSON)를 면접 종료 후 한꺼번에 프로젝트 LLM�
 
 | 순서 | 모델 | 이유 |
 | --- | --- | --- |
-| 1차 | `gpt-5.6-luna` | 대량 요약·추출용 경량 모델. 입력 ₩304 / 출력 ₩1,827 per 1M tokens |
-| 현재 기본값 (2026-10-16~) | `gpt-6-luna` | 게이트웨이 목록에 이 모델만 남음. 단가 미확인 |
+| 1차 | `gpt-5.6-luna` | 대량 요약·추출용 경량 모델. 입력 ₩304 / 출력 ₩1,827 per 1M tokens. 캐시된 입력은 1/10 |
+| 현재 기본값 (2026-10-16~) | `gpt-6-luna` | 게이트웨이 목록에 이 모델만 남음. 입력 ₩141 / 캐시된 입력 ₩14 / 출력 ₩708 per 1M tokens (2026-11-10 콘솔 확인) |
 | 예비 | `gpt-5.6-terra` | Luna 결과가 부족할 때. 입력 ₩3,045 / 출력 ₩18,270 per 1M tokens (10배) |
 
 두 모델 모두 Elice ML API의 OpenAI 호환 게이트웨이를 쓴다. **지원 목록에 없는 파라미터는 400으로
@@ -124,7 +124,7 @@ uv run irya-ai timeline data/samples/chunks_backend_junior_01.json --backend ext
 | --- | --- | --- |
 | 응답 model | `gpt-6-luna` | `gpt-6-luna` |
 | usage (prompt / completion / cached) | 2160 / 1377 / 0 | 1728 / 1316 / 1725 |
-| 추정 비용 | 단가 미확인 | 단가 미확인 |
+| 추정 비용 | 약 ₩1.3 | 약 ₩1.0 |
 | status / moments / selected / rejected | `completed` / 7 / 7 / 0 | `completed` / 7 / 7 / 0 |
 | warnings | `PROVISIONAL_TRANSCRIPT` | `PROVISIONAL_TRANSCRIPT` |
 | 인용 수 | 18 | 20 |
