@@ -11,7 +11,7 @@ JD·인재상·이력서 본문을 프로젝트 LLM에 넘겨 면접에서 확�
 | 모델 | 단가 (per 1M tokens) |
 | --- | --- |
 | `gpt-5.6-luna` | 입력 ₩304 / 출력 ₩1,827. 캐시된 입력은 1/10 |
-| `gpt-6-luna` (2026-10-16부터 기본값) | 미확인 |
+| `gpt-6-luna` (2026-10-16부터 기본값) | 입력 ₩141 / 캐시된 입력 ₩14 / 출력 ₩708 (2026-11-10 콘솔 확인) |
 
 Elice ML API의 OpenAI 호환 게이트웨이를 쓴다. 지원 목록 밖 파라미터는 400이라
 `openai_prep.py`는 `model`, `messages`, `response_format`, `max_completion_tokens`,
@@ -119,7 +119,7 @@ uv run irya-ai prep data/samples/context_backend_junior.json --backend extractiv
 | 역량 / 주장 | 5 / 4 | 5 / 4 | 5 / 4 |
 | 탈락 / 경고 | 0 / 0 | 0 / 0 | 0 / 0 |
 | tokens (prompt / completion / cached) | 1,467 / 752 / 0 | 1,174 / 744 / 1,171 | 1,174 / 512 / 1,171 |
-| 추정 비용 | 단가 미확인 | 단가 미확인 | 단가 미확인 |
+| 추정 비용 | 약 ₩0.7 | 약 ₩0.5 | 약 ₩0.4 |
 | 소요 | 5.9s | 5.6s | 4.8s |
 
 - **기술 줄 주장 두 개가 세 실행 모두 빠졌다.** "Kubernetes 기반 배포 파이프라인 구축"과

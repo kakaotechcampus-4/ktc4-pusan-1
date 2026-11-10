@@ -310,6 +310,9 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
+품질 지표의 정의와 측정 수단, 기본 모델을 `gpt-5.6-luna` → `gpt-6-luna` 로 바꾼 전후
+수치는 [분석 품질 지표와 측정 기록](docs/eval-metrics.md)에 모아 두었습니다.
+
 ## 구조
 
 ```
