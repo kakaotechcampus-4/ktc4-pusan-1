@@ -126,7 +126,137 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 }
 
 /* 어떤 화면에서도 한 띠가 한 화면 안에 들어오게 — 넘치면 그만큼 줄인다 */
-.band > .wrap { transform: scale(var(--fit, 1)); transform-origin: center center }
+/* 줄이기는 transform 이라 자리는 그대로 차지한다 — 줄인 만큼 높이도 같이 줄여야
+   띠가 화면을 넘지 않는다. 그래서 origin 을 위쪽에 두고 높이를 직접 준다. */
+.band > .wrap { transform: scale(var(--fit, 1)); transform-origin: top center }
+
+/* 임시 쪽지 — 정해지면 이 규칙과 .wipflag 블록을 같이 지운다 */
+.wipflag { position: absolute; z-index: 9; top: clamp(14px, 2.2vh, 30px); right: clamp(14px, 2vw, 34px);
+  max-width: min(320px, 42vw); text-align: right;
+  padding: clamp(10px, 1.2vw, 16px) clamp(13px, 1.5vw, 20px);
+  background: #fff6d9; border: 2px dashed #d9a327; border-radius: 13px;
+  box-shadow: 0 10px 30px rgb(140 100 10 / .16); rotate: 1.4deg }
+.wipflag b { display: block; font-size: clamp(15px, 1.5vw, 20px); font-weight: 800;
+  color: #8a5a00; letter-spacing: -.01em }
+.wipflag span { display: block; margin-top: 3px; font-size: clamp(12px, 1.15vw, 15px);
+  line-height: 1.45; color: #9a6d16; font-weight: 600 }
+@media (prefers-reduced-motion: no-preference) {
+  .wipflag { animation: wipPulse 2.6s ease-in-out infinite }
+}
+@keyframes wipPulse {
+  0%, 100% { box-shadow: 0 10px 30px rgb(140 100 10 / .16) }
+  50% { box-shadow: 0 10px 30px rgb(140 100 10 / .16), 0 0 0 7px rgb(217 163 39 / .17) }
+}
+
+.pageno { position: fixed; right: clamp(14px, 1.8vw, 28px); bottom: clamp(12px, 1.6vh, 22px);
+  z-index: 8; font-family: var(--font-mono); font-size: clamp(12px, 1.15vw, 15px);
+  font-weight: 600; color: var(--ink-dim); opacity: .62; pointer-events: none;
+  letter-spacing: .02em }
+@media print { .pageno { display: none } }
+
+/* 사업성 — 누구에게 무엇이 달라지는지, 그리고 왜 팔릴 수 있는지.
+   시장 규모 수치는 쓰지 않았다. 찾아본 국내 자료가 대부분 블로그 2차
+   인용이라 출처를 댈 수 없었고, 못 대는 숫자는 안 쓰는 편이 낫다. */
+.who { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(12px, 1.5vw, 22px); width: 100%; max-width: 1240px; margin: 0 auto }
+.who-c { background: var(--panel); border: 1px solid var(--line); border-radius: 15px;
+  padding: clamp(15px, 1.8vw, 26px) clamp(16px, 1.9vw, 26px) }
+.who-k { display: inline-block; font-size: clamp(12px, 1.15vw, 15px); font-weight: 800;
+  letter-spacing: .02em; color: var(--brand-strong); background: var(--brand-tint);
+  border-radius: 999px; padding: 4px 12px }
+.who-c h3 { margin: 10px 0 6px; font-size: clamp(18px, 1.8vw, 25px); font-weight: 800;
+  letter-spacing: -.015em; line-height: 1.3 }
+.who-c p { margin: 0; font-size: clamp(14px, 1.33vw, 18px); line-height: 1.55; color: var(--ink-muted) }
+.sell { display: grid; grid-template-columns: .8fr 1fr 1.35fr;
+  gap: clamp(12px, 1.5vw, 24px); width: 100%; max-width: 1240px; margin: 0 auto;
+  padding-top: clamp(12px, 1.5vw, 20px); border-top: 1px solid var(--line) }
+.sell-i { display: flex; align-items: baseline; gap: clamp(9px, 1.1vw, 15px) }
+.sell-i b { font-family: var(--font-mono); font-size: clamp(20px, 2.1vw, 30px); font-weight: 700;
+  color: var(--accent-strong); letter-spacing: -.02em; white-space: nowrap }
+.sell-i span { font-size: clamp(14px, 1.3vw, 18px); font-weight: 700; color: var(--ink); line-height: 1.35 }
+.sell-i em { display: block; margin-top: 3px; font-style: normal; font-weight: 500;
+  font-size: clamp(12px, 1.15vw, 15.5px); color: var(--ink-dim); line-height: 1.45 }
+@media (max-width: 860px) { .who, .sell { grid-template-columns: 1fr } }
+
+/* 확장성 — 한 점에서 네 갈래로 뻗는다. 목록이면 「못 한 것 네 개」로 읽히고,
+   갈래로 그리면 「여기서 어디로 갈 수 있는지」로 읽힌다. 내용은 같다. */
+.fan { display: grid; grid-template-columns: auto clamp(54px, 7vw, 104px) minmax(0, 1fr);
+  align-items: stretch; gap: 0; width: 100%; max-width: 1240px; margin: 0 auto }
+.fan-core { align-self: center; text-align: center; border-radius: 18px; background: var(--brand); color: #fff;
+  padding: clamp(16px, 2vw, 28px) clamp(14px, 1.7vw, 24px); min-width: clamp(118px, 13vw, 180px) }
+.fan-core b { display: block; font-size: clamp(22px, 2.4vw, 34px); font-weight: 800; letter-spacing: -.02em }
+.fan-core em { display: block; margin-top: 6px; font-style: normal; line-height: 1.45;
+  font-size: clamp(12.5px, 1.2vw, 16px); color: rgb(255 255 255 / .8); font-weight: 600 }
+.fan-link { width: 100%; height: 100%; align-self: stretch }
+.fan-link path { fill: none; stroke: var(--line); stroke-width: 2.5; vector-effect: non-scaling-stroke }
+.fan-list { display: flex; flex-direction: column; gap: clamp(7px, .9vw, 12px) }
+.fan-item { background: var(--panel); border: 1px solid var(--line); border-radius: 13px;
+  padding: clamp(9px, 1.1vw, 15px) clamp(13px, 1.5vw, 20px) }
+.fan-item.key { border-color: var(--accent); background: var(--accent-tint) }
+.fan-k { display: inline-block; font-size: clamp(11.5px, 1.1vw, 15px); font-weight: 700;
+  color: var(--brand-strong); letter-spacing: .01em }
+.fan-item.key .fan-k { color: var(--accent-strong) }
+.fan-item h3 { margin: 1px 0 3px; font-size: clamp(16px, 1.6vw, 22px); font-weight: 800;
+  letter-spacing: -.01em; line-height: 1.3 }
+.fan-item p { margin: 0; font-size: clamp(13px, 1.27vw, 17px); line-height: 1.5; color: var(--ink-muted) }
+@media (max-width: 820px) {
+  .fan { grid-template-columns: 1fr; gap: 12px }
+  .fan-link { display: none }
+}
+
+/* (쓰지 않음) 커지는 테두리 — 확장을 겹으로 그린 안.
+   안쪽이 지금 되는 것, 바깥으로 갈수록 넓어지는 자리. 각 테두리에 왜
+   그게 가능한지를 한 줄씩 붙인다 — 넓힐 수 있다는 말만으로는 근거가 없다. */
+.xpd { width: 100%; max-width: 1240px; margin: 0 auto }
+.xp-ring { border-radius: clamp(16px, 1.8vw, 26px); border: 1.5px solid var(--line);
+  padding: clamp(9px, 1.1vw, 15px) }
+.xp-ring.r3 { background: color-mix(in srgb, var(--brand-tint) 42%, transparent) }
+.xp-ring.r2 { background: color-mix(in srgb, var(--brand-tint) 70%, transparent) }
+.xp-ring.r1 { background: var(--brand-tint); border-color: rgb(75 79 224 / .28) }
+.xp-lab { display: flex; align-items: baseline; gap: clamp(8px, 1vw, 14px); flex-wrap: wrap;
+  padding: 0 clamp(6px, .8vw, 12px) clamp(8px, 1vw, 13px) }
+.xp-lab b { font-size: clamp(15px, 1.5vw, 21px); font-weight: 800; letter-spacing: -.01em;
+  color: var(--brand-strong); white-space: nowrap }
+.xp-lab em { font-style: normal; font-size: clamp(13px, 1.25vw, 17px); color: var(--ink-muted);
+  line-height: 1.45 }
+.xp-core { border-radius: clamp(12px, 1.4vw, 20px); background: var(--brand); color: #fff;
+  padding: clamp(14px, 1.8vw, 26px); text-align: center }
+.xp-core b { display: block; font-size: clamp(20px, 2.2vw, 32px); font-weight: 800; letter-spacing: -.02em }
+.xp-core em { display: block; margin-top: 4px; font-style: normal;
+  font-size: clamp(12.5px, 1.2vw, 16px); color: rgb(255 255 255 / .78); font-weight: 600 }
+@media (max-width: 760px) { .xp-lab b { white-space: normal } }
+
+/* 접근성 검수 — 받은 지적과 고친 방법, 그리고 실제로 들어 본 문장 */
+.axq { width: 100%; max-width: 1240px; margin: 0 auto; text-align: center;
+  padding: clamp(16px, 2vw, 26px) clamp(18px, 2.4vw, 34px);
+  background: var(--accent-tint); border: 1px solid rgb(46 196 166 / .4); border-radius: 16px }
+.axq p { margin: 0; font-size: clamp(18px, 1.9vw, 27px); font-weight: 700; line-height: 1.45;
+  color: var(--ink); letter-spacing: -.01em }
+.axq p b { color: var(--accent-strong) }
+.axq span { display: block; margin-top: 6px; font-size: clamp(13px, 1.2vw, 16px);
+  font-weight: 600; color: var(--ink-dim) }
+.axq .axq-n { display: block; margin-top: clamp(10px, 1.2vw, 16px); padding-top: clamp(10px, 1.2vw, 16px);
+  border-top: 1px solid rgb(46 196 166 / .35); font-style: normal;
+  font-size: clamp(14px, 1.35vw, 19px); font-weight: 600; color: var(--ink-muted) }
+.axq .axq-n b { font-family: var(--font-mono); font-size: 1.25em; color: var(--accent-strong) }
+.axg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(12px, 1.5vw, 22px); width: 100%; max-width: 1240px; margin: 0 auto }
+.axc { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: clamp(14px, 1.7vw, 24px) clamp(16px, 1.9vw, 26px) }
+.axc .material-symbols-outlined { font-size: clamp(24px, 2.2vw, 32px); color: var(--brand) }
+.axc h3 { margin: 4px 0 6px; font-size: clamp(17px, 1.65vw, 23px); font-weight: 800;
+  letter-spacing: -.01em; line-height: 1.3 }
+.axc p { margin: 0; font-size: clamp(14px, 1.33vw, 18px); line-height: 1.55; color: var(--ink-muted) }
+.axc p b { color: var(--ink) }
+.axc.hear { border-color: var(--brand); background: var(--brand-tint) }
+.axc.hear .material-symbols-outlined { color: var(--brand-strong) }
+.axc .axr { font-family: var(--font-mono); font-size: clamp(12.5px, 1.2vw, 16px);
+  line-height: 1.5; color: var(--ink-muted); margin-top: 7px }
+.axc .axr b { color: var(--brand-strong) }
+.axf { width: 100%; max-width: 1240px; margin: 0 auto; text-align: center;
+  font-size: clamp(13px, 1.25vw, 17px); color: var(--ink-dim); line-height: 1.6 }
+.axf code { font-family: var(--font-mono); font-size: .94em; color: var(--ink-muted) }
+@media (max-width: 860px) { .axg { grid-template-columns: 1fr } }
 
 /* 11페이지 — 두 축 위에 점을 찍는다. 표의 칸이 아니라 자리가 보이게.
    가로는 「무엇을 읽고 들어오는가」, 세로는 「언제 들어오는가」다. */
@@ -135,7 +265,13 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 .pm-ylab { grid-area: 1 / 1; margin: 0; display: flex; flex-direction: column; justify-content: space-between;
   text-align: right; padding: 10px 0; font-size: clamp(13px, 1.25vw, 17px); font-weight: 700;
   color: var(--ink-dim); line-height: 1.3; max-width: 7.5em }
-.pm-box { grid-area: 1 / 2; position: relative; height: clamp(230px, 34vh, 380px);
+/* 「그 사람을 읽고, 면접 중에」 사분면 — 글자를 쓰면 점과 겹쳐서 색으로만 표시 */
+.pm-ours { position: absolute; left: 50%; right: 0; top: 0; bottom: 50%;
+  background: rgb(75 79 224 / .07); border-radius: 0 13px 0 0; pointer-events: none }
+.pm-dot em small { display: block; margin-top: 1px; font-size: .78em; font-weight: 600;
+  color: var(--ink-dim); letter-spacing: 0 }
+.pm-dot.up { flex-direction: column }
+.pm-box { grid-area: 1 / 2; position: relative; height: clamp(250px, 37vh, 400px);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px }
 .pm-mid { position: absolute; background: var(--line) }
 .pm-mid.v { left: 50%; top: 8px; bottom: 8px; width: 1px }
@@ -162,6 +298,8 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 .s-tech .lanewrap, .s-tech .grid.g3 { transition: opacity .45s ease }
 body.js .s-tech .lanewrap.reveal.in,
 body.js .s-tech .grid.g3.reveal.in { opacity: 0 }
+/* 내려앉지 않는 장은 자리도 차지하지 않는다 */
+.s-tech [data-nodock] { display: none }
 body.js .s-tech .lanewrap.reveal.in.settled,
 body.js .s-tech .grid.g3.reveal.in.settled { opacity: 1 }
 .tspot .spot-pair { padding: 0 3vw }
@@ -1460,7 +1598,7 @@ body.screen-real .live-room.room-easy { display: none }
    상자 셋을 옆으로 늘어놓은 건 구조가 아니라 목록이었다. 줄(큐)과 폴러와
    도구와 실패 경로가 보여야 「에이전트」로 읽힌다. 가짜 로그는 뺐다 —
    읽히지도 않고, 읽힌들 증거가 못 된다. */
-.agx { width: 100%; max-width: 1240px; margin: 0 auto }
+.agx { width: 100%; max-width: min(1400px, 96vw); margin: 0 auto }
 .agx svg { width: 100%; height: auto; display: block }
 .agx text { font-family: inherit; text-anchor: middle; fill: var(--ink) }
 .ax-t1 { font-size: 23px; font-weight: 800; letter-spacing: -.02em }
@@ -1491,6 +1629,21 @@ body.screen-real .live-room.room-easy { display: none }
   gap: clamp(16px, 2vw, 30px); width: 100%; max-width: 1240px; margin: 0 auto }
 .agx-note > .axn { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
   padding: clamp(15px, 1.7vw, 22px) clamp(17px, 2vw, 26px) }
+.s-qual .barrow { transition: opacity .45s ease }
+.gr-line { width: 100%; max-width: 1240px; margin: 0 auto; text-align: center;
+  font-size: clamp(14px, 1.35vw, 19px); line-height: 1.7; color: var(--ink-muted) }
+.gr-line b { color: var(--ink); font-weight: 800 }
+/* 가드레일에서는 두 칸을 크게 쓴다 — 이 장의 본문이다 */
+#s-guardrail .agx-note > .axn { padding: clamp(22px, 2.6vw, 38px) clamp(24px, 2.8vw, 40px) }
+#s-guardrail .axn-h { font-size: clamp(22px, 2.3vw, 32px); margin-bottom: clamp(20px, 2.4vw, 32px) }
+#s-guardrail .axn-name { font-size: clamp(17px, 1.7vw, 24px) }
+#s-guardrail .axn-row { margin-bottom: clamp(16px, 2vw, 26px) }
+#s-guardrail .axn-bar { height: clamp(11px, 1.15vw, 17px) }
+#s-guardrail .axn-end .material-symbols-outlined { font-size: clamp(26px, 2.5vw, 36px) }
+#s-guardrail .axn-i { width: clamp(16px, 1.6vw, 23px) }
+#s-guardrail .axn-cap { font-size: clamp(15px, 1.5vw, 21px) }
+#s-guardrail .axn-cap b { font-size: clamp(22px, 2.2vw, 31px) }
+#s-guardrail .axn-row.k .axn-name.mono { font-size: clamp(14px, 1.35vw, 19px) }
 .axn-h { display: block; font-size: clamp(17px, 1.6vw, 22px); margin-bottom: clamp(12px, 1.4vw, 18px);
   letter-spacing: -.01em }
 .axn-row { display: grid; grid-template-columns: clamp(64px, 7vw, 98px) 1fr clamp(66px, 7.4vw, 96px);
@@ -1549,6 +1702,8 @@ body.screen-real .live-room.room-easy { display: none }
 <nav class="rail" id="rail" aria-label="섹션 이동"></nav>
 
 <main>
+<!-- 쪽번호 — 위 안내 띠를 없앤 뒤로 몇 쪽인지 볼 데가 없었다 -->
+<div class="pageno" id="pageNo" aria-hidden="true"></div>
 
 <!-- 표지 ─────────────────────────────────── -->
 <section class="band hero hero-bg" id="s-hero" data-label="표지">
@@ -4188,6 +4343,16 @@ body.screen-real .live-room.room-easy { display: none }
       </svg>
     </div>
 
+  </div>
+</section>
+
+<!-- 가드레일 ─────────────────────────────── -->
+<section class="band band--panel" id="s-guardrail" data-label="가드레일">
+  <div class="wrap stack">
+    <div class="reveal">
+      <p class="eyebrow" style="color:var(--warn)">가드레일과 예외</p>
+      <h2 class="title">틀릴 수 있다는 전제로 지었습니다</h2>
+    </div>
     <div class="agx-note reveal">
 
       <div class="axn">
@@ -4232,23 +4397,7 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
 
     </div>
-  </div>
-</section>
-
-<!-- 가드레일 ─────────────────────────────── -->
-<section class="band band--panel" id="s-guardrail" data-label="가드레일">
-  <div class="wrap stack">
-    <div class="reveal">
-      <p class="eyebrow" style="color:var(--warn)">가드레일과 예외</p>
-      <h2 class="title">틀릴 수 있다는 전제로 지었습니다</h2>
-    </div>
-    <div class="grid g2 reveal">
-      <div class="card"><h3>AI의 말은 제안까지만</h3><p>AI가 만든 항목은 「제안」 상태로만 저장됩니다. 사람이 채택하기 전에는 어떤 근거도 되지 않습니다.</p></div>
-      <div class="card"><h3>한 조각이 실패해도 버리지 않음</h3><p>요약 · 타임라인 · 근거를 나눠 만듭니다. 하나가 계속 실패하면 재시도 상한에서 멈추고, 성공한 것만 저장합니다.</p></div>
-      <div class="card"><h3>끊겨도 기록은 이어집니다</h3><p>전사 연결이 끊겨도 저장은 계속하고, 외부 호출이 실패해도 사용량은 남깁니다. 기한을 넘기면 실패로 바꿔 화면에 알립니다.</p></div>
-      <div class="card"><h3>동의 없이는 한 조각도 안 올라감</h3><p>화면만 막지 않고 서버가 입장을 거부합니다. 녹화는 방에 들어와야 시작되므로, 동의 전에는 영상도 음성도 올라가지 않습니다.</p></div>
-    </div>
-    <p class="lede reveal">분석 로그에는 상태와 개수와 걸린 시간만 남기고, 요약 본문과 인용 원문은 남기지 않습니다.</p>
+    <p class="gr-line reveal"><b>AI의 말은 제안까지만</b> 사람이 채택하기 전에는 어떤 근거도 되지 않습니다. &nbsp;·&nbsp; <b>동의 없이는 한 조각도 안 올라감</b> 화면만 막지 않고 서버가 입장을 거부합니다.</p>
   </div>
 </section>
 
@@ -4325,7 +4474,7 @@ body.screen-real .live-room.room-easy { display: none }
         </div>
       </div>
     </div>
-    <div class="grid g3 reveal" data-t="3">
+    <div class="grid g3 reveal" data-t="3" data-nodock>
       <div class="figure"><span class="v" data-count="1851" data-suffix="">0</span><p>자동 테스트. 서버 827 · AI 989 · 화면 35 가 CI 에서 돕니다.</p></div>
       <div class="figure"><span class="v" data-count="0.64" data-suffix="초" data-dec="2">0</span><p>말을 마치고 자막이 확정되기까지의 중앙값. 꼬리질문이 늦지 않으려면 필요했습니다.</p></div>
       <div class="figure"><span class="v" data-count="13.5" data-suffix="초" data-dec="1">0</span><p>면접이 끝나고 요약 2개 · 타임라인 8개 · 근거 6개가 만들어지기까지.</p></div>
@@ -4430,20 +4579,13 @@ body.screen-real .live-room.room-easy { display: none }
           </div>
         </div>
         <div class="barrow reveal" data-q="1">
-          <span class="lbl">느린 쪽 5%<br><span class="num">p95 · 낮을수록 좋음</span></span>
-          <div class="bartrack">
-            <div class="bar a"><span class="fill" data-w="86"></span><span>2,629ms </span></div>
-            <div class="bar b"><span class="fill" data-w="52"></span><span>1,596ms </span></div>
-          </div>
-        </div>
-        <div class="barrow reveal" data-q="2">
           <span class="lbl">사실 항목을 맞춘 개수<br><span class="num">195개 중 · 높을수록 좋음</span></span>
           <div class="bartrack">
             <div class="bar a"><span class="fill" data-w="71"></span><span>162 / 195 </span></div>
             <div class="bar b"><span class="fill" data-w="80"></span><span>182 / 195 </span></div>
           </div>
         </div>
-        <div class="barrow reveal" data-q="3">
+        <div class="barrow reveal" data-q="2">
           <span class="lbl">글자 오류율<br><span class="num">CER · 낮을수록 좋음</span></span>
           <div class="bartrack">
             <div class="bar a"><span class="fill" data-w="86"></span><span>0.077 </span></div>
@@ -4506,6 +4648,49 @@ body.screen-real .live-room.room-easy { display: none }
   </div>
 </section>
 
+<!-- 접근성 검수 ──────────────────────────── -->
+<section class="band" id="s-a11y" data-label="접근성 검수">
+  <div class="wrap stack">
+    <div class="reveal">
+      <p class="eyebrow">접근성 검수</p>
+      <h2 class="title">화면낭독기를 켜고 직접 들어 봤습니다</h2>
+      <p class="lede">카카오 디지털접근성 팀 검수 · KWCAG 2.2 · 2026.10.22 ~ 10.30</p>
+    </div>
+
+    <div class="axq reveal">
+      <p>“홈페이지 전반적으로 대체 텍스트가 제공되었으며 <b>명도대비가 높습니다.</b>”</p>
+      <span>보고서 종합의견</span>
+      <i class="axq-n"><b>6</b>건 지적 · <b>전부</b> 반영 &nbsp;|&nbsp; 보고서에 없던 <b>3</b>건 더 찾아 고침</i>
+    </div>
+
+    <div class="axg reveal">
+      <div class="axc">
+        <span class="material-symbols-outlined">keyboard_tab</span>
+        <h3>건너뛰기 링크</h3>
+        <p>Tab 을 누르면 가장 먼저 「본문 바로가기」가 잡힙니다. 주소는 그대로 두고 <b>초점만</b> 본문으로 옮깁니다.</p>
+      </div>
+      <div class="axc">
+        <span class="material-symbols-outlined">tab</span>
+        <h3>버튼이 아니라 탭으로</h3>
+        <p>검토 상태 거르개를 <b>tablist</b> 로 바꿨습니다. ← → Home End 로 옮기고, Tab 은 선택된 탭에만 멈춥니다.</p>
+      </div>
+      <div class="axc">
+        <span class="material-symbols-outlined">troubleshoot</span>
+        <h3>잘린 테두리는 증상이었습니다</h3>
+        <p>원인은 전역 초점 규칙이 <b>CSS 레이어 밖</b>에 있어 덮이지 않던 것. 규칙을 옮기고 테두리를 안쪽에 그렸습니다.</p>
+      </div>
+      <div class="axc hear">
+        <span class="material-symbols-outlined">hearing</span>
+        <h3>NVDA 로 들어 봤습니다</h3>
+        <p class="axr">“검토 상태 탭 컨트롤 / 전체 2, 탭, <b>선택됨, 4개 중 1번째</b>”</p>
+        <p class="axr">“지원자 이름 <b>(필수입력)</b> 입력란 <b>필요함</b>”</p>
+      </div>
+    </div>
+
+    <p class="axf reveal">보고서에 없던 셋 — 자막을 위로 올리면 자동 스크롤이 멈추고 「최신 자막으로」가 뜹니다 · 화면마다 문서 제목을 붙였습니다 · 지원자 표에 <code>caption</code> 과 <code>scope</code> 를 넣었습니다.</p>
+  </div>
+</section>
+
 <!-- 차별점 ───────────────────────────────── -->
 <section class="band" id="s-diff" data-label="차별점">
   <div class="wrap stack">
@@ -4516,18 +4701,21 @@ body.screen-real .live-room.room-easy { display: none }
     </div>
     <div class="stack reveal" style="gap:16px">
       <div class="pmap">
-        <p class="pm-ylab"><span>면접이 도는 중에</span><span>면접 전후에만</span></p>
+        <p class="pm-ylab"><span>면접이<br>도는 중에</span><span>면접<br>전후에만</span></p>
         <div class="pm-box">
           <i class="pm-mid v"></i><i class="pm-mid h"></i>
-          <span class="pm-dot" style="--x:11%;--y:74%"><i></i><em>클로바노트</em></span>
-          <span class="pm-dot" style="--x:50%;--y:82%"><i></i><em>BrightHire</em></span>
-          <span class="pm-dot us up" style="--x:88%;--y:88%"><em>IRYA</em><i></i></span>
-          <span class="pm-dot" style="--x:11%;--y:18%"><i></i><em>잡다 · 뷰인터</em></span>
-          <span class="pm-dot" style="--x:50%;--y:26%"><i></i><em>Metaview</em></span>
-          <span class="pm-dot" style="--x:88%;--y:14%"><i></i><em>마이다스인</em></span>
+          <i class="pm-ours"></i>
+
+          <span class="pm-dot" style="--x:9%;--y:70%"><i></i><em>클로바노트</em></span>
+          <span class="pm-dot" style="--x:56%;--y:84%"><i></i><em>BrightHire<small>by Zoom</small></em></span>
+          <span class="pm-dot us up" style="--x:87%;--y:82%"><em>IRYA</em><i></i></span>
+          <span class="pm-dot" style="--x:34%;--y:41%"><i></i><em>HireVue</em></span>
+          <span class="pm-dot up" style="--x:52%;--y:30%"><em>Metaview</em><i></i></span>
+          <span class="pm-dot" style="--x:86%;--y:24%"><i></i><em>마이다스인<small>AI 면접 가이드</small></em></span>
+          <span class="pm-dot" style="--x:11%;--y:16%"><i></i><em>잡다 · 뷰인터</em></span>
         </div>
         <p class="pm-xlab"><span>아무 맥락도 안 읽음</span><span>직무기술서를 읽음</span><span>그 지원자의 이력서까지</span></p>
-        <p class="pm-note">자리는 공개 자료를 읽고 저희가 나눈 것이고, 점수를 매겨 잰 것이 아닙니다.</p>
+        <p class="pm-note">2026-11-04 · 11-10 에 각 서비스의 공개 자료를 읽고 저희가 놓은 자리입니다. 점수를 매겨 잰 것이 아닙니다.</p>
       </div>
       <div class="note-warn">
         <strong>가장 가까운 곳은 BrightHire 입니다 — 겹치는 것을 먼저 말씀드립니다</strong>
@@ -4559,11 +4747,30 @@ body.screen-real .live-room.room-easy { display: none }
   <div class="wrap stack">
     <div class="reveal">
       <p class="eyebrow">사업성과 시장성</p>
-      <h2 class="title">면접 건당으로 과금하는 게 자연스럽습니다</h2>
-      <p class="lede">우리 비용은 사람 수가 아니라 <b>음성이 흐른 시간</b>을 따라갑니다. 그래서 좌석당이 아니라 면접 건당 가격이 원가와 맞습니다.</p>
+      <h2 class="title">도입을 막는 단계가 없습니다</h2>
+      <p class="lede">면접관은 쓰던 대로 면접을 보고, 지원자는 링크를 엽니다. <b>설치도 가입도 없고</b>, 기존 채용 절차를 바꾸지 않아도 됩니다.</p>
     </div>
 
-    <div class="calc reveal">
+    <div class="who reveal">
+      <div class="who-c">
+        <span class="who-k">면접관</span>
+        <h3>면접만 보면 됩니다</h3>
+        <p>적느라 못 듣는 일이 없어집니다. 정리는 끝나고 나서 근거가 붙은 채로 돌아옵니다.</p>
+      </div>
+      <div class="who-c">
+        <span class="who-k">지원자</span>
+        <h3>링크만 열면 됩니다</h3>
+        <p>설치도 가입도 없습니다. 무엇을 저장하고 언제 지우는지 먼저 보고, 동의해야 녹화가 시작됩니다.</p>
+      </div>
+      <div class="who-c">
+        <span class="who-k">회사</span>
+        <h3>기준이 쌓입니다</h3>
+        <p>면접관이 확정한 근거가 「우리 회사는 무엇을 왜 보는가」로 남습니다. 쓸수록 두꺼워집니다.</p>
+      </div>
+    </div>
+
+    <details class="fine calcfold reveal"><summary>원가와 과금 — 한 달 면접 건수로 계산해 봅니다</summary>
+    <div class="calc">
       <div class="calc-head">
         <label for="vol">한 달에 보는 면접</label>
         <output id="volOut" for="vol">60건</output>
@@ -4576,32 +4783,56 @@ body.screen-real .live-room.room-easy { display: none }
       </div>
       <details class="fine"><summary>출처와 단서</summary><p class="src">계산 근거 — 면접 1건을 30분, 마이크 2개로 보아 음성 60분으로 잡았습니다. 전사 단가는 공개된 Deepgram Nova-3 스트리밍 요금 분당 $0.0077 을 썼습니다(<a href="https://convertaudiototext.com/blog/deepgram-nova-3-explained">출처</a>, 공식 페이지 아님 · 프로모션가는 더 쌉니다). <b>정리 시간 건당 20분은 아직 측정하지 못한 가정입니다</b> — 시범 운영에서 시범 운영에서 측정해 바꿀 숫자입니다. LLM · 서버 · 저장소 비용은 빠져 있습니다.</p></details>
     </div>
-
-    <div class="grid g3 reveal">
-      <div class="card"><span class="tag">왜 쓰나</span><p style="color:var(--ink);font-size:15.5px">면접 한 건마다 들던 정리 시간이 사라집니다. 면접관은 면접만 보면 됩니다.</p></div>
-      <div class="card"><span class="tag">왜 들어오나</span><p style="color:var(--ink);font-size:15.5px">지원자는 링크만 열면 됩니다. 설치도 가입도 없어서 도입을 막는 단계가 없습니다.</p></div>
-      <div class="card"><span class="tag">왜 남나</span><p style="color:var(--ink);font-size:15.5px">확정한 검토가 쌓입니다. 쓸수록 그 회사가 무엇을 왜 보는지가 자산이 됩니다.</p></div>
-    </div>
-    <div class="grid g3 reveal">
-      <div class="card" style="background:var(--brand-tint);border-color:transparent"><h3>같은 직무 지원자 비교</h3><p>같은 근거 틀로 여러 명을 나란히 놓아, 면접관마다 다른 기준을 맞춥니다.</p></div>
-      <div class="card" style="background:var(--brand-tint);border-color:transparent"><h3>면접관 교육</h3><p>채택된 근거와 반려된 근거가 그대로 「우리 회사의 면접 기준」 교재가 됩니다.</p></div>
-      <div class="card" style="background:var(--brand-tint);border-color:transparent"><h3>조직 단위로</h3><p>직무와 사내 문서를 이미 읽고 있어, 팀 · 부서 단위로 넓히기 쉽습니다.</p></div>
-    </div>
+    </details>
   </div>
 </section>
 
 <!-- 남은 것 ──────────────────────────────── -->
-<section class="band band--deep" id="s-next" data-label="남은 것">
+<section class="band band--deep" id="s-next" data-label="확장성">
+  <!-- 임시 쪽지 — 이 장을 넣을지 정하면 이 블록과 .wipflag CSS 를 지운다 -->
+  <aside class="wipflag">
+    <b>이 장 뺄지 고민 중</b>
+    <span>의견 주세요 — 확장성(현장 ⑥ 6점)이 13페이지와 겹칩니다</span>
+  </aside>
   <div class="wrap stack">
     <div class="reveal">
-      <p class="eyebrow">다음 단계</p>
-      <h2 class="title">앞으로 개선할 것</h2>
+      <p class="eyebrow">확장성</p>
+      <h2 class="title">여기서 네 갈래로 넓힙니다</h2>
+      <p class="lede">면접 한 건이 끝까지 도는 지금이 출발점입니다. 네 갈래 모두 <b>아직 안 된 것</b>이고, 무엇을 해서 무엇을 바꾸는지까지 적었습니다.</p>
     </div>
-    <div class="grid reveal" style="gap:9px">
-      <div class="step"><span class="pill" style="background:var(--accent-strong)">01</span><h3>지원자에게는 자막이 없습니다</h3><p>AI가 받아 적은 자막이 면접관 화면에만 뜹니다. 청각장애가 있는 지원자는 지금 이 서비스로 면접을 볼 수 없습니다. 다음에 할 일은 이것입니다.</p></div>
-      <div class="step b"><span class="pill">02</span><h3>리포트 생성 연결</h3><p>서버와 생성기는 올라가 있고, 작업을 집어 가는 마지막 한 단계가 남았습니다.</p></div>
-      <div class="step b"><span class="pill">03</span><h3>몰릴 때의 처리 시간</h3><p>면접이 동시에 여러 건 돌 때와 이력서가 길 때를 측정해, 서버 한 대로 몇 건까지 되는지 확인하겠습니다. 지금은 한 건 기준 값만 있습니다.</p></div>
-      <div class="step b"><span class="pill">04</span><h3>실사용 수치</h3><p>정리 시간이 실제로 얼마나 줄었는지는 시범 운영에서 측정해 20분 가정을 실제 값으로 바꾸겠습니다.</p></div>
+    <div class="fan reveal">
+      <div class="fan-core">
+        <b>지금</b>
+        <em>면접 한 건이<br>끝까지 돕니다</em>
+      </div>
+      <svg class="fan-link" viewBox="0 0 120 320" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M2 160 C62 160 62 40 118 40"/>
+        <path d="M2 160 C62 160 62 120 118 120"/>
+        <path d="M2 160 C62 160 62 200 118 200"/>
+        <path d="M2 160 C62 160 62 280 118 280"/>
+      </svg>
+      <div class="fan-list">
+        <div class="fan-item key">
+          <span class="fan-k">대상을 넓힌다</span>
+          <h3>지원자에게도 자막을</h3>
+          <p>지금은 면접관 화면에만 뜹니다. 청각장애가 있는 지원자는 아직 이 서비스로 면접을 볼 수 없습니다.</p>
+        </div>
+        <div class="fan-item">
+          <span class="fan-k">기능을 잇는다</span>
+          <h3>리포트 생성 연결</h3>
+          <p>서버와 생성기는 올라가 있고, 작업을 집어 가는 마지막 한 단계가 남았습니다.</p>
+        </div>
+        <div class="fan-item">
+          <span class="fan-k">규모를 넓힌다</span>
+          <h3>서버 한 대로 몇 건까지</h3>
+          <p>동시에 여러 건 돌 때와 이력서가 길 때를 재겠습니다. 지금은 한 건 기준 값만 있습니다.</p>
+        </div>
+        <div class="fan-item">
+          <span class="fan-k">숫자를 채운다</span>
+          <h3>정리 시간 실측</h3>
+          <p>20분은 아직 가정입니다. 시범 운영에서 재서 실제 값으로 바꾸겠습니다.</p>
+        </div>
+      </div>
     </div>
     <div class="reveal" style="display:flex;align-items:center;gap:15px;flex-wrap:wrap">
       <svg viewBox="0 0 40 40" width="42" height="42" aria-hidden="true">
@@ -4643,6 +4874,8 @@ body.screen-real .live-room.room-easy { display: none }
   function setActive(i) {
     dots.forEach(function (d, n) { d.setAttribute('aria-current', n === i ? 'true' : 'false'); });
     where.textContent = (i + 1) + ' / ' + bands.length + '  ' + bands[i].dataset.label;
+    var pn = document.getElementById('pageNo');
+    if (pn) pn.textContent = (i + 1) + ' / ' + bands.length;
   }
   setActive(0);
 
@@ -4968,7 +5201,8 @@ body.screen-real .live-room.room-easy { display: none }
   function tSlot(i) { return tBand && tBand.querySelector('.wrap [data-t="' + i + '"]'); }
   function tSettle(i) {
     var el = tSlot(i);
-    if (el && !el.classList.contains('settled')) { el.classList.add('settled'); fillBars(el); }
+    if (!el || el.hasAttribute('data-nodock')) return;   /* 내려앉지 않는 장 */
+    if (!el.classList.contains('settled')) { el.classList.add('settled'); fillBars(el); }
   }
   function tShow(i) {
     var pair = tPair(i);
@@ -4984,6 +5218,17 @@ body.screen-real .live-room.room-easy { display: none }
     if (!pair || !slot) return;
     tBand.classList.remove('spot-on');
     tSettle(i);
+    /* 내려앉을 자리가 없는 장은 그 자리에서 사라진다 */
+    if (slot.hasAttribute('data-nodock')) {
+      if (reduce) { pair.classList.remove('on'); return; }
+      pair.style.transform = 'translateY(18px) scale(.94)';
+      pair.style.opacity = '0';
+      setTimeout(function () {
+        pair.classList.remove('on');
+        pair.style.transform = ''; pair.style.opacity = '';
+      }, DOCK_MS);
+      return;
+    }
     if (reduce) { pair.classList.remove('on'); return; }
     var from = pair.firstElementChild.getBoundingClientRect();
     var to = slot.getBoundingClientRect();
@@ -5026,8 +5271,6 @@ body.screen-real .live-room.room-easy { display: none }
   var QM = [
     { h: '말을 마치고 자막 확정까지', sub: '중앙값 · 낮을수록 좋음',
       a: '1,065', ua: 'ms', b: '642',   ub: 'ms', ha: 100, hb: 61, d: '40% 빨라짐' },
-    { h: '느린 쪽 5%',              sub: 'p95 · 낮을수록 좋음',
-      a: '2,629', ua: 'ms', b: '1,596', ub: 'ms', ha: 100, hb: 61, d: '39% 빨라짐' },
     { h: '사실 항목을 맞춘 개수',     sub: '195개 중 · 높을수록 좋음',
       a: '162',   ua: '/195', b: '182', ub: '/195', ha: 83, hb: 93, d: '20개 더 맞힘' },
     { h: '글자 오류율',              sub: 'CER · 낮을수록 좋음',
@@ -5162,11 +5405,17 @@ body.screen-real .live-room.room-easy { display: none }
     if (band.classList.contains('band--app')) return;
     var w = band.querySelector('.wrap');
     if (!w || w.parentNode !== band) return;
-    var avail = document.documentElement.clientHeight - 8;
+    /* 띠의 위아래 여백도 화면을 먹는다 — 그만큼 빼야 실제로 안 잘린다 */
+    var cs = getComputedStyle(band);
+    var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+            + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    var avail = document.documentElement.clientHeight - pad - 6;
+    w.style.height = '';
     var need = w.scrollHeight;
     if (!need || avail <= 0) return;
     var k = need > avail ? Math.max(0.5, avail / need) : 1;
     w.style.setProperty('--fit', k.toFixed(4));
+    w.style.height = k < 1 ? Math.ceil(need * k) + 'px' : '';
   }
   function fitAll() { bands.forEach(fitBand); }
   var fitT = null;
