@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { visibleSuggestions } from '../src/lib/suggestionQueue.ts';
+import { newestSuggestion, visibleSuggestions } from '../src/lib/suggestionQueue.ts';
 import { queueOf, useInterviewStore } from '../src/stores/interviewStore.ts';
 
 const question = (id) => ({
@@ -13,6 +13,7 @@ const range = (from, to) => Array.from({ length: to - from }, (_, i) => question
 const store = useInterviewStore;
 const shown = () => visibleSuggestions(queueOf(store.getState())).map((q) => q.id);
 const push = (from, to) => range(from, to).forEach((q) => store.getState().addSuggestion(q));
+const newest = () => newestSuggestion(queueOf(store.getState()))?.id;
 const undoable = () => store.getState().lastHiddenSuggestionId;
 
 test('고정하지 않은 질문은 최신 6개만 최신순으로 흐르고 보관은 10개로 제한한다', () => {
@@ -102,6 +103,27 @@ test('되살릴 자리가 없어진 취소는 내려 둔다', () => {
   assert.equal(undoable(), null);
   store.getState().undoDismissSuggestion();
   assert.deepEqual(shown(), ['6', '5', '4', '3', '2', '1']);
+});
+
+test('읽어 주는 질문은 방금 도착한 것뿐이다', () => {
+  store.getState().reset();
+  assert.equal(newest(), undefined);
+  push(0, 3);
+  assert.equal(newest(), '2');
+  // 최신 질문을 지우면 그 앞의 오래된 질문을 「새 꼬리질문」으로 읽지 않는다.
+  store.getState().dismissSuggestion('2');
+  assert.equal(newest(), undefined);
+  push(3, 4);
+  assert.equal(newest(), '3');
+  // 고정은 도착이 아니다 — 같은 질문이라 다시 읽히지 않는다.
+  store.getState().toggleSuggestionPin('3');
+  assert.equal(newest(), '3');
+  // 일시정지 중에는 읽지 않는다.
+  store.getState().toggleSuggestionsPaused();
+  push(4, 5);
+  assert.equal(newest(), undefined);
+  store.getState().toggleSuggestionsPaused();
+  assert.equal(newest(), '4');
 });
 
 test('같은 탭에서 다시 들어오면 지운 질문과 고정이 유지되고 다른 세션과 섞이지 않는다', () => {

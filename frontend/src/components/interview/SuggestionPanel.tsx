@@ -19,7 +19,12 @@ import { preserveMemoFocus } from '../../lib/memoFocus';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { queueOf, useInterviewStore } from '../../stores/interviewStore';
-import { SUGGESTION_LIMITS, visibleSuggestions } from '../../lib/suggestionQueue';
+import {
+  newestSuggestion,
+  PIN_LIMIT,
+  SUGGESTION_LIMITS,
+  visibleSuggestions,
+} from '../../lib/suggestionQueue';
 
 export function SuggestionPanel() {
   const root = useRef<HTMLElement>(null);
@@ -39,7 +44,9 @@ export function SuggestionPanel() {
   const undo = useInterviewStore((s) => s.undoDismissSuggestion);
   const lastHidden = useInterviewStore((s) => s.lastHiddenSuggestionId);
   const ordered = useInterviewStore(useShallow((s) => visibleSuggestions(queueOf(s))));
-  const newest = frozen ? undefined : ordered.find((s) => !s.pinned);
+  const newest = useInterviewStore((s) => newestSuggestion(queueOf(s)));
+  // 고정은 큐 밖에 쌓이므로 상한에 닿으면 더 못 고정한다 — 풀기는 언제나 된다.
+  const pinFull = ordered.filter((s) => s.pinned).length >= PIN_LIMIT;
 
   // 지운 카드 · 취소 버튼이 사라져도 키보드 포커스가 body 로 빠지지 않게 옮긴다.
   useLayoutEffect(() => {
@@ -75,6 +82,13 @@ export function SuggestionPanel() {
         {/* 누를 수 있다는 것을 글로 밝힌다. 아이콘만으로는 눈으로도 소리로도 모른다 */}
         <span id="suggestion-pin-hint" className="text-ink-dim text-[12px]">
           누르면 고정
+        </span>
+        {/* 고정된 카드는 누르면 풀린다 — 같은 문구를 읽어 주면 반대로 알려 주는 셈이다 */}
+        <span id="suggestion-unpin-hint" className="sr-only">
+          누르면 고정 해제
+        </span>
+        <span id="suggestion-pin-full-hint" className="sr-only">
+          고정은 {PIN_LIMIT}개까지입니다. 먼저 하나를 풀어 주세요
         </span>
         <span className="flex-1" />
         <button
@@ -164,10 +178,21 @@ export function SuggestionPanel() {
             <div key={s.id} data-suggestion-id={s.id} className="flex shrink-0 gap-1">
               <button
                 type="button"
-                onClick={() => togglePin(s.id)}
+                onClick={() => {
+                  if (!s.pinned && pinFull) return;
+                  togglePin(s.id);
+                }}
                 aria-pressed={s.pinned}
+                // disabled 로 두면 질문 글자에 포커스가 가지 않아 소리로 읽을 수 없다.
+                aria-disabled={!s.pinned && pinFull}
                 // 화면낭독기에서 「전환 버튼」만 들리지 않게 무엇을 켜는지 함께 알린다
-                aria-describedby="suggestion-pin-hint"
+                aria-describedby={
+                  s.pinned
+                    ? 'suggestion-unpin-hint'
+                    : pinFull
+                      ? 'suggestion-pin-full-hint'
+                      : 'suggestion-pin-hint'
+                }
                 className={`flex min-w-0 flex-1 animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 ${
                   s.pinned
                     ? 'border-brand/40 bg-brand-tint'

@@ -5,6 +5,9 @@ export const SUGGESTION_LIMITS = [6, 10] as const;
 export type SuggestionLimit = (typeof SUGGESTION_LIMITS)[number];
 const KEEP = Math.max(...SUGGESTION_LIMITS);
 
+/** 고정한 질문은 큐 밖에 남으므로, 화면을 다 덮지 않게 상한을 둔다 */
+export const PIN_LIMIT = 3;
+
 /**
  * 꼬리질문 큐의 상태.
  *
@@ -55,6 +58,18 @@ export function canRestore(q: SuggestionQueue, id: string | null): boolean {
   if (!id) return false;
   const next = { ...q, hidden: q.hidden.filter((x) => x !== id) };
   return visibleSuggestions({ ...next, floor: raiseFloor(next) }).some((s) => s.id === id);
+}
+
+/**
+ * 방금 도착한 질문. 화면에 그 질문이 있을 때만 돌려준다.
+ *
+ * aria-live 로 읽어 주는 칸이라 「보이는 것 중 첫 번째」로 고르면, 최신 질문을 지웠을 때
+ * 그 다음 오래된 질문을 「새 꼬리질문」으로 읽어 버린다. 도착 순번이 가장 큰 질문만 본다.
+ */
+export function newestSuggestion(q: SuggestionQueue): Suggestion | undefined {
+  if (q.frozen) return undefined;
+  const top = Math.max(...Object.values(q.seq));
+  return visibleSuggestions(q).find((s) => q.seq[s.id] === top);
 }
 
 /** 창을 넘친 만큼 `floor` 를 올린다. 지운 칸은 비워 둔 채로 둔다 */
