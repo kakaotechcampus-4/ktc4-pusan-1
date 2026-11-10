@@ -45,6 +45,7 @@ export function SuggestionPanel() {
   const lastHidden = useInterviewStore((s) => s.lastHiddenSuggestionId);
   const ordered = useInterviewStore(useShallow((s) => visibleSuggestions(queueOf(s))));
   const newest = useInterviewStore((s) => newestSuggestion(queueOf(s)));
+  const latestId = newest?.id;
   // 고정은 큐 밖에 쌓이므로 상한에 닿으면 더 못 고정한다 — 풀기는 언제나 된다.
   const pinFull = ordered.filter((s) => s.pinned).length >= PIN_LIMIT;
 
@@ -77,8 +78,10 @@ export function SuggestionPanel() {
       onMouseDown={preserveMemoFocus}
       className="glass interview-readable flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl"
     >
-      <div className="flex shrink-0 items-center gap-2 px-4 pt-3 pb-1.5">
-        <h2 className="text-ink text-[15px] font-semibold">꼬리질문</h2>
+      {/* 머리와 줄 모양을 실시간 자막 패널에 맞춘다. 두 판이 한 화면에서 같은 말투로 읽힌다 */}
+      <div className="flex w-full shrink-0 items-center gap-2 px-4 py-2.5">
+        <span aria-hidden className="bg-brand h-2 w-2 rounded-full" />
+        <h2 className="text-ink text-[14px] font-semibold">꼬리질문</h2>
         {/* 누를 수 있다는 것을 글로 밝힌다. 아이콘만으로는 눈으로도 소리로도 모른다 */}
         <span id="suggestion-pin-hint" className="text-ink-dim text-[12px]">
           누르면 고정
@@ -168,71 +171,80 @@ export function SuggestionPanel() {
       <p aria-live="polite" className="sr-only">
         {newest ? `새 꼬리질문: ${newest.content}` : ''}
       </p>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pb-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-2.5 pb-3">
         {ordered.length === 0 ? (
-          <p className="text-ink-muted px-1.5 py-1 text-[14px]">
-            대화가 이어지면 여기에 올라옵니다.
-          </p>
+          <p className="text-ink-dim px-1.5 text-[14px]">대화가 이어지면 여기에 올라옵니다.</p>
         ) : (
-          ordered.map((s) => (
-            <div key={s.id} data-suggestion-id={s.id} className="flex shrink-0 gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!s.pinned && pinFull) return;
-                  togglePin(s.id);
-                }}
-                aria-pressed={s.pinned}
-                // disabled 로 두면 질문 글자에 포커스가 가지 않아 소리로 읽을 수 없다.
-                aria-disabled={!s.pinned && pinFull}
-                // 화면낭독기에서 「전환 버튼」만 들리지 않게 무엇을 켜는지 함께 알린다
-                aria-describedby={
+          ordered.map((s) => {
+            // 막 들어온 질문은 자막의 지금 줄처럼 띠와 바탕으로 먼저 눈에 띄게 한다.
+            // 띠는 자리를 늘 잡아 두고 색만 바꾼다 — 줄마다 들여쓰기가 흔들리지 않게.
+            const latest = s.id === latestId;
+            return (
+              <div
+                key={s.id}
+                data-suggestion-id={s.id}
+                className={`flex shrink-0 animate-[caption-in_.35s_ease-out] items-start gap-1 rounded-xl border-l-2 transition ${
                   s.pinned
-                    ? 'suggestion-unpin-hint'
-                    : pinFull
-                      ? 'suggestion-pin-full-hint'
-                      : 'suggestion-pin-hint'
-                }
-                className={`flex min-w-0 flex-1 animate-[caption-in_.35s_ease-out] items-start gap-2.5 rounded-2xl border px-3 py-2.5 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                  s.pinned
-                    ? 'border-brand/40 bg-brand-tint'
-                    : 'border-border-base bg-surface-panel hover:bg-surface-container'
+                    ? 'border-brand bg-brand-tint'
+                    : latest
+                      ? 'border-accent bg-surface-container'
+                      : 'hover:bg-surface-container border-transparent'
                 }`}
               >
-                <span
-                  aria-hidden
-                  className={`material-symbols-outlined mt-0.5 text-[18px] ${
-                    s.pinned ? 'text-brand' : 'text-ink-dim'
-                  }`}
-                  style={s.pinned ? { fontVariationSettings: "'FILL' 1" } : undefined}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!s.pinned && pinFull) return;
+                    togglePin(s.id);
+                  }}
+                  aria-pressed={s.pinned}
+                  // disabled 로 두면 질문 글자에 포커스가 가지 않아 소리로 읽을 수 없다.
+                  aria-disabled={!s.pinned && pinFull}
+                  // 화면낭독기에서 「전환 버튼」만 들리지 않게 무엇을 켜는지 함께 알린다
+                  aria-describedby={
+                    s.pinned
+                      ? 'suggestion-unpin-hint'
+                      : pinFull
+                        ? 'suggestion-pin-full-hint'
+                        : 'suggestion-pin-hint'
+                  }
+                  className="flex min-w-0 flex-1 items-baseline gap-2 rounded-xl py-1.5 pr-1 pl-2.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2"
                 >
-                  push_pin
-                </span>
-                {/* 질문 글자는 고정 여부와 무관하게 가장 진한 색을 쓴다 — 읽어야 하는 것이다 */}
-                <span
-                  className={`text-ink flex-1 text-[15px] leading-relaxed ${
-                    s.pinned ? 'font-semibold' : ''
-                  }`}
+                  <span
+                    aria-hidden
+                    className={`material-symbols-outlined shrink-0 self-start pt-1 text-[16px] ${
+                      s.pinned ? 'text-brand' : 'text-ink-dim'
+                    }`}
+                    style={s.pinned ? { fontVariationSettings: "'FILL' 1" } : undefined}
+                  >
+                    push_pin
+                  </span>
+                  {/* 질문 글자는 고정 여부와 무관하게 가장 진한 색을 쓴다 — 읽어야 하는 것이다 */}
+                  <span
+                    className={`text-ink flex-1 leading-relaxed ${
+                      s.pinned || latest ? 'text-[16px] font-semibold' : 'text-[15px]'
+                    }`}
+                  >
+                    {s.content}
+                    {s.reason && showReasons && (
+                      <span className="text-ink-muted mt-1 block text-sm font-normal">
+                        {s.reason}
+                      </span>
+                    )}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => hide(s.id)}
+                  // 보이는 글자를 이름 앞에 둔다 (KWCAG 레이블과 네임)
+                  aria-label={`지우기: ${s.content}`}
+                  className="text-ink-muted hover:text-ink shrink-0 self-center rounded-lg px-2 py-2.5 text-xs focus-visible:outline-2 focus-visible:-outline-offset-2"
                 >
-                  {s.content}
-                  {s.reason && showReasons && (
-                    <span className="text-ink-muted mt-1 block text-sm font-normal">
-                      {s.reason}
-                    </span>
-                  )}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => hide(s.id)}
-                // 보이는 글자를 이름 앞에 둔다 (KWCAG 레이블과 네임)
-                aria-label={`지우기: ${s.content}`}
-                className="text-ink-muted shrink-0 self-center rounded-lg px-2 py-3 text-xs hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2"
-              >
-                지우기
-              </button>
-            </div>
-          ))
+                  지우기
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
     </section>
