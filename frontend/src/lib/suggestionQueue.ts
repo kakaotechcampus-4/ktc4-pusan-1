@@ -44,6 +44,19 @@ export function visibleSuggestions(q: SuggestionQueue): Suggestion[] {
   return [...pinned, ...queued(q, q.floor).slice(-q.limit).reverse()];
 }
 
+/**
+ * 「지웠습니다 · 취소」의 취소가 실제로 그 질문을 되살릴 수 있는지.
+ *
+ * 지운 뒤 새 질문이 와서 창이 다 차면, 숨김을 풀어도 그 질문은 창 밖으로 밀려 다시 보이지
+ * 않는다 — 큐 규칙이 「넘친 만큼 오래된 것이 빠진다」이기 때문이다. 그때는 취소를 아예
+ * 내려서, 눌렀는데 아무 일도 없는 버튼을 남기지 않는다.
+ */
+export function canRestore(q: SuggestionQueue, id: string | null): boolean {
+  if (!id) return false;
+  const next = { ...q, hidden: q.hidden.filter((x) => x !== id) };
+  return visibleSuggestions({ ...next, floor: raiseFloor(next) }).some((s) => s.id === id);
+}
+
 /** 창을 넘친 만큼 `floor` 를 올린다. 지운 칸은 비워 둔 채로 둔다 */
 export function raiseFloor(q: SuggestionQueue): number {
   const list = queued(q, q.floor);

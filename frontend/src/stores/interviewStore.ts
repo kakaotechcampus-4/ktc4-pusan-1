@@ -18,6 +18,7 @@ import {
   raiseFloor,
   readMarks,
   refillFloor,
+  canRestore,
   trimSuggestions,
   visibleSuggestions,
   writeMarks,
@@ -286,10 +287,14 @@ function settle(
     pinned: next.pinnedSuggestionIds,
     floor: Object.keys(q.seq).find((id) => q.seq[id] === floor) ?? null,
   });
+  const suggestions = trimSuggestions({ ...q, floor });
+  const last = next.lastHiddenSuggestionId;
+  const stale = last !== null && !canRestore({ ...q, floor, suggestions }, last);
   return {
     ...patch,
     suggestionFloor: floor,
-    suggestions: trimSuggestions({ ...q, floor }),
+    suggestions,
+    ...(stale ? { lastHiddenSuggestionId: null } : {}),
     ...(restored === undefined ? {} : { restoredFloorId: null }),
   };
 }

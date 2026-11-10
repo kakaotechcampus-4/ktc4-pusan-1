@@ -13,6 +13,7 @@ const range = (from, to) => Array.from({ length: to - from }, (_, i) => question
 const store = useInterviewStore;
 const shown = () => visibleSuggestions(queueOf(store.getState())).map((q) => q.id);
 const push = (from, to) => range(from, to).forEach((q) => store.getState().addSuggestion(q));
+const undoable = () => store.getState().lastHiddenSuggestionId;
 
 test('고정하지 않은 질문은 최신 6개만 최신순으로 흐르고 보관은 10개로 제한한다', () => {
   store.getState().reset();
@@ -83,6 +84,24 @@ test('재조회는 끊긴 사이 질문만 붙이고 잘라낸 질문은 되살�
   store.getState().mergeSuggestions([...range(0, 20), question(20)]);
   assert.deepEqual(shown(), ['20', '19', '18', '17', '16', '15']);
   assert.ok(!store.getState().suggestions.some((q) => q.id === '0'));
+});
+
+test('되살릴 자리가 없어진 취소는 내려 둔다', () => {
+  store.getState().reset();
+  push(0, 6);
+  // 창의 가장 오래된 칸을 지우면 아직 되살릴 자리가 있다.
+  store.getState().dismissSuggestion('0');
+  assert.equal(undoable(), '0');
+  store.getState().undoDismissSuggestion();
+  assert.deepEqual(shown(), ['5', '4', '3', '2', '1', '0']);
+
+  // 지운 칸을 새 질문이 채우면 되살릴 자리가 없다 — 먹통인 취소를 남기지 않는다.
+  store.getState().dismissSuggestion('0');
+  push(6, 7);
+  assert.deepEqual(shown(), ['6', '5', '4', '3', '2', '1']);
+  assert.equal(undoable(), null);
+  store.getState().undoDismissSuggestion();
+  assert.deepEqual(shown(), ['6', '5', '4', '3', '2', '1']);
 });
 
 test('같은 탭에서 다시 들어오면 지운 질문과 고정이 유지되고 다른 세션과 섞이지 않는다', () => {
