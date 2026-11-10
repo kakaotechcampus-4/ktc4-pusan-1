@@ -14,6 +14,17 @@ import type {
   Suggestion,
   Utterance,
 } from '../types/interview';
+import {
+  raiseFloor,
+  readMarks,
+  refillFloor,
+  canRestore,
+  trimSuggestions,
+  visibleSuggestions,
+  writeMarks,
+  type SuggestionLimit,
+  type SuggestionQueue,
+} from '../lib/suggestionQueue.ts';
 
 interface InterviewState {
   sessionId: string | null;
@@ -35,10 +46,24 @@ interface InterviewState {
   suggestions: Suggestion[];
   questionsExpanded: boolean;
   toggleQuestionsExpanded: () => void;
+  /** 고정되지 않은 질문을 몇 개까지 보여줄지. 면접관이 6 · 10 중에 고른다 */
+  suggestionLimit: SuggestionLimit;
+  setSuggestionLimit: (limit: SuggestionLimit) => void;
+  /** 지운 질문 id. 그 칸은 다음 질문이 올 때까지 비어 있다 */
   hiddenSuggestionIds: string[];
   lastHiddenSuggestionId: string | null;
+  pinnedSuggestionIds: string[];
   dismissSuggestion: (id: string) => void;
   undoDismissSuggestion: () => void;
+  /** 일시정지 중에 화면에 붙잡아 둔 질문 id. null 이면 큐가 흐른다 */
+  frozenSuggestionIds: string[] | null;
+  toggleSuggestionsPaused: () => void;
+  /** 큐에 남아 있는 가장 오래된 도착 순번. 밀려난 질문은 이보다 작아 다시 나오지 않는다 */
+  suggestionFloor: number;
+  /** 받은 적 있는 질문의 도착 순번. 잘라낸 질문이 재조회로 되살아나지 않게 한다 */
+  suggestionSeq: Record<string, number>;
+  /** 새로고침 전 큐의 시작 질문 id. 조회로 그 질문이 다시 오면 floor 를 거기로 맞춘다 */
+  restoredFloorId: string | null;
 
   setSession: (id: string) => void;
   setConnection: (s: RoomConnectionState) => void;
@@ -63,10 +88,36 @@ export const useInterviewStore = create<InterviewState>((set) => ({
   suggestions: [],
   questionsExpanded: false,
   toggleQuestionsExpanded: () => set((s) => ({ questionsExpanded: !s.questionsExpanded })),
+
+  suggestionLimit: 6,
+  // 늘리면 보관 중인 질문으로 바로 채우고, 줄이면 오래된 것부터 뺀다.
+  setSuggestionLimit: (suggestionLimit) =>
+    set((s) =>
+      settle(
+        s,
+        { suggestionLimit },
+        suggestionLimit > s.suggestionLimit ? refillFloor : raiseFloor,
+      ),
+    ),
   hiddenSuggestionIds: [],
   lastHiddenSuggestionId: null,
+  pinnedSuggestionIds: [],
+  frozenSuggestionIds: null,
+  suggestionFloor: 0,
+  suggestionSeq: {},
+  restoredFloorId: null,
 
-  setSession: (sessionId) => set({ sessionId }),
+  // 이 탭에서 지우고 고정해 둔 것을 되살린다. 질문은 뒤이어 조회 · 패킷으로 채워진다.
+  setSession: (sessionId) =>
+    set(() => {
+      const marks = readMarks(sessionId);
+      return {
+        sessionId,
+        hiddenSuggestionIds: marks.hidden,
+        pinnedSuggestionIds: marks.pinned,
+        restoredFloorId: marks.floor,
+      };
+    }),
   setConnection: (connection) => set({ connection }),
   setRemoteJoined: (remoteJoined) => set({ remoteJoined }),
   setSpeaking: (speakingNow) => set({ speakingNow }),
@@ -115,50 +166,74 @@ export const useInterviewStore = create<InterviewState>((set) => ({
    * 같은 id 가 다시 와도 먼저 온 것을 남긴다. 덮으면 면접관이 눌러 둔 고정이 풀려,
    * 묻기 직전에 표시가 사라진다. BE 도 재시도를 받으면 처음 것을 남긴다.
    *
-   * 전사와 달리 잘라내지 않는다 — 흘러가는 기록이 아니라 면접관이 골라 쓰는 목록이다.
+   * 큐라서 고정 · 일시정지로 붙잡지 않은 오래된 질문은 잘라낸다.
    */
   addSuggestion: (suggestion) =>
     set((s) =>
-      s.suggestions.some((x) => x.id === suggestion.id)
+      suggestion.id in s.suggestionSeq
         ? {}
-        : { suggestions: [...s.suggestions, suggestion] },
+        : settle(s, {
+            suggestions: [...s.suggestions, markPinned(suggestion, s.pinnedSuggestionIds)],
+            suggestionSeq: { ...s.suggestionSeq, [suggestion.id]: nextSeq(s.suggestionSeq) },
+          }),
     ),
 
   /**
    * 조회 API 결과를 지금 목록과 합친다 (입장 · 재연결).
    *
-   * 순서는 서버가 받은 순서를 따른다. 끊긴 사이에 온 것이 여기서 되살아나므로,
-   * 서버 목록이 기준이고 아직 서버 응답에 없는(방금 패킷으로 받은) 것만 뒤에 붙인다.
+   * 끊긴 사이에 온 것은 서버가 받은 순서대로 뒤에 붙인다. 이미 받은 적 있는 질문은
+   * 건너뛴다 — 큐에서 밀려나 잘라낸 질문이 재조회로 되살아나면 안 된다.
    * 고정은 서버가 모르는 값이라 이쪽에서 지켜 준다.
    */
   mergeSuggestions: (list) =>
     set((s) => {
-      const pinned = new Set(s.suggestions.filter((x) => x.pinned).map((x) => x.id));
-      const fromServer = new Set(list.map((x) => x.id));
-      return {
-        suggestions: [
-          ...list.map((x) => (pinned.has(x.id) ? { ...x, pinned: true } : x)),
-          ...s.suggestions.filter((x) => !fromServer.has(x.id)),
-        ],
-      };
+      const seq = { ...s.suggestionSeq };
+      const fresh: Suggestion[] = [];
+      for (const x of list) {
+        if (x.id in seq) continue;
+        seq[x.id] = nextSeq(seq);
+        fresh.push(markPinned(x, s.pinnedSuggestionIds));
+      }
+      return settle(s, { suggestions: [...s.suggestions, ...fresh], suggestionSeq: seq });
     }),
 
+  // 지운 질문은 고정도 함께 푼다. 고정된 채 숨으면 잘리지 않고 영영 남는다.
   dismissSuggestion: (id) =>
-    set((s) => ({
-      hiddenSuggestionIds: [...new Set([...s.hiddenSuggestionIds, id])],
-      lastHiddenSuggestionId: id,
-    })),
+    set((s) => {
+      const next = {
+        hiddenSuggestionIds: [...new Set([...s.hiddenSuggestionIds, id])],
+        lastHiddenSuggestionId: id,
+        pinnedSuggestionIds: s.pinnedSuggestionIds.filter((x) => x !== id),
+        suggestions: s.suggestions.map((x) => (x.id === id ? { ...x, pinned: false } : x)),
+      };
+      return settle(s, next);
+    }),
   undoDismissSuggestion: () =>
-    set((s) => ({
-      hiddenSuggestionIds: s.hiddenSuggestionIds.filter((id) => id !== s.lastHiddenSuggestionId),
-      lastHiddenSuggestionId: null,
-    })),
+    set((s) => {
+      const hidden = s.hiddenSuggestionIds.filter((id) => id !== s.lastHiddenSuggestionId);
+      return settle(s, { hiddenSuggestionIds: hidden, lastHiddenSuggestionId: null });
+    }),
+
+  toggleSuggestionsPaused: () =>
+    set((s) =>
+      s.frozenSuggestionIds
+        ? settle(s, { frozenSuggestionIds: null })
+        : { frozenSuggestionIds: visibleSuggestions(queueOf(s)).map((x) => x.id) },
+    ),
 
   /** 면접관이 「이걸 묻겠다」고 눌렀다 · 눌렀던 것을 풀었다 */
   toggleSuggestionPin: (id) =>
-    set((s) => ({
-      suggestions: s.suggestions.map((x) => (x.id === id ? { ...x, pinned: !x.pinned } : x)),
-    })),
+    set((s) => {
+      const pinnedSuggestionIds = s.pinnedSuggestionIds.includes(id)
+        ? s.pinnedSuggestionIds.filter((x) => x !== id)
+        : [...s.pinnedSuggestionIds, id];
+      return settle(s, {
+        pinnedSuggestionIds,
+        suggestions: s.suggestions.map((x) =>
+          x.id === id ? { ...x, pinned: pinnedSuggestionIds.includes(id) } : x,
+        ),
+      });
+    }),
 
   reset: () =>
     set({
@@ -172,5 +247,54 @@ export const useInterviewStore = create<InterviewState>((set) => ({
       questionsExpanded: false,
       hiddenSuggestionIds: [],
       lastHiddenSuggestionId: null,
+      pinnedSuggestionIds: [],
+      frozenSuggestionIds: null,
+      suggestionFloor: 0,
+      suggestionSeq: {},
+      restoredFloorId: null,
     }),
 }));
+
+const markPinned = (s: Suggestion, pinned: readonly string[]): Suggestion =>
+  pinned.includes(s.id) ? { ...s, pinned: true } : s;
+
+const nextSeq = (seq: Record<string, number>) => Object.keys(seq).length;
+
+export const queueOf = (s: InterviewState): SuggestionQueue => ({
+  suggestions: s.suggestions,
+  hidden: s.hiddenSuggestionIds,
+  limit: s.suggestionLimit,
+  floor: s.suggestionFloor,
+  seq: s.suggestionSeq,
+  frozen: s.frozenSuggestionIds,
+});
+
+/**
+ * 바뀐 상태에 큐 규칙을 적용한다 — 넘친 만큼 floor 를 옮기고 보관 범위 밖은 잘라낸다.
+ * 지우기 · 고정 · floor 는 이 탭에 남겨 새로고침 뒤에도 같은 큐를 보이게 한다.
+ */
+function settle(
+  s: InterviewState,
+  patch: Partial<InterviewState>,
+  floorOf: (q: SuggestionQueue) => number = raiseFloor,
+): Partial<InterviewState> {
+  const next = { ...s, ...patch };
+  const q = queueOf(next);
+  const restored = next.restoredFloorId === null ? undefined : q.seq[next.restoredFloorId];
+  const floor = Math.max(floorOf(q), restored ?? -Infinity);
+  writeMarks(next.sessionId, {
+    hidden: next.hiddenSuggestionIds,
+    pinned: next.pinnedSuggestionIds,
+    floor: Object.keys(q.seq).find((id) => q.seq[id] === floor) ?? null,
+  });
+  const suggestions = trimSuggestions({ ...q, floor });
+  const last = next.lastHiddenSuggestionId;
+  const stale = last !== null && !canRestore({ ...q, floor, suggestions }, last);
+  return {
+    ...patch,
+    suggestionFloor: floor,
+    suggestions,
+    ...(stale ? { lastHiddenSuggestionId: null } : {}),
+    ...(restored === undefined ? {} : { restoredFloorId: null }),
+  };
+}
