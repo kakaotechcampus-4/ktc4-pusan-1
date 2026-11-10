@@ -598,11 +598,26 @@ class RoomTranscriber:
         self._initial_scan_complete.set()
         return self._origin_at
 
-    def _track_offset_ms(self) -> int:
+    def session_ms_now(self) -> int | None:
+        """Where "now" sits on the session clock, or ``None`` before t=0.
+
+        The origin is pinned to the first human join, so there is no session
+        millisecond until somebody is in the room. A caller that must place an
+        utterance outside the audio path (:mod:`irya_ai.demo_injection`) asks
+        here and handles the ``None`` rather than guessing zero, which would
+        put the utterance at the top of the transcript.
+        """
+
         if self._origin_at is None:
-            raise RuntimeError("room transcript origin is not initialized")
+            return None
         elapsed = self._wall_clock() - self._origin_at
         return max(0, round(elapsed.total_seconds() * 1000))
+
+    def _track_offset_ms(self) -> int:
+        offset = self.session_ms_now()
+        if offset is None:
+            raise RuntimeError("room transcript origin is not initialized")
+        return offset
 
     def stream_for(self, track_id: str, speaker: SpeakerRole) -> TranscribingStream:
         """A fresh stream for one track, placed on the session timeline now.

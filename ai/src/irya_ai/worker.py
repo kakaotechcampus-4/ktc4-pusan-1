@@ -38,6 +38,7 @@ from openai import AsyncOpenAI
 from irya_ai.backend import BackendError
 from irya_ai.backend import build_client as build_backend_client
 from irya_ai.config import Settings, get_settings
+from irya_ai.demo_injection import allowed_sessions, attach_demo_injector
 from irya_ai.openai_suggestions import OpenAISuggestionGenerator
 from irya_ai.schemas.transcript import SpeakerRole
 from irya_ai.sinks import FanOutSink
@@ -250,6 +251,19 @@ async def transcribe_room(ctx: JobContext) -> None:
         consumers.append(wiring.runner)
         ctx.add_shutdown_callback(wiring.close)
     transcriber.sinks = [FanOutSink(consumers)]
+    # After the sinks are in place, so an injected utterance reaches the same
+    # three consumers a transcribed one does. Registered before connect like
+    # every other room callback.
+    injector = attach_demo_injector(
+        ctx.room,
+        transcriber,
+        enabled=settings.demo_injection_enabled,
+        sessions=allowed_sessions(settings.demo_injection_sessions),
+    )
+    if injector is not None:
+        # An injection in the sink when the room ends should reach the Backend
+        # rather than die on a cancelled task.
+        ctx.add_shutdown_callback(injector.aclose)
 
     async def transcribe_participant(_ctx: JobContext, participant) -> None:
         await transcriber.transcribe_participant(participant)
@@ -269,13 +283,14 @@ async def transcribe_room(ctx: JobContext) -> None:
     origin = transcriber.initialize_origin(ctx.room.remote_participants.values())
     logger.info(
         "joined room=%s session=%s participants=%d origin=%s "
-        "transcripts=%s suggestions=%s",
+        "transcripts=%s suggestions=%s demo_injection=%s",
         ctx.room.name,
         session_id,
         len(ctx.room.remote_participants),
         origin.isoformat() if origin else "pending first human",
         "on" if transcripts is not None else "off",
         wiring.generator_name if wiring is not None else "off",
+        "ON" if injector is not None else "off",
     )
 
 

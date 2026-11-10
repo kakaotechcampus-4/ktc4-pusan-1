@@ -6,7 +6,7 @@ FE 는 camelCase 를 쓴다. 파이썬 쪽은 snake_case 로 두고 alias 로 �
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.models import (
     CoverageState,
@@ -190,6 +190,35 @@ class ConsentRequest(Schema):
         pattern=r"^[\w.\-]+$",
         description="보여 준 동의 문구의 판. 예: `2026-10-30`",
     )
+
+
+class DemoUtteranceRequest(Schema):
+    """`POST /sessions/{sessionId}/demo/utterance` — 발표 데모용 답변 주입.
+
+    무대에서 면접관이 키를 누르면 준비한 지원자 답변이 이 경로로 들어가, Agent 가
+    그것을 **지원자 발화**로 파이프라인에 넣는다. 자막·저장·꼬리질문은 그 뒤 전부
+    실제 경로다.
+
+    꼬리질문 라운드는 답변이 8단어 이상일 때만 돈다
+    (`ai/src/irya_ai/suggestions.py` 의 `MIN_ANSWER_WORDS`). 그래서 너무 짧은
+    답변은 자막만 뜨고 꼬리질문이 생기지 않는다 — 막지는 않는다. 대본의 몫이다.
+    """
+
+    content: str = Field(
+        min_length=1,
+        max_length=2_000,
+        description="지원자가 말한 것으로 넣을 문장. 상한은 Agent 쪽과 같다.",
+    )
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _strip(cls, value: object) -> object:
+        """앞뒤 공백을 떼고 길이를 본다 — Agent 도 같은 것을 한다.
+
+        떼지 않으면 공백뿐인 본문이 `min_length=1` 을 통과해, 받는 쪽이 버릴 패킷을
+        방에 흘려보낸다.
+        """
+        return value.strip() if isinstance(value, str) else value
 
 
 class ConsentResponse(Schema):

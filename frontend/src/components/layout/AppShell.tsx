@@ -18,6 +18,7 @@ import { buttonClass } from '../ui/buttonClass';
 import { Logo } from '../ui/Logo';
 import { Sheet } from '../ui/Sheet';
 import { InterviewNavigationDialog } from './InterviewNavigationDialog';
+import { SkipLink } from './SkipLink';
 
 type Shortcut = 'room' | 'summary' | 'review';
 
@@ -48,8 +49,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="bg-surface min-h-full">
+      <SkipLink />
       {/* ── 넓은 화면: 사이드바 ── */}
-      <aside className="border-border-base bg-surface-panel fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r px-4 py-5 lg:flex">
+      <aside
+        data-print-hide
+        className="border-border-base bg-surface-panel fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r px-4 py-5 lg:flex"
+      >
         <Link to="/" aria-label="IRYA 홈" className="px-2">
           <Logo />
         </Link>
@@ -108,7 +113,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       {/* ── 좁은 화면: 위 막대 ── */}
-      <header className="border-border-base bg-surface-panel/90 sticky top-0 z-30 flex h-14 items-center border-b px-4 backdrop-blur-xl lg:hidden">
+      <header
+        data-print-hide
+        className="border-border-base bg-surface-panel/90 sticky top-0 z-30 flex h-14 items-center border-b px-4 backdrop-blur-xl lg:hidden"
+      >
         <Link to="/" aria-label="IRYA 홈">
           <Logo size="sm" />
         </Link>
@@ -123,12 +131,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         </button>
       </header>
 
-      <main className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0 lg:pl-64">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="pb-[calc(4.5rem+env(safe-area-inset-bottom))] outline-none lg:pb-0 lg:pl-64"
+      >
         {children}
       </main>
 
       {/* ── 좁은 화면: 아래 탭. 가운데가 가장 자주 하는 일(새 면접)이다 ── */}
       <nav
+        data-print-hide
         aria-label="면접관 메뉴"
         className="border-border-base bg-surface-panel/95 fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden"
       >
@@ -249,7 +262,9 @@ function Avatar({ me }: { me: User | undefined }) {
       aria-hidden
       className="bg-brand-tint text-brand flex h-8 w-8 items-center justify-center rounded-full"
     >
-      <span className="material-symbols-outlined text-[18px]">person</span>
+      <span aria-hidden className="material-symbols-outlined text-[18px]">
+        person
+      </span>
     </span>
   );
 }

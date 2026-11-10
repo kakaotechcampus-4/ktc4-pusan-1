@@ -38,6 +38,7 @@ import MainPage from './pages/MainPage';
 import { getMe } from './api/auth';
 import { ApiError } from './api/client';
 import { useAccessToken } from './hooks/useAccessToken';
+import { pageTitle } from './lib/pageTitle';
 import { AppShell } from './components/layout/AppShell';
 import { buttonClass } from './components/ui/buttonClass';
 import { FALLBACK_CANDIDATE, INTERVIEWER_LABEL } from './lib/candidateName';
@@ -264,6 +265,10 @@ function RequireAuth({ children }: { children: ReactNode }) {
 
 export default function App() {
   useAccessToken();
+  const { pathname } = useLocation();
+  useEffect(() => {
+    document.title = pageTitle(pathname);
+  }, [pathname]);
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

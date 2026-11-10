@@ -5,6 +5,9 @@ export const SUGGESTION_LIMITS = [6, 10] as const;
 export type SuggestionLimit = (typeof SUGGESTION_LIMITS)[number];
 const KEEP = Math.max(...SUGGESTION_LIMITS);
 
+/** 고정한 질문은 큐 밖에 남으므로, 화면을 다 덮지 않게 상한을 둔다 */
+export const PIN_LIMIT = 3;
+
 /**
  * 꼬리질문 큐의 상태.
  *
@@ -42,6 +45,31 @@ export function visibleSuggestions(q: SuggestionQueue): Suggestion[] {
   }
   const pinned = q.suggestions.filter((s) => s.pinned && !gone.has(s.id)).reverse();
   return [...pinned, ...queued(q, q.floor).slice(-q.limit).reverse()];
+}
+
+/**
+ * 「지웠습니다 · 취소」의 취소가 실제로 그 질문을 되살릴 수 있는지.
+ *
+ * 지운 뒤 새 질문이 와서 창이 다 차면, 숨김을 풀어도 그 질문은 창 밖으로 밀려 다시 보이지
+ * 않는다 — 큐 규칙이 「넘친 만큼 오래된 것이 빠진다」이기 때문이다. 그때는 취소를 아예
+ * 내려서, 눌렀는데 아무 일도 없는 버튼을 남기지 않는다.
+ */
+export function canRestore(q: SuggestionQueue, id: string | null): boolean {
+  if (!id) return false;
+  const next = { ...q, hidden: q.hidden.filter((x) => x !== id) };
+  return visibleSuggestions({ ...next, floor: raiseFloor(next) }).some((s) => s.id === id);
+}
+
+/**
+ * 방금 도착한 질문. 화면에 그 질문이 있을 때만 돌려준다.
+ *
+ * aria-live 로 읽어 주는 칸이라 「보이는 것 중 첫 번째」로 고르면, 최신 질문을 지웠을 때
+ * 그 다음 오래된 질문을 「새 꼬리질문」으로 읽어 버린다. 도착 순번이 가장 큰 질문만 본다.
+ */
+export function newestSuggestion(q: SuggestionQueue): Suggestion | undefined {
+  if (q.frozen) return undefined;
+  const top = Math.max(...Object.values(q.seq));
+  return visibleSuggestions(q).find((s) => q.seq[s.id] === top);
 }
 
 /** 창을 넘친 만큼 `floor` 를 올린다. 지운 칸은 비워 둔 채로 둔다 */

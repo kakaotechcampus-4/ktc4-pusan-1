@@ -300,7 +300,7 @@ uv run irya-ai report report_context.json            # LLM_* 설정 필요
   `partial`). 둘 다 없으면 `failed`입니다. BE가 overview 없는 `completed`/`partial`을 422로
   거절하기 때문입니다(#238).
 - 게이트웨이 출력 상한(2,000토큰, #171)에 맞춰 역량을 4개씩 나눠 부르고 합칩니다.
-- 폴러에 `REPORT` 작업을 붙이는 일은 #249 입니다.
+- 폴러가 `REPORT` 작업도 집어 갑니다(#249).
 
 ## Verify
 
@@ -309,6 +309,9 @@ uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 ```
+
+품질 지표의 정의와 측정 수단, 기본 모델을 `gpt-5.6-luna` → `gpt-6-luna` 로 바꾼 전후
+수치는 [분석 품질 지표와 측정 기록](docs/eval-metrics.md)에 모아 두었습니다.
 
 ## 구조
 

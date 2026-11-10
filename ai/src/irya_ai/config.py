@@ -85,6 +85,20 @@ class Settings(BaseSettings):
     transcript_max_pending: int = Field(default=200, gt=0, le=10_000)
     transcript_reconnect_backoff_seconds: float = Field(default=0.5, ge=0, le=30)
 
+    # Stage-demo utterance injection (:mod:`irya_ai.demo_injection`). Lets the
+    # backend hand the worker a scripted candidate answer so the final
+    # presentation can show real captions and real follow-up questions with
+    # nobody in the candidate's chair.
+    #
+    # Both are needed, and together they are the control: the flag arms the
+    # feature on this worker, and the list says which rooms it may touch.
+    # ⚠️ An armed session's transcript can hold speech nobody said, so name the
+    # demo session and nothing else. An empty list allows no room at all - the
+    # flag on its own is not a way to open every interview on the host.
+    # Comma separated session ids, e.g. ``ses_abc,ses_def``.
+    demo_injection_enabled: bool = False
+    demo_injection_sessions: str = ""
+
     @field_validator("llm_base_url")
     @classmethod
     def _base_url_ends_with_v1(cls, value: str) -> str:

@@ -93,9 +93,9 @@ class PostgresStore:
                 """
                 INSERT INTO interview (
                     id, interviewer_id, candidate_name, created_at,
-                    review_status, memo, reviewed_at
+                    review_status, memo, reviewed_at, company, role
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     interview.id,
@@ -105,13 +105,16 @@ class PostgresStore:
                     interview.review_status.value,
                     interview.memo,
                     interview.reviewed_at,
+                    interview.company,
+                    interview.role,
                 ),
             )
 
     def get_interview(self, interview_id: str) -> Interview | None:
         row = self._one(
             "SELECT id, interviewer_id, candidate_name, created_at,"
-            " review_status, memo, reviewed_at FROM interview WHERE id = %s",
+            " review_status, memo, reviewed_at, company, role"
+            " FROM interview WHERE id = %s",
             (interview_id,),
         )
         return None if row is None else self._to_interview(row)
@@ -143,7 +146,7 @@ class PostgresStore:
              WHERE id = %(id)s
                AND (%(expected_memo)s::text IS NULL OR memo = %(expected_memo)s)
          RETURNING id, interviewer_id, candidate_name, created_at,
-                   review_status, memo, reviewed_at
+                   review_status, memo, reviewed_at, company, role
             """,
             {
                 "memo": memo,
@@ -219,6 +222,7 @@ class PostgresStore:
             """
             SELECT i.id, i.interviewer_id, i.candidate_name, i.created_at,
                    i.review_status, i.memo, i.reviewed_at,
+                   i.company, i.role,
                    s.id AS s_id, s.status AS s_status, s.created_at AS s_created_at,
                    s.started_at AS s_started_at, s.ended_at AS s_ended_at,
                    s.transcript_origin_at AS s_transcript_origin_at,
@@ -399,6 +403,8 @@ class PostgresStore:
             review_status=ReviewStatus(row["review_status"]),
             memo=row["memo"],
             reviewed_at=row["reviewed_at"],
+            company=row["company"],
+            role=row["role"],
         )
 
     def save_session(

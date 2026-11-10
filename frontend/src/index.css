@@ -178,10 +178,14 @@ html {
 }
 
 /* 키보드로 다닐 때 지금 어디 있는지 보이게 한다. 마우스 클릭에는 뜨지 않는다(:focus-visible).
-   ring 을 직접 그리는 요소는 outline-none 으로 이 기본값을 끈다. */
-:focus-visible {
-  outline: 2px solid var(--color-brand);
-  outline-offset: 2px;
+   ring 을 직접 그리는 요소는 outline-none 으로 이 기본값을 끈다.
+   base 레이어에 둬야 유틸리티(-outline-offset-*, outline-none)가 이긴다. 레이어 밖에 두면
+   잘리는 패널 안에서 테두리를 안쪽으로 당길 수 없다 (KWCAG 초점 표시). */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
 }
 
 /* 움직임 줄이기를 켠 사람에게는 회전 · 깜빡임 · 미끄러짐을 멈춘다. */
@@ -258,5 +262,25 @@ body {
   .interview-panels[data-expanded='true'] {
     grid-template-columns: minmax(0, 1fr) min(55vw, 680px);
     grid-template-rows: minmax(96px, 1fr) minmax(0, 1fr);
+  }
+}
+
+/* 리포트 PDF 저장 (#240). 앱 메뉴는 빼고 A4 한 장 폭에 리포트만 남긴다. */
+@media print {
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+  html,
+  body,
+  .bg-surface {
+    background: #fff !important;
+  }
+  [data-print-hide] {
+    display: none !important;
+  }
+  /* 메뉴 자리로 비워 둔 여백도 지운다 */
+  main {
+    padding: 0 !important;
   }
 }
