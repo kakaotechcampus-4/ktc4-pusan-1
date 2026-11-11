@@ -31,6 +31,24 @@ jobs:
       run:
         working-directory: backend
 
+    # 저장소 계약 테스트(`tests/test_store_contract.py`)의 PostgreSQL 쪽은
+    # TEST_DATABASE_URL 이 없으면 건너뛴다. 여기서 DB 를 띄우지 않으면 PG 구현은
+    # CI 에서 한 번도 검사되지 않는다. 버전은 그 파일 docstring 과 맞춘다.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: irya
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: irya
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U irya -d irya"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
@@ -62,7 +80,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Test
-        run: uv run pytest
+        run: uv run pytest -rs
+        env:
+          TEST_DATABASE_URL: postgresql://irya:test@localhost:5432/irya
 
       # API 가 바뀌었는데 스키마 파일을 안 올리면 여기서 걸린다.
       # FE·AI 가 이 파일을 계약으로 보므로 코드와 어긋나면 안 된다.
