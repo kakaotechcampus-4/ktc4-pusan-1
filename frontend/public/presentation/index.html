@@ -4413,7 +4413,7 @@ body.screen-real .live-room.room-easy { display: none }
     <button class="appchip" type="button" role="tab" aria-selected="false" data-d="5"><b>06</b> 리포트</button>
     <button class="appchip golive" type="button" id="dlive" hidden title="실제 제품의 면접 화면을 슬라이드 안에 띄웁니다">실제 제품으로 시연</button>
     <button class="appchip ghost" type="button" id="dliveset" hidden title="새 탭으로 열 면접 링크를 바꿉니다">링크</button>
-    <form class="livebox" id="dliveform" hidden><label for="dliveinput" class="sr-only">새 탭으로 열 면접 링크</label><input id="dliveinput" type="url" placeholder="https://irya.cloud/interview/ses_..." autocomplete="off"><button type="submit" class="appchip">저장</button></form>
+    <form class="livebox" id="dliveform" hidden><label for="dliveinput" class="sr-only">새 탭으로 열 면접 링크</label><input id="dliveinput" type="text" placeholder="https://irya.cloud/interview/ses_..." autocomplete="off"><button type="submit" class="appchip">저장</button></form>
     <span class="appbar-gap"></span>
     <span class="appbar-note" id="dnote"></span>
     <button class="appchip ghost" type="button" id="dreplay" hidden>자막 다시 재생</button>
@@ -6059,49 +6059,58 @@ body.screen-real .live-room.room-easy { display: none }
      녹화 시연을 그대로 쓴다. 링크가 없으면 운영 첫 화면을 연다. */
   var live = document.getElementById('dlive');
   var liveSet = document.getElementById('dliveset');
-  var LIVE_KEY = 'irya.deck.liveUrl';
-  var liveUrl = function () {
-    try { return localStorage.getItem(LIVE_KEY) || ''; } catch (e) { return ''; }
+  /* 링크 전체가 아니라 세션 id 만 저장한다. iframe · 새 창 주소는 고정 경로에
+     encodeURIComponent 한 id 를 붙여 만든다 — 저장된 글자가 그대로 src 로 가지
+     않으니 javascript: 같은 주소가 끼어들 틈이 없다 (CodeQL js/xss-through-dom). */
+  var LIVE_KEY = 'irya.deck.liveSession';
+  var SESSION_RE = /^[A-Za-z0-9_-]{1,80}$/;
+  var liveId = function () {
+    var v = '';
+    try { v = localStorage.getItem(LIVE_KEY) || ''; } catch (e) { v = ''; }
+    return SESSION_RE.test(v) ? v : '';
+  };
+  var livePath = function () { return liveId() ? '/interview/' + encodeURIComponent(liveId()) : '/'; };
+  var parseSession = function (v) {
+    var m = /(?:^|\/interview\/)([A-Za-z0-9_-]{1,80})\/?(?:[?#].*)?$/.exec(v.trim());
+    return m ? m[1] : '';
   };
   var paintLive = function () {
-    live.title = liveUrl() ? '슬라이드 안에 띄웁니다 · ' + liveUrl() : '면접 링크가 없어 운영 첫 화면을 띄웁니다. 「링크」로 넣어 두세요';
+    live.title = liveId() ? '슬라이드 안에 띄웁니다 · irya.cloud' + livePath() : '면접 링크가 없어 운영 첫 화면을 띄웁니다. 「링크」로 넣어 두세요';
   };
   var lf = document.getElementById('dliveframe');
   var lfFrame = document.getElementById('dliveiframe');
-  var liveTarget = function () { return liveUrl() || 'https://irya.cloud/'; };
-  var sameOrigin = function (u) {
-    try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; }
-  };
+  /* 운영(irya.cloud)에서만 슬라이드 안에 띄울 수 있다. Caddy 가 frame-ancestors 'self' 다 */
+  var onProd = location.hostname === 'irya.cloud';
   var closeLive = function () {
     if (lf.hidden) return;
     lfFrame.src = 'about:blank';   /* 면접 방(LiveKit)에서 나가고 마이크 · 카메라를 놓는다 */
     lf.hidden = true;
   };
   live.addEventListener('click', function () {
-    var u = liveTarget();
-    /* 다른 오리진(로컬 서버 등)은 irya.cloud 가 iframe 을 막는다 — 새 창으로 연다 */
-    if (!sameOrigin(u)) { window.open(u, '_blank', 'noopener'); return; }
+    /* 운영이 아니면(로컬 서버 등) irya.cloud 가 iframe 을 막는다 — 새 창으로 연다 */
+    if (!onProd) { window.open('https://irya.cloud' + livePath(), '_blank', 'noopener'); return; }
     stopRoom();
     roomVids.forEach(function (v) { v.pause(); });
-    document.getElementById('dliveurl').textContent = u.replace(/^https:\/\//, '');
-    lfFrame.src = u;
+    document.getElementById('dliveurl').textContent = 'irya.cloud' + livePath();
+    lfFrame.src = livePath();
     lf.hidden = false;
   });
   document.getElementById('dliveclose').addEventListener('click', closeLive);
   document.getElementById('dlivepop').addEventListener('click', function () {
-    var u = liveTarget(); closeLive(); window.open(u, '_blank', 'noopener');
+    closeLive(); window.open('https://irya.cloud' + livePath(), '_blank', 'noopener');
   });
   /* window.prompt 는 Electron 계열 내장 브라우저에서 뜨지 않는다. 바 안에 입력 칸을 펼친다 */
   var liveForm = document.getElementById('dliveform');
   var liveInput = document.getElementById('dliveinput');
   liveSet.addEventListener('click', function () {
     liveForm.hidden = !liveForm.hidden;
-    if (!liveForm.hidden) { liveInput.value = liveUrl(); liveInput.focus(); liveInput.select(); }
+    if (!liveForm.hidden) { liveInput.value = liveId() ? 'https://irya.cloud' + livePath() : ''; liveInput.focus(); liveInput.select(); }
   });
   liveForm.addEventListener('submit', function (e) {
     e.preventDefault();
-    var v = liveInput.value.trim();
-    if (v && !/^https:\/\//.test(v)) { liveInput.setCustomValidity('https:// 로 시작하는 링크만 넣을 수 있습니다.'); liveInput.reportValidity(); return; }
+    var raw = liveInput.value.trim();
+    var v = raw ? parseSession(raw) : '';
+    if (raw && !v) { liveInput.setCustomValidity('면접 링크(…/interview/ses_…)나 세션 id 를 넣어 주세요.'); liveInput.reportValidity(); return; }
     liveInput.setCustomValidity('');
     try { if (v) localStorage.setItem(LIVE_KEY, v); else localStorage.removeItem(LIVE_KEY); } catch (err) { /* 저장이 막히면 이번만 쓴다 */ }
     liveForm.hidden = true;
@@ -6110,7 +6119,7 @@ body.screen-real .live-room.room-easy { display: none }
   });
   liveInput.addEventListener('input', function () { liveInput.setCustomValidity(''); });
   liveInput.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Escape') liveForm.hidden = true; });
-  if (liveUrl()) liveSet.textContent = '링크 ✓';
+  if (liveId()) liveSet.textContent = '링크 ✓';
   paintLive();
 
   /* ── 06 리포트 ─────────────────────────────── */
