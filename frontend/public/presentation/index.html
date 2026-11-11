@@ -6069,7 +6069,8 @@ body.screen-real .live-room.room-easy { display: none }
     try { v = localStorage.getItem(LIVE_KEY) || ''; } catch (e) { v = ''; }
     return SESSION_RE.test(v) ? v : '';
   };
-  var livePath = function () { return liveId() ? '/interview/' + encodeURIComponent(liveId()) : '/'; };
+  /* 발표자는 면접관으로 들어간다. 제품은 ?role=interviewer 가 없으면 지원자로 본다 (App.tsx InterviewEntry) */
+  var livePath = function () { return liveId() ? '/interview/' + encodeURIComponent(liveId()) + '?role=interviewer' : '/'; };
   var parseSession = function (v) {
     var m = /(?:^|\/interview\/)([A-Za-z0-9_-]{1,80})\/?(?:[?#].*)?$/.exec(v.trim());
     return m ? m[1] : '';
