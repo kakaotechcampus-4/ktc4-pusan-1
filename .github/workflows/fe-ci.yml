@@ -6,10 +6,12 @@ on:
     # 그런 PR 에는 검사가 아예 안 돌아 무검증으로 리뷰에 올라간다 — 실제로 PR #94 가
     # 그랬다. push 쪽은 develop 만 둔다. feature 브랜치마다 돌리면 PR 하나에 검사가
     # 두 번씩 돈다.
+    #
+    # ⭐ pull_request 에는 paths 를 걸지 않는다. 이 검사는 develop 의 필수 상태 검사라,
+    #   트리거에서 거르면 frontend/ 를 안 건드린 PR 에는 검사가 아예 안 생겨 머지가
+    #   영영 막힌다. 대신 잡은 늘 돌고, 첫 단계에서 바뀐 경로를 보고 나머지를 건너뛴다.
+    #   건너뛴 단계는 성공으로 보고된다.
     branches: [develop, "feature/**", "fix/**", "chore/**", "refactor/**", "perf/**"]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/fe-ci.yml"
   push:
     branches: [develop]
     paths:
@@ -18,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read # 변경 경로 확인 (dorny/paths-filter)
 
 concurrency:
   group: fe-ci-${{ github.workflow }}-${{ github.ref }}
@@ -35,7 +38,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
 
+      - name: Detect frontend changes
+        id: changes
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            run:
+              - "frontend/**"
+              - ".github/workflows/fe-ci.yml"
+
       - name: Install Node
+        if: steps.changes.outputs.run == 'true'
         uses: actions/setup-node@v7.0.0
         with:
           node-version-file: frontend/.nvmrc
@@ -43,19 +56,25 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        if: steps.changes.outputs.run == 'true'
         run: npm ci
 
       - name: Lint
+        if: steps.changes.outputs.run == 'true'
         run: npm run lint
 
       - name: Check formatting
+        if: steps.changes.outputs.run == 'true'
         run: npm run format:check
 
       - name: Test transcript frames
+        if: steps.changes.outputs.run == 'true'
         run: npm test
 
       - name: Type check
+        if: steps.changes.outputs.run == 'true'
         run: npm run typecheck
 
       - name: Build
+        if: steps.changes.outputs.run == 'true'
         run: npm run build
