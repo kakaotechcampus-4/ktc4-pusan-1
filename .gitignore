@@ -83,3 +83,7 @@ models/*
 
 # ── 로컬 전용 문서 (커밋하지 않음) ──────────────────
 docs/local/
+
+# Playwright (frontend/e2e)
+test-results/
+playwright-report/
