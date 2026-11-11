@@ -141,6 +141,8 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
    인용이라 출처를 댈 수 없었고, 못 대는 숫자는 안 쓰는 편이 낫다. */
 .who { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: clamp(12px, 1.5vw, 22px); width: 100%; max-width: 1240px; margin: 0 auto }
+/* 시장성 장 — 회사 카드를 빼고 면접관 · 지원자 둘만 넓게 */
+#s-market .who { grid-template-columns: repeat(2, minmax(0, 1fr)) }
 .who-c { background: var(--panel); border: 1px solid var(--line); border-radius: 15px;
   padding: clamp(15px, 1.8vw, 26px) clamp(16px, 1.9vw, 26px) }
 .who-k { display: inline-block; font-size: clamp(12px, 1.15vw, 15px); font-weight: 800;
@@ -236,16 +238,16 @@ body.js .band--solo .solos > .solo.cur { opacity: 1; transform: none; pointer-ev
 .axc.hear .material-symbols-outlined { color: var(--brand-strong) }
 @media (max-width: 860px) { .axg { grid-template-columns: 1fr } }
 
-/* 11페이지 — 두 축 위에 점을 찍는다. 표의 칸이 아니라 자리가 보이게.
-   가로는 「무엇을 읽고 들어오는가」, 세로는 「언제 들어오는가」다. */
+/* 차별점 — 두 축 위에 점을 찍는다. 표의 칸이 아니라 자리가 보이게.
+   가로는 「AI가 직접 평가하는 정도」, 세로는 「면접 중에 면접관을 얼마나 돕는가」다. */
 .pmap { width: 100%; max-width: 1080px; margin: 0 auto;
   display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px clamp(10px, 1.2vw, 18px) }
 .pm-ylab { grid-area: 1 / 1; margin: 0; display: flex; flex-direction: column; justify-content: space-between;
   text-align: right; padding: 10px 0; font-size: clamp(13px, 1.25vw, 17px); font-weight: 700;
   color: var(--ink-dim); line-height: 1.3; max-width: 7.5em }
-/* 「그 사람을 읽고, 면접 중에」 사분면 — 글자를 쓰면 점과 겹쳐서 색으로만 표시 */
-.pm-ours { position: absolute; left: 50%; right: 0; top: 0; bottom: 50%;
-  background: rgb(75 79 224 / .07); border-radius: 0 13px 0 0; pointer-events: none }
+/* 「면접 중에 돕되, 판단은 사람이」 사분면 — 글자를 쓰면 점과 겹쳐서 색으로만 표시 */
+.pm-ours { position: absolute; left: 0; right: 50%; top: 0; bottom: 50%;
+  background: rgb(75 79 224 / .07); border-radius: 13px 0 0 0; pointer-events: none }
 .pm-dot em small { display: block; margin-top: 1px; font-size: .78em; font-weight: 600;
   color: var(--ink-dim); letter-spacing: 0 }
 .pm-dot.up { flex-direction: column }
@@ -389,6 +391,16 @@ h2.title { font-size: clamp(32px, 5.2vw, 57px); font-weight: 700; line-height: 1
   body.js .comic-cut.reveal.in { transform: none }
 }
 @media (max-width: 640px) { .comic { grid-template-columns: minmax(0, 1fr) } }
+/* 사용자 인터뷰 영상 — 16:9 로 한 화면 안에 */
+.voice { position: relative; width: 100%; max-width: min(100%, calc((100svh - 300px) * 16 / 9)); margin: 0 auto;
+  aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; background: #0b0e1c; box-shadow: var(--shadow) }
+.voice-vid { display: block; width: 100%; height: 100%; object-fit: contain; background: #0b0e1c }
+.voice-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: var(--panel-2); border: 2px dashed var(--line); border-radius: 16px; color: var(--ink-dim); text-align: center }
+.voice-empty[hidden] { display: none }
+.voice-empty .material-symbols-outlined { font-size: 48px }
+.voice-empty p { margin: 0; font-size: 20px; font-weight: 700; color: var(--ink-muted) }
+.voice-empty small { font-family: var(--font-mono); font-size: 13px }
 /* 마지막 장 — 감사합니다 */
 .thx { align-items: center; text-align: center }
 .thx-in { display: flex; flex-direction: column; align-items: center; gap: clamp(14px, 2vh, 24px) }
@@ -398,6 +410,21 @@ h2.title { font-size: clamp(32px, 5.2vw, 57px); font-weight: 700; line-height: 1
 .thx-lede { font-size: clamp(20px, 2.4vw, 30px); color: var(--ink-muted); margin: 0 }
 .thx-lede span { color: var(--brand); font-weight: 700 }
 .thx-meta { font-family: var(--font-mono); font-size: clamp(13px, 1.1vw, 15px); color: var(--ink-dim); margin: 0 }
+/* 03 — 실제 제품으로 시연 버튼은 눈에 띄게 */
+.appchip.golive { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff }
+.appchip.golive:hover { filter: brightness(1.08); color: #fff }
+.livebox { display: flex; align-items: center; gap: 6px; flex: none }
+.livebox[hidden] { display: none }
+.livebox input { width: 300px; height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid rgb(255 255 255 / .25);
+  background: rgb(255 255 255 / .08); color: #fff; font: inherit; font-size: 12.5px }
+.livebox input::placeholder { color: rgb(255 255 255 / .4) }
+/* 03 — 슬라이드 안에 띄운 실제 제품 */
+.liveframe { position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; background: #0b0e1c }
+.liveframe[hidden] { display: none }
+.liveframe iframe { flex: 1; width: 100%; border: 0; background: #fff }
+.lf-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--deep-bg) }
+.lf-tag { font-size: 12px; font-weight: 700; color: #fff; background: var(--accent-strong); border-radius: 999px; padding: 3px 10px }
+.lf-url { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px; color: rgb(255 255 255 / .5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 /* 데모 06 — 덱의 전역 th/td(18.5px, 큰 여백)가 레이어 밖이라 Tailwind 유틸보다 세다. 제품 표 크기로 되돌린다 */
 #d6list th, #d6list td { font-size: 13px; padding: 12px 16px; vertical-align: middle; border-bottom: 0 }
 #d6list thead th { background: transparent; color: var(--ink-muted); font-weight: 600 }
@@ -666,7 +693,7 @@ body.one-active #oneTry, body.feat-active #featFlag { opacity: 1; visibility: vi
 /* 「한 문장」 — 사람이 기억하던 일을, AI 가 기록한다.
    한 글자 차이(억/록)가 이 제품의 전부라서 그 글자에 힘을 준다.
    시안을 여러 개 두고 오른쪽 위에서 갈아 끼운다 — 어느 쪽이 나은지는 띄워 봐야 안다. */
-.s-one .title .who { color: var(--ink-muted); font-weight: 600 }
+.s-one .title .who { display: inline; color: var(--ink-muted); font-weight: 600 }  /* 전역 .who(카드 grid)가 걸려 줄이 깨지던 것 */
 .s-one .title .who.ai { color: var(--brand) }
 .w-mem, .w-rec { display: inline-block; position: relative }
 .w-rec i { font-style: normal; display: inline-block }
@@ -1226,7 +1253,7 @@ body:not(.notes-on) .notes { display: none }
   color: rgb(255 255 255 / .42); flex: none; padding-right: 4px;
 }
 .appbar-gap { flex: 1; min-width: 8px }
-.appbar-note { font-size: 12px; color: rgb(255 255 255 / .5); white-space: nowrap; flex: none }
+.appbar-note { font-size: 12px; color: rgb(255 255 255 / .5); white-space: nowrap; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis }  /* 길면 줄여서 오른쪽 버튼이 화면 밖으로 밀리지 않게 */
 @media (max-width: 1100px) { .appbar-note { display: none } }
 .appchip {
   flex: none; display: inline-flex; align-items: center; gap: 6px;
@@ -3651,6 +3678,17 @@ body.screen-real .live-room.room-easy { display: none }
      문구·색·간격·상태 표시는 손대지 않았다. 내용은 시연 데이터다. -->
 <section class="band band--app" id="s-demo" data-label="데모 시나리오">
   <div class="appstage" id="stage">
+    <!-- 03 — 실제 제품을 슬라이드 안에 띄운다. 같은 오리진(irya.cloud)일 때만 된다
+         (Caddy 의 frame-ancestors 'self'). 닫으면 src 를 비워 면접 방에서 나간다. -->
+    <div class="liveframe" id="dliveframe" hidden>
+      <iframe id="dliveiframe" title="IRYA 실제 면접 화면" allow="microphone; camera; autoplay; display-capture; fullscreen"></iframe>
+      <div class="lf-bar">
+        <span class="lf-tag">실제 제품</span>
+        <span class="lf-url" id="dliveurl"></span>
+        <button type="button" class="appchip ghost" id="dlivepop">새 창으로</button>
+        <button type="button" class="appchip" id="dliveclose">녹화 시연으로 돌아가기</button>
+      </div>
+    </div>
     <div class="irya-app" id="app">
 
             <!-- ── 01 면접 만들기 ─────────────────────────────── -->
@@ -4373,6 +4411,9 @@ body.screen-real .live-room.room-easy { display: none }
     <button class="appchip" type="button" role="tab" aria-selected="false" data-d="3"><b>04</b> 종료와 정리</button>
     <button class="appchip" type="button" role="tab" aria-selected="false" data-d="4"><b>05</b> 기록 검토</button>
     <button class="appchip" type="button" role="tab" aria-selected="false" data-d="5"><b>06</b> 리포트</button>
+    <button class="appchip golive" type="button" id="dlive" hidden title="실제 제품의 면접 화면을 슬라이드 안에 띄웁니다">실제 제품으로 시연</button>
+    <button class="appchip ghost" type="button" id="dliveset" hidden title="새 탭으로 열 면접 링크를 바꿉니다">링크</button>
+    <form class="livebox" id="dliveform" hidden><label for="dliveinput" class="sr-only">새 탭으로 열 면접 링크</label><input id="dliveinput" type="url" placeholder="https://irya.cloud/interview/ses_..." autocomplete="off"><button type="submit" class="appchip">저장</button></form>
     <span class="appbar-gap"></span>
     <span class="appbar-note" id="dnote"></span>
     <button class="appchip ghost" type="button" id="dreplay" hidden>자막 다시 재생</button>
@@ -4790,24 +4831,24 @@ body.screen-real .live-room.room-easy { display: none }
     </div>
     <div class="stack reveal" style="gap:16px">
       <div class="pmap">
-        <p class="pm-ylab"><span>면접이<br>도는 중에</span><span>면접<br>전후에만</span></p>
+        <p class="pm-ylab"><span>면접 중<br>실시간 제안</span><span>기록만</span><span>면접 중<br>도움 없음</span></p>
         <div class="pm-box">
           <i class="pm-mid v"></i><i class="pm-mid h"></i>
           <i class="pm-ours"></i>
 
-          <span class="pm-dot" style="--x:9%;--y:70%"><i></i><em>클로바노트</em></span>
-          <span class="pm-dot" style="--x:56%;--y:84%"><i></i><em>BrightHire<small>by Zoom</small></em></span>
-          <span class="pm-dot us up" style="--x:87%;--y:82%"><em>IRYA</em><i></i></span>
-          <span class="pm-dot" style="--x:34%;--y:41%"><i></i><em>HireVue</em></span>
-          <span class="pm-dot up" style="--x:52%;--y:30%"><em>Metaview</em><i></i></span>
-          <span class="pm-dot" style="--x:86%;--y:24%"><i></i><em>마이다스인<small>AI 면접 가이드</small></em></span>
-          <span class="pm-dot" style="--x:11%;--y:16%"><i></i><em>잡다 · 뷰인터</em></span>
+          <span class="pm-dot us up" style="--x:13%;--y:84%"><em>IRYA</em><i></i></span>
+          <span class="pm-dot" style="--x:60%;--y:63%"><i></i><em>BrightHire<small>by Zoom</small></em></span>
+          <span class="pm-dot" style="--x:14%;--y:44%"><i></i><em>클로바노트</em></span>
+          <span class="pm-dot up" style="--x:46%;--y:40%"><em>Metaview</em><i></i></span>
+          <span class="pm-dot" style="--x:30%;--y:16%"><i></i><em>마이다스인<small>AI 면접 가이드</small></em></span>
+          <span class="pm-dot up" style="--x:74%;--y:26%"><em>HireVue</em><i></i></span>
+          <span class="pm-dot" style="--x:86%;--y:10%"><i></i><em>잡다 · 뷰인터</em></span>
         </div>
-        <p class="pm-xlab"><span>아무 맥락도 안 읽음</span><span>직무기술서를 읽음</span><span>그 지원자의 이력서까지</span></p>
+        <p class="pm-xlab"><span>AI는 판단 안 함 · 근거만</span><span>AI가 초안을 채움</span><span>AI가 점수를 매김</span></p>
       </div>
       <div class="note-warn">
         <strong>가장 비슷한 BrightHire와의 비교</strong>
-        <ul><li>스코어카드 작성을 대신 해 줌</li><li>꼬리질문은 AI 스크리닝 제품에만, 사람 면접 중엔 정해 둔 질문 가이드</li><li>한국어 지원 불가</li></ul>
+        <ul><li>스코어카드 작성을 대신 해 줌</li><li>한국어 지원 불가</li><li>실시간 꼬리 질문 생성 기능 없음</li></ul>
       </div>
     </div>
   </div>
@@ -4833,13 +4874,27 @@ body.screen-real .live-room.room-easy { display: none }
         <h3>링크만 열면 됩니다</h3>
         <p>설치도 가입도 없이 평소와 같이 면접을 보기만 하면 됨.</p>
       </div>
-      <div class="who-c">
-        <span class="who-k">회사</span>
-        <h3>기준이 쌓입니다</h3>
-        <p>면접관이 확정한 근거가 우리 회사가 보는 인재상에 대한 빅데이터가 됨.</p>
-      </div>
     </div>
 
+  </div>
+</section>
+
+<!-- 사용자 인터뷰 영상 ─────────────────────── -->
+<!-- 영상은 vid/user-interview.mp4 에 넣는다. 파일이 없으면 자리 표시가 보인다. -->
+<section class="band" id="s-voice" data-label="사용자 인터뷰">
+  <div class="wrap stack">
+    <div class="reveal">
+      <p class="eyebrow">사용자 인터뷰</p>
+      <h2 class="title">직접 써 본 면접관의 이야기</h2>
+    </div>
+    <div class="voice reveal">
+      <video id="voiceVid" class="voice-vid" controls playsinline preload="metadata" src="vid/user-interview.mp4"></video>
+      <div class="voice-empty" id="voiceEmpty" hidden>
+        <span class="material-symbols-outlined" aria-hidden="true">movie</span>
+        <p>인터뷰 영상 자리</p>
+        <small>vid/user-interview.mp4 를 넣으면 여기에 나옵니다</small>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -5999,6 +6054,65 @@ body.screen-real .live-room.room-easy { display: none }
   paintFindings();
   paintSelection();
 
+  /* 03 — 실제 제품으로 시연. 발표 전에 운영에서 면접을 만들어 그 입장 링크를
+     「링크」로 넣어 둔다(이 브라우저에만 저장). 현장 마이크가 안 되면 이 장의
+     녹화 시연을 그대로 쓴다. 링크가 없으면 운영 첫 화면을 연다. */
+  var live = document.getElementById('dlive');
+  var liveSet = document.getElementById('dliveset');
+  var LIVE_KEY = 'irya.deck.liveUrl';
+  var liveUrl = function () {
+    try { return localStorage.getItem(LIVE_KEY) || ''; } catch (e) { return ''; }
+  };
+  var paintLive = function () {
+    live.title = liveUrl() ? '슬라이드 안에 띄웁니다 · ' + liveUrl() : '면접 링크가 없어 운영 첫 화면을 띄웁니다. 「링크」로 넣어 두세요';
+  };
+  var lf = document.getElementById('dliveframe');
+  var lfFrame = document.getElementById('dliveiframe');
+  var liveTarget = function () { return liveUrl() || 'https://irya.cloud/'; };
+  var sameOrigin = function (u) {
+    try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; }
+  };
+  var closeLive = function () {
+    if (lf.hidden) return;
+    lfFrame.src = 'about:blank';   /* 면접 방(LiveKit)에서 나가고 마이크 · 카메라를 놓는다 */
+    lf.hidden = true;
+  };
+  live.addEventListener('click', function () {
+    var u = liveTarget();
+    /* 다른 오리진(로컬 서버 등)은 irya.cloud 가 iframe 을 막는다 — 새 창으로 연다 */
+    if (!sameOrigin(u)) { window.open(u, '_blank', 'noopener'); return; }
+    stopRoom();
+    roomVids.forEach(function (v) { v.pause(); });
+    document.getElementById('dliveurl').textContent = u.replace(/^https:\/\//, '');
+    lfFrame.src = u;
+    lf.hidden = false;
+  });
+  document.getElementById('dliveclose').addEventListener('click', closeLive);
+  document.getElementById('dlivepop').addEventListener('click', function () {
+    var u = liveTarget(); closeLive(); window.open(u, '_blank', 'noopener');
+  });
+  /* window.prompt 는 Electron 계열 내장 브라우저에서 뜨지 않는다. 바 안에 입력 칸을 펼친다 */
+  var liveForm = document.getElementById('dliveform');
+  var liveInput = document.getElementById('dliveinput');
+  liveSet.addEventListener('click', function () {
+    liveForm.hidden = !liveForm.hidden;
+    if (!liveForm.hidden) { liveInput.value = liveUrl(); liveInput.focus(); liveInput.select(); }
+  });
+  liveForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = liveInput.value.trim();
+    if (v && !/^https:\/\//.test(v)) { liveInput.setCustomValidity('https:// 로 시작하는 링크만 넣을 수 있습니다.'); liveInput.reportValidity(); return; }
+    liveInput.setCustomValidity('');
+    try { if (v) localStorage.setItem(LIVE_KEY, v); else localStorage.removeItem(LIVE_KEY); } catch (err) { /* 저장이 막히면 이번만 쓴다 */ }
+    liveForm.hidden = true;
+    paintLive();
+    liveSet.textContent = v ? '링크 ✓' : '링크';
+  });
+  liveInput.addEventListener('input', function () { liveInput.setCustomValidity(''); });
+  liveInput.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Escape') liveForm.hidden = true; });
+  if (liveUrl()) liveSet.textContent = '링크 ✓';
+  paintLive();
+
   /* ── 06 리포트 ─────────────────────────────── */
   var d6list = document.getElementById('d6list');
   var d6report = document.getElementById('d6report');
@@ -6026,6 +6140,9 @@ body.screen-real .live-room.room-easy { display: none }
     screens.forEach(function (s, n) { s.hidden = n !== i; });
     note.textContent = META[i].note;
     replay.hidden = i !== 2;
+    live.hidden = liveSet.hidden = i !== 2;
+    if (i !== 2) document.getElementById('dliveform').hidden = true;
+    if (i !== 2) closeLive();
     if (i === 2) startRoom(); else { stopRoom(); }
     if (i === 3) runSummary();
     if (i === 4) document.getElementById('d5scroll').scrollTop = 0;
@@ -6097,6 +6214,24 @@ body.screen-real .live-room.room-easy { display: none }
   if (window.ResizeObserver) new ResizeObserver(fit).observe(room), new ResizeObserver(fit).observe(h1);
   window.addEventListener('resize', fit);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+})();
+</script>
+<script>
+/* 사용자 인터뷰 — 파일이 없으면 자리 표시, 장을 벗어나면 멈춘다 */
+(function () {
+  var v = document.getElementById('voiceVid');
+  var empty = document.getElementById('voiceEmpty');
+  if (!v) return;
+  var noFile = function () { v.hidden = true; empty.hidden = false; };
+  v.addEventListener('error', noFile);
+  if (v.error) noFile();
+  /* 영상 위에서 방향키 · 스페이스를 눌러도 장이 넘어가지 않게 */
+  v.addEventListener('keydown', function (e) { e.stopPropagation(); });
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (es) {
+      es.forEach(function (en) { if (!en.isIntersecting && !v.paused) v.pause(); });
+    }, { threshold: 0.2 }).observe(v);
+  }
 })();
 </script>
 </body>
