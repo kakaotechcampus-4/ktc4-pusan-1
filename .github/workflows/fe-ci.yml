@@ -78,3 +78,24 @@ jobs:
       - name: Build
         if: steps.changes.outputs.run == 'true'
         run: npm run build
+
+      # 브라우저 E2E (#329). 빌드 결과를 vite preview 로 띄워 Chromium 으로 화면 흐름을
+      # 본다. 로그인 뒤 화면의 /api 는 e2e/mockApi.ts 에서 모킹한다 — 테스트용 인증 우회는
+      # 만들지 않는다. 브라우저는 package-lock 의 @playwright/test 버전에 맞는 것을 받는다.
+      - name: Install Playwright browser
+        if: steps.changes.outputs.run == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E
+        if: steps.changes.outputs.run == 'true'
+        run: npm run e2e
+
+      - name: Upload E2E report
+        if: failure()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7

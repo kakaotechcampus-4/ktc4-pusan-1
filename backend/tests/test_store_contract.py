@@ -3,8 +3,8 @@
 같은 테스트를 두 구현에 돌린다. 인메모리는 객체를 참조로 돌려주고 DB 는
 매번 새로 만들어 주기 때문에, 규약을 글로만 적어 두면 갈라진다.
 
-PostgreSQL 쪽은 `TEST_DATABASE_URL` 이 있을 때만 돈다. CI 와 로컬은 DB 없이
-돌아야 해서 기본은 건너뛴다.
+PostgreSQL 쪽은 `TEST_DATABASE_URL` 이 있을 때만 돈다. 로컬은 DB 없이도
+돌아야 해서 기본은 건너뛰고, CI(`be-ci.yml`)는 Postgres 서비스를 띄워 늘 돌린다.
 
     docker run --rm -d -p 55432:5432 -e POSTGRES_PASSWORD=test \\
       -e POSTGRES_USER=irya -e POSTGRES_DB=irya postgres:17-alpine
