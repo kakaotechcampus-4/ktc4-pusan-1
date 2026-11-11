@@ -201,7 +201,7 @@ uv run irya-ai-poller
 ├── frontend/   React · Vite SPA — 대시보드, 지원자 관리, 면접실, 검토, 리포트, 발표자료(public/presentation)
 ├── backend/    FastAPI — REST API, LiveKit 연동, 녹화·서명 URL, /internal/v1 작업 큐
 ├── ai/         livekit-agents 워커(실시간 STT · 꼬리질문), ai-poller(PREP · REVIEW · REPORT), CLI irya-ai
-├── docs/       architecture/ 구조도 · api/openapi.json (CI 가 최신 여부를 검사) · accessibility/ 접근성 점검
+├── docs/       architecture/ 구조도 · api/openapi.json (CI 가 최신 여부를 검사) · accessibility/ 접근성 점검 · operations/ 운영 사용 기록
 ├── infra/      docker-compose.yml · Caddyfile · livekit/ · deploy.sh · CloudFront 설정
 ├── scripts/    공통 스크립트 자리
 └── .github/    workflows 8개 · 이슈/PR 템플릿 · CODEOWNERS · dependabot
@@ -237,6 +237,7 @@ uv run irya-ai-poller
 | [`infra/README.md`](infra/README.md) | 배포 · 롤백 · 백업 · CloudFront |
 | [`infra/livekit/README.md`](infra/livekit/README.md) | self-hosted LiveKit 설정 · 포트 |
 | [`docs/accessibility/kwcag-2026-10-report.md`](docs/accessibility/kwcag-2026-10-report.md) | KWCAG 2.2 점검 결과와 수정 내역 |
+| [`docs/operations/pilot-log.md`](docs/operations/pilot-log.md) | 운영 사용 기록 — 운영 DB 에서 읽기 전용으로 뽑은 면접 · 단계별 실측 |
 | [`frontend/public/presentation/index.html`](frontend/public/presentation/index.html) | 발표자료 — 운영 `/presentation` |
 
 ## 팀
