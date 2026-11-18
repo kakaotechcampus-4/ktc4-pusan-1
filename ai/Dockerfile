@@ -5,7 +5,7 @@
 # Base and uv pinned by digest; Dependabot bumps them (#134). uv comes in as a
 # `FROM ... AS uv` stage because Dependabot only reads FROM lines, not
 # `COPY --from=<image>`.
-FROM ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
 COPY --from=uv /uv /usr/local/bin/uv
